@@ -460,15 +460,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 -(void)didAccessValueForKey:(NSString *) key {
 }
 
--(void *)observationInfo {
-   return _observationInfo;
-}
-
-
--(void)setObservationInfo:(void *) value {
-   _observationInfo=value;
-}
-
 -(void)willAccessValueForKey:(NSString *)key {
 }
 

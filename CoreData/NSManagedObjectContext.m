@@ -60,6 +60,16 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(void)dealloc {
+   for(NSManagedObject *check in _registeredObjects){
+    NSArray *properties=[[[check entity] propertiesByName] allKeys];
+
+    for(NSString *key in properties)
+     [check removeObserver:self forKeyPath:key];
+   }
+
+   if(_storeCoordinator!=nil)
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSPersistentStoreCoordinatorStoresDidChangeNotification object:_storeCoordinator];
+
    [_storeCoordinator release];
    [_undoManager release];
    [_registeredObjects release];
