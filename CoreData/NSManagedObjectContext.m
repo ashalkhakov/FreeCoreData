@@ -36,14 +36,11 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
 @interface NSAtomicStore(private)
 -(void)_uniqueObjectID:(NSManagedObjectID *)objectID;
+-(void)_removeCacheNodes:(NSSet *)cacheNodes;
 @end
 
 @interface NSIncrementalStore(private)
 -(void)_uniqueObjectID:(NSManagedObjectID *)objectID;
-@end
-
-@interface NSAtomicStore(private)
--(void)_removeCacheNodes:(NSSet *)cacheNodes;
 @end
 
 @implementation NSManagedObjectContext
