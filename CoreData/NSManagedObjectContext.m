@@ -592,12 +592,11 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    if([errors count]==0){
     [_updatedObjects removeAllObjects];
     [_deletedObjects removeAllObjects];
-   }
 
-   [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification object:self];
-   
-   if([errors count]==0)
+    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification object:self];
+
     return YES;
+   }
   
    NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
    
