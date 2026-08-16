@@ -10,6 +10,8 @@ CoreData_OBJC_FILES = \
 	CoreData/NSAttributeDescription.m \
 	CoreData/NSRelationshipDescription.m \
 	CoreData/NSFetchedPropertyDescription.m \
+	CoreData/NSPersistentStoreRequest.m \
+	CoreData/NSSaveChangesRequest.m \
 	CoreData/NSFetchRequest.m \
 	CoreData/NSManagedObject.m \
 	CoreData/NSManagedObjectID.m \
@@ -20,6 +22,8 @@ CoreData_OBJC_FILES = \
 	CoreData/NSPersistentStoreCoordinator.m \
 	CoreData/NSPersistentStore.m \
 	CoreData/NSAtomicStore.m \
+	CoreData/NSIncrementalStore.m \
+	CoreData/NSIncrementalStoreNode.m \
 	CoreData/NSAtomicStoreCacheNode.m \
 	CoreData/NSXMLPersistentStore.m \
 	CoreData/NSInMemoryPersistentStore.m
@@ -35,8 +39,12 @@ CoreData_HEADER_FILES = \
 	NSAtomicStore.h \
 	NSAtomicStoreCacheNode.h \
 	NSEntityDescription.h \
+	NSPersistentStoreRequest.h \
+	NSSaveChangesRequest.h \
 	NSFetchRequest.h \
 	NSFetchedPropertyDescription.h \
+	NSIncrementalStore.h \
+	NSIncrementalStoreNode.h \
 	NSInMemoryPersistentStore.h \
 	NSManagedObject.h \
 	NSManagedObjectContext.h \

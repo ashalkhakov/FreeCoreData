@@ -16,6 +16,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSEntityDescription-Private.h"
 #import <CoreData/NSEntityDescription.h>
 #import <CoreData/NSAtomicStore.h>
+#import <CoreData/NSIncrementalStore.h>
+#import <CoreData/NSIncrementalStoreNode.h>
+#import <CoreData/NSSaveChangesRequest.h>
 #import <CoreData/CoreDataErrors.h>
 #import "NSPersistentStoreCoordinator-Private.h"
 #import <Foundation/NSUndoManager.h>
@@ -32,6 +35,10 @@ NSString * const NSInvalidatedObjectsKey=@"NSInvalidatedObjectsKey";
 NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
 @interface NSAtomicStore(private)
+-(void)_uniqueObjectID:(NSManagedObjectID *)objectID;
+@end
+
+@interface NSIncrementalStore(private)
 -(void)_uniqueObjectID:(NSManagedObjectID *)objectID;
 @end
 
@@ -262,7 +269,24 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     }
    }
    
-   for(NSAtomicStore *store in affectedStores){
+   for(NSPersistentStore *genericStore in affectedStores){
+    if([genericStore isKindOfClass:[NSIncrementalStore class]]){
+     NSArray *fetched=[(NSIncrementalStore *)genericStore executeRequest:fetchRequest withContext:self error:error];
+
+     if(fetched==nil)
+      return nil;
+
+     for(NSManagedObject *check in fetched){
+      if(![_deletedObjects containsObject:check])
+       [resultSet addObject:check];
+     }
+     continue;
+    }
+
+    if(![genericStore isKindOfClass:[NSAtomicStore class]])
+     continue;
+
+    NSAtomicStore *store=(NSAtomicStore *)genericStore;
     NSSet *nodes=[store cacheNodes];
     
     for(NSAtomicStoreCacheNode *node in nodes){
@@ -379,18 +403,43 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     NSManagedObjectID *checkID=[check objectID];
         
     if([checkID isTemporaryID]){
-     NSAtomicStore *store=(NSAtomicStore *)[checkID persistentStore];
+     NSPersistentStore *genericStore=[checkID persistentStore];
      
      NSMapRemove(_objectIdToObject,checkID);
 
-     if(store==nil)
+     if(genericStore==nil)
       NSLog(@"internal inconsistency , object had no store %@",check);
-               
-     id referenceObject=[store newReferenceObjectForManagedObject:check];
+
+     if([genericStore isKindOfClass:[NSIncrementalStore class]]){
+      NSIncrementalStore *store=(NSIncrementalStore *)genericStore;
+      NSError            *idError=nil;
+      NSArray            *permanentIDs=[store obtainPermanentIDsForObjects:[NSArray arrayWithObject:check] error:&idError];
+
+      if([permanentIDs count]==0){
+       if(error!=NULL)
+        *error=idError;
+
+       NSMapInsert(_objectIdToObject,checkID,check);
+       return NO;
+      }
+
+      NSManagedObjectID *permanentID=[permanentIDs objectAtIndex:0];
+      id                 referenceObject=[store referenceObjectForObjectID:permanentID];
+
+      /* Object IDs are uniqued by pointer in this port, so convert the
+         existing temporary ID to a permanent one in place and re-register
+         it in the store's uniquing table. */
+      [checkID setReferenceObject:referenceObject];
+      [store _uniqueObjectID:checkID];
+     }
+     else {
+      NSAtomicStore *store=(NSAtomicStore *)genericStore;
+      id referenceObject=[store newReferenceObjectForManagedObject:check];
      
-     [checkID setReferenceObject:referenceObject];
+      [checkID setReferenceObject:referenceObject];
      
-     [store _uniqueObjectID:checkID];
+      [store _uniqueObjectID:checkID];
+     }
      
      NSMapInsert(_objectIdToObject,checkID,check);
     }
@@ -404,14 +453,44 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    NSMutableArray *errorStores=[NSMutableArray array];
    NSError        *idError=nil;
    NSMutableSet   *affectedStores=[NSMutableSet set];
+   NSMutableSet   *incrementalInserted=[NSMutableSet set];
+   NSMutableSet   *incrementalUpdated=[NSMutableSet set];
+   NSMutableSet   *incrementalDeleted=[NSMutableSet set];
    
    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextWillSaveNotification object:self];
    
+   /* Capture the change sets destined for incremental stores before the
+      bookkeeping below mutates them. */
+   for(NSManagedObject *check in _insertedObjects){
+    if([_deletedObjects containsObject:check])
+     continue;
+    if([[[check objectID] persistentStore] isKindOfClass:[NSIncrementalStore class]])
+     [incrementalInserted addObject:check];
+   }
+
+   for(NSManagedObject *check in _updatedObjects){
+    if([_deletedObjects containsObject:check] || [_insertedObjects containsObject:check])
+     continue;
+    if([[[check objectID] persistentStore] isKindOfClass:[NSIncrementalStore class]])
+     [incrementalUpdated addObject:check];
+   }
+
+   for(NSManagedObject *check in _deletedObjects){
+    if([[check objectID] isTemporaryID])
+     continue;
+    if([[[check objectID] persistentStore] isKindOfClass:[NSIncrementalStore class]])
+     [incrementalDeleted addObject:check];
+   }
+
    for(NSManagedObject *deleted in _deletedObjects){
-    NSAtomicStore          *store=(NSAtomicStore *)[_storeCoordinator _persistentStoreForObject:deleted];
-    NSAtomicStoreCacheNode *node=[store cacheNodeForObjectID:[deleted objectID]];
+    NSPersistentStore *store=[_storeCoordinator _persistentStoreForObject:deleted];
+
+    if([store isKindOfClass:[NSAtomicStore class]]){
+     NSAtomicStore          *atomicStore=(NSAtomicStore *)store;
+     NSAtomicStoreCacheNode *node=[atomicStore cacheNodeForObjectID:[deleted objectID]];
     
-    [store willRemoveCacheNodes:[NSSet setWithObject:node]];
+     [atomicStore willRemoveCacheNodes:[NSSet setWithObject:node]];
+    }
 
     [affectedStores addObject:store];
     
@@ -433,10 +512,14 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    }
 
    for(NSManagedObject *inserted in _insertedObjects){
-    NSAtomicStore          *store=(NSAtomicStore *)[_storeCoordinator _persistentStoreForObject:inserted];
-    NSAtomicStoreCacheNode *node=[store newCacheNodeForManagedObject:inserted];
+    NSPersistentStore *store=[_storeCoordinator _persistentStoreForObject:inserted];
+
+    if([store isKindOfClass:[NSAtomicStore class]]){
+     NSAtomicStore          *atomicStore=(NSAtomicStore *)store;
+     NSAtomicStoreCacheNode *node=[atomicStore newCacheNodeForManagedObject:inserted];
     
-    [store addCacheNodes:[NSSet setWithObject:node]];
+     [atomicStore addCacheNodes:[NSSet setWithObject:node]];
+    }
     
     [affectedStores addObject:store];
    }
@@ -444,10 +527,14 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    [_insertedObjects removeAllObjects];
    
    for(NSManagedObject *updated in _updatedObjects){
-    NSAtomicStore          *store=(NSAtomicStore *)[_storeCoordinator _persistentStoreForObject:updated];
-    NSAtomicStoreCacheNode *node=[store cacheNodeForObjectID:[updated objectID]];
+    NSPersistentStore *store=[_storeCoordinator _persistentStoreForObject:updated];
 
-    [store updateCacheNode:node fromManagedObject:updated];
+    if([store isKindOfClass:[NSAtomicStore class]]){
+     NSAtomicStore          *atomicStore=(NSAtomicStore *)store;
+     NSAtomicStoreCacheNode *node=[atomicStore cacheNodeForObjectID:[updated objectID]];
+
+     [atomicStore updateCacheNode:node fromManagedObject:updated];
+    }
 
     [affectedStores addObject:store];
    }
@@ -463,6 +550,36 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
       [errors addObject:saveError];
      }
     }
+    else if([store isKindOfClass:[NSIncrementalStore class]]){
+     NSIncrementalStore *incrementalStore=(NSIncrementalStore *)store;
+     NSMutableSet       *storeInserted=[NSMutableSet set];
+     NSMutableSet       *storeUpdated=[NSMutableSet set];
+     NSMutableSet       *storeDeleted=[NSMutableSet set];
+
+     for(NSManagedObject *check in incrementalInserted)
+      if([[check objectID] persistentStore]==store)
+       [storeInserted addObject:check];
+     for(NSManagedObject *check in incrementalUpdated)
+      if([[check objectID] persistentStore]==store)
+       [storeUpdated addObject:check];
+     for(NSManagedObject *check in incrementalDeleted)
+      if([[check objectID] persistentStore]==store)
+       [storeDeleted addObject:check];
+
+     NSSaveChangesRequest *request=[[[NSSaveChangesRequest alloc] initWithInsertedObjects:storeInserted updatedObjects:storeUpdated deletedObjects:storeDeleted lockedObjects:nil] autorelease];
+
+     if([incrementalStore executeRequest:request withContext:self error:&saveError]==nil){
+      [errorStores addObject:incrementalStore];
+
+      if(saveError!=nil)
+       [errors addObject:saveError];
+     }
+    }
+   }
+
+   if([errors count]==0){
+    [_updatedObjects removeAllObjects];
+    [_deletedObjects removeAllObjects];
    }
 
    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification object:self];

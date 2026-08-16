@@ -10,6 +10,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSXMLPersistentStore.h"
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSManagedObject.h>
+#import <CoreData/NSIncrementalStore.h>
 #import "NSInMemoryPersistentStore.h"
 #import "NSManagedObjectID-Private.h"
 #import "CoreDataUtilities.h"
@@ -74,6 +75,24 @@ static NSMutableDictionary *_storeTypes=nil;
    }
    
    Class          class=[[[self class] registeredStoreTypes] objectForKey:storeType];
+
+   if([class isSubclassOfClass:[NSIncrementalStore class]]){
+    NSIncrementalStore *store=[[[class alloc] initWithPersistentStoreCoordinator:self configurationName:configuration URL:storeURL options:options] autorelease];
+
+    if(![store loadMetadata:error])
+     return nil;
+
+    NSString *uuid=[[store metadata] objectForKey:NSStoreUUIDKey];
+
+    if(uuid!=nil)
+     [store setIdentifier:uuid];
+
+    [_stores addObject:store];
+    [store didAddToPersistentStoreCoordinator:self];
+
+    return store;
+   }
+
    NSAtomicStore *store=[[[class alloc] initWithPersistentStoreCoordinator:self configurationName:configuration URL:storeURL options:options] autorelease];
 
    if(![store load:error])
@@ -205,8 +224,12 @@ static NSMutableDictionary *_storeTypes=nil;
    NSString             *entityName=[[path stringByDeletingLastPathComponent] lastPathComponent];
    NSManagedObjectModel *model=[self managedObjectModel];
    NSEntityDescription  *entity=[[model entitiesByName] objectForKey:entityName];
-   
-   return [(NSAtomicStore *)[self _persistentStoreWithIdentifier:host] objectIDForEntity:entity referenceObject:referenceObject];
+   NSPersistentStore    *store=[self _persistentStoreWithIdentifier:host];
+
+   if([store isKindOfClass:[NSIncrementalStore class]])
+    return [[(NSIncrementalStore *)store newObjectIDForEntity:entity referenceObject:referenceObject] autorelease];
+
+   return [(NSAtomicStore *)store objectIDForEntity:entity referenceObject:referenceObject];
 }
 
 @end

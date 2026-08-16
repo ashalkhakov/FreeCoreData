@@ -49,7 +49,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    [_entity release];
    [_predicate release];
    [_sortDescriptors release];
-   [_affectedStores release];
    [super dealloc];
 }
 
@@ -67,10 +66,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -(NSArray *)sortDescriptors {
    return _sortDescriptors;
-}
-
--(NSArray *)affectedStores {
-   return _affectedStores;
 }
 
 -(NSUInteger)fetchLimit {
@@ -133,12 +128,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    value=[value copy];
    [_sortDescriptors release];
    _sortDescriptors=value;
-}
-
--(void)setAffectedStores:(NSArray *)value {
-   value=[value copy];
-   [_affectedStores release];
-   _affectedStores=value;
 }
 
 -(void)setFetchLimit:(NSUInteger)value {

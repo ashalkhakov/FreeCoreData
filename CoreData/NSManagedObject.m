@@ -13,6 +13,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/NSAtomicStoreCacheNode.h>
+#import <CoreData/NSIncrementalStore.h>
+#import <CoreData/NSIncrementalStoreNode.h>
 #import "CoreDataUtilities.h"
 #import "NSManagedObjectSet.h"
 #import "NSManagedObjectSetEnumerator.h"
@@ -140,12 +142,75 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return _changedValues;
 }
 
+-(NSDictionary *)_committedValuesFromIncrementalStore:(NSIncrementalStore *)store {
+   NSError                *nodeError=nil;
+   NSIncrementalStoreNode *node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
+   NSMutableDictionary    *storedValues=[[NSMutableDictionary alloc] init];
+
+   NSArray *properties=[[self entity] properties];
+
+   for(NSPropertyDescription *property in properties){
+    NSString *name=[property name];
+
+    if([property isKindOfClass:[NSAttributeDescription class]]){
+     id value=[node valueForPropertyDescription:property];
+
+     if(value!=nil && value!=[NSNull null])
+      [storedValues setObject:value forKey:name];
+    }
+    else if([property isKindOfClass:[NSRelationshipDescription class]]){
+     NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
+
+     if(![relationship isToMany]){
+      id value=[node valueForPropertyDescription:property];
+
+      if(value==nil || value==[NSNull null]){
+       NSError *relationshipError=nil;
+
+       value=[store newValueForRelationship:relationship forObjectWithID:[self objectID] withContext:_context error:&relationshipError];
+       [value autorelease];
+      }
+
+      if(value!=nil && value!=[NSNull null])
+       [storedValues setObject:value forKey:name];
+     }
+     else {
+      NSError *relationshipError=nil;
+      id       value=[store newValueForRelationship:relationship forObjectWithID:[self objectID] withContext:_context error:&relationshipError];
+
+      [value autorelease];
+
+      if(value!=nil && value!=[NSNull null]){
+       NSMutableSet *relatedIDs=[NSMutableSet set];
+
+       for(NSManagedObjectID *relatedID in value)
+        [relatedIDs addObject:relatedID];
+
+       [storedValues setObject:relatedIDs forKey:name];
+      }
+     }
+    }
+   }
+
+   [node release];
+
+   return storedValues;
+}
+
 -(NSDictionary *)_committedValues {
 
    if([[self objectID] isTemporaryID])
     return nil;
     
    if(_committedValues==nil){
+    NSPersistentStore *store=[[self objectID] persistentStore];
+
+    if([store isKindOfClass:[NSIncrementalStore class]]){
+     [_committedValues release];
+     _committedValues=[self _committedValuesFromIncrementalStore:(NSIncrementalStore *)store];
+     return _committedValues;
+    }
+
     NSAtomicStoreCacheNode *node=[_context _cacheNodeForObjectID:[self objectID]];
     NSDictionary           *propertyCache=[node propertyCache];
     NSMutableDictionary    *storedValues=[[NSMutableDictionary alloc] init];

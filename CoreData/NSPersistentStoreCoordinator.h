@@ -11,7 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <Foundation/NSLock.h>
 #import <CoreData/CoreDataExports.h>
 
-@class NSManagedObjectModel, NSPersistentStore, NSManagedObjectID;
+@class NSManagedObjectModel, NSPersistentStore, NSManagedObjectID, NSMutableArray, NSLock, NSDictionary, NSArray, NSError, NSURL;
 
 COREDATA_EXPORT NSString *const NSStoreTypeKey;
 COREDATA_EXPORT NSString *const NSStoreUUIDKey;
