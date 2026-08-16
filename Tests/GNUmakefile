@@ -11,7 +11,7 @@ CoreDataTests_OBJC_FILES = CoreDataTests.m
 CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
 
 ADDITIONAL_LIB_DIRS += -L$(GNUSTEP_SYSTEM_LIBRARIES)
-ADDITIONAL_LDFLAGS += -lCoreData -lXCTest
+ADDITIONAL_LDFLAGS += -lgnustep-corebase -lCoreData -lXCTest
 
 XCTEST ?= xctest
 
