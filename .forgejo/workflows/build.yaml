@@ -1,0 +1,61 @@
+name: Build and Package
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux-appimage:
+    name: Build and Test GNUstep CoreData Framework
+    runs-on: [linux-amd64, clang]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set Version Environment Variable
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "APP_VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
+          else
+            echo "APP_VERSION=1.0.0-build${{ github.run_number }}" >> $GITHUB_ENV
+          fi
+
+      - name: Download and Install GNUstep Toolchain
+        run: |
+          echo "=== Downloading Pre-compiled Toolchain ==="
+          curl -H "Authorization: Bearer ${{ secrets.PACKAGES_TOKEN }}" \
+               -o gnustep-toolchain.tar.gz \
+               "${{ github.server_url }}/api/packages/${{ github.repository_owner }}/generic/gnustep-toolchain/latest/gnustep-toolchain.tar.gz"
+
+          echo "=== Extracting Toolchain to /opt ==="
+          tar -xzvf gnustep-toolchain.tar.gz -C /opt
+
+          ls -la /opt/gnustep-prefix/System/Library/Makefiles/GNUstep.sh
+
+      - name: Build and Install CoreData Framework
+        run: |
+          export LOCAL_PREFIX="/opt/gnustep-prefix"
+          . "${LOCAL_PREFIX}/System/Library/Makefiles/GNUstep.sh"
+          export LD_LIBRARY_PATH="${LOCAL_PREFIX}/lib:${LD_LIBRARY_PATH}"
+
+          make
+          make install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
+
+      - name: Run Tests
+        run: |
+          export LOCAL_PREFIX="/opt/gnustep-prefix"
+          . "${LOCAL_PREFIX}/System/Library/Makefiles/GNUstep.sh"
+          export LD_LIBRARY_PATH="${LOCAL_PREFIX}/lib:${LD_LIBRARY_PATH}"
+
+          cd Tests
+          make run-tests
