@@ -244,6 +244,21 @@ static NSString * const MemoryIncrementalStoreType = @"MemoryIncrementalStoreTyp
 
 @implementation MemoryIncrementalStore
 
+/* Apple's -[NSPersistentStoreCoordinator addPersistentStoreWithType:...]
+   verifies that the store's `type` matches the requested store type after
+   -loadMetadata: returns; without these overrides it fails with
+   NSPersistentStoreTypeMismatchError (134010) on macOS.  Apple's instance
+   -type delegates to the +type class method, so both are provided. */
++ (NSString *)type
+{
+    return MemoryIncrementalStoreType;
+}
+
+- (NSString *)type
+{
+    return MemoryIncrementalStoreType;
+}
+
 - (NSMutableDictionary *)tableForEntityName:(NSString *)entityName
 {
     NSMutableDictionary *table = [self.rows objectForKey:entityName];
