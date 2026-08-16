@@ -210,3 +210,662 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 @end
+
+/* ------------------------------------------------------------------ */
+#pragma mark - MemoryIncrementalStore (NSIncrementalStore test subclass)
+/* ------------------------------------------------------------------ */
+
+/* A minimal in-memory NSIncrementalStore subclass implementing the
+   documented NSIncrementalStore contract.  It is deliberately written
+   against Apple's official documentation so that the test cases below run
+   identically against Apple's CoreData on macOS and against the GNUstep
+   port.  Rows are kept as: entity name -> (reference object -> attribute
+   values dictionary). */
+
+static NSString * const MemoryIncrementalStoreType = @"MemoryIncrementalStoreType";
+
+@interface MemoryIncrementalStore : NSIncrementalStore
+
+@property (nonatomic, strong) NSMutableDictionary *rows;
+
+@property (nonatomic) NSUInteger loadMetadataCallCount;
+@property (nonatomic) NSUInteger fetchRequestCount;
+@property (nonatomic) NSUInteger saveRequestCount;
+@property (nonatomic) NSUInteger newValuesCallCount;
+@property (nonatomic) NSUInteger obtainPermanentIDsCallCount;
+@property (nonatomic) NSUInteger lastInsertedCount;
+@property (nonatomic) NSUInteger lastUpdatedCount;
+@property (nonatomic) NSUInteger lastDeletedCount;
+@property (nonatomic) long long nextReferenceNumber;
+
+- (NSMutableDictionary *)tableForEntityName:(NSString *)entityName;
+
+@end
+
+@implementation MemoryIncrementalStore
+
+- (NSMutableDictionary *)tableForEntityName:(NSString *)entityName
+{
+    NSMutableDictionary *table = [self.rows objectForKey:entityName];
+    if (table == nil) {
+        table = [NSMutableDictionary dictionary];
+        [self.rows setObject:table forKey:entityName];
+    }
+    return table;
+}
+
+- (BOOL)loadMetadata:(NSError **)error
+{
+    self.loadMetadataCallCount++;
+    if (self.rows == nil)
+        self.rows = [NSMutableDictionary dictionary];
+    NSString *uuid = [[NSProcessInfo processInfo] globallyUniqueString];
+    [self setMetadata:[NSDictionary dictionaryWithObjectsAndKeys:
+                          MemoryIncrementalStoreType, NSStoreTypeKey,
+                          uuid, NSStoreUUIDKey, nil]];
+    return YES;
+}
+
+- (void)writeRowForObject:(NSManagedObject *)object
+{
+    id ref = [self referenceObjectForObjectID:[object objectID]];
+    NSMutableDictionary *table = [self tableForEntityName:[[object entity] name]];
+    NSMutableDictionary *row = [NSMutableDictionary dictionary];
+    for (NSString *key in [[object entity] attributesByName]) {
+        id value = [object valueForKey:key];
+        if (value != nil)
+            [row setObject:value forKey:key];
+    }
+    [table setObject:row forKey:ref];
+}
+
+- (id)executeRequest:(NSPersistentStoreRequest *)request
+         withContext:(NSManagedObjectContext *)context
+               error:(NSError **)error
+{
+    if ([request requestType] == NSFetchRequestType) {
+        self.fetchRequestCount++;
+        NSFetchRequest *fetch = (NSFetchRequest *)request;
+        NSEntityDescription *entity = [fetch entity];
+        NSMutableArray *results = [NSMutableArray array];
+        NSDictionary *table = [self.rows objectForKey:[entity name]];
+        for (id ref in table) {
+            NSManagedObjectID *objectID =
+                [self newObjectIDForEntity:entity referenceObject:ref];
+            [results addObject:[context objectWithID:objectID]];
+        }
+        if ([fetch predicate] != nil)
+            [results filterUsingPredicate:[fetch predicate]];
+        if ([[fetch sortDescriptors] count] > 0)
+            [results sortUsingDescriptors:[fetch sortDescriptors]];
+        return results;
+    }
+
+    if ([request requestType] == NSSaveRequestType) {
+        self.saveRequestCount++;
+        NSSaveChangesRequest *save = (NSSaveChangesRequest *)request;
+        self.lastInsertedCount = [[save insertedObjects] count];
+        self.lastUpdatedCount = [[save updatedObjects] count];
+        self.lastDeletedCount = [[save deletedObjects] count];
+        for (NSManagedObject *object in [save insertedObjects])
+            [self writeRowForObject:object];
+        for (NSManagedObject *object in [save updatedObjects])
+            [self writeRowForObject:object];
+        for (NSManagedObject *object in [save deletedObjects]) {
+            id ref = [self referenceObjectForObjectID:[object objectID]];
+            [[self tableForEntityName:[[object entity] name]] removeObjectForKey:ref];
+        }
+        return [NSArray array];
+    }
+
+    return nil;
+}
+
+- (NSIncrementalStoreNode *)newValuesForObjectWithID:(NSManagedObjectID *)objectID
+                                         withContext:(NSManagedObjectContext *)context
+                                               error:(NSError **)error
+{
+    self.newValuesCallCount++;
+    id ref = [self referenceObjectForObjectID:objectID];
+    NSDictionary *row = [[self.rows objectForKey:[[objectID entity] name]] objectForKey:ref];
+    if (row == nil) {
+        if (error != NULL)
+            *error = [NSError errorWithDomain:NSCocoaErrorDomain
+                                         code:133000
+                                     userInfo:nil];
+        return nil;
+    }
+    return [[NSIncrementalStoreNode alloc] initWithObjectID:objectID
+                                                 withValues:row
+                                                    version:1];
+}
+
+- (id)newValueForRelationship:(NSRelationshipDescription *)relationship
+              forObjectWithID:(NSManagedObjectID *)objectID
+                  withContext:(NSManagedObjectContext *)context
+                        error:(NSError **)error
+{
+    return [NSArray array];
+}
+
+- (NSArray *)obtainPermanentIDsForObjects:(NSArray *)array error:(NSError **)error
+{
+    self.obtainPermanentIDsCallCount++;
+    NSMutableArray *result = [NSMutableArray array];
+    for (NSManagedObject *object in array) {
+        self.nextReferenceNumber++;
+        NSString *ref =
+            [NSString stringWithFormat:@"ref-%lld", self.nextReferenceNumber];
+        [result addObject:[self newObjectIDForEntity:[object entity]
+                                     referenceObject:ref]];
+    }
+    return result;
+}
+
+@end
+
+/* ------------------------------------------------------------------ */
+#pragma mark - Incremental store test helpers
+/* ------------------------------------------------------------------ */
+
+static NSManagedObjectModel *IncrementalStoreTestModel(void)
+{
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    [name setName:@"name"];
+    [name setAttributeType:NSStringAttributeType];
+
+    NSAttributeDescription *age = [[NSAttributeDescription alloc] init];
+    [age setName:@"age"];
+    [age setAttributeType:NSInteger32AttributeType];
+
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    [entity setName:@"Person"];
+    [entity setManagedObjectClassName:@"NSManagedObject"];
+    [entity setProperties:[NSArray arrayWithObjects:name, age, nil]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObject:entity]];
+    return model;
+}
+
+/* ------------------------------------------------------------------ */
+#pragma mark - NSPersistentStoreRequestTests
+/* ------------------------------------------------------------------ */
+
+@interface NSPersistentStoreRequestTests : XCTestCase
+@end
+
+@implementation NSPersistentStoreRequestTests
+
+- (void)testFetchRequestIsAPersistentStoreRequest
+{
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    XCTAssertTrue([fetch isKindOfClass:[NSPersistentStoreRequest class]]);
+    XCTAssertEqual([fetch requestType],
+                   (NSPersistentStoreRequestType)NSFetchRequestType);
+}
+
+- (void)testSaveChangesRequestType
+{
+    NSSaveChangesRequest *save =
+        [[NSSaveChangesRequest alloc] initWithInsertedObjects:nil
+                                               updatedObjects:nil
+                                               deletedObjects:nil
+                                                lockedObjects:nil];
+    XCTAssertTrue([save isKindOfClass:[NSPersistentStoreRequest class]]);
+    XCTAssertEqual([save requestType],
+                   (NSPersistentStoreRequestType)NSSaveRequestType);
+}
+
+- (void)testSaveChangesRequestAccessors
+{
+    NSManagedObjectModel *model = IncrementalStoreTestModel();
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+        initWithManagedObjectModel:model];
+    NSError *error = nil;
+    [psc addPersistentStoreWithType:NSInMemoryStoreType
+                      configuration:nil URL:nil options:nil error:&error];
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+
+    NSManagedObject *person =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:ctx];
+    NSSet *inserted = [NSSet setWithObject:person];
+
+    NSSaveChangesRequest *save =
+        [[NSSaveChangesRequest alloc] initWithInsertedObjects:inserted
+                                               updatedObjects:[NSSet set]
+                                               deletedObjects:[NSSet set]
+                                                lockedObjects:nil];
+    XCTAssertEqualObjects([save insertedObjects], inserted);
+    XCTAssertEqual([[save updatedObjects] count], (NSUInteger)0);
+    XCTAssertEqual([[save deletedObjects] count], (NSUInteger)0);
+}
+
+@end
+
+/* ------------------------------------------------------------------ */
+#pragma mark - NSIncrementalStoreNodeTests
+/* ------------------------------------------------------------------ */
+
+@interface NSIncrementalStoreNodeTests : XCTestCase
+
+@property (nonatomic, strong) NSManagedObjectModel *model;
+@property (nonatomic, strong) NSPersistentStoreCoordinator *psc;
+@property (nonatomic, strong) MemoryIncrementalStore *store;
+@property (nonatomic, strong) NSEntityDescription *entity;
+
+@end
+
+@implementation NSIncrementalStoreNodeTests
+
+- (void)setUp
+{
+    [NSPersistentStoreCoordinator registerStoreClass:[MemoryIncrementalStore class]
+                                        forStoreType:MemoryIncrementalStoreType];
+    self.model = IncrementalStoreTestModel();
+    self.psc = [[NSPersistentStoreCoordinator alloc]
+                   initWithManagedObjectModel:self.model];
+    NSURL *url = [NSURL fileURLWithPath:
+        [NSTemporaryDirectory() stringByAppendingPathComponent:
+            [[NSProcessInfo processInfo] globallyUniqueString]]];
+    NSError *error = nil;
+    self.store = (MemoryIncrementalStore *)
+        [self.psc addPersistentStoreWithType:MemoryIncrementalStoreType
+                               configuration:nil
+                                         URL:url
+                                     options:nil
+                                       error:&error];
+    self.entity = [[self.model entitiesByName] objectForKey:@"Person"];
+}
+
+- (void)tearDown
+{
+    self.store = nil;
+    self.psc = nil;
+    self.model = nil;
+    self.entity = nil;
+}
+
+- (NSIncrementalStoreNode *)nodeWithValues:(NSDictionary *)values version:(uint64_t)version
+{
+    NSManagedObjectID *objectID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"node-ref"];
+    return [[NSIncrementalStoreNode alloc] initWithObjectID:objectID
+                                                 withValues:values
+                                                    version:version];
+}
+
+- (void)testNodeStoresObjectIDAndVersion
+{
+    NSManagedObjectID *objectID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"node-ref"];
+    NSIncrementalStoreNode *node = [[NSIncrementalStoreNode alloc]
+        initWithObjectID:objectID
+              withValues:[NSDictionary dictionaryWithObject:@"Bob" forKey:@"name"]
+                 version:7];
+    XCTAssertEqualObjects([node objectID], objectID);
+    XCTAssertEqual([node version], (uint64_t)7);
+}
+
+- (void)testNodeValueForPropertyDescription
+{
+    NSIncrementalStoreNode *node =
+        [self nodeWithValues:[NSDictionary dictionaryWithObjectsAndKeys:
+                                 @"Bob", @"name",
+                                 [NSNumber numberWithInt:30], @"age", nil]
+                     version:1];
+    NSPropertyDescription *nameProperty =
+        [[self.entity attributesByName] objectForKey:@"name"];
+    NSPropertyDescription *ageProperty =
+        [[self.entity attributesByName] objectForKey:@"age"];
+    XCTAssertEqualObjects([node valueForPropertyDescription:nameProperty], @"Bob");
+    XCTAssertEqualObjects([node valueForPropertyDescription:ageProperty],
+                          [NSNumber numberWithInt:30]);
+}
+
+- (void)testNodeUpdateWithValues
+{
+    NSIncrementalStoreNode *node =
+        [self nodeWithValues:[NSDictionary dictionaryWithObjectsAndKeys:
+                                 @"Bob", @"name",
+                                 [NSNumber numberWithInt:30], @"age", nil]
+                     version:1];
+    [node updateWithValues:[NSDictionary dictionaryWithObjectsAndKeys:
+                               @"Carol", @"name",
+                               [NSNumber numberWithInt:31], @"age", nil]
+                   version:2];
+    NSPropertyDescription *nameProperty =
+        [[self.entity attributesByName] objectForKey:@"name"];
+    XCTAssertEqualObjects([node valueForPropertyDescription:nameProperty], @"Carol");
+    XCTAssertEqual([node version], (uint64_t)2);
+}
+
+@end
+
+/* ------------------------------------------------------------------ */
+#pragma mark - NSIncrementalStoreTests
+/* ------------------------------------------------------------------ */
+
+@interface NSIncrementalStoreTests : XCTestCase
+
+@property (nonatomic, strong) NSManagedObjectModel *model;
+@property (nonatomic, strong) NSPersistentStoreCoordinator *psc;
+@property (nonatomic, strong) NSManagedObjectContext *ctx;
+@property (nonatomic, strong) MemoryIncrementalStore *store;
+@property (nonatomic, strong) NSEntityDescription *entity;
+
+@end
+
+@implementation NSIncrementalStoreTests
+
+- (void)setUp
+{
+    [NSPersistentStoreCoordinator registerStoreClass:[MemoryIncrementalStore class]
+                                        forStoreType:MemoryIncrementalStoreType];
+    self.model = IncrementalStoreTestModel();
+    self.psc = [[NSPersistentStoreCoordinator alloc]
+                   initWithManagedObjectModel:self.model];
+    NSURL *url = [NSURL fileURLWithPath:
+        [NSTemporaryDirectory() stringByAppendingPathComponent:
+            [[NSProcessInfo processInfo] globallyUniqueString]]];
+    NSError *error = nil;
+    self.store = (MemoryIncrementalStore *)
+        [self.psc addPersistentStoreWithType:MemoryIncrementalStoreType
+                               configuration:nil
+                                         URL:url
+                                     options:nil
+                                       error:&error];
+    self.ctx = [[NSManagedObjectContext alloc] init];
+    [self.ctx setPersistentStoreCoordinator:self.psc];
+    self.entity = [[self.model entitiesByName] objectForKey:@"Person"];
+}
+
+- (void)tearDown
+{
+    self.ctx = nil;
+    self.store = nil;
+    self.psc = nil;
+    self.model = nil;
+    self.entity = nil;
+}
+
+- (void)seedRow:(NSDictionary *)row forReference:(id)ref
+{
+    NSMutableDictionary *table = [self.store tableForEntityName:@"Person"];
+    [table setObject:row forKey:ref];
+}
+
+- (NSFetchRequest *)personFetchRequest
+{
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:self.entity];
+    return fetch;
+}
+
+/* -- store setup / metadata ------------------------------------------ */
+
+- (void)testAddPersistentStoreCallsLoadMetadata
+{
+    XCTAssertNotNil(self.store);
+    XCTAssertTrue([self.store isKindOfClass:[MemoryIncrementalStore class]]);
+    XCTAssertTrue([self.store isKindOfClass:[NSIncrementalStore class]]);
+    XCTAssertEqual(self.store.loadMetadataCallCount, (NSUInteger)1);
+    XCTAssertEqual([[self.psc persistentStores] count], (NSUInteger)1);
+}
+
+- (void)testStoreMetadataContainsTypeAndUUID
+{
+    NSDictionary *metadata = [self.psc metadataForPersistentStore:self.store];
+    XCTAssertEqualObjects([metadata objectForKey:NSStoreTypeKey],
+                          MemoryIncrementalStoreType);
+    XCTAssertNotNil([metadata objectForKey:NSStoreUUIDKey]);
+}
+
+- (void)testStoreIdentifierMatchesMetadataUUID
+{
+    NSDictionary *metadata = [self.psc metadataForPersistentStore:self.store];
+    XCTAssertEqualObjects([self.store identifier],
+                          [metadata objectForKey:NSStoreUUIDKey]);
+}
+
+/* -- object IDs and reference objects -------------------------------- */
+
+- (void)testNewObjectIDIsPermanent
+{
+    NSManagedObjectID *objectID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"r1"];
+    XCTAssertNotNil(objectID);
+    XCTAssertFalse([objectID isTemporaryID]);
+    XCTAssertEqualObjects([[objectID entity] name], @"Person");
+    XCTAssertEqualObjects([objectID persistentStore], self.store);
+}
+
+- (void)testReferenceObjectRoundTripString
+{
+    NSManagedObjectID *objectID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"r1"];
+    XCTAssertEqualObjects([self.store referenceObjectForObjectID:objectID], @"r1");
+}
+
+- (void)testReferenceObjectRoundTripNumber
+{
+    NSManagedObjectID *objectID =
+        [self.store newObjectIDForEntity:self.entity
+                         referenceObject:[NSNumber numberWithInt:42]];
+    id ref = [self.store referenceObjectForObjectID:objectID];
+    XCTAssertEqualObjects([ref description],
+                          [[NSNumber numberWithInt:42] description]);
+}
+
+- (void)testObjectIDsAreUniquedPerReferenceObject
+{
+    NSManagedObjectID *first =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"r1"];
+    NSManagedObjectID *second =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"r1"];
+    NSManagedObjectID *other =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"r2"];
+    XCTAssertEqualObjects(first, second);
+    XCTAssertFalse([first isEqual:other]);
+}
+
+- (void)testObjectIDURIRepresentationRoundTrip
+{
+    NSManagedObjectID *objectID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"r1"];
+    NSURL *uri = [objectID URIRepresentation];
+    XCTAssertNotNil(uri);
+    XCTAssertEqualObjects([uri scheme], @"x-coredata");
+    NSManagedObjectID *roundTrip =
+        [self.psc managedObjectIDForURIRepresentation:uri];
+    XCTAssertEqualObjects(roundTrip, objectID);
+}
+
+/* -- fetching --------------------------------------------------------- */
+
+- (void)testFetchRoutesToExecuteRequest
+{
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Alice", @"name",
+                      [NSNumber numberWithInt:30], @"age", nil]
+        forReference:@"r1"];
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Bob", @"name",
+                      [NSNumber numberWithInt:40], @"age", nil]
+        forReference:@"r2"];
+
+    NSError *error = nil;
+    NSArray *results = [self.ctx executeFetchRequest:[self personFetchRequest]
+                                               error:&error];
+    XCTAssertEqual([results count], (NSUInteger)2);
+    XCTAssertTrue(self.store.fetchRequestCount >= (NSUInteger)1);
+
+    NSMutableSet *names = [NSMutableSet set];
+    for (NSManagedObject *object in results) {
+        XCTAssertEqualObjects([[object entity] name], @"Person");
+        [names addObject:[object valueForKey:@"name"]];
+    }
+    XCTAssertEqualObjects(names,
+        ([NSSet setWithObjects:@"Alice", @"Bob", nil]));
+}
+
+- (void)testFetchWithPredicate
+{
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Alice", @"name",
+                      [NSNumber numberWithInt:30], @"age", nil]
+        forReference:@"r1"];
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Bob", @"name",
+                      [NSNumber numberWithInt:40], @"age", nil]
+        forReference:@"r2"];
+
+    NSFetchRequest *fetch = [self personFetchRequest];
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"name == %@", @"Alice"]];
+
+    NSError *error = nil;
+    NSArray *results = [self.ctx executeFetchRequest:fetch error:&error];
+    XCTAssertEqual([results count], (NSUInteger)1);
+    XCTAssertEqualObjects([[results objectAtIndex:0] valueForKey:@"name"],
+                          @"Alice");
+}
+
+- (void)testFetchWithSortDescriptors
+{
+    [self seedRow:[NSDictionary dictionaryWithObject:@"Bob" forKey:@"name"]
+        forReference:@"r1"];
+    [self seedRow:[NSDictionary dictionaryWithObject:@"Alice" forKey:@"name"]
+        forReference:@"r2"];
+
+    NSFetchRequest *fetch = [self personFetchRequest];
+    [fetch setSortDescriptors:[NSArray arrayWithObject:
+        [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES]]];
+
+    NSError *error = nil;
+    NSArray *results = [self.ctx executeFetchRequest:fetch error:&error];
+    XCTAssertEqual([results count], (NSUInteger)2);
+    XCTAssertEqualObjects([[results objectAtIndex:0] valueForKey:@"name"],
+                          @"Alice");
+    XCTAssertEqualObjects([[results objectAtIndex:1] valueForKey:@"name"],
+                          @"Bob");
+}
+
+- (void)testFaultingCallsNewValuesForObject
+{
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Alice", @"name",
+                      [NSNumber numberWithInt:30], @"age", nil]
+        forReference:@"r1"];
+
+    NSError *error = nil;
+    NSArray *results = [self.ctx executeFetchRequest:[self personFetchRequest]
+                                               error:&error];
+    XCTAssertEqual([results count], (NSUInteger)1);
+
+    NSManagedObject *person = [results objectAtIndex:0];
+    XCTAssertEqualObjects([person valueForKey:@"name"], @"Alice");
+    XCTAssertEqualObjects([person valueForKey:@"age"],
+                          [NSNumber numberWithInt:30]);
+    XCTAssertTrue(self.store.newValuesCallCount >= (NSUInteger)1);
+}
+
+/* -- saving ------------------------------------------------------------ */
+
+- (void)testInsertAndSaveRoutesSaveChangesRequest
+{
+    NSManagedObject *person =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:self.ctx];
+    [person setValue:@"Alice" forKey:@"name"];
+    [person setValue:[NSNumber numberWithInt:30] forKey:@"age"];
+    XCTAssertTrue([[person objectID] isTemporaryID]);
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error]);
+
+    XCTAssertEqual(self.store.saveRequestCount, (NSUInteger)1);
+    XCTAssertEqual(self.store.lastInsertedCount, (NSUInteger)1);
+    XCTAssertEqual(self.store.lastUpdatedCount, (NSUInteger)0);
+    XCTAssertEqual(self.store.lastDeletedCount, (NSUInteger)0);
+    XCTAssertTrue(self.store.obtainPermanentIDsCallCount >= (NSUInteger)1);
+    XCTAssertFalse([[person objectID] isTemporaryID]);
+
+    NSDictionary *table = [self.store.rows objectForKey:@"Person"];
+    XCTAssertEqual([table count], (NSUInteger)1);
+    NSDictionary *row = [[table allValues] objectAtIndex:0];
+    XCTAssertEqualObjects([row objectForKey:@"name"], @"Alice");
+}
+
+- (void)testInsertedObjectCanBeFetchedBack
+{
+    NSManagedObject *person =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:self.ctx];
+    [person setValue:@"Alice" forKey:@"name"];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error]);
+
+    NSArray *results = [self.ctx executeFetchRequest:[self personFetchRequest]
+                                               error:&error];
+    XCTAssertEqual([results count], (NSUInteger)1);
+    NSManagedObject *fetched = [results objectAtIndex:0];
+    XCTAssertEqualObjects([fetched objectID], [person objectID]);
+    XCTAssertEqualObjects([fetched valueForKey:@"name"], @"Alice");
+}
+
+- (void)testUpdateAndSave
+{
+    NSManagedObject *person =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:self.ctx];
+    [person setValue:@"Alice" forKey:@"name"];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error]);
+
+    [person setValue:@"Carol" forKey:@"name"];
+    XCTAssertTrue([self.ctx save:&error]);
+
+    XCTAssertEqual(self.store.saveRequestCount, (NSUInteger)2);
+    XCTAssertEqual(self.store.lastUpdatedCount, (NSUInteger)1);
+    XCTAssertEqual(self.store.lastInsertedCount, (NSUInteger)0);
+
+    NSDictionary *table = [self.store.rows objectForKey:@"Person"];
+    XCTAssertEqual([table count], (NSUInteger)1);
+    NSDictionary *row = [[table allValues] objectAtIndex:0];
+    XCTAssertEqualObjects([row objectForKey:@"name"], @"Carol");
+}
+
+- (void)testDeleteAndSave
+{
+    NSManagedObject *person =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:self.ctx];
+    [person setValue:@"Alice" forKey:@"name"];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error]);
+
+    [self.ctx deleteObject:person];
+    XCTAssertTrue([self.ctx save:&error]);
+
+    XCTAssertEqual(self.store.lastDeletedCount, (NSUInteger)1);
+    XCTAssertEqual([[self.store.rows objectForKey:@"Person"] count],
+                   (NSUInteger)0);
+
+    NSArray *results = [self.ctx executeFetchRequest:[self personFetchRequest]
+                                               error:&error];
+    XCTAssertEqual([results count], (NSUInteger)0);
+}
+
+- (void)testSaveWithoutChangesDoesNotCallStore
+{
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error]);
+    XCTAssertEqual(self.store.saveRequestCount, (NSUInteger)0);
+}
+
+@end

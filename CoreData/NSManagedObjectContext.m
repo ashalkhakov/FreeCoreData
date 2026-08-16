@@ -42,6 +42,10 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 -(void)_uniqueObjectID:(NSManagedObjectID *)objectID;
 @end
 
+@interface NSAtomicStore(private)
+-(void)_removeCacheNodes:(NSSet *)cacheNodes;
+@end
+
 @implementation NSManagedObjectContext
 
 -init {
@@ -489,7 +493,12 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
      NSAtomicStore          *atomicStore=(NSAtomicStore *)store;
      NSAtomicStoreCacheNode *node=[atomicStore cacheNodeForObjectID:[deleted objectID]];
     
-     [atomicStore willRemoveCacheNodes:[NSSet setWithObject:node]];
+     if(node!=nil){
+      NSSet *nodeSet=[NSSet setWithObject:node];
+
+      [atomicStore willRemoveCacheNodes:nodeSet];
+      [atomicStore _removeCacheNodes:nodeSet];
+     }
     }
 
     [affectedStores addObject:store];

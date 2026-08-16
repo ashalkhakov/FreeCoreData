@@ -13,8 +13,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 @implementation NSPropertyDescription
 
 -init {
-   NSInvalidAbstractInvocation();
-   return nil;
+   _entity=nil;
+   _propertyName=nil;
+   return self;
 }
 
 -initWithCoder:(NSCoder *)coder {
@@ -54,6 +55,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     return _entity;
 }
 
+/* Private: back-reference set by -[NSEntityDescription setProperties:].
+   Not retained; the entity owns its properties. */
+- (void) _setEntity: (NSEntityDescription *) entity {
+    _entity=entity;
+}
+
 
 - (NSString *) name {
     return _propertyName;
@@ -91,7 +98,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 
 - (void) setName: (NSString *) value {
-    NSUnimplementedMethod();
+    value=[value copy];
+    [_propertyName release];
+    _propertyName=value;
 }
 
 

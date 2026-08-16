@@ -32,7 +32,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(BOOL)isEqual:other {
-   return [_objectID isEqual:other];
+   if(self==other)
+    return YES;
+   if(![other isKindOfClass:[NSAtomicStoreCacheNode class]])
+    return NO;
+   return [_objectID isEqual:[(NSAtomicStoreCacheNode *)other objectID]];
 }
 
 -(NSManagedObjectID *)objectID {

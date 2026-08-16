@@ -22,6 +22,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <stdint.h>
 
 
+@interface NSPropertyDescription(CoreDataPrivate)
+- (void)_setEntity:(NSEntityDescription *)entity;
+@end
+
 @implementation NSEntityDescription
 
 static id getValue(id self, SEL selector) {
@@ -145,6 +149,13 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     
 	if(result)
      return result;
+
+    /* Entities built programmatically (not decoded from a model file) have
+       no selector map; fall back to looking the property up by name. */
+    result=[entity->_properties objectForKey:NSStringFromSelector(selector)];
+
+    if(result)
+     return result;
    }
    return nil;
 }
@@ -255,8 +266,16 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     NSLog(@"Attempt to modify entity after instantiating it.");
     return;
    }
-    
-   NSUnimplementedMethod();
+
+   NSMutableDictionary *properties=[[NSMutableDictionary alloc] init];
+
+   for(NSPropertyDescription *property in value){
+    [properties setObject:property forKey:[property name]];
+    [property _setEntity:self];
+   }
+
+   [_properties release];
+   _properties=properties;
 }
 
 

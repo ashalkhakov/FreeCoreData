@@ -114,6 +114,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 -(void)willRemoveCacheNodes:(NSSet *)cacheNodes {
 }
 
+/* Private: performs the actual removal after willRemoveCacheNodes: is invoked. */
+-(void)_removeCacheNodes:(NSSet *)cacheNodes {
+   for(NSAtomicStoreCacheNode *node in cacheNodes){
+    [_objectIDToCacheNode removeObjectForKey:[node objectID]];
+   }
+   [_cacheNodes minusSet:cacheNodes];
+}
+
 -newReferenceObjectForManagedObject:(NSManagedObject *)managedObject {
    NSInvalidAbstractInvocation();
    return nil;
