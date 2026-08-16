@@ -33,7 +33,7 @@ jobs:
       - name: Download and Install GNUstep Toolchain
         run: |
           echo "=== Downloading Pre-compiled Toolchain ==="
-          curl -H "Authorization: Bearer ${{ secrets.PACKAGES_TOKEN }}" \
+          curl -H "Authorization: Bearer ${{ secrets.PACKAGES_TOKEN2 }}" \
                -o gnustep-toolchain.tar.gz \
                "${{ github.server_url }}/api/packages/${{ github.repository_owner }}/generic/gnustep-toolchain/latest/gnustep-toolchain.tar.gz"
 
