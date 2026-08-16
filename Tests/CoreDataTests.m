@@ -403,6 +403,52 @@ static NSManagedObjectModel *IncrementalStoreTestModel(void)
     return model;
 }
 
+/* An incremental store registered under one type whose -type reports
+   another; adding it must fail with NSPersistentStoreTypeMismatchError
+   (134010), mirroring Apple. */
+static NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
+
+@interface MismatchIncrementalStore : MemoryIncrementalStore
+@end
+
+@implementation MismatchIncrementalStore
+@end
+
+/* ------------------------------------------------------------------ */
+#pragma mark - NSPersistentStoreCoordinatorTypeMismatchTests
+/* ------------------------------------------------------------------ */
+
+@interface NSPersistentStoreCoordinatorTypeMismatchTests : XCTestCase
+@end
+
+@implementation NSPersistentStoreCoordinatorTypeMismatchTests
+
+- (void)testAddStoreWithMismatchedTypeFails
+{
+    [NSPersistentStoreCoordinator registerStoreClass:[MismatchIncrementalStore class]
+                                        forStoreType:MismatchIncrementalStoreType];
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+        initWithManagedObjectModel:IncrementalStoreTestModel()];
+    NSURL *url = [NSURL fileURLWithPath:
+        [NSTemporaryDirectory() stringByAppendingPathComponent:
+            [[NSProcessInfo processInfo] globallyUniqueString]]];
+
+    NSError *error = nil;
+    NSPersistentStore *store =
+        [psc addPersistentStoreWithType:MismatchIncrementalStoreType
+                          configuration:nil
+                                    URL:url
+                                options:nil
+                                  error:&error];
+    XCTAssertNil(store);
+    XCTAssertNotNil(error);
+    XCTAssertEqualObjects([error domain], NSCocoaErrorDomain);
+    XCTAssertEqual([error code], (NSInteger)NSPersistentStoreTypeMismatchError);
+    XCTAssertEqual([[psc persistentStores] count], (NSUInteger)0);
+}
+
+@end
+
 /* ------------------------------------------------------------------ */
 #pragma mark - NSPersistentStoreRequestTests
 /* ------------------------------------------------------------------ */
@@ -876,11 +922,16 @@ static NSManagedObjectModel *IncrementalStoreTestModel(void)
     XCTAssertEqual([results count], (NSUInteger)0);
 }
 
-- (void)testSaveWithoutChangesDoesNotCallStore
+- (void)testSaveWithoutChangesSendsEmptySaveRequest
 {
+    /* Apple sends a save changes request to the store even when the
+       context has no changes; the request's change sets are empty. */
     NSError *error = nil;
     XCTAssertTrue([self.ctx save:&error]);
-    XCTAssertEqual(self.store.saveRequestCount, (NSUInteger)0);
+    XCTAssertEqual(self.store.saveRequestCount, (NSUInteger)1);
+    XCTAssertEqual(self.store.lastInsertedCount, (NSUInteger)0);
+    XCTAssertEqual(self.store.lastUpdatedCount, (NSUInteger)0);
+    XCTAssertEqual(self.store.lastDeletedCount, (NSUInteger)0);
 }
 
 @end

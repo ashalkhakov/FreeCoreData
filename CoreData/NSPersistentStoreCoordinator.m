@@ -11,6 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSIncrementalStore.h>
+#import <CoreData/CoreDataErrors.h>
 #import "NSInMemoryPersistentStore.h"
 #import "NSManagedObjectID-Private.h"
 #import "CoreDataUtilities.h"
@@ -81,6 +82,18 @@ static NSMutableDictionary *_storeTypes=nil;
 
     if(![store loadMetadata:error])
      return nil;
+
+    /* Apple verifies that the store's type matches the requested store
+       type after -loadMetadata: returns and fails with
+       NSPersistentStoreTypeMismatchError (134010) if it does not. */
+    if(storeType!=nil && ![storeType isEqualToString:[store type]]){
+     if(error!=NULL){
+      NSDictionary *userInfo=[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"The store type '%@' does not match the requested type '%@'",[store type],storeType] forKey:NSLocalizedDescriptionKey];
+
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreTypeMismatchError userInfo:userInfo];
+     }
+     return nil;
+    }
 
     NSString *uuid=[[store metadata] objectForKey:NSStoreUUIDKey];
 

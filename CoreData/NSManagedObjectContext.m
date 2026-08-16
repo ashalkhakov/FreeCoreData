@@ -545,6 +545,12 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     [affectedStores addObject:store];
    }
    
+   /* Apple sends a save changes request to every incremental store on
+      save, even when the change sets destined for that store are empty. */
+   for(NSPersistentStore *store in [_storeCoordinator persistentStores])
+    if([store isKindOfClass:[NSIncrementalStore class]])
+     [affectedStores addObject:store];
+   
    for(NSPersistentStore *store in affectedStores){
     NSError           *saveError=nil;
     
