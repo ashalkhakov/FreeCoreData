@@ -14,7 +14,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/NSManagedObject.h>
-#import <Foundation/NSKeyedUnarchiver.h>
+#import <Foundation/Foundation.h>
 #import "CoreDataUtilities.h"
 #import <objc/runtime.h>
 #import <ctype.h>
