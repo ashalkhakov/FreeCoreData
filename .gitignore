@@ -1,0 +1,22 @@
+# GNUstep build artifacts
+obj/
+shared_obj/
+*.a
+*.so
+*.dylib
+CoreData.framework/
+*.framework/
+
+# Derived objects
+*.o
+*.d
+
+# macOS artifacts
+.DS_Store
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.xcodeproj/xcuserdata/
+
+# Editor temporaries
+*~
+*.swp
