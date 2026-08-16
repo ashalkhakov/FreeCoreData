@@ -9,7 +9,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSEntityDescription.h>
 
-#import <Foundation/NSKeyedUnarchiver.h>
+#import <Foundation/Foundation.h>
 #import "CoreDataUtilities.h"
 
 @implementation NSManagedObjectModel
