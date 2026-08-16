@@ -20,3 +20,4 @@ DerivedData/
 # Editor temporaries
 *~
 *.swp
+*.bundle/

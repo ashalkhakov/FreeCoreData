@@ -60,7 +60,9 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(void)dealloc {
-   for(NSManagedObject *check in _registeredObjects){
+   NSArray *registered=[_registeredObjects allObjects];
+
+   for(NSManagedObject *check in registered){
     NSArray *properties=[[[check entity] propertiesByName] allKeys];
 
     for(NSString *key in properties)
