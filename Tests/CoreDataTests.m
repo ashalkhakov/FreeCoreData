@@ -44,7 +44,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)testFetchRequestTemplate
 {
     NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    [entity setName:@"MyEntity"];
+    [model setEntities:[NSArray arrayWithObject:entity]];
     NSFetchRequest *req = [[NSFetchRequest alloc] init];
+    [req setEntity:entity];
     [model setFetchRequestTemplate:req forName:@"myTemplate"];
     XCTAssertEqualObjects([model fetchRequestTemplateForName:@"myTemplate"], req);
 }
