@@ -181,15 +181,13 @@ static NSMutableDictionary *_storeTypes=nil;
     return nil;
    }
    
+   /* Find the first store whose configuration contains the entity. */
    for(check in _stores){
     NSString *configurationName=[check configurationName];
-    
-    if(configurationName==nil){
-     NSArray  *entities=[model entitiesForConfiguration:configurationName];
+    NSArray  *entities=[model entitiesForConfiguration:configurationName];
         
-     if([entities containsObject:entity])
-      return check;
-    }
+    if([entities containsObject:entity])
+     return check;
    }
 
    return [_stores objectAtIndex:0];

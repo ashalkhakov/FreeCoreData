@@ -10,40 +10,12 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 /* CoreDataTests.m - Basic CoreData runtime tests.
-   These tests run against our GNUstep port on Linux and against
-   Apple's real CoreData on macOS/Xcode. */
+   Compiled with ARC (-fobjc-arc).
+   Runs via GNUstep's xctest(1) runner on Linux and via Xcode on macOS.
+   On both platforms the real XCTest framework is used — no custom shim. */
 
-#if __has_include(<XCTest/XCTest.h>)
-#  import <XCTest/XCTest.h>
-#  import <CoreData/CoreData.h>
-#else
-#  import "XCTestShim.h"
-#  import <CoreData/CoreData.h>
-#endif
-
-/* ------------------------------------------------------------------ */
-/* A minimal in-memory CoreData stack used by most tests.             */
-/* ------------------------------------------------------------------ */
-
-static NSManagedObjectModel *buildTestModel(void)
-{
-    /* Entity: Person { name:String, age:Integer32 } */
-    NSEntityDescription *person = [[NSEntityDescription alloc] init];
-    [person setName:@"Person"];
-    [person setManagedObjectClassName:@"NSManagedObject"];
-
-    NSAttributeDescription *nameAttr = [[NSAttributeDescription alloc] init];
-    /* NSAttributeDescription cannot be init'd via -init (abstract).
-       We build the model programmatically only when the framework
-       supports it; otherwise we skip this test on GNUstep where
-       NSAttributeDescription is keyed-unarchive-only. */
-    [nameAttr release];
-    [person release];
-
-    /* Return a minimal (entity-less) model that at least exists. */
-    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
-    return [model autorelease];
-}
+#import <XCTest/XCTest.h>
+#import <CoreData/CoreData.h>
 
 /* ------------------------------------------------------------------ */
 #pragma mark - NSManagedObjectModelTests
@@ -54,17 +26,11 @@ static NSManagedObjectModel *buildTestModel(void)
 
 @implementation NSManagedObjectModelTests
 
-- (void)setUp    {}
-- (void)tearDown {}
-
-+ (NSString *)testSuiteName { return @"NSManagedObjectModelTests"; }
-
 - (void)testModelCreation
 {
     NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
     XCTAssertNotNil(model);
     XCTAssertNotNil([model entities]);
-    [model release];
 }
 
 - (void)testModelMergeEmpty
@@ -81,15 +47,12 @@ static NSManagedObjectModel *buildTestModel(void)
     NSFetchRequest *req = [[NSFetchRequest alloc] init];
     [model setFetchRequestTemplate:req forName:@"myTemplate"];
     XCTAssertEqualObjects([model fetchRequestTemplateForName:@"myTemplate"], req);
-    [req release];
-    [model release];
 }
 
 - (void)testConfigurations
 {
     NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
     XCTAssertNotNil([model configurations]);
-    [model release];
 }
 
 @end
@@ -103,18 +66,12 @@ static NSManagedObjectModel *buildTestModel(void)
 
 @implementation NSFetchRequestTests
 
-- (void)setUp    {}
-- (void)tearDown {}
-
-+ (NSString *)testSuiteName { return @"NSFetchRequestTests"; }
-
 - (void)testDefaults
 {
     NSFetchRequest *req = [[NSFetchRequest alloc] init];
     XCTAssertNil([req entity]);
     XCTAssertNil([req predicate]);
     XCTAssertEqual([req fetchLimit], (NSUInteger)0);
-    [req release];
 }
 
 - (void)testSettersGetters
@@ -124,7 +81,6 @@ static NSManagedObjectModel *buildTestModel(void)
     XCTAssertEqual([req fetchLimit], (NSUInteger)42);
     [req setFetchOffset:10];
     XCTAssertEqual([req fetchOffset], (NSUInteger)10);
-    [req release];
 }
 
 - (void)testCopy
@@ -134,8 +90,6 @@ static NSManagedObjectModel *buildTestModel(void)
     NSFetchRequest *copy = [req copy];
     XCTAssertNotNil(copy);
     XCTAssertEqual([copy fetchLimit], (NSUInteger)7);
-    [copy release];
-    [req release];
 }
 
 @end
@@ -148,11 +102,6 @@ static NSManagedObjectModel *buildTestModel(void)
 @end
 
 @implementation NSPersistentStoreCoordinatorTests
-
-- (void)setUp    {}
-- (void)tearDown {}
-
-+ (NSString *)testSuiteName { return @"NSPersistentStoreCoordinatorTests"; }
 
 - (void)testRegisteredStoreTypes
 {
@@ -179,9 +128,6 @@ static NSManagedObjectModel *buildTestModel(void)
     XCTAssertNotNil(store);
     XCTAssertNil(error);
     XCTAssertEqual([[psc persistentStores] count], (NSUInteger)1);
-
-    [psc release];
-    [model release];
 }
 
 - (void)testRemoveStore
@@ -201,9 +147,6 @@ static NSManagedObjectModel *buildTestModel(void)
     BOOL removed = [psc removePersistentStore:store error:&error];
     XCTAssertTrue(removed);
     XCTAssertEqual([[psc persistentStores] count], (NSUInteger)0);
-
-    [psc release];
-    [model release];
 }
 
 @end
@@ -213,91 +156,53 @@ static NSManagedObjectModel *buildTestModel(void)
 /* ------------------------------------------------------------------ */
 
 @interface NSManagedObjectContextTests : XCTestCase
-{
-    NSManagedObjectModel *_model;
-    NSPersistentStoreCoordinator *_psc;
-    NSManagedObjectContext *_ctx;
-}
+
+@property (nonatomic, strong) NSManagedObjectModel *model;
+@property (nonatomic, strong) NSPersistentStoreCoordinator *psc;
+@property (nonatomic, strong) NSManagedObjectContext *ctx;
+
 @end
 
 @implementation NSManagedObjectContextTests
 
 - (void)setUp
 {
-    _model = [[NSManagedObjectModel alloc] init];
-    _psc   = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:_model];
+    self.model = [[NSManagedObjectModel alloc] init];
+    self.psc   = [[NSPersistentStoreCoordinator alloc]
+                     initWithManagedObjectModel:self.model];
     NSError *err = nil;
-    [_psc addPersistentStoreWithType:NSInMemoryStoreType
-                       configuration:nil URL:nil options:nil error:&err];
-    _ctx = [[NSManagedObjectContext alloc] init];
-    [_ctx setPersistentStoreCoordinator:_psc];
+    [self.psc addPersistentStoreWithType:NSInMemoryStoreType
+                           configuration:nil URL:nil options:nil error:&err];
+    self.ctx = [[NSManagedObjectContext alloc] init];
+    [self.ctx setPersistentStoreCoordinator:self.psc];
 }
 
 - (void)tearDown
 {
-    [_ctx release]; _ctx = nil;
-    [_psc release]; _psc = nil;
-    [_model release]; _model = nil;
+    self.ctx   = nil;
+    self.psc   = nil;
+    self.model = nil;
 }
-
-+ (NSString *)testSuiteName { return @"NSManagedObjectContextTests"; }
 
 - (void)testContextCreation
 {
-    XCTAssertNotNil(_ctx);
-    XCTAssertNotNil([_ctx persistentStoreCoordinator]);
-    XCTAssertFalse([_ctx hasChanges]);
+    XCTAssertNotNil(self.ctx);
+    XCTAssertNotNil([self.ctx persistentStoreCoordinator]);
+    XCTAssertFalse([self.ctx hasChanges]);
 }
 
 - (void)testRegisteredObjects
 {
-    XCTAssertNotNil([_ctx registeredObjects]);
-    XCTAssertEqual([[_ctx registeredObjects] count], (NSUInteger)0);
+    XCTAssertNotNil([self.ctx registeredObjects]);
+    XCTAssertEqual([[self.ctx registeredObjects] count], (NSUInteger)0);
 }
 
 - (void)testSaveWithNoChanges
 {
     NSError *err = nil;
-    BOOL ok = [_ctx save:&err];
+    BOOL ok = [self.ctx save:&err];
     XCTAssertTrue(ok);
     XCTAssertNil(err);
 }
 
 @end
-
-/* ------------------------------------------------------------------ */
-#pragma mark - GNUstep-only test runner main()
-/* ------------------------------------------------------------------ */
-
-#if !__has_include(<XCTest/XCTest.h>)
-
-int _xctest_failureCount = 0;
-
-@implementation XCTestCase
-- (void)setUp    {}
-- (void)tearDown {}
-+ (NSString *)testSuiteName { return NSStringFromClass(self); }
-@end
-
-int main(int argc, const char *argv[])
-{
-    @autoreleasepool {
-        NSLog(@"=== CoreData Test Suite ===");
-        int totalFailures = 0;
-        Class suites[] = {
-            [NSManagedObjectModelTests class],
-            [NSFetchRequestTests class],
-            [NSPersistentStoreCoordinatorTests class],
-            [NSManagedObjectContextTests class],
-        };
-        for (size_t i = 0; i < sizeof(suites)/sizeof(suites[0]); i++) {
-            NSLog(@"\n--- %@ ---", [suites[i] testSuiteName]);
-            totalFailures += XCTestRunClass(suites[i]);
-        }
-        NSLog(@"\n=== %s (%d failure(s)) ===",
-              totalFailures == 0 ? "ALL TESTS PASSED" : "SOME TESTS FAILED",
-              totalFailures);
-        return totalFailures == 0 ? 0 : 1;
-    }
-}
-#endif /* !XCTest */

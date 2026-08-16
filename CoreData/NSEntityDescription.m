@@ -170,7 +170,7 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
    if(className)
     class = NSClassFromString(className);
    else {
-    NSLog(@"Unable to find class %@ specified by entity %@ in the runtime",className,[entity name]);
+    NSLog(@"Entity %@ has no managedObjectClassName set, using NSManagedObject",[entity name]);
     
     class = [NSManagedObject class];
    }

@@ -83,9 +83,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    if([data length]!=0){   
     if((_document=[[NSXMLDocument alloc] initWithData:data options:xmlOptions error:NULL])==nil){
      [data release];
-     [self dealloc];
+     [self release];
      return nil;
-    }
+     }
    }
    else {
     _document=[[NSXMLDocument alloc] initWithKind:NSXMLDocumentXMLKind options:xmlOptions];
@@ -488,12 +488,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 -newReferenceObjectForManagedObject:(NSManagedObject *)managedObject {
    NSXMLElement *nextObjectIDElement=[self nextObjectIDElement];
    NSInteger     nextInteger=[[nextObjectIDElement stringValue] integerValue];
-   NSNumber     *check=nil;
+   NSNumber     *check;
 
    do{
-    [check release];
-    
-    check=[[NSNumber alloc] initWithInteger:nextInteger];
+    check=[NSNumber numberWithInteger:nextInteger];
     
     if(![_usedReferences containsObject:check])
      break;
@@ -503,8 +501,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    }while(YES);
    
    [_usedReferences addObject:check];
-   
-   [check release];
 
    [nextObjectIDElement setStringValue:[NSString stringWithFormat:@"%ld",(long)(nextInteger+1)]];
    

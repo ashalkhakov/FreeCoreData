@@ -24,7 +24,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    
    [result setEntities:entities];
       
-   return result;
+   return [result autorelease];
 }
 
 +(NSManagedObjectModel *)mergedModelFromBundles:(NSArray *)bundles {
@@ -63,11 +63,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    if(![coder allowsKeyedCoding])
     [NSException raise:NSInvalidArgumentException format: @"%@ can not initWithCoder:%@", [self class], [coder class]];
 
-   _entities=[[coder decodeObjectForKey: @"NSEntities"] retain];
+   _entities=[[coder decodeObjectForKey: @"NSEntities"] mutableCopy] ?: [[NSMutableDictionary alloc] init];
    for(NSEntityDescription *entity in [_entities allValues])
     [_entities setObject:entity forKey:[[entity name] uppercaseString]];
     
-   _fetchRequestTemplates=[[coder decodeObjectForKey: @"NSFetchRequestTemplates"] retain];
+   _fetchRequestTemplates=[[coder decodeObjectForKey: @"NSFetchRequestTemplates"] mutableCopy] ?: [[NSMutableDictionary alloc] init];
    _versionIdentifiers=[[coder decodeObjectForKey: @"NSVersionIdentifiers"] retain];
    
    return self;
