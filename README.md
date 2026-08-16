@@ -1,0 +1,1 @@
+# GNUstep-compatible CoreData implementation
