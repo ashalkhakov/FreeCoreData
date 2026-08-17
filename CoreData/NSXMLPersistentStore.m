@@ -25,43 +25,28 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 /* Apple's XML store writes entity names in uppercase in the `type' and
    `destination' attributes (e.g. type="EMPLOYEE" for an entity named
-   "Employee").  Look up entities case-insensitively so that files written
-   by Apple's CoreData can be loaded, while files written by older versions
-   of this store (which used the exact entity name) keep working. */
-static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NSString *name){
-   NSDictionary        *entitiesByName=[model entitiesByName];
-   NSEntityDescription *entity=[entitiesByName objectForKey:name];
+   "Employee") and property names in lowercase in the `name' attribute
+   (e.g. name="hiredate" for an attribute named "hireDate").  Look up
+   keys case-insensitively so that files written by Apple's CoreData can
+   be loaded, while files written by older versions of this store (which
+   used the exact name) keep working. */
+static id caseInsensitiveLookup(NSDictionary *dictionary,NSString *name){
+   id result=[dictionary objectForKey:name];
 
-   if(entity==nil){
-    for(NSString *check in entitiesByName){
+   if(result==nil){
+    for(NSString *check in dictionary){
      if([check compare:name options:NSCaseInsensitiveSearch]==NSOrderedSame){
-      entity=[entitiesByName objectForKey:check];
+      result=[dictionary objectForKey:check];
       break;
      }
     }
    }
 
-   return entity;
+   return result;
 }
 
-/* Apple's XML store writes property names in lowercase in the `name'
-   attribute (e.g. name="hiredate" for an attribute named "hireDate").
-   Look up properties case-insensitively so that files written by Apple's
-   CoreData can be loaded, while files written by older versions of this
-   store (which used the exact property name) keep working. */
-static id propertyWithName(NSDictionary *propertiesByName,NSString *name){
-   id property=[propertiesByName objectForKey:name];
-
-   if(property==nil){
-    for(NSString *check in propertiesByName){
-     if([check compare:name options:NSCaseInsensitiveSearch]==NSOrderedSame){
-      property=[propertiesByName objectForKey:check];
-      break;
-     }
-    }
-   }
-
-   return property;
+static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NSString *name){
+   return caseInsensitiveLookup([model entitiesByName],name);
 }
 
 @implementation NSXMLPersistentStore
@@ -213,7 +198,7 @@ static id propertyWithName(NSDictionary *propertiesByName,NSString *name){
    
    for(NSXMLElement *attribute in attributeElements){
     NSString               *name=[[attribute attributeForName:@"name"] stringValue];
-    NSAttributeDescription *description=propertyWithName(attributesByName,name);
+    NSAttributeDescription *description=caseInsensitiveLookup(attributesByName,name);
 
     if(description==nil){
      NSLog(@"Unable to find attribute named %@ for entity named %@",name,entityName);
@@ -287,7 +272,7 @@ static id propertyWithName(NSDictionary *propertiesByName,NSString *name){
 
    for(NSXMLElement *relationship in relationshipElements){
     NSString                  *name=[[relationship attributeForName:@"name"] stringValue];
-    NSRelationshipDescription *description=propertyWithName(relationshipsByName,name);
+    NSRelationshipDescription *description=caseInsensitiveLookup(relationshipsByName,name);
     
     if(description==nil){
      NSLog(@"No description for relationship name %@ in %@",name,entityName);
