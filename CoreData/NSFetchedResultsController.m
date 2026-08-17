@@ -249,6 +249,13 @@ static id NSFetchedResultsKeyForObject(id object)
 
 - (NSUInteger)sectionForSectionIndexTitle:(NSString *)title atIndex:(NSUInteger)sectionIndex {
     NSArray *titles=[self sectionIndexTitles];
+
+/* There is one index title per section, so the position in the index title
+   array is the position of the section. */
+    if(sectionIndex<[titles count])
+     if([[titles objectAtIndex:sectionIndex] isEqualToString:title])
+      return sectionIndex;
+
     NSUInteger result=[titles indexOfObject:title];
 
     return (result==NSNotFound)?0:result;

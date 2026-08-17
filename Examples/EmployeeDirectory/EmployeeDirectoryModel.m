@@ -50,7 +50,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                 @"salaries must be a multiple of 100", NSLocalizedDescriptionKey, nil];
 
             *error = [NSError errorWithDomain:NSCocoaErrorDomain
-                              code:NSValidationNumberTooSmallError
+                              code:NSManagedObjectValidationError
                               userInfo:userInfo];
         }
         return NO;
