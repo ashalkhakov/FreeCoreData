@@ -96,21 +96,24 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
      /* Apple names inferred entity mappings IEM_<Type>_<EntityName>. */
      [mapping setName:[NSString stringWithFormat:@"IEM_%@_%@",([mapping mappingType]==NSCopyEntityMappingType)?@"Copy":@"Transform",name]];
 
-     /* Properties that exist in both versions with the same name migrate
-        by direct copy; new properties keep their default values. */
+     /* Apple creates an attribute mapping for every destination attribute:
+        attributes that also exist in the source migrate by direct copy,
+        new attributes get a mapping without a value expression so they
+        keep their default values. Relationship mappings are only created
+        for relationships present in both versions. */
      for(NSPropertyDescription *property in [destinationEntity properties]){
       NSString *propertyName=[property name];
 
-      if([sourceProperties objectForKey:propertyName]==nil)
-       continue;
-
-      NSPropertyMapping *propertyMapping=[[[NSPropertyMapping alloc] init] autorelease];
-      [propertyMapping setName:propertyName];
-
-      if([property isKindOfClass:[NSAttributeDescription class]])
+      if([property isKindOfClass:[NSAttributeDescription class]]){
+       NSPropertyMapping *propertyMapping=[[[NSPropertyMapping alloc] init] autorelease];
+       [propertyMapping setName:propertyName];
        [attributeMappings addObject:propertyMapping];
-      else if([property isKindOfClass:[NSRelationshipDescription class]])
+      }
+      else if([property isKindOfClass:[NSRelationshipDescription class]] && [sourceProperties objectForKey:propertyName]!=nil){
+       NSPropertyMapping *propertyMapping=[[[NSPropertyMapping alloc] init] autorelease];
+       [propertyMapping setName:propertyName];
        [relationshipMappings addObject:propertyMapping];
+      }
      }
 
      [mapping setAttributeMappings:attributeMappings];

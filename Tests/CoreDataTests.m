@@ -1213,8 +1213,8 @@ static NSManagedObjectModel *XMLStoreTestModel(void)
     NSError *error = nil;
     XCTAssertTrue([ctx1 save:&error], @"save failed: %@", error);
 
-    NSPersistentStore *store = [[[[ctx1 persistentStoreCoordinator]
-        persistentStores] objectAtIndex:0] self];
+    NSPersistentStore *store = [[[ctx1 persistentStoreCoordinator]
+        persistentStores] objectAtIndex:0];
 
     NSDictionary *metadata = [NSPersistentStoreCoordinator
         metadataForPersistentStoreOfType:NSXMLStoreType
@@ -1570,8 +1570,8 @@ static NSManagedObjectModel *VersioningTestModelV2(void)
     XCTAssertNotNil(employee);
     XCTAssertEqual([employee mappingType],
                    (NSEntityMappingType)NSTransformEntityMappingType);
-    /* name and salary exist in both versions; title and hireDate do not. */
-    XCTAssertEqual([[employee attributeMappings] count], (NSUInteger)2);
+    /* Every destination attribute gets a mapping: name, salary and title. */
+    XCTAssertEqual([[employee attributeMappings] count], (NSUInteger)3);
     XCTAssertEqual([[employee relationshipMappings] count], (NSUInteger)1);
 
     NSEntityMapping *department = [byName objectForKey:@"IEM_Copy_Department"];

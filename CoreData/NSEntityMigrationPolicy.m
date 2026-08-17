@@ -77,10 +77,6 @@ NSString * const NSMigrationEntityPolicyKey=@"entityPolicy";
 
    [manager associateSourceInstance:sInstance withDestinationInstance:dInstance forEntityMapping:mapping];
 
-   /* +insertNewObjectForEntityForName: returns a +1 object; the context
-      retains it through registration, so release the local reference. */
-   [dInstance release];
-
    return YES;
 }
 

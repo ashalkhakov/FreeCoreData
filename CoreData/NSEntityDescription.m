@@ -187,7 +187,7 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     class = [NSManagedObject class];
    }
    
-   return [[class alloc] initWithEntity: entity insertIntoManagedObjectContext: context];
+   return [[[class alloc] initWithEntity: entity insertIntoManagedObjectContext: context] autorelease];
 }
 
 
