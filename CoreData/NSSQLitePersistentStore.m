@@ -20,6 +20,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSManagedObjectID.h>
 #import <CoreData/NSEntityDescription.h>
+#import "NSEntityDescription-Private.h"
 #import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/CoreDataErrors.h>
@@ -685,7 +686,7 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 #pragma mark - Fetching
 /* ------------------------------------------------------------------ */
 
--(NSArray *)_fetchObjectIDsForEntity:(NSEntityDescription *)entity includesSubentities:(BOOL)includesSubentities error:(NSError **)error {
+-(NSArray *)_fetchObjectIDsForEntity:(NSEntityDescription *)entity includesSubentities:(BOOL)includesSubentities fetchLimit:(NSUInteger)fetchLimit fetchOffset:(NSUInteger)fetchOffset error:(NSError **)error {
    if([_entityIDs objectForKey:[entity name]]==nil)
     return [NSArray array];
 
@@ -697,6 +698,9 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
     [entityIDs addObject:[NSNumber numberWithLongLong:[self _entityIDForEntity:entity]]];
 
    NSString *sql=[NSString stringWithFormat:@"SELECT Z_PK, Z_ENT FROM \"%@\" WHERE Z_ENT IN (%@) ORDER BY Z_PK",tableNameForEntity(entity),[entityIDs componentsJoinedByString:@", "]];
+
+   if(fetchLimit>0 || fetchOffset>0)
+    sql=[sql stringByAppendingFormat:@" LIMIT %lld OFFSET %llu",fetchLimit>0?(long long)fetchLimit:-1LL,(unsigned long long)fetchOffset];
 
    sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
 
@@ -723,7 +727,14 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 
 -(id)_executeFetchRequest:(NSFetchRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
    NSEntityDescription *entity=[request entity];
-   NSArray             *objectIDs=[self _fetchObjectIDsForEntity:entity includesSubentities:[request includesSubentities] error:error];
+
+   /* Filtering and sorting happen in memory; the offset/limit can only be
+      pushed down to SQLite when they wouldn't change the result. */
+   BOOL       filtersInMemory=([request predicate]!=nil || [[request sortDescriptors] count]>0);
+   NSUInteger sqlLimit=filtersInMemory?0:[request fetchLimit];
+   NSUInteger sqlOffset=filtersInMemory?0:[request fetchOffset];
+
+   NSArray *objectIDs=[self _fetchObjectIDsForEntity:entity includesSubentities:[request includesSubentities] fetchLimit:sqlLimit fetchOffset:sqlOffset error:error];
 
    if(objectIDs==nil)
     return nil;
@@ -739,18 +750,20 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
    if([[request sortDescriptors] count]>0)
     [objects sortUsingDescriptors:[request sortDescriptors]];
 
-   NSUInteger offset=[request fetchOffset];
-   NSUInteger limit=[request fetchLimit];
+   if(filtersInMemory){
+    NSUInteger offset=[request fetchOffset];
+    NSUInteger limit=[request fetchLimit];
 
-   if(offset>0){
-    if(offset>=[objects count])
-     [objects removeAllObjects];
-    else
-     [objects removeObjectsInRange:NSMakeRange(0,offset)];
+    if(offset>0){
+     if(offset>=[objects count])
+      [objects removeAllObjects];
+     else
+      [objects removeObjectsInRange:NSMakeRange(0,offset)];
+    }
+
+    if(limit>0 && [objects count]>limit)
+     [objects removeObjectsInRange:NSMakeRange(limit,[objects count]-limit)];
    }
-
-   if(limit>0 && [objects count]>limit)
-    [objects removeObjectsInRange:NSMakeRange(limit,[objects count]-limit)];
 
    if([request resultType]==NSManagedObjectIDResultType){
     NSMutableArray *result=[NSMutableArray array];
@@ -923,7 +936,11 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
    NSDictionary        *properties=propertiesForEntityChain(entity);
    long long            primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]]);
 
-   /* Clean up any join-table rows referencing the deleted row. */
+   /* Clean up any join-table rows referencing the deleted row.  Rows
+      where the object is the relationship's owner are found through its
+      own relationships; rows where it is the destination of another
+      entity's inverse-less to-many relationship must be swept from that
+      relationship's side. */
    for(NSString *name in properties){
     NSPropertyDescription *property=[properties objectForKey:name];
 
@@ -935,6 +952,21 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
     if(relationshipUsesJoinTable(relationship)){
      NSDictionary *join=[self _joinSpecForRelationship:relationship];
      NSString     *sql=[NSString stringWithFormat:@"DELETE FROM \"%@\" WHERE \"%@\" = %lld",[join objectForKey:@"table"],[join objectForKey:@"ownerColumn"],primaryKey];
+
+     if(!executeSQL(DATABASE,sql,error))
+      return NO;
+    }
+   }
+
+   for(NSEntityDescription *check in [self _storeEntities]){
+    for(NSRelationshipDescription *relationship in [[check relationshipsByName] allValues]){
+     if(!relationshipUsesJoinTable(relationship) || [relationship inverseRelationship]!=nil)
+      continue;
+     if(![entity _isKindOfEntity:[relationship destinationEntity]] && ![[relationship destinationEntity] _isKindOfEntity:entity])
+      continue;
+
+     NSDictionary *join=[self _joinSpecForRelationship:relationship];
+     NSString     *sql=[NSString stringWithFormat:@"DELETE FROM \"%@\" WHERE \"%@\" = %lld",[join objectForKey:@"table"],[join objectForKey:@"destinationColumn"],primaryKey];
 
      if(!executeSQL(DATABASE,sql,error))
       return NO;
