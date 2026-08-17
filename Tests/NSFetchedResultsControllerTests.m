@@ -183,6 +183,13 @@ static NSIndexPath *IndexPathForRowInSection(NSUInteger row, NSUInteger section)
 - (NSFetchedResultsController *)controllerWithSections:(BOOL)sections
                                              predicate:(NSPredicate *)predicate
 {
+/* The fixture objects have to be saved before the controller starts
+   tracking them.  An object which is still pending insertion stays in the
+   inserted objects of the context when it is modified, so a later change to
+   it is not reported as an update and the controller does not see it. */
+    NSError *saveError = nil;
+    XCTAssertTrue([self.ctx save:&saveError], @"save failed: %@", saveError);
+
     NSFetchRequest *request = [[NSFetchRequest alloc] init];
 
     [request setEntity:[NSEntityDescription entityForName:@"Employee"
