@@ -12,6 +12,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSEntityDescription-Private.h"
 #import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
+#import <CoreData/CoreDataErrors.h>
+#import <Foundation/NSError.h>
+#import <Foundation/NSPredicate.h>
+#import <Foundation/NSNull.h>
+#import <Foundation/NSException.h>
 #import <CoreData/NSAtomicStoreCacheNode.h>
 #import <CoreData/NSIncrementalStore.h>
 #import <CoreData/NSIncrementalStoreNode.h>
@@ -68,7 +73,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    }
 
    [context insertObject:self];
-   
+
+   _isFault=NO;
+
+   [self awakeFromInsert];
+
    return self;
 }
 
@@ -110,32 +119,37 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(BOOL)isInserted {
-   return _isInserted;
+   return [[_context insertedObjects] containsObject:self];
 }
 
 -(BOOL)isUpdated {
-   return _isUpdated;
+   return [[_context updatedObjects] containsObject:self] &&
+          ![[_context insertedObjects] containsObject:self];
 }
 
 -(BOOL)isDeleted {
-   return _isDeleted;
+   return [[_context deletedObjects] containsObject:self];
 }
 
 -(BOOL)isFault {
    return _isFault;
 }
 
+-(void)_setFault:(BOOL)isFault {
+   _isFault=isFault;
+}
+
 - (BOOL) hasFaultForRelationshipNamed:(NSString *) key {
-    NSUnimplementedMethod();
-    return NO;
+    return _isFault;
 }
 
 - (void) awakeFromFetch {
-    NSUnimplementedMethod();
 }
 
 - (void) awakeFromInsert {
-    NSUnimplementedMethod();
+}
+
+- (void) prepareForDeletion {
 }
 
 -(NSDictionary *)changedValues {
@@ -147,7 +161,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSIncrementalStoreNode *node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
    NSMutableDictionary    *storedValues=[[NSMutableDictionary alloc] init];
 
-   NSArray *properties=[[self entity] properties];
+   /* propertiesByName includes inherited properties, [entity properties]
+      does not. */
+   NSArray *properties=[[[self entity] propertiesByName] allValues];
 
    for(NSPropertyDescription *property in properties){
     NSString *name=[property name];
@@ -208,6 +224,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     if([store isKindOfClass:[NSIncrementalStore class]]){
      [_committedValues release];
      _committedValues=[self _committedValuesFromIncrementalStore:(NSIncrementalStore *)store];
+
+     if(_isFault){
+      _isFault=NO;
+      [self awakeFromFetch];
+     }
+
      return _committedValues;
     }
 
@@ -215,7 +237,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSDictionary           *propertyCache=[node propertyCache];
     NSMutableDictionary    *storedValues=[[NSMutableDictionary alloc] init];
     
-    NSArray *properties=[[self entity] properties];
+    /* propertiesByName includes inherited properties, [entity properties]
+       does not. */
+    NSArray *properties=[[[self entity] propertiesByName] allValues];
     
     for(NSPropertyDescription *property in properties){
      NSString *name=[property name];
@@ -251,8 +275,26 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     
     [_committedValues release];
     _committedValues=storedValues;
+
+    if(_isFault){
+     _isFault=NO;
+     [self awakeFromFetch];
+    }
    }
    return _committedValues;
+}
+
+-(NSDictionary *)_cachedCommittedValues {
+   return _committedValues;
+}
+
+-(void)_invalidateCommittedValues {
+   [_committedValues release];
+   _committedValues=nil;
+}
+
+-(void)_discardChangedValues {
+   [_changedValues removeAllObjects];
 }
 
 -(NSDictionary *)committedValuesForKeys:(NSArray *)keys {   
@@ -419,42 +461,209 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -primitiveValueForKey:(NSString *) key {
    id result=[_changedValues objectForKey:key];
-   
+
    if(result==nil)
     result=[[self _committedValues] objectForKey:key];
-   
+
+   if(result==[NSNull null])
+    result=nil;
+
    return result;
 }
 
 -(void)setPrimitiveValue:value forKey:(NSString *)key {
+   /* An explicit nil must shadow the committed value, so it is recorded
+      as NSNull rather than removed from the pending changes. */
    if(value==nil)
-    [_changedValues removeObjectForKey:key];
-   else {
-    [_changedValues setObject:value forKey:key];
-   }
+    value=[NSNull null];
+
+   [_changedValues setObject:value forKey:key];
+}
+
+/* Private: drops the pending change for key so the committed value shows
+   through again (used by merge policies, not part of Apple's API). */
+-(void)_discardChangedValueForKey:(NSString *)key {
+   [_changedValues removeObjectForKey:key];
+}
+
+static NSError *_validationError(NSInteger code,NSManagedObject *object,NSString *key,id value,NSString *description){
+   NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+   if(object!=nil)
+    [userInfo setObject:object forKey:NSValidationObjectErrorKey];
+   if(key!=nil)
+    [userInfo setObject:key forKey:NSValidationKeyErrorKey];
+   if(value!=nil)
+    [userInfo setObject:value forKey:NSValidationValueErrorKey];
+   if(description!=nil)
+    [userInfo setObject:description forKey:NSLocalizedDescriptionKey];
+
+   return [NSError errorWithDomain:NSCocoaErrorDomain code:code userInfo:userInfo];
+}
+
+static BOOL _valueIsEmpty(NSPropertyDescription *property,id value){
+   if(value==nil || value==[NSNull null])
+    return YES;
+
+   if([property isKindOfClass:[NSRelationshipDescription class]] &&
+      [(NSRelationshipDescription *)property isToMany])
+    return ([value count]==0);
+
+   return NO;
 }
 
 - (BOOL) validateValue:(id *) value forKey:(NSString *) key error:(NSError **) error {
-    NSUnimplementedMethod();
-    return YES;
+    NSPropertyDescription *property=[[[self entity] propertiesByName] objectForKey:key];
+
+    if(property!=nil){
+     id checkValue=(value!=NULL)?*value:nil;
+
+     if(![property isOptional] && _valueIsEmpty(property,checkValue)){
+      if(error!=NULL)
+       *error=_validationError(NSValidationMissingMandatoryPropertyError,self,key,nil,
+          [NSString stringWithFormat:@"%@ is a required value.",key]);
+      return NO;
+     }
+
+     if([property isKindOfClass:[NSRelationshipDescription class]]){
+      NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
+
+      if([relationship isToMany] && checkValue!=nil && checkValue!=[NSNull null]){
+       NSUInteger count=[checkValue count];
+
+       if([relationship minCount]>0 && count<(NSUInteger)[relationship minCount]){
+        if(error!=NULL)
+         *error=_validationError(NSValidationRelationshipLacksMinimumCountError,self,key,checkValue,
+            [NSString stringWithFormat:@"%@ has too few related objects.",key]);
+        return NO;
+       }
+       if([relationship maxCount]>0 && count>(NSUInteger)[relationship maxCount]){
+        if(error!=NULL)
+         *error=_validationError(NSValidationRelationshipExceedsMaximumCountError,self,key,checkValue,
+            [NSString stringWithFormat:@"%@ has too many related objects.",key]);
+        return NO;
+       }
+      }
+     }
+
+     if(checkValue!=nil && checkValue!=[NSNull null]){
+      NSArray *predicates=[property validationPredicates];
+      NSArray *warnings=[property validationWarnings];
+      NSUInteger i,count=[predicates count];
+
+      for(i=0;i<count;i++){
+       NSPredicate *predicate=[predicates objectAtIndex:i];
+       BOOL valid=NO;
+
+       @try {
+        valid=[predicate evaluateWithObject:checkValue];
+       }
+       @catch(NSException *e){
+        valid=NO;
+       }
+
+       if(!valid){
+        NSString *warning=(i<[warnings count])?[warnings objectAtIndex:i]:
+           [NSString stringWithFormat:@"%@ failed validation.",key];
+
+        if(error!=NULL){
+         NSError *predicateError=_validationError(NSManagedObjectValidationError,self,key,checkValue,warning);
+         NSMutableDictionary *userInfo=[NSMutableDictionary dictionaryWithDictionary:[predicateError userInfo]];
+
+         [userInfo setObject:predicate forKey:NSValidationPredicateErrorKey];
+         *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectValidationError userInfo:userInfo];
+        }
+        return NO;
+       }
+      }
+     }
+    }
+
+    /* Dispatches to custom -validate<Key>:error: methods when implemented. */
+    return [super validateValue:value forKey:key error:error];
 }
 
+-(BOOL)_validatePropertiesWithError:(NSError **) error {
+    NSDictionary   *properties=[[self entity] propertiesByName];
+    NSMutableArray *errors=[NSMutableArray array];
+
+    for(NSString *key in properties){
+     NSPropertyDescription *property=[properties objectForKey:key];
+
+     if(![property isKindOfClass:[NSAttributeDescription class]] &&
+        ![property isKindOfClass:[NSRelationshipDescription class]])
+      continue;
+
+     id       value=[self primitiveValueForKey:key];
+     NSError *keyError=nil;
+
+     if(![self validateValue:&value forKey:key error:&keyError]){
+      if(keyError!=nil)
+       [errors addObject:keyError];
+     }
+    }
+
+    if([errors count]==0)
+     return YES;
+
+    if(error!=NULL){
+     if([errors count]==1)
+      *error=[errors objectAtIndex:0];
+     else {
+      NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+      [userInfo setObject:errors forKey:NSDetailedErrorsKey];
+      [userInfo setObject:@"Multiple validation errors occurred." forKey:NSLocalizedDescriptionKey];
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSValidationMultipleErrorsError userInfo:userInfo];
+     }
+    }
+
+    return NO;
+}
 
 - (BOOL) validateForDelete:(NSError **) error {
-    NSUnimplementedMethod();
+    NSDictionary *relationships=[[self entity] relationshipsByName];
+
+    for(NSString *key in relationships){
+     NSRelationshipDescription *relationship=[relationships objectForKey:key];
+
+     if([relationship deleteRule]!=NSDenyDeleteRule)
+      continue;
+
+     id value=[self primitiveValueForKey:key];
+
+     if(value==nil || value==[NSNull null])
+      continue;
+
+     NSSet *relatedIDs=[relationship isToMany]?value:[NSSet setWithObject:value];
+     BOOL   hasRemaining=NO;
+
+     for(NSManagedObjectID *relatedID in relatedIDs){
+      NSManagedObject *related=[_context objectRegisteredForID:relatedID];
+
+      if(related==nil || ![related isDeleted]){
+       hasRemaining=YES;
+       break;
+      }
+     }
+
+     if(hasRemaining){
+      if(error!=NULL)
+       *error=_validationError(NSValidationRelationshipDeniedDeleteError,self,key,value,
+          [NSString stringWithFormat:@"%@ denies deletion while it has related objects.",key]);
+      return NO;
+     }
+    }
+
     return YES;
 }
-
 
 - (BOOL) validateForInsert:(NSError **) error {
-    NSUnimplementedMethod();
-    return YES;
+    return [self _validatePropertiesWithError:error];
 }
 
-
 - (BOOL) validateForUpdate:(NSError **) error {
-    NSUnimplementedMethod();
-    return YES;
+    return [self _validatePropertiesWithError:error];
 }
 
 

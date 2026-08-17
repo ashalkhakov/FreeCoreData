@@ -17,6 +17,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSManagedObjectContext.h>
 #import <CoreData/NSManagedObjectID.h>
 #import <CoreData/NSManagedObjectModel.h>
+#import <CoreData/NSMergePolicy.h>
 #import <CoreData/NSPersistentStoreCoordinator.h>
 #import <CoreData/NSPropertyDescription.h>
 #import <CoreData/NSRelationshipDescription.h>

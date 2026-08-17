@@ -16,6 +16,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSMigrationManager.h>
 #import <CoreData/NSEntityDescription.h>
 #import "NSInMemoryPersistentStore.h"
+#import "NSSQLitePersistentStore.h"
 #import "NSManagedObjectID-Private.h"
 #import "CoreDataUtilities.h"
 
@@ -25,6 +26,7 @@ NSString * const NSStoreModelVersionHashesKey=@"NSStoreModelVersionHashes";
 NSString * const NSStoreModelVersionIdentifiersKey=@"NSStoreModelVersionIdentifiers";
 
 NSString * const NSXMLStoreType=@"NSXMLStoreType";
+NSString * const NSSQLiteStoreType=@"SQLite";
 NSString * const NSInMemoryStoreType=@"NSInMemoryStoreType";
 NSString * const NSMigratePersistentStoresAutomaticallyOption=@"NSMigratePersistentStoresAutomaticallyOption";
 NSString * const NSInferMappingModelAutomaticallyOption=@"NSInferMappingModelAutomaticallyOption";
@@ -44,6 +46,7 @@ static NSMutableDictionary *_storeTypes=nil;
     _storeTypes=[NSMutableDictionary new];
     [_storeTypes setObject:[NSInMemoryPersistentStore class] forKey:NSInMemoryStoreType];
     [_storeTypes setObject:[NSXMLPersistentStore class] forKey:NSXMLStoreType];
+    [_storeTypes setObject:[NSSQLitePersistentStore class] forKey:NSSQLiteStoreType];
    }
 }
 
@@ -140,6 +143,11 @@ static NSMutableDictionary *_storeTypes=nil;
    if(![manager migrateStoreFromURL:storeURL type:storeType options:nil withMappingModel:mappingModel toDestinationURL:temporaryURL destinationType:storeType destinationOptions:nil error:error])
     return NO;
 
+   /* Release the manager's stores (closing their connections, e.g. SQLite
+      file descriptors) before deleting and renaming the files underneath
+      them. */
+   [manager reset];
+
    NSFileManager *fileManager=[NSFileManager defaultManager];
 
    if(![fileManager removeItemAtPath:[storeURL path] error:error])
@@ -172,6 +180,16 @@ static NSMutableDictionary *_storeTypes=nil;
    Class          class=[[[self class] registeredStoreTypes] objectForKey:storeType];
 
    if([class isSubclassOfClass:[NSIncrementalStore class]]){
+    /* Verify (and, when requested, migrate) the on-disk store before it
+       is opened, like the atomic-store path below.  Only stores which can
+       read metadata from disk (e.g. the SQLite store) participate;
+       incremental store classes which inherit the abstract
+       +metadataForPersistentStoreWithURL:error: are skipped. */
+    if([class methodForSelector:@selector(metadataForPersistentStoreWithURL:error:)]!=[NSPersistentStore methodForSelector:@selector(metadataForPersistentStoreWithURL:error:)]){
+     if(![self _checkVersionCompatibilityOfStoreClass:class type:storeType configuration:configuration URL:storeURL options:options error:error])
+      return nil;
+    }
+
     NSIncrementalStore *store=[[[class alloc] initWithPersistentStoreCoordinator:self configurationName:configuration URL:storeURL options:options] autorelease];
 
     if(![store loadMetadata:error])

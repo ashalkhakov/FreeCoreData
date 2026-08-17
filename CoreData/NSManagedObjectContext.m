@@ -20,8 +20,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSIncrementalStoreNode.h>
 #import <CoreData/NSSaveChangesRequest.h>
 #import <CoreData/CoreDataErrors.h>
+#import <CoreData/NSMergePolicy.h>
+#import <CoreData/NSAttributeDescription.h>
+#import <CoreData/NSRelationshipDescription.h>
+#import <CoreData/NSAtomicStoreCacheNode.h>
 #import "NSPersistentStoreCoordinator-Private.h"
 #import <Foundation/NSUndoManager.h>
+#import <Foundation/NSNull.h>
 #import "CoreDataUtilities.h"
 
 NSString * const NSManagedObjectContextWillSaveNotification=@"NSManagedObjectContextWillSaveNotification";
@@ -43,6 +48,10 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 -(void)_uniqueObjectID:(NSManagedObjectID *)objectID;
 @end
 
+@interface NSMergeConflict(private)
+-(void)_setObjectSnapshot:(NSDictionary *)snapshot;
+@end
+
 @implementation NSManagedObjectContext
 
 -init {
@@ -56,6 +65,8 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    
    _objectIdToObject=NSCreateMapTable(NSObjectMapKeyCallBacks,NSObjectMapValueCallBacks,0);
    _requestedProcessPendingChanges = NO;
+   [NSMergePolicy self]; // ensure the merge policy globals are initialized
+   _mergePolicy=[NSErrorMergePolicy retain];
    return self;
 }
 
@@ -218,12 +229,40 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
 
 -(void)reset {
-    NSUnimplementedMethod();
+   for(NSManagedObject *object in [[_registeredObjects copy] autorelease]){
+    NSArray *properties=[[[object entity] propertiesByName] allKeys];
+
+    for(NSString *key in properties)
+     [object removeObserver:self forKeyPath:key];
+   }
+
+   [_registeredObjects removeAllObjects];
+   [_insertedObjects removeAllObjects];
+   [_updatedObjects removeAllObjects];
+   [_deletedObjects removeAllObjects];
+   NSResetMapTable(_objectIdToObject);
 }
 
 
 -(void)rollback {
-    NSUnimplementedMethod();
+   for(NSManagedObject *object in _registeredObjects){
+    [object _discardChangedValues];
+    [object _invalidateCommittedValues];
+   }
+
+   for(NSManagedObject *inserted in [[_insertedObjects copy] autorelease]){
+    NSArray *properties=[[[inserted entity] propertiesByName] allKeys];
+
+    for(NSString *key in properties)
+     [inserted removeObserver:self forKeyPath:key];
+
+    [_registeredObjects removeObject:inserted];
+    NSMapRemove(_objectIdToObject,[inserted objectID]);
+   }
+
+   [_insertedObjects removeAllObjects];
+   [_updatedObjects removeAllObjects];
+   [_deletedObjects removeAllObjects];
 }
 
 -(NSAtomicStoreCacheNode *)_cacheNodeForObjectID:(NSManagedObjectID *)objectID {
@@ -280,6 +319,17 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
        }
      }
     }
+   }
+
+   /* An incremental store returns results that are already filtered,
+      sorted and limited; when the context has no pending inserts,
+      updates or deletes to merge in, return them as-is, preserving the
+      store's ordering. */
+   if([resultSet count]==0 && [_deletedObjects count]==0 && [_updatedObjects count]==0 && [affectedStores count]==1){
+    NSPersistentStore *onlyStore=[affectedStores objectAtIndex:0];
+
+    if([onlyStore isKindOfClass:[NSIncrementalStore class]])
+     return [(NSIncrementalStore *)onlyStore executeRequest:fetchRequest withContext:self error:error];
    }
    
    for(NSPersistentStore *genericStore in affectedStores){
@@ -344,10 +394,9 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(void)deleteObject:(NSManagedObject *)object {
-   NSArray *properties=[[object entity] properties];
-    
-   for(NSPropertyDescription *property in properties)
-    [object setValue:nil forKey:[property name]];
+   /* Apple re-invokes the callback each time deleteObject: is called,
+      even when the object is already marked for deletion. */
+   [object prepareForDeletion];
 
    [_deletedObjects addObject:object];
 }
@@ -370,7 +419,20 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(void)refreshObject:(NSManagedObject *)object mergeChanges:(BOOL)flag {
-    NSUnimplementedMethod();
+   if(flag){
+    /* Reload persisted values from the store while keeping in-memory
+       changes. */
+    [object _invalidateCommittedValues];
+   }
+   else {
+    /* Turn the object back into a fault, discarding in-memory changes. */
+    [object willTurnIntoFault];
+    [object _discardChangedValues];
+    [object _invalidateCommittedValues];
+    [object _setFault:YES];
+    [_updatedObjects removeObject:object];
+    [object didTurnIntoFault];
+   }
 }
 
 -(void)_requestProcessPendingChanges {
@@ -461,6 +523,250 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    return YES;
 }
 
+/* Applies NSCascadeDeleteRule by deleting destination objects of cascade
+   relationships of already-deleted objects, transitively. */
+-(void)_propagateCascadeDeletes {
+   NSMutableArray *worklist=[NSMutableArray arrayWithArray:[_deletedObjects allObjects]];
+   NSUInteger      index;
+
+   for(index=0;index<[worklist count];index++){
+    NSManagedObject *deleted=[worklist objectAtIndex:index];
+    NSDictionary    *relationships=[[deleted entity] relationshipsByName];
+
+    for(NSString *key in relationships){
+     NSRelationshipDescription *relationship=[relationships objectForKey:key];
+
+     if([relationship deleteRule]!=NSCascadeDeleteRule)
+      continue;
+
+     id value=[deleted primitiveValueForKey:key];
+
+     if(value==nil || value==[NSNull null])
+      continue;
+
+     NSSet *relatedIDs=[relationship isToMany]?[[value copy] autorelease]:[NSSet setWithObject:value];
+
+     for(NSManagedObjectID *relatedID in relatedIDs){
+      NSManagedObject *related=[self objectWithID:relatedID];
+
+      if(![_deletedObjects containsObject:related]){
+       [self deleteObject:related];
+       [worklist addObject:related];
+      }
+     }
+    }
+   }
+}
+
+/* Validates the pending change sets, filling errorp and returning NO on
+   the first per-Apple-shaped failure (single error or 1560 multiple). */
+-(BOOL)_validateChangesForSave:(NSError **)errorp {
+   NSMutableArray *errors=[NSMutableArray array];
+
+   for(NSManagedObject *deleted in _deletedObjects){
+    NSError *validationError=nil;
+
+    if(![deleted validateForDelete:&validationError] && validationError!=nil)
+     [errors addObject:validationError];
+   }
+
+   for(NSManagedObject *inserted in _insertedObjects){
+    if([_deletedObjects containsObject:inserted])
+     continue;
+
+    NSError *validationError=nil;
+
+    if(![inserted validateForInsert:&validationError] && validationError!=nil){
+     if([validationError code]==NSValidationMultipleErrorsError)
+      [errors addObjectsFromArray:[[validationError userInfo] objectForKey:NSDetailedErrorsKey]];
+     else
+      [errors addObject:validationError];
+    }
+   }
+
+   for(NSManagedObject *updated in _updatedObjects){
+    if([_deletedObjects containsObject:updated] || [_insertedObjects containsObject:updated])
+     continue;
+
+    NSError *validationError=nil;
+
+    if(![updated validateForUpdate:&validationError] && validationError!=nil){
+     if([validationError code]==NSValidationMultipleErrorsError)
+      [errors addObjectsFromArray:[[validationError userInfo] objectForKey:NSDetailedErrorsKey]];
+     else
+      [errors addObject:validationError];
+    }
+   }
+
+   if([errors count]==0)
+    return YES;
+
+   if(errorp!=NULL){
+    if([errors count]==1)
+     *errorp=[errors objectAtIndex:0];
+    else {
+     NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+     [userInfo setObject:errors forKey:NSDetailedErrorsKey];
+     [userInfo setObject:@"Multiple validation errors occurred." forKey:NSLocalizedDescriptionKey];
+     *errorp=[NSError errorWithDomain:NSCocoaErrorDomain code:NSValidationMultipleErrorsError userInfo:userInfo];
+    }
+   }
+
+   return NO;
+}
+
+/* Optimistic locking: detects rows whose persisted attribute values in an
+   atomic store no longer match the snapshot this context last read. */
+-(NSArray *)_detectSaveConflicts {
+   NSMutableArray *conflicts=[NSMutableArray array];
+
+   for(NSManagedObject *updated in _updatedObjects){
+    if([_insertedObjects containsObject:updated] || [_deletedObjects containsObject:updated])
+     continue;
+
+    NSDictionary *cached=[updated _cachedCommittedValues];
+
+    if(cached==nil)
+     continue;
+
+    if(![[[updated objectID] persistentStore] isKindOfClass:[NSAtomicStore class]])
+     continue;
+
+    NSAtomicStoreCacheNode *node=[self _cacheNodeForObjectID:[updated objectID]];
+
+    if(node==nil)
+     continue;
+
+    NSDictionary        *attributes=[[updated entity] attributesByName];
+    NSMutableDictionary *rowCacheSnapshot=[NSMutableDictionary dictionary];
+    NSMutableDictionary *objectSnapshot=[NSMutableDictionary dictionary];
+    BOOL                 hasConflict=NO;
+
+    for(NSString *key in attributes){
+     id rowCacheValue=[node valueForKey:key];
+     id committedValue=[cached objectForKey:key];
+
+     if(rowCacheValue!=nil)
+      [rowCacheSnapshot setObject:rowCacheValue forKey:key];
+     if(committedValue!=nil)
+      [objectSnapshot setObject:committedValue forKey:key];
+
+     if(rowCacheValue==committedValue)
+      continue;
+     if(rowCacheValue!=nil && committedValue!=nil && [rowCacheValue isEqual:committedValue])
+      continue;
+
+     hasConflict=YES;
+    }
+
+    if(hasConflict){
+     /* Apple reports a context-versus-row-cache conflict: cachedSnapshot
+        holds the coordinator's (newer) row cache values, objectSnapshot
+        holds the (older) committed values the context last read, and
+        persistedSnapshot is nil. The atomic stores do not yet track
+        per-row optimistic-lock version stamps, so the version numbers
+        reflect a single external update (old 1, new 2). */
+     NSMergeConflict *conflict=[[[NSMergeConflict alloc] initWithSource:updated
+                                                             newVersion:2
+                                                             oldVersion:1
+                                                         cachedSnapshot:rowCacheSnapshot
+                                                      persistedSnapshot:nil] autorelease];
+     [conflict _setObjectSnapshot:objectSnapshot];
+
+     [conflicts addObject:conflict];
+    }
+   }
+
+   return conflicts;
+}
+
+/* Resolves save conflicts according to the receiver's merge policy.
+   Returns NO (with errorp filled) for the error policy. */
+-(BOOL)_resolveSaveConflicts:(NSArray *)conflicts error:(NSError **)errorp {
+   if([conflicts count]==0)
+    return YES;
+
+   NSMergePolicyType mergeType=NSErrorMergePolicyType;
+
+   if([_mergePolicy isKindOfClass:[NSMergePolicy class]])
+    mergeType=[_mergePolicy mergeType];
+
+   switch(mergeType){
+
+    case NSErrorMergePolicyType:{
+     if(errorp!=NULL){
+      NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+      [userInfo setObject:@"Could not merge changes." forKey:NSLocalizedDescriptionKey];
+      [userInfo setObject:conflicts forKey:NSPersistentStoreSaveConflictsErrorKey];
+      *errorp=[NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectMergeError userInfo:userInfo];
+     }
+     return NO;
+    }
+
+    case NSMergeByPropertyStoreTrumpMergePolicyType:
+     for(NSMergeConflict *conflict in conflicts){
+      NSManagedObject *object=[conflict sourceObject];
+      NSDictionary    *committed=[conflict objectSnapshot];
+      NSDictionary    *rowCache=[conflict cachedSnapshot];
+      NSMutableSet    *keys=[NSMutableSet setWithArray:[committed allKeys]];
+
+      [keys addObjectsFromArray:[rowCache allKeys]];
+
+      for(NSString *key in keys){
+       id committedValue=[committed objectForKey:key];
+       id rowCacheValue=[rowCache objectForKey:key];
+
+       if(committedValue==rowCacheValue)
+        continue;
+       if(committedValue!=nil && rowCacheValue!=nil && [committedValue isEqual:rowCacheValue])
+        continue;
+
+       /* The store changed this property; its value trumps any
+          in-memory change. */
+       [object _discardChangedValueForKey:key];
+      }
+
+      [object _invalidateCommittedValues];
+     }
+     return YES;
+
+    case NSMergeByPropertyObjectTrumpMergePolicyType:
+     for(NSMergeConflict *conflict in conflicts)
+      [[conflict sourceObject] _invalidateCommittedValues];
+     return YES;
+
+    case NSOverwriteMergePolicyType:
+     /* The in-memory object is written over the persisted version. */
+     return YES;
+
+    case NSRollbackMergePolicyType:
+     for(NSMergeConflict *conflict in conflicts){
+      NSManagedObject *object=[conflict sourceObject];
+
+      [object _discardChangedValues];
+      [object _invalidateCommittedValues];
+      [_updatedObjects removeObject:object];
+     }
+     return YES;
+   }
+
+   return YES;
+}
+
+/* Applies NSNullifyDeleteRule semantics: disconnects deleted objects from
+   the graph right before they are removed from their stores. */
+-(void)_nullifyRelationshipsOfDeletedObjects {
+   for(NSManagedObject *deleted in [[_deletedObjects copy] autorelease]){
+    NSArray *properties=[[[deleted entity] propertiesByName] allValues];
+
+    for(NSPropertyDescription *property in properties)
+     if([property isKindOfClass:[NSRelationshipDescription class]])
+      [deleted setValue:nil forKey:[property name]];
+   }
+}
+
 -(BOOL)save:(NSError **)errorp {
    NSMutableArray *errors=[NSMutableArray array];
    NSMutableArray *errorStores=[NSMutableArray array];
@@ -471,7 +777,39 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    NSMutableSet   *incrementalDeleted=[NSMutableSet set];
    
    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextWillSaveNotification object:self];
-   
+
+   /* Lifecycle: give every changed object a chance to react before
+      validation and the actual write. */
+   NSMutableSet *changedObjects=[NSMutableSet setWithSet:_insertedObjects];
+   [changedObjects unionSet:_updatedObjects];
+   [changedObjects unionSet:_deletedObjects];
+
+   for(NSManagedObject *object in changedObjects)
+    [object willSave];
+
+   [self _propagateCascadeDeletes];
+
+   if(![self _validateChangesForSave:errorp])
+    return NO;
+
+   if(![self _resolveSaveConflicts:[self _detectSaveConflicts] error:errorp])
+    return NO;
+
+   [self _nullifyRelationshipsOfDeletedObjects];
+
+   /* Snapshots for the did-save notification and -didSave callbacks. */
+   NSMutableSet *notifyInserted=[NSMutableSet set];
+   NSMutableSet *notifyUpdated=[NSMutableSet set];
+   NSSet        *notifyDeleted=[[_deletedObjects copy] autorelease];
+
+   for(NSManagedObject *check in _insertedObjects)
+    if(![_deletedObjects containsObject:check])
+     [notifyInserted addObject:check];
+
+   for(NSManagedObject *check in _updatedObjects)
+    if(![_deletedObjects containsObject:check] && ![_insertedObjects containsObject:check])
+     [notifyUpdated addObject:check];
+
    /* Capture the change sets destined for incremental stores before the
       bookkeeping below mutates them. */
    for(NSManagedObject *check in _insertedObjects){
@@ -605,7 +943,29 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     [_updatedObjects removeAllObjects];
     [_deletedObjects removeAllObjects];
 
-    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification object:self];
+    /* Fold the saved changes into the committed snapshots so that
+       -changedValues is empty and -committedValuesForKeys: reflects the
+       persisted state. */
+    NSMutableSet *saved=[NSMutableSet setWithSet:notifyInserted];
+    [saved unionSet:notifyUpdated];
+
+    for(NSManagedObject *object in saved){
+     [object _discardChangedValues];
+     [object _invalidateCommittedValues];
+    }
+
+    for(NSManagedObject *object in saved)
+     [object didSave];
+    for(NSManagedObject *object in notifyDeleted)
+     [object didSave];
+
+    NSMutableDictionary *notifyInfo=[NSMutableDictionary dictionary];
+
+    [notifyInfo setObject:notifyInserted forKey:NSInsertedObjectsKey];
+    [notifyInfo setObject:notifyUpdated forKey:NSUpdatedObjectsKey];
+    [notifyInfo setObject:notifyDeleted forKey:NSDeletedObjectsKey];
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification object:self userInfo:notifyInfo];
 
     return YES;
    }
@@ -623,7 +983,34 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(void)mergeChangesFromContextDidSaveNotification:(NSNotification *)notification {
-    NSUnimplementedMethod();
+   NSDictionary *userInfo=[notification userInfo];
+
+   for(NSManagedObject *inserted in [userInfo objectForKey:NSInsertedObjectsKey]){
+    /* Registers a fault for the newly saved object in the receiver. */
+    [self objectWithID:[inserted objectID]];
+   }
+
+   for(NSManagedObject *updated in [userInfo objectForKey:NSUpdatedObjectsKey]){
+    NSManagedObject *local=[self objectRegisteredForID:[updated objectID]];
+
+    if(local!=nil)
+     [self refreshObject:local mergeChanges:YES];
+   }
+
+   for(NSManagedObject *deleted in [userInfo objectForKey:NSDeletedObjectsKey]){
+    NSManagedObject *local=[self objectRegisteredForID:[deleted objectID]];
+
+    if(local!=nil){
+     /* Apple keeps the local instance registered and materialized (its
+        committed values remain readable) but marks it as deleted in the
+        receiving context; it is not turned into a fault. */
+     [local _discardChangedValues];
+
+     [_insertedObjects removeObject:local];
+     [_updatedObjects removeObject:local];
+     [_deletedObjects addObject:local];
+    }
+   }
 }
 
 

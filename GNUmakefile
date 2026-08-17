@@ -26,12 +26,14 @@ CoreData_OBJC_FILES = \
 	CoreData/NSIncrementalStoreNode.m \
 	CoreData/NSAtomicStoreCacheNode.m \
 	CoreData/NSXMLPersistentStore.m \
+	CoreData/NSSQLitePersistentStore.m \
 	CoreData/NSInMemoryPersistentStore.m \
 	CoreData/NSPropertyMapping.m \
 	CoreData/NSEntityMapping.m \
 	CoreData/NSMappingModel.m \
 	CoreData/NSEntityMigrationPolicy.m \
-	CoreData/NSMigrationManager.m
+	CoreData/NSMigrationManager.m \
+	CoreData/NSMergePolicy.m
 
 CoreData_HEADER_FILES_DIR = CoreData
 CoreData_HEADER_FILES_INSTALL_DIR = CoreData
@@ -59,14 +61,18 @@ CoreData_HEADER_FILES = \
 	NSPersistentStoreCoordinator.h \
 	NSPropertyDescription.h \
 	NSRelationshipDescription.h \
+	NSSQLitePersistentStore.h \
 	NSXMLPersistentStore.h \
 	NSPropertyMapping.h \
 	NSEntityMapping.h \
 	NSMappingModel.h \
 	NSEntityMigrationPolicy.h \
-	NSMigrationManager.h
+	NSMigrationManager.h \
+	NSMergePolicy.h
 
 CoreData_OBJCFLAGS = -fno-objc-arc
+
+CoreData_LIBRARIES_DEPEND_UPON += -lsqlite3
 
 CoreData_INCLUDE_DIRS = -I.
 

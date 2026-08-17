@@ -16,6 +16,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 -init {
    _entity=nil;
    _propertyName=nil;
+   /* Properties are optional by default, as on Apple's CoreData. */
+   _optional=YES;
    return self;
 }
 
@@ -75,26 +77,22 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 
 - (BOOL) isTransient {
-    NSUnimplementedMethod();
-    return NO;
+    return _transient;
 }
 
 
 - (NSDictionary *) userInfo {
-    NSUnimplementedMethod();
-    return nil;
+    return _userInfo;
 }
 
 
 - (NSArray *) validationPredicates {
-    NSUnimplementedMethod();
-    return nil;
+    return _validationPredicates;
 }
 
 
 - (NSArray *) validationWarnings {
-    NSUnimplementedMethod();
-    return nil;
+    return _validationWarnings;
 }
 
 
@@ -143,19 +141,27 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 
 - (void) setTransient: (BOOL) value {
-    NSUnimplementedMethod();
+    _transient=value;
 }
 
 
 - (void) setUserInfo: (NSDictionary *) value {
-    NSUnimplementedMethod();
+    value=[value copy];
+    [_userInfo release];
+    _userInfo=value;
 }
 
 
 - (void) setValidationPredicates: (NSArray *) predicates
 	  withValidationWarnings: (NSArray *) warnings
 {
-    NSUnimplementedMethod();
+    predicates=[predicates copy];
+    [_validationPredicates release];
+    _validationPredicates=predicates;
+
+    warnings=[warnings copy];
+    [_validationWarnings release];
+    _validationWarnings=warnings;
 }
 
 

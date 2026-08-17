@@ -12,6 +12,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSAtomicStore.h>
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSAtomicStoreCacheNode.h>
+#import <CoreData/NSEntityDescription.h>
+#import <CoreData/NSRelationshipDescription.h>
 #import "NSManagedObjectID-Private.h"
 #import "NSManagedObject-Private.h"
 #import "CoreDataUtilities.h"
@@ -127,7 +129,37 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(void)updateCacheNode:(NSAtomicStoreCacheNode *)node fromManagedObject:(NSManagedObject *)managedObject {
-   NSInvalidAbstractInvocation();
+   NSEntityDescription *entity=[managedObject entity];
+   NSDictionary        *attributesByName=[entity attributesByName];
+
+   for(NSString *attributeName in attributesByName){
+    [node setValue:[managedObject primitiveValueForKey:attributeName] forKey:attributeName];
+   }
+
+   NSDictionary *relationshipsByName=[entity relationshipsByName];
+
+   for(NSString *relationshipName in relationshipsByName){
+    NSRelationshipDescription *relationship=[relationshipsByName objectForKey:relationshipName];
+    id                         value=[managedObject primitiveValueForKey:relationshipName];
+
+    if([relationship isToMany]){
+     NSMutableSet *nodeSet=[NSMutableSet set];
+
+     for(NSManagedObjectID *relatedID in value){
+      NSAtomicStoreCacheNode *relatedNode=[self cacheNodeForObjectID:relatedID];
+
+      if(relatedNode!=nil)
+       [nodeSet addObject:relatedNode];
+     }
+
+     [node setValue:nodeSet forKey:relationshipName];
+    }
+    else {
+     NSAtomicStoreCacheNode *relatedNode=(value==nil)?nil:[self cacheNodeForObjectID:value];
+
+     [node setValue:relatedNode forKey:relationshipName];
+    }
+   }
 }
 
 -(BOOL)load:(NSError **)error {
