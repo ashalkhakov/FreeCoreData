@@ -14,8 +14,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #import <CoreData/CoreData.h>
 
-/* V1: Employee(name, salary) <-> Department(name). */
+/* V1: Employee(name, salary, hireDate) <->> Department(name). */
 NSManagedObjectModel *VersioningTestModelV1(void);
 
-/* V2: adds Employee.title; Department is unchanged. */
+/* V2: adds Employee.title, drops Employee.hireDate; Department is unchanged. */
 NSManagedObjectModel *VersioningTestModelV2(void);

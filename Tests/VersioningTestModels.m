@@ -14,9 +14,62 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #import "VersioningTestModels.h"
 
+/* Version 1 model: Employee(name, salary, hireDate) <->> Department(name). */
 NSManagedObjectModel *VersioningTestModelV1(void)
 {
-    return XMLStoreTestModel();
+    NSAttributeDescription *employeeName = [[NSAttributeDescription alloc] init];
+    [employeeName setName:@"name"];
+    [employeeName setAttributeType:NSStringAttributeType];
+    [employeeName setOptional:YES];
+
+    NSAttributeDescription *salary = [[NSAttributeDescription alloc] init];
+    [salary setName:@"salary"];
+    [salary setAttributeType:NSInteger32AttributeType];
+    [salary setOptional:YES];
+
+    NSAttributeDescription *hireDate = [[NSAttributeDescription alloc] init];
+    [hireDate setName:@"hireDate"];
+    [hireDate setAttributeType:NSDateAttributeType];
+    [hireDate setOptional:YES];
+
+    NSAttributeDescription *departmentName = [[NSAttributeDescription alloc] init];
+    [departmentName setName:@"name"];
+    [departmentName setAttributeType:NSStringAttributeType];
+    [departmentName setOptional:YES];
+
+    NSRelationshipDescription *department = [[NSRelationshipDescription alloc] init];
+    [department setName:@"department"];
+    [department setMinCount:1];
+    [department setMaxCount:1];
+    [department setOptional:YES];
+
+    NSRelationshipDescription *employees = [[NSRelationshipDescription alloc] init];
+    [employees setName:@"employees"];
+    [employees setMinCount:0];
+    [employees setMaxCount:0];
+    [employees setOptional:YES];
+
+    NSEntityDescription *employeeEntity = [[NSEntityDescription alloc] init];
+    [employeeEntity setName:@"Employee"];
+    [employeeEntity setManagedObjectClassName:@"NSManagedObject"];
+    [employeeEntity setProperties:
+        [NSArray arrayWithObjects:employeeName, salary, hireDate, department, nil]];
+
+    NSEntityDescription *departmentEntity = [[NSEntityDescription alloc] init];
+    [departmentEntity setName:@"Department"];
+    [departmentEntity setManagedObjectClassName:@"NSManagedObject"];
+    [departmentEntity setProperties:
+        [NSArray arrayWithObjects:departmentName, employees, nil]];
+
+    [department setDestinationEntity:departmentEntity];
+    [employees setDestinationEntity:employeeEntity];
+    [department setInverseRelationship:employees];
+    [employees setInverseRelationship:department];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:
+        [NSArray arrayWithObjects:employeeEntity, departmentEntity, nil]];
+    return model;
 }
 
 /* Version 2 model: adds Employee.title, drops Employee.hireDate. */
