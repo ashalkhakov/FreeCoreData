@@ -754,7 +754,8 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     NSArray *properties=[[[deleted entity] propertiesByName] allValues];
 
     for(NSPropertyDescription *property in properties)
-     [deleted setValue:nil forKey:[property name]];
+     if([property isKindOfClass:[NSRelationshipDescription class]])
+      [deleted setValue:nil forKey:[property name]];
    }
 }
 
