@@ -628,41 +628,37 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
      continue;
 
     NSDictionary        *attributes=[[updated entity] attributesByName];
-    NSMutableDictionary *cachedSnapshot=[NSMutableDictionary dictionary];
-    NSMutableDictionary *persistedSnapshot=[NSMutableDictionary dictionary];
+    NSMutableDictionary *rowCacheSnapshot=[NSMutableDictionary dictionary];
+    NSMutableDictionary *objectSnapshot=[NSMutableDictionary dictionary];
     BOOL                 hasConflict=NO;
 
     for(NSString *key in attributes){
-     id persistedValue=[node valueForKey:key];
-     id cachedValue=[cached objectForKey:key];
+     id rowCacheValue=[node valueForKey:key];
+     id committedValue=[cached objectForKey:key];
 
-     if(persistedValue!=nil)
-      [persistedSnapshot setObject:persistedValue forKey:key];
-     if(cachedValue!=nil)
-      [cachedSnapshot setObject:cachedValue forKey:key];
+     if(rowCacheValue!=nil)
+      [rowCacheSnapshot setObject:rowCacheValue forKey:key];
+     if(committedValue!=nil)
+      [objectSnapshot setObject:committedValue forKey:key];
 
-     if(persistedValue==cachedValue)
+     if(rowCacheValue==committedValue)
       continue;
-     if(persistedValue!=nil && cachedValue!=nil && [persistedValue isEqual:cachedValue])
+     if(rowCacheValue!=nil && committedValue!=nil && [rowCacheValue isEqual:committedValue])
       continue;
 
      hasConflict=YES;
     }
 
     if(hasConflict){
+     /* Apple reports a context-versus-row-cache conflict: cachedSnapshot
+        holds the coordinator's (newer) row cache values, objectSnapshot
+        holds the (older) committed values the context last read, and
+        persistedSnapshot is nil. */
      NSMergeConflict *conflict=[[[NSMergeConflict alloc] initWithSource:updated
                                                              newVersion:2
                                                              oldVersion:1
-                                                         cachedSnapshot:cachedSnapshot
-                                                      persistedSnapshot:persistedSnapshot] autorelease];
-     NSMutableDictionary *objectSnapshot=[NSMutableDictionary dictionaryWithDictionary:cachedSnapshot];
-
-     for(NSString *key in attributes){
-      id changed=[[updated changedValues] objectForKey:key];
-
-      if(changed!=nil)
-       [objectSnapshot setObject:changed forKey:key];
-     }
+                                                         cachedSnapshot:rowCacheSnapshot
+                                                      persistedSnapshot:nil] autorelease];
      [conflict _setObjectSnapshot:objectSnapshot];
 
      [conflicts addObject:conflict];
@@ -699,19 +695,19 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     case NSMergeByPropertyStoreTrumpMergePolicyType:
      for(NSMergeConflict *conflict in conflicts){
       NSManagedObject *object=[conflict sourceObject];
-      NSDictionary    *cached=[conflict cachedSnapshot];
-      NSDictionary    *persisted=[conflict persistedSnapshot];
-      NSMutableSet    *keys=[NSMutableSet setWithArray:[cached allKeys]];
+      NSDictionary    *committed=[conflict objectSnapshot];
+      NSDictionary    *rowCache=[conflict cachedSnapshot];
+      NSMutableSet    *keys=[NSMutableSet setWithArray:[committed allKeys]];
 
-      [keys addObjectsFromArray:[persisted allKeys]];
+      [keys addObjectsFromArray:[rowCache allKeys]];
 
       for(NSString *key in keys){
-       id cachedValue=[cached objectForKey:key];
-       id persistedValue=[persisted objectForKey:key];
+       id committedValue=[committed objectForKey:key];
+       id rowCacheValue=[rowCache objectForKey:key];
 
-       if(cachedValue==persistedValue)
+       if(committedValue==rowCacheValue)
         continue;
-       if(cachedValue!=nil && persistedValue!=nil && [cachedValue isEqual:persistedValue])
+       if(committedValue!=nil && rowCacheValue!=nil && [committedValue isEqual:rowCacheValue])
         continue;
 
        /* The store changed this property; its value trumps any
@@ -992,17 +988,14 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     NSManagedObject *local=[self objectRegisteredForID:[deleted objectID]];
 
     if(local!=nil){
-     /* Apple turns the local instance into a fault but keeps it registered
-        with the context for as long as it is referenced. */
-     [local willTurnIntoFault];
+     /* Apple keeps the local instance registered and materialized (its
+        committed values remain readable) but marks it as deleted in the
+        receiving context; it is not turned into a fault. */
      [local _discardChangedValues];
-     [local _invalidateCommittedValues];
-     [local _setFault:YES];
-     [local didTurnIntoFault];
 
      [_insertedObjects removeObject:local];
      [_updatedObjects removeObject:local];
-     [_deletedObjects removeObject:local];
+     [_deletedObjects addObject:local];
     }
    }
 }

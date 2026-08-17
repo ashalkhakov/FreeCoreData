@@ -227,11 +227,14 @@ static NSManagedObjectModel *MergeTestModel(void)
     XCTAssertNotNil(received);
     [self.ctx2 mergeChangesFromContextDidSaveNotification:received];
 
-    /* Apple keeps the (still referenced) local instance registered as a
-       fault; the row is gone, so fetches no longer return it. */
+    /* Apple keeps the (still referenced) local instance registered and
+       materialized, but marks it deleted; the row is gone, so fetches no
+       longer return it. */
     NSManagedObject *local = [self.ctx2 objectRegisteredForID:objectID];
     XCTAssertNotNil(local);
-    XCTAssertTrue([local isFault]);
+    XCTAssertFalse([local isFault]);
+    XCTAssertTrue([local isDeleted]);
+    XCTAssertEqualObjects([local valueForKey:@"name"], @"Alice");
     XCTAssertEqual([[self fetchAllPeopleInContext:self.ctx2] count],
                    (NSUInteger)0);
 
@@ -287,14 +290,16 @@ static NSManagedObjectModel *MergeTestModel(void)
         [[error userInfo] objectForKey:NSPersistentStoreSaveConflictsErrorKey];
     XCTAssertEqual([conflicts count], (NSUInteger)1);
 
+    /* Context-versus-row-cache conflict: objectSnapshot holds the committed
+       values ctx2 last read, cachedSnapshot holds the newer row cache
+       values, persistedSnapshot is nil. */
     NSMergeConflict *conflict = [conflicts objectAtIndex:0];
     XCTAssertEqual([conflict sourceObject], other);
     XCTAssertEqualObjects(
-        [[conflict cachedSnapshot] objectForKey:@"name"], @"Alice");
+        [[conflict cachedSnapshot] objectForKey:@"name"], @"FromCtx1");
+    XCTAssertNil([conflict persistedSnapshot]);
     XCTAssertEqualObjects(
-        [[conflict persistedSnapshot] objectForKey:@"name"], @"FromCtx1");
-    XCTAssertEqualObjects(
-        [[conflict objectSnapshot] objectForKey:@"name"], @"FromCtx2");
+        [[conflict objectSnapshot] objectForKey:@"name"], @"Alice");
 }
 
 - (void)testStoreTrumpMergePolicyKeepsPersistedConflictingValues

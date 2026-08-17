@@ -35,6 +35,10 @@ COREDATA_EXPORT id NSOverwriteMergePolicy;
 /* Discards in-memory state and keeps the persisted version. */
 COREDATA_EXPORT id NSRollbackMergePolicy;
 
+/* Describes an optimistic-locking conflict. For a conflict between a
+   context and the coordinator's row cache: objectSnapshot holds the
+   committed values the context last read, cachedSnapshot holds the newer
+   row cache values, and persistedSnapshot is nil. */
 @interface NSMergeConflict : NSObject {
     NSManagedObject *_sourceObject;
     NSDictionary *_objectSnapshot;
