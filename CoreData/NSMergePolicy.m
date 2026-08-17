@@ -91,13 +91,6 @@ persistedSnapshot:(NSDictionary *)persistedSnapshot {
    }
 }
 
-/* The globals are also exposed through +load so that referencing e.g.
-   NSErrorMergePolicy before any NSMergePolicy message is sent works. */
-+(void)load {
-   [NSMergePolicy class];
-   [self initialize];
-}
-
 -initWithMergeType:(NSMergePolicyType)type {
    _mergeType=type;
    return self;

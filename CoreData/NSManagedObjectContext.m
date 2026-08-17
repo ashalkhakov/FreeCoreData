@@ -65,6 +65,7 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    
    _objectIdToObject=NSCreateMapTable(NSObjectMapKeyCallBacks,NSObjectMapValueCallBacks,0);
    _requestedProcessPendingChanges = NO;
+   [NSMergePolicy self]; // ensure the merge policy globals are initialized
    _mergePolicy=[NSErrorMergePolicy retain];
    return self;
 }
