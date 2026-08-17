@@ -211,7 +211,7 @@ static BOOL cancelledError(NSMigrationManager *self,NSError *migrationError,NSEr
 
    /* Open the source store, ignoring versioning so that a store written
       with the (older) source model can be read. */
-   NSMutableDictionary *sourceOptions=[NSMutableDictionary dictionaryWithDictionary:sOptions];
+   NSMutableDictionary *sourceOptions=(sOptions!=nil)?[NSMutableDictionary dictionaryWithDictionary:sOptions]:[NSMutableDictionary dictionary];
    [sourceOptions setObject:[NSNumber numberWithBool:YES] forKey:NSIgnorePersistentStoreVersioningOption];
 
    _sourceCoordinator=[[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:_sourceModel];
