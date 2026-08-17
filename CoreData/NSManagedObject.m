@@ -461,19 +461,29 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -primitiveValueForKey:(NSString *) key {
    id result=[_changedValues objectForKey:key];
-   
+
    if(result==nil)
     result=[[self _committedValues] objectForKey:key];
-   
+
+   if(result==[NSNull null])
+    result=nil;
+
    return result;
 }
 
 -(void)setPrimitiveValue:value forKey:(NSString *)key {
+   /* An explicit nil must shadow the committed value, so it is recorded
+      as NSNull rather than removed from the pending changes. */
    if(value==nil)
-    [_changedValues removeObjectForKey:key];
-   else {
-    [_changedValues setObject:value forKey:key];
-   }
+    value=[NSNull null];
+
+   [_changedValues setObject:value forKey:key];
+}
+
+/* Private: drops the pending change for key so the committed value shows
+   through again (used by merge policies, not part of Apple's API). */
+-(void)_discardChangedValueForKey:(NSString *)key {
+   [_changedValues removeObjectForKey:key];
 }
 
 static NSError *_validationError(NSInteger code,NSManagedObject *object,NSString *key,id value,NSString *description){

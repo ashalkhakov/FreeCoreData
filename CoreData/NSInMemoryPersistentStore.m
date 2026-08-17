@@ -11,6 +11,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import "NSInMemoryPersistentStore.h"
 #import <CoreData/NSPersistentStoreCoordinator.h>
+#import <Foundation/NSValue.h>
 
 @implementation NSInMemoryPersistentStore
 
@@ -24,6 +25,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -(BOOL)load:(NSError **)errorp {
    return YES;
+}
+
+-newReferenceObjectForManagedObject:(NSManagedObject *)managedObject {
+   return [NSNumber numberWithUnsignedInteger:++_lastReference];
 }
 
 -(BOOL)save:(NSError **)error {

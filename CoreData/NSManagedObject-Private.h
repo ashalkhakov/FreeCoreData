@@ -17,5 +17,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSDictionary *)_cachedCommittedValues;
 - (void)_invalidateCommittedValues;
 - (void)_discardChangedValues;
+- (void)_discardChangedValueForKey:(NSString *)key;
 - (void)_setFault:(BOOL)isFault;
 @end

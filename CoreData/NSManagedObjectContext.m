@@ -717,7 +717,7 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
        /* The store changed this property; its value trumps any
           in-memory change. */
-       [object setPrimitiveValue:nil forKey:key];
+       [object _discardChangedValueForKey:key];
       }
 
       [object _invalidateCommittedValues];
