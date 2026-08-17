@@ -16,6 +16,7 @@ COREDATA_EXPORT NSString *const NSAffectedStoresErrorKey;
 COREDATA_EXPORT NSString *const NSDetailedErrorsKey;
 
 enum {
+    NSManagedObjectReferentialIntegrityError = 133000,
     NSPersistentStoreInvalidTypeError = 134000,
     NSPersistentStoreTypeMismatchError = 134010,
     NSPersistentStoreIncompatibleSchemaError = 134020,

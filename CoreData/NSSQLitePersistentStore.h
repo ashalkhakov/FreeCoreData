@@ -36,6 +36,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 @interface NSSQLitePersistentStore : NSIncrementalStore {
     void *_database;
     NSMutableDictionary *_entityIDs; /* entity name -> NSNumber (Z_ENT) */
+    NSMutableDictionary *_entityNamesByID; /* NSNumber (Z_ENT) -> entity name */
 }
 
 @end

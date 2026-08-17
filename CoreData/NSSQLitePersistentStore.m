@@ -315,6 +315,7 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
 
    _database=NULL;
    _entityIDs=[[NSMutableDictionary alloc] init];
+   _entityNamesByID=[[NSMutableDictionary alloc] init];
 
    return self;
 }
@@ -323,6 +324,7 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
    if(_database!=NULL)
     sqlite3_close(DATABASE);
    [_entityIDs release];
+   [_entityNamesByID release];
    [super dealloc];
 }
 
@@ -403,18 +405,25 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
    return [model entitiesForConfiguration:[self configurationName]];
 }
 
+-(void)_registerEntityID:(long long)entityID forName:(NSString *)name {
+   NSNumber *number=[NSNumber numberWithLongLong:entityID];
+
+   [_entityIDs setObject:number forKey:name];
+   [_entityNamesByID setObject:name forKey:number];
+}
+
 -(long long)_entityIDForEntity:(NSEntityDescription *)entity {
    return [[_entityIDs objectForKey:[entity name]] longLongValue];
 }
 
 -(NSEntityDescription *)_entityForEntityID:(long long)entityID {
    NSManagedObjectModel *model=[[self persistentStoreCoordinator] managedObjectModel];
+   NSString             *name=[_entityNamesByID objectForKey:[NSNumber numberWithLongLong:entityID]];
 
-   for(NSString *name in _entityIDs)
-    if([[_entityIDs objectForKey:name] longLongValue]==entityID)
-     return [[model entitiesByName] objectForKey:name];
+   if(name==nil)
+    return nil;
 
-   return nil;
+   return [[model entitiesByName] objectForKey:name];
 }
 
 /* Entity IDs of entity and all of its subentities (the Z_ENT values
@@ -518,7 +527,7 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
    long long nextID=1;
 
    for(NSEntityDescription *entity in sortedEntities)
-    [_entityIDs setObject:[NSNumber numberWithLongLong:nextID++] forKey:[entity name]];
+    [self _registerEntityID:nextID++ forName:[entity name]];
 
    if(!executeSQL(DATABASE,@"CREATE TABLE Z_METADATA (Z_VERSION INTEGER PRIMARY KEY, Z_UUID VARCHAR(255), Z_PLIST BLOB)",error))
     return NO;
@@ -608,7 +617,7 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
     const unsigned char *name=sqlite3_column_text(statement,1);
 
     if(name!=NULL)
-     [_entityIDs setObject:[NSNumber numberWithLongLong:entityID] forKey:[NSString stringWithUTF8String:(const char *)name]];
+     [self _registerEntityID:entityID forName:[NSString stringWithUTF8String:(const char *)name]];
    }
 
    sqlite3_finalize(statement);
@@ -679,7 +688,12 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
     return NO;
    }
 
-   return executeSQL(DATABASE,@"COMMIT",error);
+   if(!executeSQL(DATABASE,@"COMMIT",error)){
+    executeSQL(DATABASE,@"ROLLBACK",NULL);
+    return NO;
+   }
+
+   return YES;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1008,8 +1022,10 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
     return nil;
    }
 
-   if(!executeSQL(DATABASE,@"COMMIT",error))
+   if(!executeSQL(DATABASE,@"COMMIT",error)){
+    executeSQL(DATABASE,@"ROLLBACK",NULL);
     return nil;
+   }
 
    return [NSArray array];
 }
@@ -1087,7 +1103,7 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
    if(sqlite3_step(statement)!=SQLITE_ROW){
     sqlite3_finalize(statement);
     if(error!=NULL)
-     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:133000 /* NSManagedObjectReferentialIntegrityError */ userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"CoreData could not fulfill a fault for %@",objectID] forKey:NSLocalizedDescriptionKey]];
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectReferentialIntegrityError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"CoreData could not fulfill a fault for %@",objectID] forKey:NSLocalizedDescriptionKey]];
     return nil;
    }
 
