@@ -314,7 +314,8 @@ static BOOL cancelledError(NSMigrationManager *self,NSError *migrationError,NSEr
    if(![_destinationContext save:error])
     return NO;
 
-   _migrationProgress=1.0f;
+   /* Apple resets the migration progress once the migration completes. */
+   _migrationProgress=0.0f;
 
    return YES;
 }

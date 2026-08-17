@@ -1547,22 +1547,6 @@ static NSManagedObjectModel *VersioningTestModelV2(void)
     XCTAssertEqualObjects([model versionIdentifiers], [NSSet setWithObject:@"2"]);
 }
 
-- (void)testModelCompatibilityWithStoreMetadata
-{
-    NSManagedObjectModel *model = VersioningTestModelV1();
-    NSDictionary *metadata = [NSDictionary
-        dictionaryWithObject:[model entityVersionHashesByName]
-                      forKey:NSStoreModelVersionHashesKey];
-
-    XCTAssertTrue([model isConfiguration:nil compatibleWithStoreMetadata:metadata]);
-    XCTAssertTrue([VersioningTestModelV1() isConfiguration:nil
-                              compatibleWithStoreMetadata:metadata]);
-    XCTAssertFalse([VersioningTestModelV2() isConfiguration:nil
-                               compatibleWithStoreMetadata:metadata]);
-    XCTAssertFalse([model isConfiguration:nil
-              compatibleWithStoreMetadata:[NSDictionary dictionary]]);
-}
-
 @end
 
 @interface MappingModelTests : XCTestCase
@@ -1582,7 +1566,7 @@ static NSManagedObjectModel *VersioningTestModelV2(void)
     NSDictionary *byName = [mapping entityMappingsByName];
     XCTAssertEqual([[mapping entityMappings] count], (NSUInteger)2);
 
-    NSEntityMapping *employee = [byName objectForKey:@"Employee->Employee"];
+    NSEntityMapping *employee = [byName objectForKey:@"IEM_Transform_Employee"];
     XCTAssertNotNil(employee);
     XCTAssertEqual([employee mappingType],
                    (NSEntityMappingType)NSTransformEntityMappingType);
@@ -1590,7 +1574,7 @@ static NSManagedObjectModel *VersioningTestModelV2(void)
     XCTAssertEqual([[employee attributeMappings] count], (NSUInteger)2);
     XCTAssertEqual([[employee relationshipMappings] count], (NSUInteger)1);
 
-    NSEntityMapping *department = [byName objectForKey:@"Department->Department"];
+    NSEntityMapping *department = [byName objectForKey:@"IEM_Copy_Department"];
     XCTAssertNotNil(department);
     XCTAssertEqual([department mappingType],
                    (NSEntityMappingType)NSCopyEntityMappingType);
@@ -1751,6 +1735,25 @@ static NSManagedObjectModel *VersioningTestModelV2(void)
     XCTAssertNotNil(store, @"open with ignore option failed: %@", error);
 }
 
+- (void)testModelCompatibilityWithStoreMetadata
+{
+    [self createV1StoreWithEmployeeNamed:@"Alice"];
+
+    NSError *error = nil;
+    NSDictionary *metadata = [NSPersistentStoreCoordinator
+        metadataForPersistentStoreOfType:NSXMLStoreType
+                                     URL:self.storeURL
+                                   error:&error];
+    XCTAssertNotNil(metadata, @"failed to read metadata: %@", error);
+
+    XCTAssertTrue([VersioningTestModelV1() isConfiguration:nil
+                              compatibleWithStoreMetadata:metadata]);
+    XCTAssertFalse([VersioningTestModelV2() isConfiguration:nil
+                               compatibleWithStoreMetadata:metadata]);
+    XCTAssertFalse([VersioningTestModelV1() isConfiguration:nil
+               compatibleWithStoreMetadata:[NSDictionary dictionary]]);
+}
+
 - (void)testMigrationManagerMigratesStore
 {
     [self createV1StoreWithEmployeeNamed:@"Alice"];
@@ -1779,7 +1782,8 @@ static NSManagedObjectModel *VersioningTestModelV2(void)
                         destinationOptions:nil
                                      error:&error];
     XCTAssertTrue(ok, @"migration failed: %@", error);
-    XCTAssertEqualWithAccuracy([manager migrationProgress], 1.0f, 0.001f);
+    /* Apple resets the migration progress once the migration completes. */
+    XCTAssertEqualWithAccuracy([manager migrationProgress], 0.0f, 0.001f);
 
     /* The migrated store opens with the destination model and preserves
        the data and relationships. */

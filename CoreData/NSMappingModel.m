@@ -80,8 +80,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [mapping setDestinationEntityName:name];
     [mapping setDestinationEntityVersionHash:[destinationEntity versionHash]];
 
-    if(sourceEntity==nil)
+    if(sourceEntity==nil){
      [mapping setMappingType:NSAddEntityMappingType];
+     [mapping setName:[NSString stringWithFormat:@"IEM_Add_%@",name]];
+    }
     else {
      NSMutableArray *attributeMappings=[NSMutableArray array];
      NSMutableArray *relationshipMappings=[NSMutableArray array];
@@ -90,6 +92,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
      [mapping setSourceEntityName:name];
      [mapping setSourceEntityVersionHash:[sourceEntity versionHash]];
      [mapping setMappingType:[[sourceEntity versionHash] isEqual:[destinationEntity versionHash]]?NSCopyEntityMappingType:NSTransformEntityMappingType];
+
+     /* Apple names inferred entity mappings IEM_<Type>_<EntityName>. */
+     [mapping setName:[NSString stringWithFormat:@"IEM_%@_%@",([mapping mappingType]==NSCopyEntityMappingType)?@"Copy":@"Transform",name]];
 
      /* Properties that exist in both versions with the same name migrate
         by direct copy; new properties keep their default values. */
@@ -129,6 +134,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
      [mapping setSourceEntityName:name];
      [mapping setSourceEntityVersionHash:[sourceEntity versionHash]];
      [mapping setMappingType:NSRemoveEntityMappingType];
+     [mapping setName:[NSString stringWithFormat:@"IEM_Remove_%@",name]];
 
      [entityMappings addObject:mapping];
     }
