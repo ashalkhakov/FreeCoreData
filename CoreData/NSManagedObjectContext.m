@@ -322,10 +322,10 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    }
 
    /* An incremental store returns results that are already filtered,
-      sorted and limited; when the context has no pending inserts or
-      deletes to merge in, return them as-is, preserving the store's
-      ordering. */
-   if([resultSet count]==0 && [_deletedObjects count]==0 && [affectedStores count]==1){
+      sorted and limited; when the context has no pending inserts,
+      updates or deletes to merge in, return them as-is, preserving the
+      store's ordering. */
+   if([resultSet count]==0 && [_deletedObjects count]==0 && [_updatedObjects count]==0 && [affectedStores count]==1){
     NSPersistentStore *onlyStore=[affectedStores objectAtIndex:0];
 
     if([onlyStore isKindOfClass:[NSIncrementalStore class]])
