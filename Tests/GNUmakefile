@@ -6,7 +6,21 @@ GS_WITH_ARC = 1
 
 include $(GNUSTEP_MAKEFILES)/common.make
 
-CoreDataTests_OBJC_FILES = CoreDataTests.m
+CoreDataTests_OBJC_FILES = \
+	MemoryIncrementalStore.m \
+	VersioningTestModels.m \
+	NSManagedObjectModelTests.m \
+	NSFetchRequestTests.m \
+	NSPersistentStoreCoordinatorTests.m \
+	NSManagedObjectContextTests.m \
+	NSPersistentStoreCoordinatorTypeMismatchTests.m \
+	NSPersistentStoreRequestTests.m \
+	NSIncrementalStoreNodeTests.m \
+	NSIncrementalStoreTests.m \
+	NSXMLPersistentStoreTests.m \
+	VersionHashTests.m \
+	MappingModelTests.m \
+	StoreVersioningTests.m
 
 CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
 
