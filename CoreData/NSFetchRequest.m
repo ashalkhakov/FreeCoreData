@@ -20,6 +20,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    _sortDescriptors=nil;
    _affectedStores=nil;
    _fetchLimit=0;
+   _includesSubentities=YES;
    return self;
 }
 

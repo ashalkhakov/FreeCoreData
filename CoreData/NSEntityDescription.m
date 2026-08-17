@@ -286,7 +286,18 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
 	return;
     }
     
-    NSUnimplementedMethod();
+    NSMutableDictionary *table=[[NSMutableDictionary alloc] init];
+
+    for(NSEntityDescription *entity in value){
+	[table setObject:entity forKey:[entity name]];
+	if(entity->_superentity!=self){
+	    [entity->_superentity release];
+	    entity->_superentity=[self retain];
+	}
+    }
+
+    [_subentities release];
+    _subentities=table;
 }
 
 

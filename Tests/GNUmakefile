@@ -18,6 +18,7 @@ CoreDataTests_OBJC_FILES = \
 	NSIncrementalStoreNodeTests.m \
 	NSIncrementalStoreTests.m \
 	NSXMLPersistentStoreTests.m \
+	NSSQLitePersistentStoreTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
 	StoreVersioningTests.m
