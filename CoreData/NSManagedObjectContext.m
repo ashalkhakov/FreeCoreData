@@ -653,7 +653,9 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
      /* Apple reports a context-versus-row-cache conflict: cachedSnapshot
         holds the coordinator's (newer) row cache values, objectSnapshot
         holds the (older) committed values the context last read, and
-        persistedSnapshot is nil. */
+        persistedSnapshot is nil. The atomic stores do not yet track
+        per-row optimistic-lock version stamps, so the version numbers
+        reflect a single external update (old 1, new 2). */
      NSMergeConflict *conflict=[[[NSMergeConflict alloc] initWithSource:updated
                                                              newVersion:2
                                                              oldVersion:1
