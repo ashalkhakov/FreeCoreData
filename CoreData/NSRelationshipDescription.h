@@ -18,7 +18,6 @@ typedef enum {
     NSDeleteRule _deleteRule;
     NSEntityDescription *_destinationEntity;
     NSRelationshipDescription *_inverseRelationship;
-    BOOL _optional;
     NSUInteger _maxCount;
     NSUInteger _minCount;
     NSString *_destinationEntityName;

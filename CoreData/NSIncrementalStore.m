@@ -18,7 +18,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "CoreDataUtilities.h"
 #import <Foundation/NSDictionary.h>
 #import <Foundation/NSString.h>
-#import <CoreFoundation/CFUUID.h>
+#import <Foundation/NSUUID.h>
 
 @implementation NSIncrementalStore
 
@@ -39,12 +39,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 +(id)identifierForNewStoreAtURL:(NSURL *)storeURL {
-   CFUUIDRef uuid=CFUUIDCreate(NULL);
-   NSString *result=[(NSString *)CFUUIDCreateString(NULL,uuid) autorelease];
-
-   CFRelease(uuid);
-
-   return result;
+   return [[NSUUID UUID] UUIDString];
 }
 
 -(NSString *)type {
