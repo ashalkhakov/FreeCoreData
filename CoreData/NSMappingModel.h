@@ -1,38 +1,30 @@
-/* Copyright (c) 2008 Dan Knapp
+/* This file is part of the CoreData framework port for GNUstep.
+   Original file — not derived from Cocotron.
+
+   GNUstep port adaptations are released under the same MIT license.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
-#import <Foundation/NSObject.h>
+#import <Foundation/Foundation.h>
 
-@class NSEntityDescription, NSArray, NSDictionary, NSData, NSString;
+@class NSManagedObjectModel, NSEntityMapping;
 
-@interface NSPropertyDescription : NSObject <NSCoding, NSCopying> {
-    NSEntityDescription *_entity;
-    NSString *_propertyName;
-    NSString *_versionHashModifier;
-    BOOL _optional;
+@interface NSMappingModel : NSObject {
+    NSArray *_entityMappings;
 }
 
-- (NSEntityDescription *)entity;
++ (NSMappingModel *)mappingModelFromBundles:(NSArray *)bundles forSourceModel:(NSManagedObjectModel *)sourceModel destinationModel:(NSManagedObjectModel *)destinationModel;
 
-- (NSString *)name;
-- (BOOL)isOptional;
-- (BOOL)isTransient;
-- (NSDictionary *)userInfo;
-- (NSArray *)validationPredicates;
-- (NSArray *)validationWarnings;
++ (NSMappingModel *)inferredMappingModelForSourceModel:(NSManagedObjectModel *)sourceModel destinationModel:(NSManagedObjectModel *)destinationModel error:(NSError **)error;
 
-- (NSData *)versionHash;
-- (NSString *)versionHashModifier;
-- (void)setVersionHashModifier:(NSString *)value;
+- initWithContentsOfURL:(NSURL *)url;
 
-- (void)setName:(NSString *)value;
-- (void)setOptional:(BOOL)value;
-- (void)setTransient:(BOOL)value;
-- (void)setUserInfo:(NSDictionary *)value;
-- (void)setValidationPredicates:(NSArray *)predicates withValidationWarnings:(NSArray *)warnings;
+- (NSArray *)entityMappings;
+- (void)setEntityMappings:(NSArray *)mappings;
+
+- (NSDictionary *)entityMappingsByName;
 
 @end

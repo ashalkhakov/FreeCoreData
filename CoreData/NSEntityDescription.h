@@ -52,4 +52,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSDictionary *)relationshipsByName;
 - (NSArray *)relationshipsWithDestinationEntity:(NSEntityDescription *)entity;
 
+- (NSData *)versionHash;
+- (NSString *)versionHashModifier;
+- (void)setVersionHashModifier:(NSString *)value;
+
 @end

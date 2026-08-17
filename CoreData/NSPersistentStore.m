@@ -25,8 +25,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 +(Class)migrationManagerClass {
-   NSUnimplementedMethod();
-   return 0;
+   return NSClassFromString(@"NSMigrationManager");
 }
 
 -initWithPersistentStoreCoordinator:(NSPersistentStoreCoordinator *)root configurationName:(NSString *)name URL:(NSURL *)url options:(NSDictionary *)options {

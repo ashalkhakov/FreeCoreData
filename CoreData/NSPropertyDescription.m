@@ -8,6 +8,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSPropertyDescription.h>
 #import "CoreDataUtilities.h"
+#import "CoreDataVersioning-Private.h"
 #import <Foundation/NSCoder.h>
 
 @implementation NSPropertyDescription
@@ -24,6 +25,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
    _entity=[coder decodeObjectForKey: @"NSEntity"];
    _propertyName=[[coder decodeObjectForKey: @"NSPropertyName"] copy];
+   _versionHashModifier=[[coder decodeObjectForKey: @"NSVersionHashModifier"] copy];
    
    return self;
 }
@@ -93,6 +95,38 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSArray *) validationWarnings {
     NSUnimplementedMethod();
     return nil;
+}
+
+
+/* Private: subclasses append the components that participate in the
+   version hash. */
+- (void) _appendVersionHashComponents: (NSMutableArray *) components {
+    [components addObject:NSStringFromClass([self class])];
+    [components addObject:(_propertyName!=nil)?_propertyName:@""];
+    [components addObject:_optional?@"1":@"0"];
+    if(_versionHashModifier!=nil)
+	[components addObject:_versionHashModifier];
+}
+
+
+- (NSData *) versionHash {
+    NSMutableArray *components=[NSMutableArray array];
+
+    [self _appendVersionHashComponents:components];
+
+    return _NSCoreDataDigestForComponents(components);
+}
+
+
+- (NSString *) versionHashModifier {
+    return _versionHashModifier;
+}
+
+
+- (void) setVersionHashModifier: (NSString *) value {
+    value=[value copy];
+    [_versionHashModifier release];
+    _versionHashModifier=value;
 }
 
 

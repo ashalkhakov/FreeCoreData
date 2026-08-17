@@ -10,6 +10,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSEntityDescription.h>
 #import <Foundation/Foundation.h>
 
+@interface NSPropertyDescription(VersionHashPrivate)
+- (void)_appendVersionHashComponents:(NSMutableArray *)components;
+@end
+
 @implementation NSAttributeDescription
 
 -initWithCoder:(NSCoder *)coder {
@@ -82,6 +86,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     value=[value retain];
     [_defaultValue release];
     _defaultValue=value;
+}
+
+
+- (void) _appendVersionHashComponents: (NSMutableArray *) components {
+    [super _appendVersionHashComponents:components];
+    [components addObject:[NSString stringWithFormat:@"%d",(int)_attributeType]];
+    [components addObject:(_valueClassName!=nil)?_valueClassName:@""];
 }
 
 @end

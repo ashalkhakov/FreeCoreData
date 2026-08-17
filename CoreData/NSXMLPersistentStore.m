@@ -49,6 +49,23 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
    return caseInsensitiveLookup([model entitiesByName],name);
 }
 
+/* The metadata dictionary is stored inside the <metadata> element as an
+   XML property list string. */
+static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
+   NSString *plistString=[element stringValue];
+
+   if([plistString length]==0)
+    return [NSDictionary dictionary];
+
+   NSData       *plistData=[plistString dataUsingEncoding:NSUTF8StringEncoding];
+   NSDictionary *result=[NSPropertyListSerialization propertyListWithData:plistData options:NSPropertyListImmutable format:NULL error:NULL];
+
+   if(![result isKindOfClass:[NSDictionary class]])
+    return [NSDictionary dictionary];
+
+   return result;
+}
+
 @implementation NSXMLPersistentStore
 
 +(NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url error:(NSError **)error {
@@ -69,8 +86,16 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
    NSXMLElement *database=[[xml nodesForXPath:@"database" error:nil] lastObject];
    NSXMLElement *databaseInfo=[[database elementsForName:@"databaseInfo"] lastObject];
    NSXMLElement *uuid=[[databaseInfo elementsForName:@"UUID"] lastObject];
+   NSXMLElement *metadataElement=[[databaseInfo elementsForName:@"metadata"] lastObject];
 
-   return [NSDictionary dictionaryWithObjectsAndKeys:[uuid stringValue],NSStoreUUIDKey,NSXMLStoreType,NSStoreTypeKey,nil];
+   NSMutableDictionary *result=[NSMutableDictionary dictionary];
+
+   [result addEntriesFromDictionary:metadataDictionaryFromElement(metadataElement)];
+   if([uuid stringValue]!=nil)
+    [result setObject:[uuid stringValue] forKey:NSStoreUUIDKey];
+   [result setObject:NSXMLStoreType forKey:NSStoreTypeKey];
+
+   return result;
 }
 
 -(NSString *)type {
@@ -86,7 +111,13 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
 }
 
 -(NSXMLElement *)metadataElement {
-   return [[[self databaseElement] elementsForName:@"metadata"] lastObject];
+   NSXMLElement *result=[[[self databaseInfoElement] elementsForName:@"metadata"] lastObject];
+
+   /* Older files stored the metadata element directly under database. */
+   if(result==nil)
+    result=[[[self databaseElement] elementsForName:@"metadata"] lastObject];
+
+   return result;
 }
  
 -(NSXMLElement *)identifierElement {
@@ -138,7 +169,12 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
    [data release];
    
    [super setIdentifier:[[self identifierElement] stringValue]];
-   [self setMetadata:[NSDictionary dictionaryWithObjectsAndKeys:[self identifier],NSStoreUUIDKey,[self type],NSStoreTypeKey,nil]];
+
+   NSMutableDictionary *initialMetadata=[NSMutableDictionary dictionaryWithDictionary:metadataDictionaryFromElement([self metadataElement])];
+
+   [initialMetadata setObject:[self identifier] forKey:NSStoreUUIDKey];
+   [initialMetadata setObject:[self type] forKey:NSStoreTypeKey];
+   [self setMetadata:initialMetadata];
 
    _referenceToCacheNode=[[NSMutableDictionary alloc] init];
    _referenceToElement=[[NSMutableDictionary alloc] init];
@@ -332,6 +368,18 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
  
  
 - (BOOL)save:(NSError **)error {
+    NSXMLElement *metadataElement=[self metadataElement];
+
+    if(metadataElement==nil){
+     metadataElement=[[[NSXMLElement alloc] initWithName:@"metadata"] autorelease];
+     [[self databaseInfoElement] addChild:metadataElement];
+    }
+
+    NSData *plistData=[NSPropertyListSerialization dataWithPropertyList:[self metadata] format:NSPropertyListXMLFormat_v1_0 options:0 error:NULL];
+
+    if(plistData!=nil)
+     [metadataElement setStringValue:[[[NSString alloc] initWithData:plistData encoding:NSUTF8StringEncoding] autorelease]];
+
     NSData *data=[_document XMLData];
 
     return [data writeToURL:[self URL] atomically:YES];

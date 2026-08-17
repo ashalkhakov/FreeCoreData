@@ -10,6 +10,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSEntityDescription.h>
 #import <Foundation/Foundation.h>
 
+@interface NSPropertyDescription(VersionHashPrivate)
+- (void)_appendVersionHashComponents:(NSMutableArray *)components;
+@end
+
 @implementation NSRelationshipDescription
 
 -initWithCoder: (NSCoder *) coder {
@@ -117,6 +121,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     
     _inverseRelationship = value;
     _inverseRelationshipName = [value name];
+}
+
+
+- (void) _appendVersionHashComponents: (NSMutableArray *) components {
+    NSString *destinationName=(_destinationEntityName!=nil)?_destinationEntityName:[_destinationEntity name];
+
+    [super _appendVersionHashComponents:components];
+    [components addObject:(destinationName!=nil)?destinationName:@""];
+    [components addObject:[self isToMany]?@"1":@"0"];
+    [components addObject:[NSString stringWithFormat:@"%d",(int)_deleteRule]];
+    [components addObject:[NSString stringWithFormat:@"%lu",(unsigned long)_minCount]];
+    [components addObject:[NSString stringWithFormat:@"%lu",(unsigned long)_maxCount]];
 }
 
 

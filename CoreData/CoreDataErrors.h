@@ -25,4 +25,12 @@ enum {
     NSPersistentStoreOpenError = 134080,
     NSPersistentStoreTimeoutError = 134090,
     NSPersistentStoreIncompatibleVersionHashError = 134100,
+    NSMigrationError = 134110,
+    NSMigrationCancelledError = 134120,
+    NSMigrationMissingSourceModelError = 134130,
+    NSMigrationMissingMappingModelError = 134140,
+    NSMigrationManagerSourceStoreError = 134150,
+    NSMigrationManagerDestinationStoreError = 134160,
+    NSEntityMigrationPolicyError = 134170,
+    NSInferredMappingModelError = 134190,
 };
