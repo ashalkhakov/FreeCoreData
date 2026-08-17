@@ -61,10 +61,17 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
     id ref = [self referenceObjectForObjectID:[object objectID]];
     NSMutableDictionary *table = [self tableForEntityName:[[object entity] name]];
     NSMutableDictionary *row = [NSMutableDictionary dictionary];
-    for (NSString *key in [[object entity] attributesByName]) {
-        id value = [object valueForKey:key];
-        if (value != nil)
-            [row setObject:value forKey:key];
+    /* Walk the superentity chain so inherited attributes are persisted
+       too. */
+    NSEntityDescription *entity;
+    for (entity = [object entity]; entity != nil; entity = [entity superentity]) {
+        for (NSString *key in [entity attributesByName]) {
+            if ([row objectForKey:key] != nil)
+                continue;
+            id value = [object valueForKey:key];
+            if (value != nil)
+                [row setObject:value forKey:key];
+        }
     }
     [table setObject:row forKey:ref];
 }
@@ -78,11 +85,23 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
         NSFetchRequest *fetch = (NSFetchRequest *)request;
         NSEntityDescription *entity = [fetch entity];
         NSMutableArray *results = [NSMutableArray array];
-        NSDictionary *table = [self.rows objectForKey:[entity name]];
-        for (id ref in table) {
-            NSManagedObjectID *objectID =
-                [self newObjectIDForEntity:entity referenceObject:ref];
-            [results addObject:[context objectWithID:objectID]];
+        NSMutableArray *entities =
+            [NSMutableArray arrayWithObject:entity];
+        /* The store is responsible for including subentity instances when
+           the fetch asks for them (the default). */
+        if ([fetch includesSubentities]) {
+            NSUInteger i;
+            for (i = 0; i < [entities count]; i++)
+                [entities addObjectsFromArray:
+                    [[entities objectAtIndex:i] subentities]];
+        }
+        for (NSEntityDescription *fetchEntity in entities) {
+            NSDictionary *table = [self.rows objectForKey:[fetchEntity name]];
+            for (id ref in table) {
+                NSManagedObjectID *objectID =
+                    [self newObjectIDForEntity:fetchEntity referenceObject:ref];
+                [results addObject:[context objectWithID:objectID]];
+            }
         }
         if ([fetch predicate] != nil)
             [results filterUsingPredicate:[fetch predicate]];
@@ -172,7 +191,19 @@ NSManagedObjectModel *IncrementalStoreTestModel(void)
     [entity setManagedObjectClassName:@"NSManagedObject"];
     [entity setProperties:[NSArray arrayWithObjects:name, age, nil]];
 
+    /* Manager is a subentity of Person and adds a `level' attribute. */
+    NSAttributeDescription *level = [[NSAttributeDescription alloc] init];
+    [level setName:@"level"];
+    [level setAttributeType:NSInteger32AttributeType];
+
+    NSEntityDescription *manager = [[NSEntityDescription alloc] init];
+    [manager setName:@"Manager"];
+    [manager setManagedObjectClassName:@"NSManagedObject"];
+    [manager setProperties:[NSArray arrayWithObject:level]];
+
+    [entity setSubentities:[NSArray arrayWithObject:manager]];
+
     NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
-    [model setEntities:[NSArray arrayWithObject:entity]];
+    [model setEntities:[NSArray arrayWithObjects:entity, manager, nil]];
     return model;
 }

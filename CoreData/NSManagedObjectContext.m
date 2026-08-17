@@ -344,7 +344,7 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(void)deleteObject:(NSManagedObject *)object {
-   NSArray *properties=[[object entity] properties];
+   NSArray *properties=[[[object entity] propertiesByName] allValues];
     
    for(NSPropertyDescription *property in properties)
     [object setValue:nil forKey:[property name]];

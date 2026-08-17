@@ -325,6 +325,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                                      error:&error];
     XCTAssertTrue(ok, @"migration failed: %@", error);
 
+    /* Release the migration manager (and with it its open source and
+       destination store connections) before the destination store files
+       are touched again; deleting a SQLite database that still has an
+       open connection is an API violation ("vnode unlinked while in
+       use" on macOS). */
+    manager = nil;
+
     /* The migrated store opens with the destination model and preserves
        the data and relationships. */
     NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
@@ -353,6 +360,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSManagedObject *department = [alice valueForKey:@"department"];
     XCTAssertNotNil(department);
     XCTAssertEqualObjects([department valueForKey:@"name"], @"Engineering");
+
+    /* Close the verification store's connection before deleting its
+       files. */
+    XCTAssertTrue([psc removePersistentStore:store error:&error],
+                  @"failed to remove store: %@", error);
 
     [self removeStoreFilesAtURL:destinationURL];
 }

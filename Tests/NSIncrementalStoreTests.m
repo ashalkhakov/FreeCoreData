@@ -340,4 +340,95 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqual(self.store.lastDeletedCount, (NSUInteger)0);
 }
 
+/* -- entity inheritance ------------------------------------------------ */
+
+- (void)testNewObjectIDForSubentityKeepsSubentity
+{
+    NSEntityDescription *managerEntity =
+        [[self.model entitiesByName] objectForKey:@"Manager"];
+    NSManagedObjectID *objectID =
+        [self.store newObjectIDForEntity:managerEntity referenceObject:@"m1"];
+    XCTAssertNotNil(objectID);
+    XCTAssertEqualObjects([[objectID entity] name], @"Manager");
+    XCTAssertFalse([objectID isTemporaryID]);
+}
+
+- (void)testFetchOfParentEntityIncludesSubentityInstances
+{
+    [self seedRow:[NSDictionary dictionaryWithObject:@"Alice" forKey:@"name"]
+        forReference:@"r1"];
+    [[self.store tableForEntityName:@"Manager"]
+        setObject:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Boss", @"name",
+                      [NSNumber numberWithInt:3], @"level", nil]
+           forKey:@"m1"];
+
+    /* A fetch of the parent entity includes subentity instances, which
+       keep their own entity and their subentity-specific attributes. */
+    NSError *error = nil;
+    NSArray *results = [self.ctx executeFetchRequest:[self personFetchRequest]
+                                               error:&error];
+    XCTAssertEqual([results count], (NSUInteger)2);
+
+    NSManagedObject *boss = nil;
+    for (NSManagedObject *object in results)
+        if ([[[object entity] name] isEqualToString:@"Manager"])
+            boss = object;
+    XCTAssertNotNil(boss);
+    XCTAssertEqualObjects([boss valueForKey:@"name"], @"Boss");
+    XCTAssertEqualObjects([boss valueForKey:@"level"],
+                          [NSNumber numberWithInt:3]);
+
+    /* A fetch of the subentity finds only its own instances. */
+    NSFetchRequest *managerFetch = [[NSFetchRequest alloc] init];
+    [managerFetch setEntity:
+        [[self.model entitiesByName] objectForKey:@"Manager"]];
+    NSArray *managers = [self.ctx executeFetchRequest:managerFetch
+                                                error:&error];
+    XCTAssertEqual([managers count], (NSUInteger)1);
+    XCTAssertEqualObjects(
+        [[managers objectAtIndex:0] valueForKey:@"name"], @"Boss");
+}
+
+- (void)testFetchWithoutSubentitiesExcludesSubentityInstances
+{
+    [self seedRow:[NSDictionary dictionaryWithObject:@"Alice" forKey:@"name"]
+        forReference:@"r1"];
+    [[self.store tableForEntityName:@"Manager"]
+        setObject:[NSDictionary dictionaryWithObject:@"Boss" forKey:@"name"]
+           forKey:@"m1"];
+
+    NSFetchRequest *fetch = [self personFetchRequest];
+    [fetch setIncludesSubentities:NO];
+
+    NSError *error = nil;
+    NSArray *results = [self.ctx executeFetchRequest:fetch error:&error];
+    XCTAssertEqual([results count], (NSUInteger)1);
+    XCTAssertEqualObjects(
+        [[[results objectAtIndex:0] entity] name], @"Person");
+}
+
+- (void)testInsertSubentityAndSave
+{
+    NSManagedObject *boss =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Manager"
+                                      inManagedObjectContext:self.ctx];
+    [boss setValue:@"Boss" forKey:@"name"];
+    [boss setValue:[NSNumber numberWithInt:3] forKey:@"level"];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    /* The permanent object ID keeps the subentity, and the row lands in
+       the subentity's table with both the inherited and the
+       subentity-specific attributes. */
+    XCTAssertEqualObjects([[[boss objectID] entity] name], @"Manager");
+    NSDictionary *table = [self.store.rows objectForKey:@"Manager"];
+    XCTAssertEqual([table count], (NSUInteger)1);
+    NSDictionary *row = [[table allValues] objectAtIndex:0];
+    XCTAssertEqualObjects([row objectForKey:@"name"], @"Boss");
+    XCTAssertEqualObjects([row objectForKey:@"level"],
+                          [NSNumber numberWithInt:3]);
+}
+
 @end

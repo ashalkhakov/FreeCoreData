@@ -437,4 +437,76 @@ static NSManagedObjectModel *XMLStoreTestModel(void)
     XCTAssertEqual([reloadedEmployees count], (NSUInteger)1);
 }
 
+/* -- entity inheritance ------------------------------------------------ */
+
+/* Person(name) with subentity Manager(reports). */
+static NSManagedObjectModel *XMLInheritanceModel(void)
+{
+    NSAttributeDescription *personName = [[NSAttributeDescription alloc] init];
+    [personName setName:@"name"];
+    [personName setAttributeType:NSStringAttributeType];
+    [personName setOptional:YES];
+
+    NSAttributeDescription *reports = [[NSAttributeDescription alloc] init];
+    [reports setName:@"reports"];
+    [reports setAttributeType:NSInteger32AttributeType];
+    [reports setOptional:YES];
+
+    NSEntityDescription *person = [[NSEntityDescription alloc] init];
+    [person setName:@"Person"];
+    [person setManagedObjectClassName:@"NSManagedObject"];
+    [person setProperties:[NSArray arrayWithObject:personName]];
+
+    NSEntityDescription *manager = [[NSEntityDescription alloc] init];
+    [manager setName:@"Manager"];
+    [manager setManagedObjectClassName:@"NSManagedObject"];
+    [manager setProperties:[NSArray arrayWithObject:reports]];
+
+    [person setSubentities:[NSArray arrayWithObject:manager]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObjects:person, manager, nil]];
+    return model;
+}
+
+- (void)testSubentitiesRoundtrip
+{
+    NSManagedObjectContext *ctx1 = [self contextWithModel:XMLInheritanceModel()];
+
+    NSManagedObject *boss =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Manager"
+                                      inManagedObjectContext:ctx1];
+    [boss setValue:@"Boss" forKey:@"name"];
+    [boss setValue:[NSNumber numberWithInt:7] forKey:@"reports"];
+
+    NSManagedObject *worker =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:ctx1];
+    [worker setValue:@"Worker" forKey:@"name"];
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx1 save:&error], @"save failed: %@", error);
+
+    /* Reopen with a fresh stack: a fetch of the parent entity includes
+       subentity instances, which keep their own entity and both the
+       inherited and the subentity-specific attributes. */
+    NSManagedObjectContext *ctx2 = [self contextWithModel:XMLInheritanceModel()];
+    NSArray *people = [self fetchEntityNamed:@"Person" inContext:ctx2];
+    XCTAssertEqual([people count], (NSUInteger)2);
+
+    NSManagedObject *reloadedBoss = nil;
+    for (NSManagedObject *personObject in people)
+        if ([[[personObject entity] name] isEqualToString:@"Manager"])
+            reloadedBoss = personObject;
+    XCTAssertNotNil(reloadedBoss);
+    XCTAssertEqualObjects([reloadedBoss valueForKey:@"name"], @"Boss");
+    XCTAssertEqual([[reloadedBoss valueForKey:@"reports"] intValue], 7);
+
+    /* A fetch of the subentity finds only its own instances. */
+    NSArray *managers = [self fetchEntityNamed:@"Manager" inContext:ctx2];
+    XCTAssertEqual([managers count], (NSUInteger)1);
+    XCTAssertEqualObjects(
+        [[managers objectAtIndex:0] valueForKey:@"name"], @"Boss");
+}
+
 @end

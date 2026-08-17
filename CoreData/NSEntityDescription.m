@@ -327,7 +327,7 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
 -(NSDictionary *)attributesByName {
    NSMutableDictionary *result=[NSMutableDictionary dictionary];
    
-   for(NSPropertyDescription *check in [_properties allValues]){
+   for(NSPropertyDescription *check in [[self propertiesByName] allValues]){
     if([check isKindOfClass:[NSAttributeDescription class]]){
      [result setObject:check forKey:[check name]];
     }
@@ -337,17 +337,34 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
 }
 
 
+/* Apple includes inherited properties: an entity's propertiesByName covers
+   its own properties plus those of every superentity (a subentity's own
+   property shadows a same-named inherited one). */
 -(NSDictionary *)propertiesByName {
-   return _properties;
+   if(_superentity==nil)
+    return _properties;
+
+   NSMutableDictionary *result=[NSMutableDictionary dictionary];
+   NSEntityDescription *check;
+
+   for(check=self;check!=nil;check=check->_superentity){
+    for(NSString *name in check->_properties){
+     if([result objectForKey:name]==nil)
+      [result setObject:[check->_properties objectForKey:name] forKey:name];
+    }
+   }
+
+   return result;
 }
 
 
 -(NSDictionary *)relationshipsByName {
    NSMutableDictionary *result=[NSMutableDictionary dictionary];
    
-   for(NSPropertyDescription *check in [_properties allValues]){
-    if([check isKindOfClass:[NSRelationshipDescription class]])
+   for(NSPropertyDescription *check in [[self propertiesByName] allValues]){
+    if([check isKindOfClass:[NSRelationshipDescription class]]){
      [result setObject:check forKey:[check name]];
+    }
    }
       
    return result;

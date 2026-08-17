@@ -219,4 +219,130 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [[NSFileManager defaultManager] removeItemAtURL:destinationURL error:NULL];
 }
 
+/* -- entity inheritance ------------------------------------------------ */
+
+/* Person(name) with subentity Manager.  When `withBudget` is YES the
+   Manager subentity carries an extra attribute, producing a different
+   version hash for Manager (but not for Person). */
+static NSManagedObjectModel *InheritanceVersioningModel(BOOL withBudget)
+{
+    NSAttributeDescription *personName = [[NSAttributeDescription alloc] init];
+    [personName setName:@"name"];
+    [personName setAttributeType:NSStringAttributeType];
+    [personName setOptional:YES];
+
+    NSAttributeDescription *reports = [[NSAttributeDescription alloc] init];
+    [reports setName:@"reports"];
+    [reports setAttributeType:NSInteger32AttributeType];
+    [reports setOptional:YES];
+
+    NSEntityDescription *person = [[NSEntityDescription alloc] init];
+    [person setName:@"Person"];
+    [person setManagedObjectClassName:@"NSManagedObject"];
+    [person setProperties:[NSArray arrayWithObject:personName]];
+
+    NSMutableArray *managerProperties =
+        [NSMutableArray arrayWithObject:reports];
+    if (withBudget) {
+        NSAttributeDescription *budget =
+            [[NSAttributeDescription alloc] init];
+        [budget setName:@"budget"];
+        [budget setAttributeType:NSInteger32AttributeType];
+        [budget setOptional:YES];
+        [managerProperties addObject:budget];
+    }
+
+    NSEntityDescription *manager = [[NSEntityDescription alloc] init];
+    [manager setName:@"Manager"];
+    [manager setManagedObjectClassName:@"NSManagedObject"];
+    [manager setProperties:managerProperties];
+
+    [person setSubentities:[NSArray arrayWithObject:manager]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObjects:person, manager, nil]];
+    return model;
+}
+
+- (void)createInheritanceStore
+{
+    NSError *error = nil;
+    NSManagedObjectContext *ctx = nil;
+    NSPersistentStore *store =
+        [self openStoreWithModel:InheritanceVersioningModel(NO)
+                         options:nil
+                           error:&error
+                         context:&ctx];
+    XCTAssertNotNil(store, @"failed to open store: %@", error);
+
+    NSManagedObject *boss =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Manager"
+                                      inManagedObjectContext:ctx];
+    [boss setValue:@"Boss" forKey:@"name"];
+    [boss setValue:[NSNumber numberWithInt:7] forKey:@"reports"];
+
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+}
+
+- (void)testInheritanceStoreIsStampedWithSubentityHashes
+{
+    [self createInheritanceStore];
+
+    NSError *error = nil;
+    NSDictionary *metadata = [NSPersistentStoreCoordinator
+        metadataForPersistentStoreOfType:NSXMLStoreType
+                                     URL:self.storeURL
+                                   error:&error];
+    XCTAssertNotNil(metadata, @"failed to read metadata: %@", error);
+
+    /* The version hashes cover the parent and the subentity, and match
+       the model's own per-entity hashes. */
+    NSDictionary *hashes =
+        [metadata objectForKey:NSStoreModelVersionHashesKey];
+    XCTAssertNotNil([hashes objectForKey:@"Person"]);
+    XCTAssertNotNil([hashes objectForKey:@"Manager"]);
+    XCTAssertEqualObjects(hashes,
+        [InheritanceVersioningModel(NO) entityVersionHashesByName]);
+}
+
+- (void)testReopeningWithModifiedSubentityFails
+{
+    [self createInheritanceStore];
+
+    /* Reopening with an identical model (parent and subentity unchanged)
+       succeeds... */
+    NSError *error = nil;
+    NSPersistentStore *store =
+        [self openStoreWithModel:InheritanceVersioningModel(NO)
+                         options:nil
+                           error:&error
+                         context:NULL];
+    XCTAssertNotNil(store, @"reopen failed: %@", error);
+
+    /* ...while a model whose subentity gained an attribute is rejected,
+       even though the parent entity is unchanged. */
+    error = nil;
+    store = [self openStoreWithModel:InheritanceVersioningModel(YES)
+                             options:nil
+                               error:&error
+                             context:NULL];
+    XCTAssertNil(store);
+    XCTAssertNotNil(error);
+    XCTAssertEqual([error code],
+                   (NSInteger)NSPersistentStoreIncompatibleVersionHashError);
+}
+
+- (void)testModifiedSubentityChangesOnlyItsOwnVersionHash
+{
+    NSDictionary *v1Hashes =
+        [InheritanceVersioningModel(NO) entityVersionHashesByName];
+    NSDictionary *v2Hashes =
+        [InheritanceVersioningModel(YES) entityVersionHashesByName];
+
+    XCTAssertEqualObjects([v1Hashes objectForKey:@"Person"],
+                          [v2Hashes objectForKey:@"Person"]);
+    XCTAssertNotEqualObjects([v1Hashes objectForKey:@"Manager"],
+                             [v2Hashes objectForKey:@"Manager"]);
+}
+
 @end

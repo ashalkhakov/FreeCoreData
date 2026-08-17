@@ -147,7 +147,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSIncrementalStoreNode *node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
    NSMutableDictionary    *storedValues=[[NSMutableDictionary alloc] init];
 
-   NSArray *properties=[[self entity] properties];
+   /* propertiesByName includes inherited properties, [entity properties]
+      does not. */
+   NSArray *properties=[[[self entity] propertiesByName] allValues];
 
    for(NSPropertyDescription *property in properties){
     NSString *name=[property name];
@@ -215,7 +217,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSDictionary           *propertyCache=[node propertyCache];
     NSMutableDictionary    *storedValues=[[NSMutableDictionary alloc] init];
     
-    NSArray *properties=[[self entity] properties];
+    /* propertiesByName includes inherited properties, [entity properties]
+       does not. */
+    NSArray *properties=[[[self entity] propertiesByName] allValues];
     
     for(NSPropertyDescription *property in properties){
      NSString *name=[property name];

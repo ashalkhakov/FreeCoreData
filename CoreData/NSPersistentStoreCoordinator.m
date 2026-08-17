@@ -143,6 +143,11 @@ static NSMutableDictionary *_storeTypes=nil;
    if(![manager migrateStoreFromURL:storeURL type:storeType options:nil withMappingModel:mappingModel toDestinationURL:temporaryURL destinationType:storeType destinationOptions:nil error:error])
     return NO;
 
+   /* Release the manager's stores (closing their connections, e.g. SQLite
+      file descriptors) before deleting and renaming the files underneath
+      them. */
+   [manager reset];
+
    NSFileManager *fileManager=[NSFileManager defaultManager];
 
    if(![fileManager removeItemAtPath:[storeURL path] error:error])
