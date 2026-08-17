@@ -1097,6 +1097,34 @@ static NSManagedObjectModel *XMLStoreTestModel(void)
                                0.001);
 }
 
+/* Diagnostic: saves one Employee with a hireDate through whatever store
+   implementation is linked in (Apple's NSXMLStoreType on macOS) and dumps
+   the raw XML the store wrote, so we can see the exact on-disk date
+   encoding.  Run this on macOS and inspect the test log output. */
+- (void)testDumpNativeStoreXMLForDateFormat
+{
+    NSDate *hireDate = [NSDate dateWithTimeIntervalSinceReferenceDate:445103622.25];
+
+    NSManagedObjectContext *ctx = [self contextWithModel:XMLStoreTestModel()];
+    NSManagedObject *alice =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Employee"
+                                      inManagedObjectContext:ctx];
+    [alice setValue:@"Alice" forKey:@"name"];
+    [alice setValue:[NSNumber numberWithInt:100] forKey:@"salary"];
+    [alice setValue:hireDate forKey:@"hireDate"];
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    NSString *contents =
+        [NSString stringWithContentsOfURL:self.storeURL
+                                 encoding:NSUTF8StringEncoding
+                                    error:&error];
+    XCTAssertNotNil(contents, @"failed to read store file: %@", error);
+    NSLog(@"=== BEGIN native XML store dump ===\n%@\n=== END native XML store dump ===",
+          contents);
+}
+
 - (void)testNilAttributeRoundtrip
 {
     NSManagedObjectContext *ctx1 = [self contextWithModel:XMLStoreTestModel()];
