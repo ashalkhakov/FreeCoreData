@@ -31,6 +31,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 NSString * const NSManagedObjectContextWillSaveNotification=@"NSManagedObjectContextWillSaveNotification";
 NSString * const NSManagedObjectContextDidSaveNotification=@"NSManagedObjectContextDidSaveNotification";
+NSString * const NSManagedObjectContextObjectsDidChangeNotification=@"NSManagedObjectContextObjectsDidChangeNotification";
 
 NSString * const NSInsertedObjectsKey=@"NSInsertedObjectsKey";
 NSString * const NSUpdatedObjectsKey=@"NSUpdatedObjectsKey";
@@ -62,6 +63,10 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    _insertedObjects=[[NSMutableSet alloc] init];
    _updatedObjects=[[NSMutableSet alloc] init];
    _deletedObjects=[[NSMutableSet alloc] init];
+   _pendingInsertedObjects=[[NSMutableSet alloc] init];
+   _pendingUpdatedObjects=[[NSMutableSet alloc] init];
+   _pendingDeletedObjects=[[NSMutableSet alloc] init];
+   _pendingRefreshedObjects=[[NSMutableSet alloc] init];
    
    _objectIdToObject=NSCreateMapTable(NSObjectMapKeyCallBacks,NSObjectMapValueCallBacks,0);
    _requestedProcessPendingChanges = NO;
@@ -72,6 +77,11 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
 -(void)dealloc {
    NSArray *registered=[_registeredObjects allObjects];
+
+   if(_requestedProcessPendingChanges)
+    [[NSRunLoop mainRunLoop] cancelPerformSelector: @selector(_processPendingChangesForRequest)
+                             target: self
+                             argument: nil];
 
    for(NSManagedObject *check in registered){
     NSArray *properties=[[[check entity] propertiesByName] allKeys];
@@ -89,6 +99,10 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    [_insertedObjects release];
    [_updatedObjects release];
    [_deletedObjects release];
+   [_pendingInsertedObjects release];
+   [_pendingUpdatedObjects release];
+   [_pendingDeletedObjects release];
+   [_pendingRefreshedObjects release];
    NSFreeMapTable(_objectIdToObject);
    [super dealloc];
 }
@@ -117,6 +131,13 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     return _mergePolicy;
 }
 
+-(void)_discardPendingChangeNotifications {
+   [_pendingInsertedObjects removeAllObjects];
+   [_pendingUpdatedObjects removeAllObjects];
+   [_pendingDeletedObjects removeAllObjects];
+   [_pendingRefreshedObjects removeAllObjects];
+}
+
 -(void)persistentStoresDidChange:(NSNotification *)note {
    NSArray *stores=[[note userInfo] objectForKey:NSRemovedPersistentStoresKey];
       
@@ -138,6 +159,10 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
       [_insertedObjects removeObject:check];
       [_updatedObjects removeObject:check];
       [_deletedObjects removeObject:check];
+      [_pendingInsertedObjects removeObject:check];
+      [_pendingUpdatedObjects removeObject:check];
+      [_pendingDeletedObjects removeObject:check];
+      [_pendingRefreshedObjects removeObject:check];
       NSMapRemove(_objectIdToObject,objectID);
      }
     }
@@ -240,6 +265,7 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    [_insertedObjects removeAllObjects];
    [_updatedObjects removeAllObjects];
    [_deletedObjects removeAllObjects];
+   [self _discardPendingChangeNotifications];
    NSResetMapTable(_objectIdToObject);
 }
 
@@ -263,6 +289,7 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    [_insertedObjects removeAllObjects];
    [_updatedObjects removeAllObjects];
    [_deletedObjects removeAllObjects];
+   [self _discardPendingChangeNotifications];
 }
 
 -(NSAtomicStoreCacheNode *)_cacheNodeForObjectID:(NSManagedObjectID *)objectID {
@@ -391,6 +418,10 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    [_insertedObjects addObject:object];
    [_updatedObjects addObject:object];
    [self _registerObject:object];
+
+   [_pendingInsertedObjects addObject:object];
+   [_pendingDeletedObjects removeObject:object];
+   [self _requestProcessPendingChanges];
 }
 
 -(void)deleteObject:(NSManagedObject *)object {
@@ -399,6 +430,17 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    [object prepareForDeletion];
 
    [_deletedObjects addObject:object];
+
+   /* An object that was inserted and deleted in the same event is not
+      reported at all, matching Apple's behavior. */
+   if([_pendingInsertedObjects containsObject:object])
+    [_pendingInsertedObjects removeObject:object];
+   else
+    [_pendingDeletedObjects addObject:object];
+
+   [_pendingUpdatedObjects removeObject:object];
+   [_pendingRefreshedObjects removeObject:object];
+   [self _requestProcessPendingChanges];
 }
 
 -(void)assignObject:object toPersistentStore:(NSPersistentStore *)store {
@@ -433,6 +475,12 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     [_updatedObjects removeObject:object];
     [object didTurnIntoFault];
    }
+
+   if(![_pendingDeletedObjects containsObject:object] && ![_pendingInsertedObjects containsObject:object]){
+    [_pendingRefreshedObjects addObject:object];
+    [_pendingUpdatedObjects removeObject:object];
+    [self _requestProcessPendingChanges];
+   }
 }
 
 -(void)_requestProcessPendingChanges {
@@ -450,6 +498,28 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
 -(void)_processPendingChanges {
     _requestedProcessPendingChanges = NO;
+
+    if([_pendingInsertedObjects count]==0 && [_pendingUpdatedObjects count]==0 &&
+       [_pendingDeletedObjects count]==0 && [_pendingRefreshedObjects count]==0)
+     return;
+
+    NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+    if([_pendingInsertedObjects count]>0)
+     [userInfo setObject:[[_pendingInsertedObjects copy] autorelease] forKey:NSInsertedObjectsKey];
+    if([_pendingUpdatedObjects count]>0)
+     [userInfo setObject:[[_pendingUpdatedObjects copy] autorelease] forKey:NSUpdatedObjectsKey];
+    if([_pendingDeletedObjects count]>0)
+     [userInfo setObject:[[_pendingDeletedObjects copy] autorelease] forKey:NSDeletedObjectsKey];
+    if([_pendingRefreshedObjects count]>0)
+     [userInfo setObject:[[_pendingRefreshedObjects copy] autorelease] forKey:NSRefreshedObjectsKey];
+
+    [_pendingInsertedObjects removeAllObjects];
+    [_pendingUpdatedObjects removeAllObjects];
+    [_pendingDeletedObjects removeAllObjects];
+    [_pendingRefreshedObjects removeAllObjects];
+
+    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextObjectsDidChangeNotification object:self userInfo:userInfo];
 }
 
 -(void)processPendingChanges {
@@ -468,8 +538,14 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
-   if(NSMapGet(_objectIdToObject,[object objectID])==object)
+   if(NSMapGet(_objectIdToObject,[object objectID])==object){
     [_updatedObjects addObject:object];
+
+    if(![_pendingInsertedObjects containsObject:object] && ![_pendingDeletedObjects containsObject:object])
+     [_pendingUpdatedObjects addObject:object];
+
+    [self _requestProcessPendingChanges];
+   }
 }
 
 -(BOOL)obtainPermanentIDsForObjects:(NSArray *)objects error:(NSError **)error {
@@ -775,7 +851,11 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    NSMutableSet   *incrementalInserted=[NSMutableSet set];
    NSMutableSet   *incrementalUpdated=[NSMutableSet set];
    NSMutableSet   *incrementalDeleted=[NSMutableSet set];
-   
+
+   /* Apple flushes pending changes (and thus posts the objects-did-change
+      notification) before the save begins. */
+   [self processPendingChanges];
+
    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextWillSaveNotification object:self];
 
    /* Lifecycle: give every changed object a chance to react before

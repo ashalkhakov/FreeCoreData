@@ -21,6 +21,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 COREDATA_EXPORT NSString *const NSManagedObjectContextWillSaveNotification;
 COREDATA_EXPORT NSString *const NSManagedObjectContextDidSaveNotification;
+COREDATA_EXPORT NSString *const NSManagedObjectContextObjectsDidChangeNotification;
 
 COREDATA_EXPORT NSString *const NSInsertedObjectsKey;
 COREDATA_EXPORT NSString *const NSUpdatedObjectsKey;
@@ -43,6 +44,12 @@ COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
     NSMutableSet *_insertedObjects;
     NSMutableSet *_updatedObjects;
     NSMutableSet *_deletedObjects;
+
+    /* Changes accumulated since the last objects-did-change notification. */
+    NSMutableSet *_pendingInsertedObjects;
+    NSMutableSet *_pendingUpdatedObjects;
+    NSMutableSet *_pendingDeletedObjects;
+    NSMutableSet *_pendingRefreshedObjects;
 
     NSMapTable *_objectIdToObject;
 

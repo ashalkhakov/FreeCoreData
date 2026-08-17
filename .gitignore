@@ -17,6 +17,10 @@ CoreData.framework/
 DerivedData/
 *.xcodeproj/xcuserdata/
 
+# Example application binaries
+Examples/*/EmployeeDirectory
+Examples/*/*.sqlite
+
 # Editor temporaries
 *~
 *.swp

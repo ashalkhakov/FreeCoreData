@@ -1,0 +1,20 @@
+# Builds the example against Apple's CoreData on macOS:
+#
+#     make -f Makefile.macos run
+#
+# On GNUstep use the GNUmakefile instead (see README.md).
+
+CC ?= clang
+CFLAGS = -fno-objc-arc -Wall
+FRAMEWORKS = -framework Foundation -framework CoreData
+SOURCES = EmployeeDirectoryModel.m main.m
+
+EmployeeDirectory: $(SOURCES) EmployeeDirectoryModel.h
+	$(CC) $(CFLAGS) $(FRAMEWORKS) -o $@ $(SOURCES)
+
+.PHONY: run clean
+run: EmployeeDirectory
+	./EmployeeDirectory
+
+clean:
+	rm -rf EmployeeDirectory EmployeeDirectory.dSYM

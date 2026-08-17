@@ -64,4 +64,79 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertNil(err);
 }
 
+/* A context with a one entity model, used by the change notification
+   tests below. */
+- (NSManagedObjectContext *)contextWithNoteEntity
+{
+    NSAttributeDescription *text = [[NSAttributeDescription alloc] init];
+    [text setName:@"text"];
+    [text setAttributeType:NSStringAttributeType];
+    [text setOptional:YES];
+
+    NSEntityDescription *note = [[NSEntityDescription alloc] init];
+    [note setName:@"Note"];
+    [note setManagedObjectClassName:@"NSManagedObject"];
+    [note setProperties:[NSArray arrayWithObject:text]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObject:note]];
+
+    NSPersistentStoreCoordinator *psc =
+        [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSError *err = nil;
+    XCTAssertNotNil([psc addPersistentStoreWithType:NSInMemoryStoreType
+                         configuration:nil URL:nil options:nil error:&err],
+        @"unable to add the store: %@", err);
+
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+
+    /* The receiver keeps the whole stack alive for the test. */
+    self.model = model;
+    self.psc = psc;
+
+    return ctx;
+}
+
+- (void)testProcessPendingChangesPostsObjectsDidChangeNotification
+{
+    NSManagedObjectContext *ctx = [self contextWithNoteEntity];
+    __block NSDictionary *userInfo = nil;
+    id observer = [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSManagedObjectContextObjectsDidChangeNotification
+        object:ctx queue:nil usingBlock:^(NSNotification *note) {
+            userInfo = [note userInfo];
+        }];
+
+    NSManagedObject *inserted =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Note"
+                             inManagedObjectContext:ctx];
+    [inserted setValue:@"hello" forKey:@"text"];
+
+    [ctx processPendingChanges];
+
+    XCTAssertNotNil(userInfo);
+    XCTAssertTrue([[userInfo objectForKey:NSInsertedObjectsKey] containsObject:inserted]);
+
+    /* Changes are reported only once. */
+    userInfo = nil;
+    [ctx processPendingChanges];
+    XCTAssertNil(userInfo);
+
+    /* Updating a registered object reports it as updated. */
+    [inserted setValue:@"goodbye" forKey:@"text"];
+    [ctx processPendingChanges];
+    XCTAssertNotNil(userInfo);
+    XCTAssertTrue([[userInfo objectForKey:NSUpdatedObjectsKey] containsObject:inserted]);
+
+    /* Deleting it reports it as deleted. */
+    userInfo = nil;
+    [ctx deleteObject:inserted];
+    [ctx processPendingChanges];
+    XCTAssertNotNil(userInfo);
+    XCTAssertTrue([[userInfo objectForKey:NSDeletedObjectsKey] containsObject:inserted]);
+
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+}
+
 @end
