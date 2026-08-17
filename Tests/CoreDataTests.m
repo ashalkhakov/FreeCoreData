@@ -1097,34 +1097,6 @@ static NSManagedObjectModel *XMLStoreTestModel(void)
                                0.001);
 }
 
-/* Diagnostic: saves one Employee with a hireDate through whatever store
-   implementation is linked in (Apple's NSXMLStoreType on macOS) and dumps
-   the raw XML the store wrote, so we can see the exact on-disk date
-   encoding.  Run this on macOS and inspect the test log output. */
-- (void)testDumpNativeStoreXMLForDateFormat
-{
-    NSDate *hireDate = [NSDate dateWithTimeIntervalSinceReferenceDate:445103622.25];
-
-    NSManagedObjectContext *ctx = [self contextWithModel:XMLStoreTestModel()];
-    NSManagedObject *alice =
-        [NSEntityDescription insertNewObjectForEntityForName:@"Employee"
-                                      inManagedObjectContext:ctx];
-    [alice setValue:@"Alice" forKey:@"name"];
-    [alice setValue:[NSNumber numberWithInt:100] forKey:@"salary"];
-    [alice setValue:hireDate forKey:@"hireDate"];
-
-    NSError *error = nil;
-    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
-
-    NSString *contents =
-        [NSString stringWithContentsOfURL:self.storeURL
-                                 encoding:NSUTF8StringEncoding
-                                    error:&error];
-    XCTAssertNotNil(contents, @"failed to read store file: %@", error);
-    NSLog(@"=== BEGIN native XML store dump ===\n%@\n=== END native XML store dump ===",
-          contents);
-}
-
 - (void)testNilAttributeRoundtrip
 {
     NSManagedObjectContext *ctx1 = [self contextWithModel:XMLStoreTestModel()];
@@ -1351,12 +1323,16 @@ static NSManagedObjectModel *XMLStoreTestModel(void)
 }
 
 /* Loads a fixture file written in the format Apple's NSXMLStoreType
-   produces (uppercase entity names, z-prefixed object ids, dates as
-   seconds since the reference date) and verifies the object graph. */
+   produces (DOCTYPE referencing CoreData.dtd, uppercase entity names,
+   lowercase property names, z-prefixed object ids, dates as seconds since
+   the reference date with 20 fractional digits) and verifies the object
+   graph.  Mirrors an actual store file written by Apple's CoreData. */
 - (void)testLoadsAppleGeneratedStore
 {
     NSString *fixture =
-        @"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\" ?>\n"
+        @"<?xml version=\"1.0\"?>\n"
+        @"<!DOCTYPE database SYSTEM \"file:///System/Library/DTDs/CoreData.dtd\">\n"
+        @"\n"
         @"<database>\n"
         @"    <databaseInfo>\n"
         @"        <version>134481920</version>\n"
@@ -1366,18 +1342,18 @@ static NSManagedObjectModel *XMLStoreTestModel(void)
         @"    </databaseInfo>\n"
         @"    <object type=\"DEPARTMENT\" id=\"z104\">\n"
         @"        <attribute name=\"name\" type=\"string\">Engineering</attribute>\n"
-        @"        <relationship name=\"employees\" type=\"0/0\" destination=\"EMPLOYEE\" idrefs=\"z102 z103\"></relationship>\n"
+        @"        <relationship name=\"employees\" type=\"0/0\" destination=\"EMPLOYEE\" idrefs=\"z102\"></relationship>\n"
         @"    </object>\n"
         @"    <object type=\"EMPLOYEE\" id=\"z102\">\n"
         @"        <attribute name=\"name\" type=\"string\">Alice</attribute>\n"
         @"        <attribute name=\"salary\" type=\"int32\">100</attribute>\n"
-        @"        <attribute name=\"hireDate\" type=\"date\">445103622.00000000</attribute>\n"
+        @"        <attribute name=\"hiredate\" type=\"date\">445103622.25000000000000000000</attribute>\n"
         @"        <relationship name=\"department\" type=\"1/1\" destination=\"DEPARTMENT\" idrefs=\"z104\"></relationship>\n"
         @"    </object>\n"
         @"    <object type=\"EMPLOYEE\" id=\"z103\">\n"
         @"        <attribute name=\"name\" type=\"string\">Bob</attribute>\n"
         @"        <attribute name=\"salary\" type=\"int32\">90</attribute>\n"
-        @"        <relationship name=\"department\" type=\"1/1\" destination=\"DEPARTMENT\" idrefs=\"z104\"></relationship>\n"
+        @"        <relationship name=\"department\" type=\"1/1\" destination=\"DEPARTMENT\"></relationship>\n"
         @"    </object>\n"
         @"</database>\n";
 
@@ -1408,25 +1384,34 @@ static NSManagedObjectModel *XMLStoreTestModel(void)
         ([NSSet setWithObjects:@"Alice", @"Bob", nil]));
 
     NSManagedObject *aliceObject = nil;
-    for (NSManagedObject *employee in employees)
+    NSManagedObject *bobObject = nil;
+    for (NSManagedObject *employee in employees) {
         if ([[employee valueForKey:@"name"] isEqualToString:@"Alice"])
             aliceObject = employee;
+        if ([[employee valueForKey:@"name"] isEqualToString:@"Bob"])
+            bobObject = employee;
+    }
     XCTAssertNotNil(aliceObject);
     XCTAssertEqual([[aliceObject valueForKey:@"salary"] intValue], 100);
     NSDate *hireDate = [aliceObject valueForKey:@"hireDate"];
     XCTAssertNotNil(hireDate);
     XCTAssertEqualWithAccuracy([hireDate timeIntervalSinceReferenceDate],
-                               445103622.0, 0.001);
+                               445103622.25, 0.001);
 
     NSManagedObject *department = [aliceObject valueForKey:@"department"];
     XCTAssertNotNil(department);
     XCTAssertEqualObjects([department valueForKey:@"name"], @"Engineering");
 
+    /* Bob's department relationship has no idrefs attribute (the form
+       Apple writes for an unset relationship). */
+    XCTAssertNotNil(bobObject);
+    XCTAssertNil([bobObject valueForKey:@"department"]);
+
     NSArray *departments = [self fetchEntityNamed:@"Department" inContext:ctx];
     XCTAssertEqual([departments count], (NSUInteger)1);
     NSSet *reloadedEmployees =
         [[departments objectAtIndex:0] valueForKey:@"employees"];
-    XCTAssertEqual([reloadedEmployees count], (NSUInteger)2);
+    XCTAssertEqual([reloadedEmployees count], (NSUInteger)1);
 }
 
 @end

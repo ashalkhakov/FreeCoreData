@@ -44,6 +44,26 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
    return entity;
 }
 
+/* Apple's XML store writes property names in lowercase in the `name'
+   attribute (e.g. name="hiredate" for an attribute named "hireDate").
+   Look up properties case-insensitively so that files written by Apple's
+   CoreData can be loaded, while files written by older versions of this
+   store (which used the exact property name) keep working. */
+static id propertyWithName(NSDictionary *propertiesByName,NSString *name){
+   id property=[propertiesByName objectForKey:name];
+
+   if(property==nil){
+    for(NSString *check in propertiesByName){
+     if([check compare:name options:NSCaseInsensitiveSearch]==NSOrderedSame){
+      property=[propertiesByName objectForKey:check];
+      break;
+     }
+    }
+   }
+
+   return property;
+}
+
 @implementation NSXMLPersistentStore
 
 +(NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url error:(NSError **)error {
@@ -193,12 +213,15 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
    
    for(NSXMLElement *attribute in attributeElements){
     NSString               *name=[[attribute attributeForName:@"name"] stringValue];
-    NSAttributeDescription *description=[attributesByName objectForKey:name]; 
+    NSAttributeDescription *description=propertyWithName(attributesByName,name);
 
     if(description==nil){
      NSLog(@"Unable to find attribute named %@ for entity named %@",name,entityName);
      continue;
     }
+
+    /* Use the model's spelling of the name; Apple writes it lowercased. */
+    name=[description name];
 
     NSString *stringValue=[attribute stringValue];
     id        objectValue=nil;
@@ -264,12 +287,15 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
 
    for(NSXMLElement *relationship in relationshipElements){
     NSString                  *name=[[relationship attributeForName:@"name"] stringValue];
-    NSRelationshipDescription *description=[relationshipsByName objectForKey:name];
+    NSRelationshipDescription *description=propertyWithName(relationshipsByName,name);
     
     if(description==nil){
      NSLog(@"No description for relationship name %@ in %@",name,entityName);
      continue;
     }
+    
+    /* Use the model's spelling of the name; Apple writes it lowercased. */
+    name=[description name];
     
     NSString            *destinationEntityName=[[relationship attributeForName:@"destination"] stringValue];
     NSEntityDescription *destinationEntity=entityInModelWithName(model,destinationEntityName);
@@ -392,9 +418,10 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
       
      case NSDateAttributeType:
       type=@"date";
-      /* Apple stores dates as seconds since the reference date. */
+      /* Apple stores dates as seconds since the reference date, printed
+         with 20 fractional digits. */
       if(value!=nil)
-       stringValue=[NSString stringWithFormat:@"%.8f",[value timeIntervalSinceReferenceDate]];
+       stringValue=[NSString stringWithFormat:@"%.20f",[value timeIntervalSinceReferenceDate]];
       break;
       
      case NSBinaryDataAttributeType:
@@ -408,10 +435,10 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
       
     }
     
-    /* Apple omits attribute elements for nil values. */
+    /* Apple omits attribute elements for nil values and lowercases names. */
     if(stringValue!=nil){
      [attributeElement setStringValue:stringValue];
-     [attributeElement addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:attributeName]];
+     [attributeElement addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:[attributeName lowercaseString]]];
      [attributeElement addAttribute:[NSXMLNode attributeWithName:@"type" stringValue:type]];
 
      [children addObject:attributeElement];
@@ -447,7 +474,8 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
      }
     }
     
-    [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:relationshipName]];
+    /* Apple lowercases relationship names in the file. */
+    [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:[relationshipName lowercaseString]]];
     [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"type" stringValue:relationshipType]];
     [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"destination" stringValue:[[destinationEntity name] uppercaseString]]];
     
@@ -463,7 +491,10 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
      [cacheNodeSet addObject:relNode];
     }
 
-    [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"idrefs" stringValue:[idrefArray componentsJoinedByString:@" "]]];
+    /* Apple omits the idrefs attribute entirely when the relationship
+       has no destinations. */
+    if([idrefArray count]>0)
+     [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"idrefs" stringValue:[idrefArray componentsJoinedByString:@" "]]];
 
     [children addObject:relationshipElement];
 
