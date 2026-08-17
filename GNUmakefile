@@ -26,7 +26,12 @@ CoreData_OBJC_FILES = \
 	CoreData/NSIncrementalStoreNode.m \
 	CoreData/NSAtomicStoreCacheNode.m \
 	CoreData/NSXMLPersistentStore.m \
-	CoreData/NSInMemoryPersistentStore.m
+	CoreData/NSInMemoryPersistentStore.m \
+	CoreData/NSPropertyMapping.m \
+	CoreData/NSEntityMapping.m \
+	CoreData/NSMappingModel.m \
+	CoreData/NSEntityMigrationPolicy.m \
+	CoreData/NSMigrationManager.m
 
 CoreData_HEADER_FILES_DIR = CoreData
 CoreData_HEADER_FILES_INSTALL_DIR = CoreData
@@ -54,7 +59,12 @@ CoreData_HEADER_FILES = \
 	NSPersistentStoreCoordinator.h \
 	NSPropertyDescription.h \
 	NSRelationshipDescription.h \
-	NSXMLPersistentStore.h
+	NSXMLPersistentStore.h \
+	NSPropertyMapping.h \
+	NSEntityMapping.h \
+	NSMappingModel.h \
+	NSEntityMigrationPolicy.h \
+	NSMigrationManager.h
 
 CoreData_OBJCFLAGS = -fno-objc-arc
 

@@ -12,16 +12,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSIncrementalStore.h>
 #import <CoreData/CoreDataErrors.h>
+#import <CoreData/NSMappingModel.h>
+#import <CoreData/NSMigrationManager.h>
+#import <CoreData/NSEntityDescription.h>
 #import "NSInMemoryPersistentStore.h"
 #import "NSManagedObjectID-Private.h"
 #import "CoreDataUtilities.h"
 
 NSString * const NSStoreTypeKey=@"NSStoreTypeKey";
 NSString * const NSStoreUUIDKey=@"NSStoreUUIDKey";
+NSString * const NSStoreModelVersionHashesKey=@"NSStoreModelVersionHashes";
+NSString * const NSStoreModelVersionIdentifiersKey=@"NSStoreModelVersionIdentifiers";
 
 NSString * const NSXMLStoreType=@"NSXMLStoreType";
 NSString * const NSInMemoryStoreType=@"NSInMemoryStoreType";
 NSString * const NSMigratePersistentStoresAutomaticallyOption=@"NSMigratePersistentStoresAutomaticallyOption";
+NSString * const NSInferMappingModelAutomaticallyOption=@"NSInferMappingModelAutomaticallyOption";
+NSString * const NSIgnorePersistentStoreVersioningOption=@"NSIgnorePersistentStoreVersioningOption";
 
 NSString * const NSPersistentStoreCoordinatorStoresDidChangeNotification=@"NSPersistentStoreCoordinatorStoresDidChangeNotification";
 NSString * const NSAddedPersistentStoresKey=@"NSAddedPersistentStoresKey";
@@ -66,6 +73,93 @@ static NSMutableDictionary *_storeTypes=nil;
    return _model;
 }
 
+/* Version hashes for the entities in the given configuration (all
+   entities when configuration is nil). */
+-(NSDictionary *)_versionHashesForConfiguration:(NSString *)configuration {
+   if(configuration==nil)
+    return [_model entityVersionHashesByName];
+
+   NSMutableDictionary *result=[NSMutableDictionary dictionary];
+
+   for(NSEntityDescription *entity in [_model entitiesForConfiguration:configuration])
+    [result setObject:[entity versionHash] forKey:[entity name]];
+
+   return result;
+}
+
+/* Checks whether the on-disk store at storeURL is compatible with the
+   coordinator's model, and performs an in-place automatic migration when
+   requested. Returns NO with an error when the store is incompatible. */
+-(BOOL)_checkVersionCompatibilityOfStoreClass:(Class)class type:(NSString *)storeType configuration:(NSString *)configuration URL:(NSURL *)storeURL options:(NSDictionary *)options error:(NSError **)error {
+   if(storeURL==nil)
+    return YES;
+
+   if([[options objectForKey:NSIgnorePersistentStoreVersioningOption] boolValue])
+    return YES;
+
+   NSDictionary *metadata=[class metadataForPersistentStoreWithURL:storeURL error:NULL];
+
+   /* New stores and stores without version information are accepted. */
+   if([metadata objectForKey:NSStoreModelVersionHashesKey]==nil)
+    return YES;
+
+   if([_model isConfiguration:configuration compatibleWithStoreMetadata:metadata])
+    return YES;
+
+   if(![[options objectForKey:NSMigratePersistentStoresAutomaticallyOption] boolValue]){
+    if(error!=NULL){
+     NSDictionary *userInfo=[NSDictionary dictionaryWithObject:@"The model used to open the store is incompatible with the one used to create the store" forKey:NSLocalizedDescriptionKey];
+
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreIncompatibleVersionHashError userInfo:userInfo];
+    }
+    return NO;
+   }
+
+   NSManagedObjectModel *sourceModel=[NSManagedObjectModel mergedModelFromBundles:nil forStoreMetadata:metadata];
+
+   if(sourceModel==nil){
+    if(error!=NULL)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSMigrationMissingSourceModelError userInfo:[NSDictionary dictionaryWithObject:@"Can't find source model for migration" forKey:NSLocalizedDescriptionKey]];
+    return NO;
+   }
+
+   NSMappingModel *mappingModel=[NSMappingModel mappingModelFromBundles:nil forSourceModel:sourceModel destinationModel:_model];
+
+   if(mappingModel==nil && [[options objectForKey:NSInferMappingModelAutomaticallyOption] boolValue])
+    mappingModel=[NSMappingModel inferredMappingModelForSourceModel:sourceModel destinationModel:_model error:error];
+
+   if(mappingModel==nil){
+    if(error!=NULL)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSMigrationMissingMappingModelError userInfo:[NSDictionary dictionaryWithObject:@"Can't find mapping model for migration" forKey:NSLocalizedDescriptionKey]];
+    return NO;
+   }
+
+   NSURL              *temporaryURL=[NSURL fileURLWithPath:[[storeURL path] stringByAppendingString:@"~migrated"]];
+   NSMigrationManager *manager=[[[NSMigrationManager alloc] initWithSourceModel:sourceModel destinationModel:_model] autorelease];
+
+   if(![manager migrateStoreFromURL:storeURL type:storeType options:nil withMappingModel:mappingModel toDestinationURL:temporaryURL destinationType:storeType destinationOptions:nil error:error])
+    return NO;
+
+   NSFileManager *fileManager=[NSFileManager defaultManager];
+
+   if(![fileManager removeItemAtPath:[storeURL path] error:error])
+    return NO;
+
+   return [fileManager moveItemAtPath:[temporaryURL path] toPath:[storeURL path] error:error];
+}
+
+/* Stamps the store's metadata with the version hashes and identifiers of
+   the coordinator's model so that compatibility can be verified when the
+   store is reopened later. */
+-(void)_stampVersioningMetadataForStore:(NSAtomicStore *)store configuration:(NSString *)configuration {
+   NSMutableDictionary *metadata=[NSMutableDictionary dictionaryWithDictionary:[store metadata]];
+
+   [metadata setObject:[self _versionHashesForConfiguration:configuration] forKey:NSStoreModelVersionHashesKey];
+   [metadata setObject:[[_model versionIdentifiers] allObjects] forKey:NSStoreModelVersionIdentifiersKey];
+
+   [store setMetadata:metadata];
+}
+
 -(NSPersistentStore *)addPersistentStoreWithType:(NSString *)storeType configuration:(NSString *)configuration URL:(NSURL *)storeURL options:(NSDictionary *)options error:(NSError **)error {
    if(storeType==nil){
     for(Class class in [_storeTypes allValues]){
@@ -106,10 +200,17 @@ static NSMutableDictionary *_storeTypes=nil;
     return store;
    }
 
+   /* Verify (and, when requested, migrate) the on-disk store before it is
+      opened so the current model reads up-to-date data. */
+   if(![self _checkVersionCompatibilityOfStoreClass:class type:storeType configuration:configuration URL:storeURL options:options error:error])
+    return nil;
+
    NSAtomicStore *store=[[[class alloc] initWithPersistentStoreCoordinator:self configurationName:configuration URL:storeURL options:options] autorelease];
 
    if(![store load:error])
     return nil;
+
+   [self _stampVersioningMetadataForStore:store configuration:configuration];
 
    [_stores addObject:store];
 

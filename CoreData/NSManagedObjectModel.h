@@ -18,8 +18,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 + (NSManagedObjectModel *)modelByMergingModels:(NSArray *)models;
++ (NSManagedObjectModel *)modelByMergingModels:(NSArray *)models forStoreMetadata:(NSDictionary *)metadata;
 
 + (NSManagedObjectModel *)mergedModelFromBundles:(NSArray *)bundles;
++ (NSManagedObjectModel *)mergedModelFromBundles:(NSArray *)bundles forStoreMetadata:(NSDictionary *)metadata;
 
 - initWithContentsOfURL:(NSURL *)url;
 
@@ -38,5 +40,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSFetchRequest *)fetchRequestFromTemplateWithName:(NSString *)name substitutionVariables:(NSDictionary *)variables;
 
 - (void)setFetchRequestTemplate:(NSFetchRequest *)fetchRequest forName:(NSString *)name;
+
+- (NSSet *)versionIdentifiers;
+- (void)setVersionIdentifiers:(NSSet *)identifiers;
+
+- (NSDictionary *)entityVersionHashesByName;
+
+- (BOOL)isConfiguration:(NSString *)configuration compatibleWithStoreMetadata:(NSDictionary *)metadata;
 
 @end

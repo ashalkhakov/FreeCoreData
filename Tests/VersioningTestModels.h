@@ -1,40 +1,21 @@
-/* Copyright (c) 2008 Dan Knapp
+/* This file is part of the CoreData framework port for GNUstep.
+   Original file — not derived from Cocotron.
+
+   Copyright (c) 2006-2009 Christopher J. W. Lloyd <cjwl@objc.net> (Cocotron project)
+   GNUstep port adaptations are released under the same MIT license.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
-#import <CoreData/NSPropertyDescription.h>
+/* VersioningTestModels - two versions of an Employee/Department model
+   shared by the versioning, mapping model, and store migration tests. */
 
-typedef enum {
-    NSNoActionDeleteRule,
-    NSNullifyDeleteRule,
-    NSCascadeDeleteRule,
-    NSDenyDeleteRule
-} NSDeleteRule;
+#import <CoreData/CoreData.h>
 
-@interface NSRelationshipDescription : NSPropertyDescription {
-    NSDeleteRule _deleteRule;
-    NSEntityDescription *_destinationEntity;
-    NSRelationshipDescription *_inverseRelationship;
-    NSUInteger _maxCount;
-    NSUInteger _minCount;
-    NSString *_destinationEntityName;
-    NSString *_inverseRelationshipName;
-}
+/* V1: Employee(name, salary, hireDate) <->> Department(name). */
+NSManagedObjectModel *VersioningTestModelV1(void);
 
-- (BOOL)isToMany;
-- (int)maxCount;
-- (int)minCount;
-- (NSDeleteRule)deleteRule;
-- (NSEntityDescription *)destinationEntity;
-- (NSRelationshipDescription *)inverseRelationship;
-
-- (void)setMaxCount:(int)value;
-- (void)setMinCount:(int)value;
-- (void)setDeleteRule:(NSDeleteRule)value;
-- (void)setDestinationEntity:(NSEntityDescription *)value;
-- (void)setInverseRelationship:(NSRelationshipDescription *)value;
-
-@end
+/* V2: adds Employee.title, drops Employee.hireDate; Department is unchanged. */
+NSManagedObjectModel *VersioningTestModelV2(void);

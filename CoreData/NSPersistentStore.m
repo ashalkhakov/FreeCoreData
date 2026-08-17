@@ -10,7 +10,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSPersistentStoreCoordinator.h>
 #import "CoreDataUtilities.h"
 #import <Foundation/NSDictionary.h>
-#import <CoreFoundation/CFUUID.h>
+#import <Foundation/NSUUID.h>
 
 @implementation NSPersistentStore
 
@@ -25,8 +25,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 +(Class)migrationManagerClass {
-   NSUnimplementedMethod();
-   return 0;
+   return NSClassFromString(@"NSMigrationManager");
 }
 
 -initWithPersistentStoreCoordinator:(NSPersistentStoreCoordinator *)root configurationName:(NSString *)name URL:(NSURL *)url options:(NSDictionary *)options {
@@ -35,9 +34,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    _url=[url copy];
    _options=[options copy];
    _isReadOnly=NO;
-   CFUUIDRef uuid=CFUUIDCreate(NULL);
-   _identifier=(NSString *)CFUUIDCreateString(NULL,uuid);
-   CFRelease(uuid);
+   _identifier=[[[NSUUID UUID] UUIDString] copy];
    
    return self;
 }

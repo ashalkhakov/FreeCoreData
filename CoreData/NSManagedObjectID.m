@@ -12,7 +12,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "CoreDataUtilities.h"
 #import <Foundation/NSString.h>
 #import <Foundation/NSURL.h>
-#import <CoreFoundation/CFUUID.h>
+#import <Foundation/NSUUID.h>
 
 @implementation NSManagedObjectID
 
@@ -21,9 +21,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    _isTemporaryID=YES;
    _storeIdentifier=nil;
    
-   CFUUIDRef uuid=CFUUIDCreate(NULL);
-   _referenceObject=(NSString *)CFUUIDCreateString(NULL,uuid);
-   CFRelease(uuid);
+   _referenceObject=[[[NSUUID UUID] UUIDString] copy];
    
    return self;
 }

@@ -15,10 +15,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 COREDATA_EXPORT NSString *const NSStoreTypeKey;
 COREDATA_EXPORT NSString *const NSStoreUUIDKey;
+COREDATA_EXPORT NSString *const NSStoreModelVersionHashesKey;
+COREDATA_EXPORT NSString *const NSStoreModelVersionIdentifiersKey;
 
 COREDATA_EXPORT NSString *const NSXMLStoreType;
 COREDATA_EXPORT NSString *const NSInMemoryStoreType;
 COREDATA_EXPORT NSString *const NSMigratePersistentStoresAutomaticallyOption;
+COREDATA_EXPORT NSString *const NSInferMappingModelAutomaticallyOption;
+COREDATA_EXPORT NSString *const NSIgnorePersistentStoreVersioningOption;
 
 COREDATA_EXPORT NSString *const NSPersistentStoreCoordinatorStoresDidChangeNotification;
 COREDATA_EXPORT NSString *const NSAddedPersistentStoresKey;

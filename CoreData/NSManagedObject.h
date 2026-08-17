@@ -15,7 +15,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     BOOL _isInserted, _isUpdated, _isDeleted, _isFault;
     NSDictionary *_committedValues;
     NSMutableDictionary *_changedValues;
-    void *_observationInfo;
 }
 
 - initWithEntity:(NSEntityDescription *)entity insertIntoManagedObjectContext:(NSManagedObjectContext *)context;

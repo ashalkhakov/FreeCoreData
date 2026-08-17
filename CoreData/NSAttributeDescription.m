@@ -8,7 +8,11 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSEntityDescription.h>
-#import <Foundation/NSKeyedUnarchiver.h>
+#import <Foundation/Foundation.h>
+
+@interface NSPropertyDescription(VersionHashPrivate)
+- (void)_appendVersionHashComponents:(NSMutableArray *)components;
+@end
 
 @implementation NSAttributeDescription
 
@@ -82,6 +86,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     value=[value retain];
     [_defaultValue release];
     _defaultValue=value;
+}
+
+
+- (void) _appendVersionHashComponents: (NSMutableArray *) components {
+    [super _appendVersionHashComponents:components];
+    [components addObject:[NSString stringWithFormat:@"%d",(int)_attributeType]];
+    [components addObject:(_valueClassName!=nil)?_valueClassName:@""];
 }
 
 @end

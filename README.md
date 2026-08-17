@@ -20,6 +20,8 @@ CoreDataTests.xcodeproj/         - Xcode project for macOS unit tests
 ## Building on GNUstep
 
 Requires gnustep-make and GNUstep-base. The modern runtime (gnustep-2.0 / libobjc2) is recommended.
+See [docs/GNUSTEP-SETUP.md](docs/GNUSTEP-SETUP.md) for step-by-step instructions on building the
+full modern toolchain (libobjc2, gnustep-make, gnustep-base, gnustep-corebase, tools-xctest) from source.
 
 ```sh
 . /usr/share/GNUstep/Makefiles/GNUstep.sh   # source the GNUstep environment

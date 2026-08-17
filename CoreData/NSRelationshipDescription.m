@@ -8,7 +8,11 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/NSEntityDescription.h>
-#import <Foundation/NSKeyedUnarchiver.h>
+#import <Foundation/Foundation.h>
+
+@interface NSPropertyDescription(VersionHashPrivate)
+- (void)_appendVersionHashComponents:(NSMutableArray *)components;
+@end
 
 @implementation NSRelationshipDescription
 
@@ -117,6 +121,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     
     _inverseRelationship = value;
     _inverseRelationshipName = [value name];
+}
+
+
+- (void) _appendVersionHashComponents: (NSMutableArray *) components {
+    NSString *destinationName=(_destinationEntityName!=nil)?_destinationEntityName:[_destinationEntity name];
+
+    [super _appendVersionHashComponents:components];
+    [components addObject:(destinationName!=nil)?destinationName:@""];
+    [components addObject:[self isToMany]?@"1":@"0"];
+    [components addObject:[NSString stringWithFormat:@"%d",(int)_deleteRule]];
+    [components addObject:[NSString stringWithFormat:@"%lu",(unsigned long)_minCount]];
+    [components addObject:[NSString stringWithFormat:@"%lu",(unsigned long)_maxCount]];
 }
 
 

@@ -45,4 +45,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return [[[NSManagedObjectSetEnumerator alloc] initWithManagedObjectContext:_context objectEnumerator:state] autorelease];
 }
 
+-(NSUInteger)countByEnumeratingWithState:(NSFastEnumerationState *)state objects:(id *)stackbuf count:(NSUInteger)len {
+   NSUInteger count=[_set countByEnumeratingWithState:state objects:stackbuf count:len];
+   NSUInteger i;
+
+   for(i=0;i<count;i++)
+    stackbuf[i]=[_context objectWithID:state->itemsPtr[i]];
+
+   state->itemsPtr=stackbuf;
+
+   return count;
+}
+
 @end

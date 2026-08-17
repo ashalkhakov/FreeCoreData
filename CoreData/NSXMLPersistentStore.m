@@ -18,13 +18,54 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <Foundation/NSXMLElement.h>
 #import <Foundation/NSDate.h>
 #import <Foundation/NSDictionary.h>
-#import <CoreFoundation/CFUUID.h>
 
 /* TODO:
-   - date formatting
    - binary data??
  */
- 
+
+/* Apple's XML store writes entity names in uppercase in the `type' and
+   `destination' attributes (e.g. type="EMPLOYEE" for an entity named
+   "Employee") and property names in lowercase in the `name' attribute
+   (e.g. name="hiredate" for an attribute named "hireDate").  Look up
+   keys case-insensitively so that files written by Apple's CoreData can
+   be loaded, while files written by older versions of this store (which
+   used the exact name) keep working. */
+static id caseInsensitiveLookup(NSDictionary *dictionary,NSString *name){
+   id result=[dictionary objectForKey:name];
+
+   if(result==nil){
+    for(NSString *check in dictionary){
+     if([check compare:name options:NSCaseInsensitiveSearch]==NSOrderedSame){
+      result=[dictionary objectForKey:check];
+      break;
+     }
+    }
+   }
+
+   return result;
+}
+
+static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NSString *name){
+   return caseInsensitiveLookup([model entitiesByName],name);
+}
+
+/* The metadata dictionary is stored inside the <metadata> element as an
+   XML property list string. */
+static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
+   NSString *plistString=[element stringValue];
+
+   if([plistString length]==0)
+    return [NSDictionary dictionary];
+
+   NSData       *plistData=[plistString dataUsingEncoding:NSUTF8StringEncoding];
+   NSDictionary *result=[NSPropertyListSerialization propertyListWithData:plistData options:NSPropertyListImmutable format:NULL error:NULL];
+
+   if(![result isKindOfClass:[NSDictionary class]])
+    return [NSDictionary dictionary];
+
+   return result;
+}
+
 @implementation NSXMLPersistentStore
 
 +(NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url error:(NSError **)error {
@@ -45,8 +86,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSXMLElement *database=[[xml nodesForXPath:@"database" error:nil] lastObject];
    NSXMLElement *databaseInfo=[[database elementsForName:@"databaseInfo"] lastObject];
    NSXMLElement *uuid=[[databaseInfo elementsForName:@"UUID"] lastObject];
+   NSXMLElement *metadataElement=[[databaseInfo elementsForName:@"metadata"] lastObject];
 
-   return [NSDictionary dictionaryWithObjectsAndKeys:[uuid stringValue],NSStoreUUIDKey,NSXMLStoreType,NSStoreTypeKey,nil];
+   NSMutableDictionary *result=[NSMutableDictionary dictionary];
+
+   [result addEntriesFromDictionary:metadataDictionaryFromElement(metadataElement)];
+   if([uuid stringValue]!=nil)
+    [result setObject:[uuid stringValue] forKey:NSStoreUUIDKey];
+   [result setObject:NSXMLStoreType forKey:NSStoreTypeKey];
+
+   return result;
 }
 
 -(NSString *)type {
@@ -62,7 +111,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(NSXMLElement *)metadataElement {
-   return [[[self databaseElement] elementsForName:@"metadata"] lastObject];
+   NSXMLElement *result=[[[self databaseInfoElement] elementsForName:@"metadata"] lastObject];
+
+   /* Older files stored the metadata element directly under database. */
+   if(result==nil)
+    result=[[[self databaseElement] elementsForName:@"metadata"] lastObject];
+
+   return result;
 }
  
 -(NSXMLElement *)identifierElement {
@@ -88,16 +143,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
      }
    }
    else {
-    _document=[[NSXMLDocument alloc] initWithKind:NSXMLDocumentXMLKind options:xmlOptions];
-    
     NSXMLElement *database=[[NSXMLElement alloc] initWithName:@"database"];
     NSXMLElement *databaseInfo=[[NSXMLElement alloc] initWithName:@"databaseInfo"];
     NSXMLElement *versionElement=[[NSXMLElement alloc] initWithName:@"version" stringValue:@"1"];
     NSXMLElement *uuidElement=[[NSXMLElement alloc] initWithName:@"UUID" stringValue:[self identifier]];
     NSXMLElement *nextObjectID=[[NSXMLElement alloc] initWithName:@"nextObjectID" stringValue:@"1"];
     NSXMLElement *metadata=[[NSXMLElement alloc] initWithName:@"metadata"];
-     
-    [_document addChild:database];
+
+    _document=[[NSXMLDocument alloc] initWithRootElement:database];
+
     [database addChild:databaseInfo];
     [databaseInfo addChild:versionElement];
     [databaseInfo addChild:uuidElement];
@@ -115,7 +169,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    [data release];
    
    [super setIdentifier:[[self identifierElement] stringValue]];
-   [self setMetadata:[NSDictionary dictionaryWithObjectsAndKeys:[self identifier],NSStoreUUIDKey,[self type],NSStoreTypeKey,nil]];
+
+   NSMutableDictionary *initialMetadata=[NSMutableDictionary dictionaryWithDictionary:metadataDictionaryFromElement([self metadataElement])];
+
+   [initialMetadata setObject:[self identifier] forKey:NSStoreUUIDKey];
+   [initialMetadata setObject:[self type] forKey:NSStoreTypeKey];
+   [self setMetadata:initialMetadata];
 
    _referenceToCacheNode=[[NSMutableDictionary alloc] init];
    _referenceToElement=[[NSMutableDictionary alloc] init];
@@ -160,7 +219,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSArray   *attributeElements=[entityElement elementsForName:@"attribute"];
    NSArray   *relationshipElements=[entityElement elementsForName:@"relationship"];
 
-   NSEntityDescription *entity=[[model entitiesByName] objectForKey:entityName];
+   NSEntityDescription *entity=entityInModelWithName(model,entityName);
 
    if(entity==nil){
     NSLog(@"Unable to find entity %@ in model",entityName);
@@ -175,12 +234,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    
    for(NSXMLElement *attribute in attributeElements){
     NSString               *name=[[attribute attributeForName:@"name"] stringValue];
-    NSAttributeDescription *description=[attributesByName objectForKey:name]; 
+    NSAttributeDescription *description=caseInsensitiveLookup(attributesByName,name);
 
     if(description==nil){
      NSLog(@"Unable to find attribute named %@ for entity named %@",name,entityName);
      continue;
     }
+
+    /* Use the model's spelling of the name; Apple writes it lowercased. */
+    name=[description name];
 
     NSString *stringValue=[attribute stringValue];
     id        objectValue=nil;
@@ -224,7 +286,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       break;
       
      case NSDateAttributeType:
-      objectValue=nil;
+      /* Apple stores dates as seconds since the reference date. */
+      objectValue=[NSDate dateWithTimeIntervalSinceReferenceDate:[stringValue doubleValue]];
       break;
       
      case NSBinaryDataAttributeType:
@@ -245,15 +308,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
    for(NSXMLElement *relationship in relationshipElements){
     NSString                  *name=[[relationship attributeForName:@"name"] stringValue];
-    NSRelationshipDescription *description=[relationshipsByName objectForKey:name];
+    NSRelationshipDescription *description=caseInsensitiveLookup(relationshipsByName,name);
     
     if(description==nil){
      NSLog(@"No description for relationship name %@ in %@",name,entityName);
      continue;
     }
     
+    /* Use the model's spelling of the name; Apple writes it lowercased. */
+    name=[description name];
+    
     NSString            *destinationEntityName=[[relationship attributeForName:@"destination"] stringValue];
-    NSEntityDescription *destinationEntity=[[model entitiesByName] objectForKey:destinationEntityName];
+    NSEntityDescription *destinationEntity=entityInModelWithName(model,destinationEntityName);
     NSString            *idrefsString=[[relationship attributeForName:@"idrefs"] stringValue];
     NSArray             *idrefs=[idrefsString length]?[idrefsString componentsSeparatedByString:@" "]:nil;
     id                   objectValue=[NSMutableSet set];
@@ -302,6 +368,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
  
  
 - (BOOL)save:(NSError **)error {
+    NSXMLElement *metadataElement=[self metadataElement];
+
+    if(metadataElement==nil){
+     metadataElement=[[[NSXMLElement alloc] initWithName:@"metadata"] autorelease];
+     [[self databaseInfoElement] addChild:metadataElement];
+    }
+
+    NSData *plistData=[NSPropertyListSerialization dataWithPropertyList:[self metadata] format:NSPropertyListXMLFormat_v1_0 options:0 error:NULL];
+
+    if(plistData!=nil)
+     [metadataElement setStringValue:[[[NSString alloc] initWithData:plistData encoding:NSUTF8StringEncoding] autorelease]];
+
     NSData *data=[_document XMLData];
 
     return [data writeToURL:[self URL] atomically:YES];
@@ -373,7 +451,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       
      case NSDateAttributeType:
       type=@"date";
-      stringValue=[value description];
+      /* Apple stores dates as seconds since the reference date, printed
+         with 20 fractional digits. */
+      if(value!=nil)
+       stringValue=[NSString stringWithFormat:@"%.20f",[value timeIntervalSinceReferenceDate]];
       break;
       
      case NSBinaryDataAttributeType:
@@ -387,11 +468,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       
     }
     
-    [attributeElement setStringValue:stringValue];
-    [attributeElement addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:attributeName]];
-    [attributeElement addAttribute:[NSXMLNode attributeWithName:@"type" stringValue:type]];
-    
-    [children addObject:attributeElement];
+    /* Apple omits attribute elements for nil values and lowercases names. */
+    if(stringValue!=nil){
+     [attributeElement setStringValue:stringValue];
+     [attributeElement addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:[attributeName lowercaseString]]];
+     [attributeElement addAttribute:[NSXMLNode attributeWithName:@"type" stringValue:type]];
+
+     [children addObject:attributeElement];
+    }
     
     [node setValue:value forKey:attributeName];
    }
@@ -423,9 +507,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
      }
     }
     
-    [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:relationshipName]];
+    /* Apple lowercases relationship names in the file. */
+    [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:[relationshipName lowercaseString]]];
     [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"type" stringValue:relationshipType]];
-    [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"destination" stringValue:[destinationEntity name]]];
+    [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"destination" stringValue:[[destinationEntity name] uppercaseString]]];
     
     NSMutableArray *idrefArray=[NSMutableArray array];
 
@@ -439,7 +524,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
      [cacheNodeSet addObject:relNode];
     }
 
-    [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"idrefs" stringValue:[idrefArray componentsJoinedByString:@" "]]];
+    /* Apple omits the idrefs attribute entirely when the relationship
+       has no destinations. */
+    if([idrefArray count]>0)
+     [relationshipElement addAttribute:[NSXMLNode attributeWithName:@"idrefs" stringValue:[idrefArray componentsJoinedByString:@" "]]];
 
     [children addObject:relationshipElement];
 
@@ -469,7 +557,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSAtomicStoreCacheNode *cacheNode=[[NSAtomicStoreCacheNode alloc] initWithObjectID:objectID];
    
    NSXMLElement           *entityElement=[[NSXMLElement alloc] initWithName:@"object"];
-   NSXMLNode              *nameAttribute=[NSXMLNode attributeWithName:@"type" stringValue:[entity name]];
+   NSXMLNode              *nameAttribute=[NSXMLNode attributeWithName:@"type" stringValue:[[entity name] uppercaseString]];
    NSXMLNode              *idAttribute=[NSXMLNode attributeWithName:@"id" stringValue:reference];
    
    [entityElement addAttribute:nameAttribute];
@@ -504,7 +592,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
    [nextObjectIDElement setStringValue:[NSString stringWithFormat:@"%ld",(long)(nextInteger+1)]];
    
-   return [[NSString alloc] initWithFormat:@"r%ld",(long)nextInteger];
+   return [[NSString alloc] initWithFormat:@"z%ld",(long)nextInteger];
 }
 
 -(void)willRemoveCacheNodes:(NSSet *)cacheNodes {

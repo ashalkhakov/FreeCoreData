@@ -1,17 +1,31 @@
-include $(GNUSTEP_MAKEFILES)/common.make
-
 BUNDLE_NAME = CoreDataTests
 
-CoreDataTests_OBJC_FILES = CoreDataTests.m
+OBJC_RUNTIME_LIB = ng
+RUNTIME_VERSION = gnustep-2.0
+GS_WITH_ARC = 1
 
-# Tests use ARC; the framework itself is still MRC.
-CoreDataTests_OBJCFLAGS = -fobjc-arc
+include $(GNUSTEP_MAKEFILES)/common.make
+
+CoreDataTests_OBJC_FILES = \
+	MemoryIncrementalStore.m \
+	VersioningTestModels.m \
+	NSManagedObjectModelTests.m \
+	NSFetchRequestTests.m \
+	NSPersistentStoreCoordinatorTests.m \
+	NSManagedObjectContextTests.m \
+	NSPersistentStoreCoordinatorTypeMismatchTests.m \
+	NSPersistentStoreRequestTests.m \
+	NSIncrementalStoreNodeTests.m \
+	NSIncrementalStoreTests.m \
+	NSXMLPersistentStoreTests.m \
+	VersionHashTests.m \
+	MappingModelTests.m \
+	StoreVersioningTests.m
 
 CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
 
-CoreDataTests_FRAMEWORK_DIRS = ..
-CoreDataTests_FRAMEWORKS   = CoreData
-CoreDataTests_LIBRARIES    = objc gnustep-base XCTest
+ADDITIONAL_LIB_DIRS += -L$(GNUSTEP_SYSTEM_LIBRARIES)
+CoreDataTests_OBJC_LIBS += -lgnustep-corebase -lCoreData -lXCTest
 
 XCTEST ?= xctest
 

@@ -14,8 +14,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/NSManagedObject.h>
-#import <Foundation/NSKeyedUnarchiver.h>
+#import <Foundation/Foundation.h>
 #import "CoreDataUtilities.h"
+#import "CoreDataVersioning-Private.h"
 #import <objc/runtime.h>
 #import <ctype.h>
 #import <string.h>
@@ -186,7 +187,7 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     class = [NSManagedObject class];
    }
    
-   return [[class alloc] initWithEntity: entity insertIntoManagedObjectContext: context];
+   return [[[class alloc] initWithEntity: entity insertIntoManagedObjectContext: context] autorelease];
 }
 
 
@@ -354,6 +355,51 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
    
    return result;
 }
+
+-(NSData *)versionHash {
+   NSMutableArray *components=[NSMutableArray array];
+   NSMutableArray *propertyHashes=[NSMutableArray array];
+
+   [components addObject:(_name!=nil)?_name:@""];
+   [components addObject:_isAbstract?@"1":@"0"];
+   if(_versionHashModifier!=nil)
+    [components addObject:_versionHashModifier];
+
+   for(NSString *propertyName in [[_properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
+    NSPropertyDescription *property=[_properties objectForKey:propertyName];
+    NSData                *hash=[property versionHash];
+    NSMutableString       *hex=[NSMutableString string];
+    const uint8_t         *bytes=[hash bytes];
+    NSUInteger             i,length=[hash length];
+
+    for(i=0;i<length;i++)
+     [hex appendFormat:@"%02x",bytes[i]];
+
+    [propertyHashes addObject:hex];
+   }
+
+   [components addObjectsFromArray:propertyHashes];
+
+   return _NSCoreDataDigestForComponents(components);
+}
+
+
+-(NSString *)versionHashModifier {
+   return _versionHashModifier;
+}
+
+
+-(void)setVersionHashModifier:(NSString *)value {
+   if(_hasBeenInstantiated) {
+    NSLog(@"Attempt to modify entity after instantiating it.");
+    return;
+   }
+
+   value=[value copy];
+   [_versionHashModifier release];
+   _versionHashModifier=value;
+}
+
 
 -(BOOL)_isKindOfEntity:(NSEntityDescription *)other {
    NSEntityDescription *check=self;

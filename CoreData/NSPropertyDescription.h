@@ -7,11 +7,13 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <Foundation/NSObject.h>
 
-@class NSEntityDescription, NSArray, NSDictionary;
+@class NSEntityDescription, NSArray, NSDictionary, NSData, NSString;
 
 @interface NSPropertyDescription : NSObject <NSCoding, NSCopying> {
     NSEntityDescription *_entity;
     NSString *_propertyName;
+    NSString *_versionHashModifier;
+    BOOL _optional;
 }
 
 - (NSEntityDescription *)entity;
@@ -22,6 +24,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSDictionary *)userInfo;
 - (NSArray *)validationPredicates;
 - (NSArray *)validationWarnings;
+
+- (NSData *)versionHash;
+- (NSString *)versionHashModifier;
+- (void)setVersionHashModifier:(NSString *)value;
 
 - (void)setName:(NSString *)value;
 - (void)setOptional:(BOOL)value;

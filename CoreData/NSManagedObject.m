@@ -378,7 +378,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [self didChangeValueForKey:propertyName];
 
     if(inverse!=nil){     
-     NSSet *allValues=[relationship isToMany]?valueByID:[NSSet setWithObject:valueByID];
+     NSSet *allValues;
+
+     if([relationship isToMany])
+      allValues=valueByID;
+     else
+      allValues=(valueByID==nil)?[NSSet set]:[NSSet setWithObject:valueByID];
 
      for(NSManagedObjectID *valueID in allValues){
       NSManagedObject *relValue=[_context objectWithID:valueID];
@@ -458,15 +463,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(void)didAccessValueForKey:(NSString *) key {
-}
-
--(void *)observationInfo {
-   return _observationInfo;
-}
-
-
--(void)setObservationInfo:(void *) value {
-   _observationInfo=value;
 }
 
 -(void)willAccessValueForKey:(NSString *)key {
