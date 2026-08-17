@@ -7,16 +7,44 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1293EFFABAFEF703294A91A3 /* CoreDataTests.m in Sources */ = {isa = PBXBuildFile; fileRef = F036037A16B5FD7A425D07D1 /* CoreDataTests.m */; };
 		66734DD13F7637A6E5676AC7 /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 45ADD5EBC55416FD28AF6941 /* CoreData.framework */; };
 		BD71BC21B0012B011F4B57D1 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE296390D1E4A2BFE0193C79 /* XCTest.framework */; };
+		CED0149F3032FF59009517DE /* NSPersistentStoreRequestTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014993032FF59009517DE /* NSPersistentStoreRequestTests.m */; };
+		CED014A03032FF59009517DE /* NSIncrementalStoreNodeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014933032FF59009517DE /* NSIncrementalStoreNodeTests.m */; };
+		CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014963032FF59009517DE /* NSManagedObjectModelTests.m */; };
+		CED014A23032FF59009517DE /* MappingModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED0148F3032FF59009517DE /* MappingModelTests.m */; };
+		CED014A33032FF59009517DE /* NSXMLPersistentStoreTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED0149A3032FF59009517DE /* NSXMLPersistentStoreTests.m */; };
+		CED014A43032FF59009517DE /* NSPersistentStoreCoordinatorTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014973032FF59009517DE /* NSPersistentStoreCoordinatorTests.m */; };
+		CED014A53032FF59009517DE /* VersionHashTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED0149C3032FF59009517DE /* VersionHashTests.m */; };
+		CED014A63032FF59009517DE /* NSPersistentStoreCoordinatorTypeMismatchTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014983032FF59009517DE /* NSPersistentStoreCoordinatorTypeMismatchTests.m */; };
+		CED014A73032FF59009517DE /* StoreVersioningTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED0149B3032FF59009517DE /* StoreVersioningTests.m */; };
+		CED014A83032FF59009517DE /* MemoryIncrementalStore.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014913032FF59009517DE /* MemoryIncrementalStore.m */; };
+		CED014A93032FF59009517DE /* NSManagedObjectContextTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014953032FF59009517DE /* NSManagedObjectContextTests.m */; };
+		CED014AA3032FF59009517DE /* NSIncrementalStoreTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014943032FF59009517DE /* NSIncrementalStoreTests.m */; };
+		CED014AB3032FF59009517DE /* VersioningTestModels.m in Sources */ = {isa = PBXBuildFile; fileRef = CED0149E3032FF59009517DE /* VersioningTestModels.m */; };
+		CED014AC3032FF59009517DE /* NSFetchRequestTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014923032FF59009517DE /* NSFetchRequestTests.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		45ADD5EBC55416FD28AF6941 /* CoreData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreData.framework; path = System/Library/Frameworks/CoreData.framework; sourceTree = SDKROOT; };
 		71CCD365E3A654DA84DBA191 /* CoreDataTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CoreDataTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE296390D1E4A2BFE0193C79 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/MacOSX.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
-		F036037A16B5FD7A425D07D1 /* CoreDataTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CoreDataTests.m; path = Tests/CoreDataTests.m; sourceTree = SOURCE_ROOT; };
+		CED0148F3032FF59009517DE /* MappingModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MappingModelTests.m; path = Tests/MappingModelTests.m; sourceTree = "<group>"; };
+		CED014903032FF59009517DE /* MemoryIncrementalStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MemoryIncrementalStore.h; path = Tests/MemoryIncrementalStore.h; sourceTree = "<group>"; };
+		CED014913032FF59009517DE /* MemoryIncrementalStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MemoryIncrementalStore.m; path = Tests/MemoryIncrementalStore.m; sourceTree = "<group>"; };
+		CED014923032FF59009517DE /* NSFetchRequestTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSFetchRequestTests.m; path = Tests/NSFetchRequestTests.m; sourceTree = "<group>"; };
+		CED014933032FF59009517DE /* NSIncrementalStoreNodeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSIncrementalStoreNodeTests.m; path = Tests/NSIncrementalStoreNodeTests.m; sourceTree = "<group>"; };
+		CED014943032FF59009517DE /* NSIncrementalStoreTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSIncrementalStoreTests.m; path = Tests/NSIncrementalStoreTests.m; sourceTree = "<group>"; };
+		CED014953032FF59009517DE /* NSManagedObjectContextTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectContextTests.m; path = Tests/NSManagedObjectContextTests.m; sourceTree = "<group>"; };
+		CED014963032FF59009517DE /* NSManagedObjectModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectModelTests.m; path = Tests/NSManagedObjectModelTests.m; sourceTree = "<group>"; };
+		CED014973032FF59009517DE /* NSPersistentStoreCoordinatorTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPersistentStoreCoordinatorTests.m; path = Tests/NSPersistentStoreCoordinatorTests.m; sourceTree = "<group>"; };
+		CED014983032FF59009517DE /* NSPersistentStoreCoordinatorTypeMismatchTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPersistentStoreCoordinatorTypeMismatchTests.m; path = Tests/NSPersistentStoreCoordinatorTypeMismatchTests.m; sourceTree = "<group>"; };
+		CED014993032FF59009517DE /* NSPersistentStoreRequestTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPersistentStoreRequestTests.m; path = Tests/NSPersistentStoreRequestTests.m; sourceTree = "<group>"; };
+		CED0149A3032FF59009517DE /* NSXMLPersistentStoreTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSXMLPersistentStoreTests.m; path = Tests/NSXMLPersistentStoreTests.m; sourceTree = "<group>"; };
+		CED0149B3032FF59009517DE /* StoreVersioningTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = StoreVersioningTests.m; path = Tests/StoreVersioningTests.m; sourceTree = "<group>"; };
+		CED0149C3032FF59009517DE /* VersionHashTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VersionHashTests.m; path = Tests/VersionHashTests.m; sourceTree = "<group>"; };
+		CED0149D3032FF59009517DE /* VersioningTestModels.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = VersioningTestModels.h; path = Tests/VersioningTestModels.h; sourceTree = "<group>"; };
+		CED0149E3032FF59009517DE /* VersioningTestModels.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VersioningTestModels.m; path = Tests/VersioningTestModels.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -43,7 +71,22 @@
 		24DFAD7E3B56719996E6F208 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
-				F036037A16B5FD7A425D07D1 /* CoreDataTests.m */,
+				CED0148F3032FF59009517DE /* MappingModelTests.m */,
+				CED014903032FF59009517DE /* MemoryIncrementalStore.h */,
+				CED014913032FF59009517DE /* MemoryIncrementalStore.m */,
+				CED014923032FF59009517DE /* NSFetchRequestTests.m */,
+				CED014933032FF59009517DE /* NSIncrementalStoreNodeTests.m */,
+				CED014943032FF59009517DE /* NSIncrementalStoreTests.m */,
+				CED014953032FF59009517DE /* NSManagedObjectContextTests.m */,
+				CED014963032FF59009517DE /* NSManagedObjectModelTests.m */,
+				CED014973032FF59009517DE /* NSPersistentStoreCoordinatorTests.m */,
+				CED014983032FF59009517DE /* NSPersistentStoreCoordinatorTypeMismatchTests.m */,
+				CED014993032FF59009517DE /* NSPersistentStoreRequestTests.m */,
+				CED0149A3032FF59009517DE /* NSXMLPersistentStoreTests.m */,
+				CED0149B3032FF59009517DE /* StoreVersioningTests.m */,
+				CED0149C3032FF59009517DE /* VersionHashTests.m */,
+				CED0149D3032FF59009517DE /* VersioningTestModels.h */,
+				CED0149E3032FF59009517DE /* VersioningTestModels.m */,
 			);
 			name = Tests;
 			sourceTree = "<group>";
@@ -118,7 +161,20 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1293EFFABAFEF703294A91A3 /* CoreDataTests.m in Sources */,
+				CED0149F3032FF59009517DE /* NSPersistentStoreRequestTests.m in Sources */,
+				CED014A03032FF59009517DE /* NSIncrementalStoreNodeTests.m in Sources */,
+				CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */,
+				CED014A23032FF59009517DE /* MappingModelTests.m in Sources */,
+				CED014A33032FF59009517DE /* NSXMLPersistentStoreTests.m in Sources */,
+				CED014A43032FF59009517DE /* NSPersistentStoreCoordinatorTests.m in Sources */,
+				CED014A53032FF59009517DE /* VersionHashTests.m in Sources */,
+				CED014A63032FF59009517DE /* NSPersistentStoreCoordinatorTypeMismatchTests.m in Sources */,
+				CED014A73032FF59009517DE /* StoreVersioningTests.m in Sources */,
+				CED014A83032FF59009517DE /* MemoryIncrementalStore.m in Sources */,
+				CED014A93032FF59009517DE /* NSManagedObjectContextTests.m in Sources */,
+				CED014AA3032FF59009517DE /* NSIncrementalStoreTests.m in Sources */,
+				CED014AB3032FF59009517DE /* VersioningTestModels.m in Sources */,
+				CED014AC3032FF59009517DE /* NSFetchRequestTests.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
