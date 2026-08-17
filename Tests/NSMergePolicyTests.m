@@ -227,7 +227,11 @@ static NSManagedObjectModel *MergeTestModel(void)
     XCTAssertNotNil(received);
     [self.ctx2 mergeChangesFromContextDidSaveNotification:received];
 
-    XCTAssertNil([self.ctx2 objectRegisteredForID:objectID]);
+    /* Apple keeps the (still referenced) local instance registered as a
+       fault; the row is gone, so fetches no longer return it. */
+    NSManagedObject *local = [self.ctx2 objectRegisteredForID:objectID];
+    XCTAssertNotNil(local);
+    XCTAssertTrue([local isFault]);
     XCTAssertEqual([[self fetchAllPeopleInContext:self.ctx2] count],
                    (NSUInteger)0);
 

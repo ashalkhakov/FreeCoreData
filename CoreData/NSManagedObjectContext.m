@@ -383,9 +383,8 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(void)deleteObject:(NSManagedObject *)object {
-   if([_deletedObjects containsObject:object])
-    return;
-
+   /* Apple re-invokes the callback each time deleteObject: is called,
+      even when the object is already marked for deletion. */
    [object prepareForDeletion];
 
    [_deletedObjects addObject:object];
@@ -993,11 +992,8 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     NSManagedObject *local=[self objectRegisteredForID:[deleted objectID]];
 
     if(local!=nil){
-     NSArray *properties=[[[local entity] propertiesByName] allKeys];
-
-     for(NSString *key in properties)
-      [local removeObserver:self forKeyPath:key];
-
+     /* Apple turns the local instance into a fault but keeps it registered
+        with the context for as long as it is referenced. */
      [local willTurnIntoFault];
      [local _discardChangedValues];
      [local _invalidateCommittedValues];
@@ -1007,8 +1003,6 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
      [_insertedObjects removeObject:local];
      [_updatedObjects removeObject:local];
      [_deletedObjects removeObject:local];
-     [_registeredObjects removeObject:local];
-     NSMapRemove(_objectIdToObject,[local objectID]);
     }
    }
 }

@@ -355,9 +355,9 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertEqual(prepareForDeletionCount, (NSUInteger)1);
     XCTAssertTrue([person isDeleted]);
 
-    /* Deleting again does not re-invoke the callback. */
+    /* Apple re-invokes the callback on a repeated delete. */
     [self.ctx deleteObject:person];
-    XCTAssertEqual(prepareForDeletionCount, (NSUInteger)1);
+    XCTAssertEqual(prepareForDeletionCount, (NSUInteger)2);
 }
 
 - (void)testDeleteAndSaveRemovesObjectFromStore
