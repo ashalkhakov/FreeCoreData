@@ -13,3 +13,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 NSString * const NSAffectedStoresErrorKey=@"NSAffectedStoresErrorKey";
 NSString * const NSDetailedErrorsKey=@"NSDetailedErrorsKey";
+
+NSString * const NSValidationObjectErrorKey=@"NSValidationErrorObject";
+NSString * const NSValidationKeyErrorKey=@"NSValidationErrorKey";
+NSString * const NSValidationPredicateErrorKey=@"NSValidationErrorPredicate";
+NSString * const NSValidationValueErrorKey=@"NSValidationErrorValue";
+
+/* Apple uses the literal string "conflictList" for this key. */
+NSString * const NSPersistentStoreSaveConflictsErrorKey=@"conflictList";

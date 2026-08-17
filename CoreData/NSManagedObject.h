@@ -32,6 +32,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 - (void)awakeFromFetch;
 - (void)awakeFromInsert;
+- (void)prepareForDeletion;
 - (NSDictionary *)changedValues;
 - (NSDictionary *)committedValuesForKeys:(NSArray *)keys;
 - (void)dealloc;

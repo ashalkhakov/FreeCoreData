@@ -13,4 +13,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @interface NSManagedObject (private)
 - initWithObjectID:(NSManagedObjectID *)objectID managedObjectContext:(NSManagedObjectContext *)context;
+- (NSDictionary *)_committedValues;
+- (NSDictionary *)_cachedCommittedValues;
+- (void)_invalidateCommittedValues;
+- (void)_discardChangedValues;
+- (void)_setFault:(BOOL)isFault;
 @end

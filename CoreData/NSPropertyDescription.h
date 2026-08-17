@@ -14,6 +14,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSString *_propertyName;
     NSString *_versionHashModifier;
     BOOL _optional;
+    BOOL _transient;
+    NSDictionary *_userInfo;
+    NSArray *_validationPredicates;
+    NSArray *_validationWarnings;
 }
 
 - (NSEntityDescription *)entity;

@@ -15,8 +15,33 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 COREDATA_EXPORT NSString *const NSAffectedStoresErrorKey;
 COREDATA_EXPORT NSString *const NSDetailedErrorsKey;
 
+COREDATA_EXPORT NSString *const NSValidationObjectErrorKey;
+COREDATA_EXPORT NSString *const NSValidationKeyErrorKey;
+COREDATA_EXPORT NSString *const NSValidationPredicateErrorKey;
+COREDATA_EXPORT NSString *const NSValidationValueErrorKey;
+
+COREDATA_EXPORT NSString *const NSPersistentStoreSaveConflictsErrorKey;
+
 enum {
+    NSManagedObjectValidationError = 1550,
+    NSValidationMultipleErrorsError = 1560,
+    NSValidationMissingMandatoryPropertyError = 1570,
+    NSValidationRelationshipLacksMinimumCountError = 1580,
+    NSValidationRelationshipExceedsMaximumCountError = 1590,
+    NSValidationRelationshipDeniedDeleteError = 1600,
+    NSValidationNumberTooLargeError = 1610,
+    NSValidationNumberTooSmallError = 1620,
+    NSValidationDateTooLateError = 1630,
+    NSValidationDateTooSoonError = 1640,
+    NSValidationInvalidDateError = 1650,
+    NSValidationStringTooLongError = 1660,
+    NSValidationStringTooShortError = 1670,
+    NSValidationStringPatternMatchingError = 1680,
+    NSManagedObjectContextLockingError = 132000,
+    NSPersistentStoreCoordinatorLockingError = 132010,
     NSManagedObjectReferentialIntegrityError = 133000,
+    NSManagedObjectExternalRelationshipError = 133010,
+    NSManagedObjectMergeError = 133020,
     NSPersistentStoreInvalidTypeError = 134000,
     NSPersistentStoreTypeMismatchError = 134010,
     NSPersistentStoreIncompatibleSchemaError = 134020,
