@@ -12,7 +12,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 @interface NSManagedObject : NSObject {
     NSManagedObjectID *_objectID;
     NSManagedObjectContext *_context;
-    BOOL _isInserted, _isUpdated, _isDeleted, _isFault;
+    BOOL _isFault;
     NSDictionary *_committedValues;
     NSMutableDictionary *_changedValues;
 }

@@ -697,10 +697,444 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 }
 
 /* ------------------------------------------------------------------ */
+#pragma mark - Predicate and sort-descriptor translation
+/* ------------------------------------------------------------------ */
+
+/* Like Apple's SQLite store, fetch predicates and sort descriptors are
+   translated to SQL and evaluated by SQLite whenever possible.  The
+   translator is conservative: any construct whose SQL semantics would not
+   exactly match in-memory evaluation makes the translation fail, and the
+   store falls back to filtering/sorting the fetched objects in memory. */
+
+/* Bound parameters produced by the translator: each entry carries the
+   value and the property it is compared against (so attribute values are
+   bound with the correct SQLite type). */
+static NSDictionary *predicateBinding(NSPropertyDescription *property,id value){
+   return [NSDictionary dictionaryWithObjectsAndKeys:value,@"value",property,@"property",nil];
+}
+
+static void bindPredicateValue(sqlite3_stmt *statement,int index,NSDictionary *binding){
+   NSPropertyDescription *property=[binding objectForKey:@"property"];
+   id                     value=[binding objectForKey:@"value"];
+
+   if([property isKindOfClass:[NSAttributeDescription class]])
+    bindAttributeValue(statement,index,(NSAttributeDescription *)property,value);
+   else /* to-one relationship: value is the destination's Z_PK. */
+    sqlite3_bind_int64(statement,index,[value longLongValue]);
+}
+
+/* Bound parameters are limited by SQLITE_LIMIT_VARIABLE_NUMBER (999 in
+   older SQLite builds); IN collections beyond this size are evaluated in
+   memory instead of being batched. */
+enum { NSSQLitePersistentStoreMaxInListSize=900 };
+
+/* Attribute types whose stored representation compares exactly like the
+   in-memory value.  Decimals are stored as text (lexicographic order) and
+   binary/transformable values as non-canonical blobs, so predicates and
+   sort descriptors on them are evaluated in memory. */
+static BOOL attributeComparesExactlyInSQL(NSAttributeDescription *attribute){
+   switch([attribute attributeType]){
+    case NSInteger16AttributeType:
+    case NSInteger32AttributeType:
+    case NSInteger64AttributeType:
+    case NSBooleanAttributeType:
+    case NSDoubleAttributeType:
+    case NSFloatAttributeType:
+    case NSDateAttributeType:
+    case NSStringAttributeType:
+     return YES;
+    default:
+     return NO;
+   }
+}
+
+static NSString *escapedLikePattern(NSString *string){
+   NSMutableString *result=[NSMutableString stringWithString:string];
+
+   [result replaceOccurrencesOfString:@"\\" withString:@"\\\\" options:0 range:NSMakeRange(0,[result length])];
+   [result replaceOccurrencesOfString:@"%" withString:@"\\%" options:0 range:NSMakeRange(0,[result length])];
+   [result replaceOccurrencesOfString:@"_" withString:@"\\_" options:0 range:NSMakeRange(0,[result length])];
+
+   return result;
+}
+
+static NSString *escapedGlobPattern(NSString *string){
+   NSMutableString *result=[NSMutableString stringWithString:string];
+
+   [result replaceOccurrencesOfString:@"[" withString:@"[[]" options:0 range:NSMakeRange(0,[result length])];
+   [result replaceOccurrencesOfString:@"*" withString:@"[*]" options:0 range:NSMakeRange(0,[result length])];
+   [result replaceOccurrencesOfString:@"?" withString:@"[?]" options:0 range:NSMakeRange(0,[result length])];
+
+   return result;
+}
+
+/* Wildcard-match clause: SQLite LIKE is (ASCII) case-insensitive, GLOB is
+   case-sensitive, so [c] matches map to LIKE and exact ones to GLOB.
+   prefix/suffix are the unescaped wildcards surrounding the constant. */
+static NSString *patternMatchClause(NSString *column,NSString *constant,BOOL caseInsensitive,NSString *prefix,NSString *suffix,NSMutableArray *bindings,NSAttributeDescription *attribute){
+   NSString *pattern;
+
+   if(caseInsensitive){
+    pattern=[NSString stringWithFormat:@"%@%@%@",prefix,escapedLikePattern(constant),suffix];
+    [bindings addObject:predicateBinding(attribute,pattern)];
+    return [NSString stringWithFormat:@"%@ LIKE ? ESCAPE '\\'",column];
+   }
+
+   pattern=[NSString stringWithFormat:@"%@%@%@",[prefix isEqualToString:@"%"]?@"*":@"",escapedGlobPattern(constant),[suffix isEqualToString:@"%"]?@"*":@""];
+   [bindings addObject:predicateBinding(attribute,pattern)];
+   return [NSString stringWithFormat:@"%@ GLOB ?",column];
+}
+
+/* Returns the Z_PK of a to-one relationship constant (an NSManagedObject
+   or NSManagedObjectID belonging to this store), or nil when the value
+   cannot be resolved to a row of this store. */
+-(NSNumber *)_primaryKeyForRelationshipConstant:(id)value {
+   NSManagedObjectID *objectID=nil;
+
+   if([value isKindOfClass:[NSManagedObjectID class]])
+    objectID=value;
+   else if([value isKindOfClass:[NSManagedObject class]])
+    objectID=[value objectID];
+   else
+    return nil;
+
+   if([objectID isTemporaryID] || [objectID persistentStore]!=self)
+    return nil;
+
+   return [NSNumber numberWithLongLong:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID])];
+}
+
+/* Some NSPredicate implementations (e.g. GNUstep base) hand back constant
+   values still wrapped in constant NSExpressions; unwrap them. */
+static id resolvedConstantValue(id value){
+   while([value isKindOfClass:[NSExpression class]] &&
+         [(NSExpression *)value expressionType]==NSConstantValueExpressionType)
+    value=[(NSExpression *)value constantValue];
+
+   return value;
+}
+
+/* The elements of an IN/BETWEEN right-hand side as plain constant values,
+   accepting constant collections as well as aggregate expressions.
+   Returns nil when any element is not a constant. */
+static NSArray *constantCollectionFromExpression(NSExpression *expression){
+   id raw=nil;
+
+   if([expression expressionType]==NSConstantValueExpressionType)
+    raw=[expression constantValue];
+   else if([expression respondsToSelector:@selector(collection)])
+    raw=[expression performSelector:@selector(collection)];
+
+   if(![raw isKindOfClass:[NSArray class]] && ![raw isKindOfClass:[NSSet class]])
+    return nil;
+
+   NSMutableArray *result=[NSMutableArray array];
+
+   for(id element in raw){
+    id value=resolvedConstantValue(element);
+
+    if(value==nil || value==[NSNull null] || [value isKindOfClass:[NSExpression class]])
+     return nil;
+
+    [result addObject:value];
+   }
+
+   return result;
+}
+
+-(NSString *)_translateComparisonPredicate:(NSComparisonPredicate *)comparison entity:(NSEntityDescription *)entity bindings:(NSMutableArray *)bindings {
+   if([comparison comparisonPredicateModifier]!=NSDirectPredicateModifier)
+    return nil;
+
+   NSComparisonPredicateOptions options=[comparison options];
+
+   /* Only exact and [c] matches translate exactly; diacritic- or
+      locale-sensitive matching happens in memory. */
+   if((options&~NSCaseInsensitivePredicateOption)!=0)
+    return nil;
+
+   BOOL caseInsensitive=(options&NSCaseInsensitivePredicateOption)!=0;
+
+   NSExpression *lhs=[comparison leftExpression];
+   NSExpression *rhs=[comparison rightExpression];
+   NSPredicateOperatorType operator=[comparison predicateOperatorType];
+
+   /* Normalize to <keypath> <operator> <constant>, flipping the operator
+      when the predicate was written the other way around. */
+   if([lhs expressionType]==NSConstantValueExpressionType && [rhs expressionType]==NSKeyPathExpressionType){
+    NSExpression *swap=lhs; lhs=rhs; rhs=swap;
+
+    switch(operator){
+     case NSLessThanPredicateOperatorType:            operator=NSGreaterThanPredicateOperatorType; break;
+     case NSLessThanOrEqualToPredicateOperatorType:   operator=NSGreaterThanOrEqualToPredicateOperatorType; break;
+     case NSGreaterThanPredicateOperatorType:         operator=NSLessThanPredicateOperatorType; break;
+     case NSGreaterThanOrEqualToPredicateOperatorType:operator=NSLessThanOrEqualToPredicateOperatorType; break;
+     case NSEqualToPredicateOperatorType:
+     case NSNotEqualToPredicateOperatorType:
+      break;
+     default:
+      return nil;
+    }
+   }
+
+   if([lhs expressionType]!=NSKeyPathExpressionType)
+    return nil;
+
+   BOOL rhsIsCollection=(operator==NSInPredicateOperatorType || operator==NSBetweenPredicateOperatorType);
+
+   if(!rhsIsCollection && [rhs expressionType]!=NSConstantValueExpressionType)
+    return nil;
+
+   NSString *keyPath=[lhs keyPath];
+
+   /* Key paths crossing relationships would need SQL joins. */
+   if([keyPath rangeOfString:@"."].location!=NSNotFound)
+    return nil;
+
+   NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:keyPath];
+   id                     constant=rhsIsCollection?nil:resolvedConstantValue([rhs constantValue]);
+
+   if(constant==[NSNull null])
+    constant=nil;
+   if([constant isKindOfClass:[NSExpression class]])
+    return nil;
+
+   NSString *column=[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(keyPath)];
+
+   /* To-one relationships compare against the destination row's Z_PK. */
+   if([property isKindOfClass:[NSRelationshipDescription class]]){
+    NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
+
+    if([relationship isToMany])
+     return nil;
+    if(operator!=NSEqualToPredicateOperatorType && operator!=NSNotEqualToPredicateOperatorType)
+     return nil;
+
+    if(constant==nil)
+     return [NSString stringWithFormat:@"%@ IS %@NULL",column,(operator==NSEqualToPredicateOperatorType)?@"":@"NOT "];
+
+    NSNumber *primaryKey=[self _primaryKeyForRelationshipConstant:constant];
+
+    if(primaryKey==nil)
+     return nil;
+
+    [bindings addObject:predicateBinding(relationship,primaryKey)];
+    return [NSString stringWithFormat:@"%@ %@ ?",column,(operator==NSEqualToPredicateOperatorType)?@"=":@"<>"];
+   }
+
+   if(![property isKindOfClass:[NSAttributeDescription class]])
+    return nil;
+
+   NSAttributeDescription *attribute=(NSAttributeDescription *)property;
+
+   if(!attributeComparesExactlyInSQL(attribute))
+    return nil;
+
+   /* String matching against attributes stored as text only. */
+   switch(operator){
+    case NSLikePredicateOperatorType:
+    case NSBeginsWithPredicateOperatorType:
+    case NSEndsWithPredicateOperatorType:
+    case NSContainsPredicateOperatorType:
+     if([attribute attributeType]!=NSStringAttributeType || ![constant isKindOfClass:[NSString class]])
+      return nil;
+     break;
+    default:
+     break;
+   }
+
+   NSString *collate=caseInsensitive?@" COLLATE NOCASE":@"";
+
+   switch(operator){
+
+    case NSEqualToPredicateOperatorType:
+     if(constant==nil)
+      return [NSString stringWithFormat:@"%@ IS NULL",column];
+     [bindings addObject:predicateBinding(attribute,constant)];
+     return [NSString stringWithFormat:@"%@ = ?%@",column,collate];
+
+    case NSNotEqualToPredicateOperatorType:
+     if(constant==nil)
+      return [NSString stringWithFormat:@"%@ IS NOT NULL",column];
+     /* Like Apple's SQLite store, NULL rows do not match a != constant
+        comparison (SQL NULL semantics). */
+     [bindings addObject:predicateBinding(attribute,constant)];
+     return [NSString stringWithFormat:@"%@ <> ?%@",column,collate];
+
+    case NSLessThanPredicateOperatorType:
+    case NSLessThanOrEqualToPredicateOperatorType:
+    case NSGreaterThanPredicateOperatorType:
+    case NSGreaterThanOrEqualToPredicateOperatorType: {
+     if(constant==nil || caseInsensitive)
+      return nil;
+
+     NSString *operatorSQL=(operator==NSLessThanPredicateOperatorType)?@"<":
+                           (operator==NSLessThanOrEqualToPredicateOperatorType)?@"<=":
+                           (operator==NSGreaterThanPredicateOperatorType)?@">":@">=";
+
+     [bindings addObject:predicateBinding(attribute,constant)];
+     return [NSString stringWithFormat:@"%@ %@ ?",column,operatorSQL];
+    }
+
+    case NSInPredicateOperatorType: {
+     if(caseInsensitive)
+      return nil;
+
+     NSArray *elements=constantCollectionFromExpression(rhs);
+
+     if(elements==nil)
+      return nil;
+
+     NSUInteger count=[elements count];
+
+     if(count==0)
+      return @"0";
+     if(count>NSSQLitePersistentStoreMaxInListSize)
+      return nil;
+
+     NSMutableArray *placeholders=[NSMutableArray array];
+
+     for(id element in elements){
+      [bindings addObject:predicateBinding(attribute,element)];
+      [placeholders addObject:@"?"];
+     }
+
+     return [NSString stringWithFormat:@"%@ IN (%@)",column,[placeholders componentsJoinedByString:@", "]];
+    }
+
+    case NSBetweenPredicateOperatorType: {
+     if(caseInsensitive)
+      return nil;
+
+     NSArray *elements=constantCollectionFromExpression(rhs);
+
+     if([elements count]!=2)
+      return nil;
+
+     [bindings addObject:predicateBinding(attribute,[elements objectAtIndex:0])];
+     [bindings addObject:predicateBinding(attribute,[elements objectAtIndex:1])];
+     return [NSString stringWithFormat:@"%@ BETWEEN ? AND ?",column];
+    }
+
+    case NSBeginsWithPredicateOperatorType:
+     return patternMatchClause(column,constant,caseInsensitive,@"",@"%",bindings,attribute);
+
+    case NSEndsWithPredicateOperatorType:
+     return patternMatchClause(column,constant,caseInsensitive,@"%",@"",bindings,attribute);
+
+    case NSContainsPredicateOperatorType:
+     return patternMatchClause(column,constant,caseInsensitive,@"%",@"%",bindings,attribute);
+
+    case NSLikePredicateOperatorType: {
+     /* NSPredicate LIKE wildcards: * (any sequence) and ? (any single
+        character). */
+     if(caseInsensitive){
+      NSMutableString *pattern=[NSMutableString stringWithString:escapedLikePattern(constant)];
+
+      [pattern replaceOccurrencesOfString:@"*" withString:@"%" options:0 range:NSMakeRange(0,[pattern length])];
+      [pattern replaceOccurrencesOfString:@"?" withString:@"_" options:0 range:NSMakeRange(0,[pattern length])];
+      [bindings addObject:predicateBinding(attribute,pattern)];
+      return [NSString stringWithFormat:@"%@ LIKE ? ESCAPE '\\'",column];
+     }
+
+     NSMutableString *pattern=[NSMutableString stringWithString:constant];
+
+     [pattern replaceOccurrencesOfString:@"[" withString:@"[[]" options:0 range:NSMakeRange(0,[pattern length])];
+     [bindings addObject:predicateBinding(attribute,pattern)];
+     return [NSString stringWithFormat:@"%@ GLOB ?",column];
+    }
+
+    default:
+     return nil;
+   }
+}
+
+/* Translates predicate into a SQL boolean expression over entity's table,
+   appending the bound parameter values to bindings.  Returns nil when the
+   predicate contains constructs that cannot be translated exactly. */
+-(NSString *)_translatePredicate:(NSPredicate *)predicate entity:(NSEntityDescription *)entity bindings:(NSMutableArray *)bindings {
+   if([predicate isKindOfClass:[NSCompoundPredicate class]]){
+    NSCompoundPredicate *compound=(NSCompoundPredicate *)predicate;
+    NSArray             *subpredicates=[compound subpredicates];
+    NSMutableArray      *clauses=[NSMutableArray array];
+
+    for(NSPredicate *subpredicate in subpredicates){
+     NSString *clause=[self _translatePredicate:subpredicate entity:entity bindings:bindings];
+
+     if(clause==nil)
+      return nil;
+
+     [clauses addObject:clause];
+    }
+
+    switch([compound compoundPredicateType]){
+     case NSNotPredicateType:
+      if([clauses count]!=1)
+       return nil;
+      return [NSString stringWithFormat:@"NOT (%@)",[clauses objectAtIndex:0]];
+     case NSAndPredicateType:
+      if([clauses count]==0)
+       return @"1"; /* empty AND is true */
+      return [NSString stringWithFormat:@"(%@)",[clauses componentsJoinedByString:@" AND "]];
+     case NSOrPredicateType:
+      if([clauses count]==0)
+       return @"0"; /* empty OR is false */
+      return [NSString stringWithFormat:@"(%@)",[clauses componentsJoinedByString:@" OR "]];
+     default:
+      return nil;
+    }
+   }
+
+   if([predicate isKindOfClass:[NSComparisonPredicate class]])
+    return [self _translateComparisonPredicate:(NSComparisonPredicate *)predicate entity:entity bindings:bindings];
+
+   /* Constant predicates ([NSPredicate predicateWithValue:]). */
+   if([predicate isEqual:[NSPredicate predicateWithValue:YES]])
+    return @"1";
+   if([predicate isEqual:[NSPredicate predicateWithValue:NO]])
+    return @"0";
+
+   return nil;
+}
+
+/* Translates the sort descriptors into an ORDER BY fragment, or nil when
+   a descriptor cannot be evaluated by SQLite exactly. */
+-(NSString *)_translateSortDescriptors:(NSArray *)sortDescriptors entity:(NSEntityDescription *)entity {
+   NSMutableArray *terms=[NSMutableArray array];
+
+   for(NSSortDescriptor *descriptor in sortDescriptors){
+    NSString *key=[descriptor key];
+
+    if(key==nil || [key rangeOfString:@"."].location!=NSNotFound)
+     return nil;
+
+    NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:key];
+
+    if(![property isKindOfClass:[NSAttributeDescription class]] || !attributeComparesExactlyInSQL((NSAttributeDescription *)property))
+     return nil;
+
+    SEL       selector=[descriptor selector];
+    NSString *selectorName=(selector!=NULL)?NSStringFromSelector(selector):nil;
+    NSString *collate;
+
+    if(selectorName==nil || [selectorName isEqualToString:@"compare:"])
+     collate=@"";
+    else if([selectorName isEqualToString:@"caseInsensitiveCompare:"])
+     collate=@" COLLATE NOCASE";
+    else
+     return nil;
+
+    [terms addObject:[NSString stringWithFormat:@"\"%@\"%@ %@",columnNameForProperty(key),collate,[descriptor ascending]?@"ASC":@"DESC"]];
+   }
+
+   return [terms componentsJoinedByString:@", "];
+}
+
+/* ------------------------------------------------------------------ */
 #pragma mark - Fetching
 /* ------------------------------------------------------------------ */
 
--(NSArray *)_fetchObjectIDsForEntity:(NSEntityDescription *)entity includesSubentities:(BOOL)includesSubentities fetchLimit:(NSUInteger)fetchLimit fetchOffset:(NSUInteger)fetchOffset error:(NSError **)error {
+-(NSArray *)_fetchObjectIDsForEntity:(NSEntityDescription *)entity includesSubentities:(BOOL)includesSubentities whereSQL:(NSString *)whereSQL bindings:(NSArray *)bindings orderBySQL:(NSString *)orderBySQL fetchLimit:(NSUInteger)fetchLimit fetchOffset:(NSUInteger)fetchOffset error:(NSError **)error {
    if([_entityIDs objectForKey:[entity name]]==nil)
     return [NSArray array];
 
@@ -711,7 +1145,19 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
    else
     [entityIDs addObject:[NSNumber numberWithLongLong:[self _entityIDForEntity:entity]]];
 
-   NSString *sql=[NSString stringWithFormat:@"SELECT Z_PK, Z_ENT FROM \"%@\" WHERE Z_ENT IN (%@) ORDER BY Z_PK",tableNameForEntity(entity),[entityIDs componentsJoinedByString:@", "]];
+   /* The Z_ENT list holds one trusted integer literal per entity in the
+      model subtree, so it is bounded by the model size (and by
+      SQLITE_MAX_SQL_LENGTH, not the bound-parameter limit); it never
+      needs batching. */
+   NSString *sql=[NSString stringWithFormat:@"SELECT Z_PK, Z_ENT FROM \"%@\" WHERE Z_ENT IN (%@)",tableNameForEntity(entity),[entityIDs componentsJoinedByString:@", "]];
+
+   if(whereSQL!=nil)
+    sql=[sql stringByAppendingFormat:@" AND (%@)",whereSQL];
+
+   if([orderBySQL length]>0)
+    sql=[sql stringByAppendingFormat:@" ORDER BY %@, Z_PK",orderBySQL];
+   else
+    sql=[sql stringByAppendingString:@" ORDER BY Z_PK"];
 
    if(fetchLimit>0 || fetchOffset>0)
     sql=[sql stringByAppendingFormat:@" LIMIT %lld OFFSET %llu",fetchLimit>0?(long long)fetchLimit:-1LL,(unsigned long long)fetchOffset];
@@ -720,6 +1166,11 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 
    if(statement==NULL)
     return nil;
+
+   int parameterIndex=1;
+
+   for(NSDictionary *binding in bindings)
+    bindPredicateValue(statement,parameterIndex++,binding);
 
    NSMutableArray *result=[NSMutableArray array];
 
@@ -742,13 +1193,35 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 -(id)_executeFetchRequest:(NSFetchRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
    NSEntityDescription *entity=[request entity];
 
-   /* Filtering and sorting happen in memory; the offset/limit can only be
-      pushed down to SQLite when they wouldn't change the result. */
-   BOOL       filtersInMemory=([request predicate]!=nil || [[request sortDescriptors] count]>0);
+   /* Predicates and sort descriptors are translated to SQL when possible;
+      anything that would not translate exactly is evaluated in memory.
+      The offset/limit can only be pushed down to SQLite when nothing is
+      evaluated in memory (otherwise it would change the result). */
+   NSMutableArray *bindings=[NSMutableArray array];
+   NSString       *whereSQL=nil;
+   BOOL            predicateInSQL=YES;
+
+   if([request predicate]!=nil){
+    whereSQL=[self _translatePredicate:[request predicate] entity:entity bindings:bindings];
+    predicateInSQL=(whereSQL!=nil);
+
+    if(!predicateInSQL)
+     [bindings removeAllObjects];
+   }
+
+   NSString *orderBySQL=nil;
+   BOOL      sortsInSQL=YES;
+
+   if([[request sortDescriptors] count]>0){
+    orderBySQL=[self _translateSortDescriptors:[request sortDescriptors] entity:entity];
+    sortsInSQL=(orderBySQL!=nil);
+   }
+
+   BOOL       filtersInMemory=(!predicateInSQL || !sortsInSQL);
    NSUInteger sqlLimit=filtersInMemory?0:[request fetchLimit];
    NSUInteger sqlOffset=filtersInMemory?0:[request fetchOffset];
 
-   NSArray *objectIDs=[self _fetchObjectIDsForEntity:entity includesSubentities:[request includesSubentities] fetchLimit:sqlLimit fetchOffset:sqlOffset error:error];
+   NSArray *objectIDs=[self _fetchObjectIDsForEntity:entity includesSubentities:[request includesSubentities] whereSQL:whereSQL bindings:bindings orderBySQL:orderBySQL fetchLimit:sqlLimit fetchOffset:sqlOffset error:error];
 
    if(objectIDs==nil)
     return nil;
@@ -758,10 +1231,12 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
    for(NSManagedObjectID *objectID in objectIDs)
     [objects addObject:[context objectWithID:objectID]];
 
-   if([request predicate]!=nil)
+   if([request predicate]!=nil && !predicateInSQL)
     [objects filterUsingPredicate:[request predicate]];
 
-   if([[request sortDescriptors] count]>0)
+   /* Filtering preserves order, so a SQL-applied sort survives in-memory
+      predicate evaluation. */
+   if([[request sortDescriptors] count]>0 && !sortsInSQL)
     [objects sortUsingDescriptors:[request sortDescriptors]];
 
    if(filtersInMemory){
