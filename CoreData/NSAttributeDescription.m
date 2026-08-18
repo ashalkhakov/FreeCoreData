@@ -33,6 +33,19 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 
+- (void) encodeWithCoder: (NSCoder *) coder {
+   [super encodeWithCoder:coder];
+
+   [coder encodeInt:_attributeType forKey: @"NSAttributeType"];
+   if(_valueClassName!=nil)
+    [coder encodeObject:_valueClassName forKey: @"NSAttributeValueClassName"];
+   if(_defaultValue!=nil)
+    [coder encodeObject:_defaultValue forKey: @"NSDefaultValue"];
+   if(_valueTransformerName!=nil)
+    [coder encodeObject:_valueTransformerName forKey: @"NSValueTransformerName"];
+}
+
+
 -copyWithZone: (NSZone *) zone {
    return [self retain];
 }

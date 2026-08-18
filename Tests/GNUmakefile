@@ -13,6 +13,7 @@ CoreDataTests_OBJC_FILES = \
 	NSFetchRequestTests.m \
 	NSPersistentStoreCoordinatorTests.m \
 	NSManagedObjectContextTests.m \
+	NSFetchedResultsControllerTests.m \
 	NSManagedObjectValidationTests.m \
 	NSManagedObjectLifecycleTests.m \
 	NSMergePolicyTests.m \

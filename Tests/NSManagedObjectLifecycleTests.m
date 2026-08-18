@@ -26,9 +26,18 @@ static NSUInteger willTurnIntoFaultCount;
 static NSUInteger didTurnIntoFaultCount;
 
 @interface LifecyclePerson : NSManagedObject
+- (NSString *)displayName;
 @end
 
 @implementation LifecyclePerson
+
+/* Custom accessor for the transient displayName attribute; -valueForKey:
+   must dispatch to it instead of reading the (empty) modeled storage. */
+- (NSString *)displayName
+{
+    return [NSString stringWithFormat:@"%@ \"%@\"",
+        [self valueForKey:@"name"], [self valueForKey:@"nickname"]];
+}
 
 - (void)awakeFromInsert
 {
@@ -87,6 +96,12 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     [nickname setAttributeType:NSStringAttributeType];
     [nickname setDefaultValue:@"buddy"];
 
+    NSAttributeDescription *displayName = [[NSAttributeDescription alloc] init];
+    [displayName setName:@"displayName"];
+    [displayName setAttributeType:NSStringAttributeType];
+    [displayName setTransient:YES];
+    [displayName setOptional:YES];
+
     NSAttributeDescription *petName = [[NSAttributeDescription alloc] init];
     [petName setName:@"name"];
     [petName setAttributeType:NSStringAttributeType];
@@ -108,7 +123,7 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     [personEntity setName:@"Person"];
     [personEntity setManagedObjectClassName:@"LifecyclePerson"];
     [personEntity setProperties:
-        [NSArray arrayWithObjects:name, nickname, pets, nil]];
+        [NSArray arrayWithObjects:name, nickname, displayName, pets, nil]];
 
     NSEntityDescription *petEntity = [[NSEntityDescription alloc] init];
     [petEntity setName:@"Pet"];
@@ -414,6 +429,20 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertEqual([[self.ctx deletedObjects] count], (NSUInteger)0);
     XCTAssertEqualObjects([person valueForKey:@"name"], @"Alice");
     XCTAssertNil([self.ctx objectRegisteredForID:[doomed objectID]]);
+}
+
+/* -- custom accessors ----------------------------------------------------- */
+
+- (void)testValueForKeyDispatchesToCustomAccessor
+{
+    NSManagedObject *person = [self insertPersonNamed:@"Alice"];
+
+    /* The transient displayName attribute is computed by the accessor
+       implemented on LifecyclePerson. */
+    XCTAssertEqualObjects([person valueForKey:@"displayName"],
+                          @"Alice \"buddy\"");
+    /* Attributes without a custom accessor still read modeled storage. */
+    XCTAssertEqualObjects([person valueForKey:@"name"], @"Alice");
 }
 
 @end

@@ -21,6 +21,7 @@
 		CED014B03032FF59009517DE /* NSSQLitePersistentStoreTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014B13032FF59009517DE /* NSSQLitePersistentStoreTests.m */; };
 		CED014A83032FF59009517DE /* MemoryIncrementalStore.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014913032FF59009517DE /* MemoryIncrementalStore.m */; };
 		CED014A93032FF59009517DE /* NSManagedObjectContextTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014953032FF59009517DE /* NSManagedObjectContextTests.m */; };
+		CED014E13032FF59009517DE /* NSFetchedResultsControllerTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014E03032FF59009517DE /* NSFetchedResultsControllerTests.m */; };
 		CED014AA3032FF59009517DE /* NSIncrementalStoreTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014943032FF59009517DE /* NSIncrementalStoreTests.m */; };
 		CED014AB3032FF59009517DE /* VersioningTestModels.m in Sources */ = {isa = PBXBuildFile; fileRef = CED0149E3032FF59009517DE /* VersioningTestModels.m */; };
 		CED014AC3032FF59009517DE /* NSFetchRequestTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014923032FF59009517DE /* NSFetchRequestTests.m */; };
@@ -40,6 +41,7 @@
 		CED014933032FF59009517DE /* NSIncrementalStoreNodeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSIncrementalStoreNodeTests.m; path = Tests/NSIncrementalStoreNodeTests.m; sourceTree = "<group>"; };
 		CED014943032FF59009517DE /* NSIncrementalStoreTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSIncrementalStoreTests.m; path = Tests/NSIncrementalStoreTests.m; sourceTree = "<group>"; };
 		CED014953032FF59009517DE /* NSManagedObjectContextTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectContextTests.m; path = Tests/NSManagedObjectContextTests.m; sourceTree = "<group>"; };
+		CED014E03032FF59009517DE /* NSFetchedResultsControllerTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSFetchedResultsControllerTests.m; path = Tests/NSFetchedResultsControllerTests.m; sourceTree = "<group>"; };
 		CED014963032FF59009517DE /* NSManagedObjectModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectModelTests.m; path = Tests/NSManagedObjectModelTests.m; sourceTree = "<group>"; };
 		CED014973032FF59009517DE /* NSPersistentStoreCoordinatorTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPersistentStoreCoordinatorTests.m; path = Tests/NSPersistentStoreCoordinatorTests.m; sourceTree = "<group>"; };
 		CED014983032FF59009517DE /* NSPersistentStoreCoordinatorTypeMismatchTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPersistentStoreCoordinatorTypeMismatchTests.m; path = Tests/NSPersistentStoreCoordinatorTypeMismatchTests.m; sourceTree = "<group>"; };
@@ -86,6 +88,7 @@
 				CED014933032FF59009517DE /* NSIncrementalStoreNodeTests.m */,
 				CED014943032FF59009517DE /* NSIncrementalStoreTests.m */,
 				CED014953032FF59009517DE /* NSManagedObjectContextTests.m */,
+				CED014E03032FF59009517DE /* NSFetchedResultsControllerTests.m */,
 				CED014963032FF59009517DE /* NSManagedObjectModelTests.m */,
 				CED014C23032FF59009517DE /* NSManagedObjectValidationTests.m */,
 				CED014C43032FF59009517DE /* NSManagedObjectLifecycleTests.m */,
@@ -185,6 +188,7 @@
 				CED014B03032FF59009517DE /* NSSQLitePersistentStoreTests.m in Sources */,
 				CED014A83032FF59009517DE /* MemoryIncrementalStore.m in Sources */,
 				CED014A93032FF59009517DE /* NSManagedObjectContextTests.m in Sources */,
+				CED014E13032FF59009517DE /* NSFetchedResultsControllerTests.m in Sources */,
 				CED014AA3032FF59009517DE /* NSIncrementalStoreTests.m in Sources */,
 				CED014AB3032FF59009517DE /* VersioningTestModels.m in Sources */,
 				CED014AC3032FF59009517DE /* NSFetchRequestTests.m in Sources */,

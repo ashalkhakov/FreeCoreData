@@ -7,6 +7,12 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSPropertyDescription.h>
 
+/* GNUstep's AppKit duplicates the NSAttributeType constants in
+   NSPredicateEditorRowTemplate.h (GNUstep itself has no CoreData).  When
+   that header has already been included, reuse its definition instead of
+   redefining the enumerators.  Import AppKit before CoreData in programs
+   that use both. */
+#if !defined(_GNUstep_H_NSPredicateEditorRowTemplate)
 typedef enum {
     NSUndefinedAttributeType = 0,
     NSInteger16AttributeType = 100,
@@ -21,6 +27,7 @@ typedef enum {
     NSBinaryDataAttributeType = 1000,
     NSTransformableAttributeType = 1800
 } NSAttributeType;
+#endif
 
 @interface NSAttributeDescription : NSPropertyDescription {
     NSAttributeType _attributeType;

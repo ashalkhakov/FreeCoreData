@@ -125,6 +125,23 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
    return self;
 }
 
+-(void)encodeWithCoder: (NSCoder *) coder {
+   if(![coder allowsKeyedCoding])
+    [NSException raise:NSInvalidArgumentException format: @"%@ can not encodeWithCoder:%@", [self class], [coder class]];
+
+   /* _entities holds each entity under both its name and the uppercased
+      name; only the exact names are archived. */
+   NSMutableDictionary *entities=[NSMutableDictionary dictionary];
+
+   for(NSEntityDescription *entity in [_entities allValues])
+    [entities setObject:entity forKey:[entity name]];
+
+   [coder encodeObject:entities forKey: @"NSEntities"];
+   [coder encodeObject:_fetchRequestTemplates forKey: @"NSFetchRequestTemplates"];
+   if(_versionIdentifiers!=nil)
+    [coder encodeObject:_versionIdentifiers forKey: @"NSVersionIdentifiers"];
+}
+
 -initWithContentsOfURL:(NSURL *)url {
    /* Replace self: release the alloc'd shell and return the unarchived model.
       The result is retained here so ownership is correctly transferred to

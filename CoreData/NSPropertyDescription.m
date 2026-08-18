@@ -10,6 +10,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "CoreDataUtilities.h"
 #import "CoreDataVersioning-Private.h"
 #import <Foundation/NSCoder.h>
+#import <Foundation/Foundation.h>
 
 @implementation NSPropertyDescription
 
@@ -21,12 +22,44 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return self;
 }
 
+/* Validation predicates are stored in the archive as predicate format
+   strings (Apple's momc stores NSPredicate objects; both forms are
+   accepted when decoding). */
+static NSArray *predicatesFromArchivedObjects(NSArray *objects){
+   if(objects==nil)
+    return nil;
+
+   NSMutableArray *result=[NSMutableArray arrayWithCapacity:[objects count]];
+
+   for(id check in objects){
+    if([check isKindOfClass:[NSString class]])
+     [result addObject:[NSPredicate predicateWithFormat:check]];
+    else {
+     /* Predicates decoded from a keyed archive have evaluation disabled
+        on Apple's Foundation until -allowEvaluation is sent (GNUstep's
+        NSPredicate may not implement it). */
+     if([check respondsToSelector:@selector(allowEvaluation)])
+      [check performSelector:@selector(allowEvaluation)];
+     [result addObject:check];
+    }
+   }
+
+   return result;
+}
+
 -initWithCoder:(NSCoder *)coder {
    if(![coder allowsKeyedCoding])
     [NSException raise: NSInvalidArgumentException format: @"%@ can not initWithCoder:%@", [self class], [coder class]];
 
    _entity=[coder decodeObjectForKey: @"NSEntity"];
    _propertyName=[[coder decodeObjectForKey: @"NSPropertyName"] copy];
+   /* Apple's momc only writes these flags when they are YES; an absent
+      key therefore means NO. */
+   _optional=[coder decodeBoolForKey: @"NSIsOptional"];
+   _transient=[coder decodeBoolForKey: @"NSIsTransient"];
+   _userInfo=[[coder decodeObjectForKey: @"NSUserInfo"] copy];
+   _validationPredicates=[predicatesFromArchivedObjects([coder decodeObjectForKey: @"NSValidationPredicates"]) copy];
+   _validationWarnings=[[coder decodeObjectForKey: @"NSValidationWarnings"] copy];
    _versionHashModifier=[[coder decodeObjectForKey: @"NSVersionHashModifier"] copy];
    
    return self;
@@ -34,7 +67,33 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 
 - (void) encodeWithCoder: (NSCoder *) coder {
-    NSInvalidAbstractInvocation();
+   if(![coder allowsKeyedCoding])
+    [NSException raise: NSInvalidArgumentException format: @"%@ can not encodeWithCoder:%@", [self class], [coder class]];
+
+   [coder encodeConditionalObject:_entity forKey: @"NSEntity"];
+   [coder encodeObject:_propertyName forKey: @"NSPropertyName"];
+   /* Mirror Apple's momc: boolean flags are only written when YES. */
+   if(_optional)
+    [coder encodeBool:YES forKey: @"NSIsOptional"];
+   if(_transient)
+    [coder encodeBool:YES forKey: @"NSIsTransient"];
+   if(_userInfo!=nil)
+    [coder encodeObject:_userInfo forKey: @"NSUserInfo"];
+   if(_validationPredicates!=nil){
+    /* NSPredicate does not support archiving on GNUstep; store the
+       format strings instead (accepted on decode alongside archived
+       NSPredicate objects). */
+    NSMutableArray *formats=[NSMutableArray arrayWithCapacity:[_validationPredicates count]];
+
+    for(NSPredicate *predicate in _validationPredicates)
+     [formats addObject:[predicate predicateFormat]];
+
+    [coder encodeObject:formats forKey: @"NSValidationPredicates"];
+   }
+   if(_validationWarnings!=nil)
+    [coder encodeObject:_validationWarnings forKey: @"NSValidationWarnings"];
+   if(_versionHashModifier!=nil)
+    [coder encodeObject:_versionHashModifier forKey: @"NSVersionHashModifier"];
 }
 
 

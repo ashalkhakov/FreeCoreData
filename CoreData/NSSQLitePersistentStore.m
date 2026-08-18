@@ -435,11 +435,12 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
     [self _collectEntityIDsOfEntity:subentity into:result];
 }
 
-/* Properties of entity including the ones inherited from superentities. */
+/* Properties of entity including the ones inherited from superentities.
+   Transient properties are never persisted, so they are left out. */
 static void collectPropertiesOfEntityChain(NSEntityDescription *entity,NSMutableDictionary *result){
    for(NSEntityDescription *check=entity;check!=nil;check=[check superentity])
     for(NSPropertyDescription *property in [check properties])
-     if([result objectForKey:[property name]]==nil)
+     if(![property isTransient] && [result objectForKey:[property name]]==nil)
       [result setObject:property forKey:[property name]];
 }
 
@@ -455,7 +456,7 @@ static NSDictionary *propertiesForEntityChain(NSEntityDescription *entity){
    the subtree rooted at entity. */
 static void collectPropertiesOfEntitySubtree(NSEntityDescription *entity,NSMutableDictionary *result){
    for(NSPropertyDescription *property in [entity properties])
-    if([result objectForKey:[property name]]==nil)
+    if(![property isTransient] && [result objectForKey:[property name]]==nil)
      [result setObject:property forKey:[property name]];
 
    for(NSEntityDescription *subentity in [entity subentities])

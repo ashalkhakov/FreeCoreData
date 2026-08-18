@@ -33,7 +33,8 @@ CoreData_OBJC_FILES = \
 	CoreData/NSMappingModel.m \
 	CoreData/NSEntityMigrationPolicy.m \
 	CoreData/NSMigrationManager.m \
-	CoreData/NSMergePolicy.m
+	CoreData/NSMergePolicy.m \
+	CoreData/NSFetchedResultsController.m
 
 CoreData_HEADER_FILES_DIR = CoreData
 CoreData_HEADER_FILES_INSTALL_DIR = CoreData
@@ -68,7 +69,8 @@ CoreData_HEADER_FILES = \
 	NSMappingModel.h \
 	NSEntityMigrationPolicy.h \
 	NSMigrationManager.h \
-	NSMergePolicy.h
+	NSMergePolicy.h \
+	NSFetchedResultsController.h
 
 CoreData_OBJCFLAGS = -fno-objc-arc
 

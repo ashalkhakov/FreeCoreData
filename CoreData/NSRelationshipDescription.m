@@ -29,10 +29,29 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    _maxCount = [coder decodeIntForKey: @"NSMaxCount"];
    _minCount = [coder decodeIntForKey: @"NSMinCount"];
        
-   _destinationEntityName= [coder decodeObjectForKey: @"_NSDestinationEntityName"];
-   _inverseRelationshipName= [coder decodeObjectForKey: @"_NSInverseRelationshipName"];
+   _destinationEntityName= [[coder decodeObjectForKey: @"_NSDestinationEntityName"] copy];
+   _inverseRelationshipName= [[coder decodeObjectForKey: @"_NSInverseRelationshipName"] copy];
        
    return self;
+}
+
+
+- (void) encodeWithCoder: (NSCoder *) coder {
+   [super encodeWithCoder:coder];
+
+   [coder encodeInt:_deleteRule forKey: @"NSDeleteRule"];
+   [coder encodeConditionalObject:_destinationEntity forKey: @"NSDestinationEntity"];
+   [coder encodeConditionalObject:_inverseRelationship forKey: @"NSInverseRelationship"];
+   [coder encodeInt:_maxCount forKey: @"NSMaxCount"];
+   [coder encodeInt:_minCount forKey: @"NSMinCount"];
+
+   NSString *destinationEntityName=(_destinationEntityName!=nil)?_destinationEntityName:[_destinationEntity name];
+   NSString *inverseRelationshipName=(_inverseRelationshipName!=nil)?_inverseRelationshipName:[_inverseRelationship name];
+
+   if(destinationEntityName!=nil)
+    [coder encodeObject:destinationEntityName forKey: @"_NSDestinationEntityName"];
+   if(inverseRelationshipName!=nil)
+    [coder encodeObject:inverseRelationshipName forKey: @"_NSInverseRelationshipName"];
 }
 
 
@@ -43,7 +62,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 
 - (BOOL) isToMany {
-   return (_minCount==1 && _maxCount==1)?NO:YES;
+   /* A relationship is to-one when its maximum count is exactly one;
+      the minimum count only expresses whether it is mandatory.  A max
+      count of zero means "unbounded", i.e. to-many. */
+   return (_maxCount==1)?NO:YES;
 }
 
 
