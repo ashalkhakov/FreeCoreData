@@ -66,6 +66,11 @@ static void removeObjectSet(id self,SEL selector,NSSet *values){
    [set minusSet:values];
 }
 
+BOOL _NSManagedObjectIMPIsGeneratedAccessor(IMP imp) {
+   return imp==(IMP)getValue || imp==(IMP)setValue || imp==(IMP)addObject ||
+          imp==(IMP)removeObject || imp==(IMP)addObjectSet || imp==(IMP)removeObjectSet;
+}
+
 id keyObjectForSelector(SEL selector){
    return [NSNumber numberWithInteger: (NSInteger) selector];
 }

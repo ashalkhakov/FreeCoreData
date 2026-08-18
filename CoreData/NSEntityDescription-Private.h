@@ -15,3 +15,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (BOOL)_isKindOfEntity:(NSEntityDescription *)other;
 - (NSPropertyDescription *)_propertyForSelector:(SEL)selector;
 @end
+
+/* Returns YES when the IMP is one of the property accessors that the
+   framework itself generates for modeled properties (as opposed to a
+   custom accessor implemented by an NSManagedObject subclass). */
+BOOL _NSManagedObjectIMPIsGeneratedAccessor(IMP imp);

@@ -43,7 +43,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 
 - (BOOL) isToMany {
-   return (_minCount==1 && _maxCount==1)?NO:YES;
+   /* A relationship is to-one when its maximum count is exactly one;
+      the minimum count only expresses whether it is mandatory.  A max
+      count of zero means "unbounded", i.e. to-many. */
+   return (_maxCount==1)?NO:YES;
 }
 
 

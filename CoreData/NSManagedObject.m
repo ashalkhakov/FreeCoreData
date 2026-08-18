@@ -331,9 +331,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    if(!key)
     return [self valueForUndefinedKey:nil];
 
-   NSPropertyDescription *property=[[self entity] _propertyForSelector:NSSelectorFromString(key)];
+   SEL selector=NSSelectorFromString(key);
+   NSPropertyDescription *property=[[self entity] _propertyForSelector:selector];
    NSString *propertyName=[property name];
-   
+
+   /* A custom accessor implemented by the subclass (e.g. a computed
+      transient property) takes precedence over the modeled storage. */
+   if(property!=nil && [self respondsToSelector:selector] &&
+      !_NSManagedObjectIMPIsGeneratedAccessor([self methodForSelector:selector]))
+    return [self performSelector:selector];
+
    if([property isKindOfClass:[NSAttributeDescription class]]){
     [self willAccessValueForKey:propertyName];
     

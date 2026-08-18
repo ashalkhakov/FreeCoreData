@@ -52,4 +52,29 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertNotNil([model configurations]);
 }
 
+- (void)testRelationshipIsToManyKeysOffMaxCount
+{
+    NSRelationshipDescription *relationship =
+        [[NSRelationshipDescription alloc] init];
+
+    /* To-one: a maximum count of one, regardless of the minimum count. */
+    [relationship setMinCount:1];
+    [relationship setMaxCount:1];
+    XCTAssertFalse([relationship isToMany]);
+
+    /* An optional to-one relationship is still to-one. */
+    [relationship setMinCount:0];
+    [relationship setMaxCount:1];
+    XCTAssertFalse([relationship isToMany]);
+
+    /* To-many: a maximum count of zero (unbounded) or greater than one. */
+    [relationship setMinCount:0];
+    [relationship setMaxCount:0];
+    XCTAssertTrue([relationship isToMany]);
+
+    [relationship setMinCount:1];
+    [relationship setMaxCount:5];
+    XCTAssertTrue([relationship isToMany]);
+}
+
 @end

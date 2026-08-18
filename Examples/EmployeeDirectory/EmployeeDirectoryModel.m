@@ -86,8 +86,10 @@ static NSRelationshipDescription *EDRelationship(NSString *name, BOOL toMany, BO
     NSRelationshipDescription *result = [[[NSRelationshipDescription alloc] init] autorelease];
 
     [result setName:name];
-    /* A to-one relationship is described by min and max count of one. */
-    [result setMinCount:toMany ? 0 : 1];
+    /* A to-one relationship has a maximum count of one; a maximum count
+       of zero means unbounded, i.e. to-many.  Whether the relationship
+       is mandatory is expressed through minCount/optional. */
+    [result setMinCount:optional ? 0 : 1];
     [result setMaxCount:toMany ? 0 : 1];
     [result setOptional:optional];
     [result setDeleteRule:NSNullifyDeleteRule];
