@@ -177,10 +177,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                           @"amount must not be negative");
 
     NSPredicate *predicate = [[amount validationPredicates] lastObject];
-    if ([predicate respondsToSelector:@selector(allowEvaluation)]) {
-        // required on MacOS, not implemented on GNUstep
-        [predicate allowEvaluation];
-    }
+#if !GNUSTEP
+    // required on MacOS, not implemented on GNUstep
+    [predicate allowEvaluation];
+#endif
     XCTAssertTrue([predicate evaluateWithObject:[NSNumber numberWithInt:0]]);
     XCTAssertFalse([predicate evaluateWithObject:[NSNumber numberWithInt:-1]]);
 
