@@ -34,8 +34,14 @@ static NSArray *predicatesFromArchivedObjects(NSArray *objects){
    for(id check in objects){
     if([check isKindOfClass:[NSString class]])
      [result addObject:[NSPredicate predicateWithFormat:check]];
-    else
+    else {
+     /* Predicates decoded from a keyed archive have evaluation disabled
+        on Apple's Foundation until -allowEvaluation is sent (GNUstep's
+        NSPredicate may not implement it). */
+     if([check respondsToSelector:@selector(allowEvaluation)])
+      [check performSelector:@selector(allowEvaluation)];
      [result addObject:check];
+    }
    }
 
    return result;
