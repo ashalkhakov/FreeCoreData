@@ -16,6 +16,8 @@ CoreData.framework/
 *.xcworkspace/xcuserdata/
 DerivedData/
 *.xcodeproj/xcuserdata/
+*.xcuserstate
+.DS_Store
 
 # Example application binaries
 Examples/*/EmployeeDirectory
