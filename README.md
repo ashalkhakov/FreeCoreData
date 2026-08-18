@@ -60,6 +60,9 @@ The tests compile against Apple's built-in CoreData and XCTest frameworks — no
 
 ## Example application
 
+![GNUstep on Linux with Eau theme](Screenshots/EmployeeDirectory-Linux.png)
+![Mac](Screenshots/EmployeeDirectory-Mac.png)
+
 `Examples/EmployeeDirectory` is a graphical (AppKit) application showing entity
 inheritance, transient properties, validation, to-one/to-many/many-to-many relationships
 and `NSFetchedResultsController` on top of the SQLite store, with one button per usage
