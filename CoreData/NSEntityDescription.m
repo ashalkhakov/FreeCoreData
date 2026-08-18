@@ -99,6 +99,8 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     _superentity = [[coder decodeObjectForKey: @"NSSuperentity"] retain];
     _userInfo = [[coder decodeObjectForKey: @"NSUserInfo"] retain];
     _versionHashModifier= [[coder decodeObjectForKey: @"NSVersionHashModifier"] retain];
+    /* Apple's momc only writes the flag when the entity is abstract. */
+    _isAbstract = [coder decodeBoolForKey: @"NSIsAbstract"];
     
     _selectorPropertyMap = [[NSMutableDictionary alloc] init];
     
@@ -139,6 +141,28 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
         }
     }
     return self;
+}
+
+
+- (void) encodeWithCoder: (NSCoder *) coder {
+    if(![coder allowsKeyedCoding])
+	[NSException raise: NSInvalidArgumentException format: @"%@ can not encodeWithCoder:%@", [self class], [coder class]];
+
+    if(_className!=nil)
+	[coder encodeObject:_className forKey: @"NSClassNameForEntity"];
+    [coder encodeObject:_name forKey: @"NSEntityName"];
+    [coder encodeConditionalObject:_model forKey: @"NSManagedObjectModel"];
+    [coder encodeObject:_properties forKey: @"NSProperties"];
+    if([_subentities count]>0)
+	[coder encodeObject:_subentities forKey: @"NSSubentities"];
+    [coder encodeConditionalObject:_superentity forKey: @"NSSuperentity"];
+    if(_userInfo!=nil)
+	[coder encodeObject:_userInfo forKey: @"NSUserInfo"];
+    if(_versionHashModifier!=nil)
+	[coder encodeObject:_versionHashModifier forKey: @"NSVersionHashModifier"];
+    /* Mirror Apple's momc: the flag is only written when YES. */
+    if(_isAbstract)
+	[coder encodeBool:YES forKey: @"NSIsAbstract"];
 }
 
 

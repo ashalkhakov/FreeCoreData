@@ -12,8 +12,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <Foundation/Foundation.h>
 #import <CoreData/CoreData.h>
 
-/* The demo model, built in code so that the very same model is used by
-   GNUstep and by Apple's CoreData (no compiled .momd needed):
+/* The demo model.  Its source lives in EmployeeDirectory.xcdatamodeld
+   (designed with Xcode's data model editor on a Mac) and the compiled
+   EmployeeDirectory.momd is kept in source control and loaded from the
+   application bundle at runtime, on GNUstep and on Apple's CoreData alike:
 
      Person (abstract)                     <- inheritance
        firstName    string, mandatory

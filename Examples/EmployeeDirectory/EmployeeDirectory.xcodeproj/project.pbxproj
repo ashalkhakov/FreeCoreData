@@ -10,6 +10,7 @@
 		ED0000000000000000000101 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = ED0000000000000000000001 /* main.m */; };
 		ED0000000000000000000102 /* EmployeeDirectoryModel.m in Sources */ = {isa = PBXBuildFile; fileRef = ED0000000000000000000002 /* EmployeeDirectoryModel.m */; };
 		ED0000000000000000000103 /* EDAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = ED0000000000000000000003 /* EDAppDelegate.m */; };
+		ED0000000000000000000106 /* EmployeeDirectory.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = ED0000000000000000000901 /* EmployeeDirectory.xcdatamodeld */; };
 		ED0000000000000000000104 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ED0000000000000000000011 /* Cocoa.framework */; };
 		ED0000000000000000000105 /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ED0000000000000000000012 /* CoreData.framework */; };
 /* End PBXBuildFile section */
@@ -23,6 +24,7 @@
 		ED0000000000000000000011 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		ED0000000000000000000012 /* CoreData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreData.framework; path = System/Library/Frameworks/CoreData.framework; sourceTree = SDKROOT; };
 		ED0000000000000000000021 /* EmployeeDirectory.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EmployeeDirectory.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		ED0000000000000000000902 /* EmployeeDirectory.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = EmployeeDirectory.xcdatamodel; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,6 +47,7 @@
 				ED0000000000000000000003 /* EDAppDelegate.m */,
 				ED0000000000000000000004 /* EmployeeDirectoryModel.h */,
 				ED0000000000000000000002 /* EmployeeDirectoryModel.m */,
+				ED0000000000000000000901 /* EmployeeDirectory.xcdatamodeld */,
 				ED0000000000000000000001 /* main.m */,
 				ED0000000000000000000302 /* Frameworks */,
 				ED0000000000000000000303 /* Products */,
@@ -121,6 +124,7 @@
 			files = (
 				ED0000000000000000000101 /* main.m in Sources */,
 				ED0000000000000000000102 /* EmployeeDirectoryModel.m in Sources */,
+				ED0000000000000000000106 /* EmployeeDirectory.xcdatamodeld in Sources */,
 				ED0000000000000000000103 /* EDAppDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -237,6 +241,19 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCVersionGroup section */
+		ED0000000000000000000901 /* EmployeeDirectory.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				ED0000000000000000000902 /* EmployeeDirectory.xcdatamodel */,
+			);
+			currentVersion = ED0000000000000000000902 /* EmployeeDirectory.xcdatamodel */;
+			path = EmployeeDirectory.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
 	};
 	rootObject = ED0000000000000000000701 /* Project object */;
 }

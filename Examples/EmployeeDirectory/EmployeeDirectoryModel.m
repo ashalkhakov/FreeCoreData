@@ -70,110 +70,25 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 @implementation EDProject
 @end
 
-static NSAttributeDescription *EDAttribute(NSString *name, NSAttributeType type, BOOL optional)
-{
-    NSAttributeDescription *result = [[[NSAttributeDescription alloc] init] autorelease];
-
-    [result setName:name];
-    [result setAttributeType:type];
-    [result setOptional:optional];
-
-    return result;
-}
-
-static NSRelationshipDescription *EDRelationship(NSString *name, BOOL toMany, BOOL optional)
-{
-    NSRelationshipDescription *result = [[[NSRelationshipDescription alloc] init] autorelease];
-
-    [result setName:name];
-    /* A to-one relationship has a maximum count of one; a maximum count
-       of zero means unbounded, i.e. to-many.  Whether the relationship
-       is mandatory is expressed through minCount/optional. */
-    [result setMinCount:optional ? 0 : 1];
-    [result setMaxCount:toMany ? 0 : 1];
-    [result setOptional:optional];
-    [result setDeleteRule:NSNullifyDeleteRule];
-
-    return result;
-}
-
-static NSEntityDescription *EDEntity(NSString *name, NSString *className, NSArray *properties)
-{
-    NSEntityDescription *result = [[[NSEntityDescription alloc] init] autorelease];
-
-    [result setName:name];
-    [result setManagedObjectClassName:className];
-    [result setProperties:properties];
-
-    return result;
-}
-
+/* The model is designed in EmployeeDirectory.xcdatamodeld (edited with
+   Xcode's model designer on a Mac) and shipped compiled as the
+   EmployeeDirectory.momd resource, which both Apple's CoreData and the
+   GNUstep port load at runtime. */
 NSManagedObjectModel *EmployeeDirectoryModel(void)
 {
-    /* Person, the abstract root entity of the inheritance hierarchy. */
-    NSAttributeDescription *firstName = EDAttribute(@"firstName", NSStringAttributeType, NO);
-    NSAttributeDescription *lastName = EDAttribute(@"lastName", NSStringAttributeType, NO);
-    NSAttributeDescription *birthDate = EDAttribute(@"birthDate", NSDateAttributeType, YES);
-    NSAttributeDescription *fullName = EDAttribute(@"fullName", NSStringAttributeType, YES);
+    NSURL *url = [[NSBundle mainBundle] URLForResource:@"EmployeeDirectory"
+                                         withExtension:@"momd"];
 
-    /* Transient attributes are computed, never persisted. */
-    [fullName setTransient:YES];
+    if (url == nil) {
+        NSLog(@"EmployeeDirectory.momd not found in the application bundle");
+        return nil;
+    }
 
-    NSEntityDescription *personEntity = EDEntity(@"Person", @"EDPerson",
-        [NSArray arrayWithObjects:firstName, lastName, birthDate, fullName, nil]);
-    [personEntity setAbstract:YES];
+    NSManagedObjectModel *model =
+        [[[NSManagedObjectModel alloc] initWithContentsOfURL:url] autorelease];
 
-    /* Employee, a concrete subentity of Person. */
-    NSAttributeDescription *salary = EDAttribute(@"salary", NSInteger32AttributeType, NO);
-
-    [salary setValidationPredicates:
-        [NSArray arrayWithObject:[NSPredicate predicateWithFormat:@"SELF >= 0"]]
-        withValidationWarnings:
-        [NSArray arrayWithObject:@"salary must not be negative"]];
-
-    NSRelationshipDescription *department = EDRelationship(@"department", NO, YES);
-    NSRelationshipDescription *projects = EDRelationship(@"projects", YES, YES);
-
-    NSEntityDescription *employeeEntity = EDEntity(@"Employee", @"EDEmployee",
-        [NSArray arrayWithObjects:salary, department, projects, nil]);
-
-    /* Contractor, a second concrete subentity of Person. */
-    NSAttributeDescription *agency = EDAttribute(@"agency", NSStringAttributeType, YES);
-
-    NSEntityDescription *contractorEntity = EDEntity(@"Contractor", @"EDContractor",
-        [NSArray arrayWithObject:agency]);
-
-    [personEntity setSubentities:
-        [NSArray arrayWithObjects:employeeEntity, contractorEntity, nil]];
-
-    /* Department, the to-one/to-many counterpart of Employee.department. */
-    NSAttributeDescription *departmentName = EDAttribute(@"name", NSStringAttributeType, NO);
-    NSRelationshipDescription *employees = EDRelationship(@"employees", YES, YES);
-
-    NSEntityDescription *departmentEntity = EDEntity(@"Department", @"EDDepartment",
-        [NSArray arrayWithObjects:departmentName, employees, nil]);
-
-    [department setDestinationEntity:departmentEntity];
-    [employees setDestinationEntity:employeeEntity];
-    [department setInverseRelationship:employees];
-    [employees setInverseRelationship:department];
-
-    /* Project, in a many-to-many relationship with Employee. */
-    NSAttributeDescription *projectName = EDAttribute(@"name", NSStringAttributeType, NO);
-    NSRelationshipDescription *members = EDRelationship(@"members", YES, YES);
-
-    NSEntityDescription *projectEntity = EDEntity(@"Project", @"EDProject",
-        [NSArray arrayWithObjects:projectName, members, nil]);
-
-    [projects setDestinationEntity:projectEntity];
-    [members setDestinationEntity:employeeEntity];
-    [projects setInverseRelationship:members];
-    [members setInverseRelationship:projects];
-
-    NSManagedObjectModel *model = [[[NSManagedObjectModel alloc] init] autorelease];
-
-    [model setEntities:[NSArray arrayWithObjects:personEntity, employeeEntity,
-        contractorEntity, departmentEntity, projectEntity, nil]];
+    if (model == nil)
+        NSLog(@"could not load the managed object model at %@", url);
 
     return model;
 }
