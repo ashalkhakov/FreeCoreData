@@ -1,19 +1,37 @@
 # Employee directory example
 
-A small command line program that exercises the CoreData features that differ most
-between implementations, on top of the **SQLite store**:
+A small **graphical** (AppKit) application that exercises the CoreData features that
+differ most between implementations, on top of the **SQLite store**:
 
 * entity **inheritance** (abstract `Person` with `Employee` and `Contractor` subentities)
-* a **transient** property (`Person.fullName`, computed, never written to the store)
+* a **transient** property (`Person.fullName`, computed by a custom accessor, never
+  written to the store, and read through plain `-valueForKey:`)
 * **validation** (mandatory attributes, a validation predicate on `Employee.salary` and a
   custom `-validateSalary:error:` method)
 * **to-one** (`Employee.department`), **to-many** (`Department.employees`) and
   **many-to-many** (`Employee.projects` ⟷ `Project.members`) relationships
 * `NSFetchedResultsController` change tracking with sections, index paths and a delegate
 
-The managed object model is built in code (`EmployeeDirectoryModel.m`), so the same
-sources run against the GNUstep port and against Apple's CoreData without a compiled
-`.momd` bundle.
+The window shows the employee table (grouped into department sections by the fetched
+results controller) next to a log of every delegate callback, and one button per usage
+scenario so each can be run and verified interactively:
+
+| Button | Scenario |
+| --- | --- |
+| Add Employee | insert a new object, to-one relationship, FRC insert events |
+| Move Department | reassign a to-one relationship, FRC move events across sections |
+| Give Raise | update an attribute, FRC update events |
+| Delete Employee | delete an object, FRC delete events |
+| Validation Demo | rejected saves (missing value, predicate, custom validator), then an accepted one |
+| Save | persist the context to the SQLite store |
+| Reload From Store | reopen the store in a fresh context and refetch |
+| List People | fetch the abstract `Person` entity (inheritance, transient `fullName`) |
+| List Projects | walk the many-to-many relationship |
+
+The managed object model is built in code (`EmployeeDirectoryModel.m`) and the user
+interface is built in code too (no nib), so the very same sources run against the
+GNUstep port and against Apple's CoreData/AppKit without a compiled `.momd` bundle or
+interface files.
 
 ## Running on GNUstep
 
@@ -33,15 +51,17 @@ make
 make run
 ```
 
-## Running on macOS
+## Running on macOS (Xcode)
+
+Open `EmployeeDirectory.xcodeproj` and press Run, or build from the command line:
 
 ```sh
 cd Examples/EmployeeDirectory
-make -f Makefile.macos run
+xcodebuild -project EmployeeDirectory.xcodeproj -scheme EmployeeDirectory build
 ```
 
-The store is created in the temporary directory; pass a path as the first argument to
-put it somewhere else.
+The store is created in the temporary directory; its exact path is printed at the top
+of the log pane.
 
 ## Portability notes
 
@@ -49,7 +69,9 @@ put it somewhere else.
   the row inside the section at position 1; the example builds them with
   `+[NSIndexPath indexPathWithIndexes:length:]` because the `indexPathForRow:inSection:`
   convenience lives in UIKit/AppKit.
-* Transient attributes are read through the accessor implemented by the managed object
-  subclass (`-[EDPerson fullName]`) rather than through `-valueForKey:`, because
-  `NSManagedObject` reads modeled properties straight from its own storage.
-* A to-one relationship is described with `minCount` and `maxCount` both set to one.
+* A to-one relationship is described by a `maxCount` of one (a `maxCount` of zero means
+  unbounded, i.e. to-many); `minCount`/`optional` only express whether it is mandatory.
+* When both AppKit and CoreData are used on GNUstep, import AppKit before CoreData:
+  GNUstep's AppKit duplicates the `NSAttributeType` constants in
+  `NSPredicateEditorRowTemplate.h`, and the CoreData headers step aside when that
+  header was included first.

@@ -60,10 +60,11 @@ The tests compile against Apple's built-in CoreData and XCTest frameworks — no
 
 ## Example application
 
-`Examples/EmployeeDirectory` is a command line program showing entity inheritance,
-transient properties, validation, to-one/to-many/many-to-many relationships and
-`NSFetchedResultsController` on top of the SQLite store.  It builds against this port on
-GNUstep and against Apple's CoreData on macOS; see
+`Examples/EmployeeDirectory` is a graphical (AppKit) application showing entity
+inheritance, transient properties, validation, to-one/to-many/many-to-many relationships
+and `NSFetchedResultsController` on top of the SQLite store, with one button per usage
+scenario.  It builds against this port on GNUstep and, via the bundled
+`EmployeeDirectory.xcodeproj`, against Apple's CoreData/AppKit in Xcode; see
 [Examples/EmployeeDirectory/README.md](Examples/EmployeeDirectory/README.md).
 
 ## Porting notes
@@ -77,4 +78,13 @@ GNUstep and against Apple's CoreData on macOS; see
   section at position 1, matching Apple; build them with
   `+[NSIndexPath indexPathWithIndexes:length:]` since `indexPathForRow:inSection:` lives in
   UIKit/AppKit.  Section information caching (the `cacheName` argument) is not implemented.
+- `-[NSRelationshipDescription isToMany]` matches Apple: a relationship is to-one exactly when
+  `maxCount` is one (a `maxCount` of zero means unbounded, i.e. to-many); `minCount` only
+  expresses whether the relationship is mandatory.
+- `-[NSManagedObject valueForKey:]` dispatches to a custom accessor implemented by the
+  subclass (e.g. a computed transient property) before falling back to the modeled storage,
+  matching Apple's key-value coding behavior.
+- When both AppKit and CoreData are imported on GNUstep, import AppKit first: GNUstep's AppKit
+  duplicates the `NSAttributeType` constants in `NSPredicateEditorRowTemplate.h`, and the
+  CoreData headers step aside when that header was already included.
 
