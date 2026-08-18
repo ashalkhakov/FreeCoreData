@@ -28,10 +28,21 @@ scenario so each can be run and verified interactively:
 | List People | fetch the abstract `Person` entity (inheritance, transient `fullName`) |
 | List Projects | walk the many-to-many relationship |
 
-The managed object model is built in code (`EmployeeDirectoryModel.m`) and the user
-interface is built in code too (no nib), so the very same sources run against the
-GNUstep port and against Apple's CoreData/AppKit without a compiled `.momd` bundle or
-interface files.
+The managed object model is designed the usual CoreData way: its source lives in
+`EmployeeDirectory.xcdatamodeld` (edited with Xcode's data model editor on a Mac —
+porting a designer application is a separate project) and the compiled
+`EmployeeDirectory.momd` is kept in source control. At runtime the application loads
+the `.momd` from its bundle (`EmployeeDirectoryModel.m`), which works identically on
+the GNUstep port and on Apple's CoreData. The user interface is built in code (no
+nib), so the very same sources run against both implementations.
+
+On macOS, Xcode compiles the `.xcdatamodeld` into the application bundle itself; the
+committed `.momd` is what the GNUstep build copies into the app wrapper as a resource.
+After editing the model on a Mac, recompile it and refresh the committed bundle with
+
+```sh
+xcrun momc EmployeeDirectory.xcdatamodeld EmployeeDirectory.momd
+```
 
 ## Running on GNUstep
 
@@ -64,6 +75,12 @@ The store is created in the temporary directory; its exact path is printed at th
 of the log pane.
 
 ## Portability notes
+
+* Validation predicates are stored in a GNUstep-produced `.mom` as predicate format
+  strings, because gnustep-base's `NSPredicate` does not support archiving yet; the
+  CoreData port accepts both archived `NSPredicate` objects and format strings when
+  loading a model. The salary rule is expressed as `NOT (SELF < 0)` (i.e. `>= 0`)
+  since that form round-trips exactly through `-predicateFormat` on GNUstep.
 
 * Index paths vended by a fetched results controller carry the section at position 0 and
   the row inside the section at position 1; the example builds them with
