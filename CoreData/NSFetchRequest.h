@@ -10,6 +10,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSPersistentStoreRequest.h>
+#include <Foundation/Foundation.h>
 
 @class NSEntityDescription, NSPredicate, NSArray;
 
@@ -23,6 +24,7 @@ typedef NSUInteger NSFetchRequestResultType;
 @interface NSFetchRequest : NSPersistentStoreRequest <NSCoding, NSCopying> {
     NSFetchRequestResultType _resultType;
     NSEntityDescription *_entity;
+    NSString *_entityName;
     NSPredicate *_predicate;
     NSArray *_sortDescriptors;
     NSUInteger _fetchLimit;
@@ -36,6 +38,15 @@ typedef NSUInteger NSFetchRequestResultType;
     NSArray *_propertiesToFetch;
     NSArray *_relationshipKeyPathsForPrefetching;
 }
+
++ (NSFetchRequest *)fetchRequestWithEntityName:(NSString *)entityName;
+
+/* The entity is looked up by name in the coordinator's model when the
+   request is executed, matching Apple; until then -entity raises
+   NSObjectInaccessibleException (verified against Apple's CoreData). */
+- (instancetype)initWithEntityName:(NSString *)entityName;
+
+- (NSString *)entityName;
 
 - (NSFetchRequestResultType)resultType;
 
