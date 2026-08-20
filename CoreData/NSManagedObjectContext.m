@@ -9,6 +9,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSManagedObjectContext.h>
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSFetchRequest.h>
+#import "NSFetchRequest-Private.h"
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSPersistentStore.h>
 #import "NSManagedObject-Private.h"
@@ -330,6 +331,21 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(NSArray *)executeFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error {
+   /* A request created with an entity name resolves it against the
+      coordinator's model at execution time, matching Apple.  (The
+      private accessor avoids the NSObjectInaccessibleException that
+      -entity raises on an unresolved name-based request.) */
+   if([fetchRequest _entityIfResolved]==nil && [fetchRequest entityName]!=nil){
+    NSEntityDescription *named=[[[_storeCoordinator managedObjectModel] entitiesByName] objectForKey:[fetchRequest entityName]];
+
+    if(named==nil){
+     [NSException raise:NSInvalidArgumentException
+                 format:@"executeFetchRequest:error: could not locate an entity named '%@' in this model.",[fetchRequest entityName]];
+    }
+
+    [fetchRequest setEntity:named];
+   }
+
    NSArray *affectedStores=[fetchRequest affectedStores];
 
    if(affectedStores==nil)

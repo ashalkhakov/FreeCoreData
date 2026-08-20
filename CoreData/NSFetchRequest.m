@@ -7,6 +7,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSFetchRequest.h>
+#import "NSFetchRequest-Private.h"
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSManagedObjectContext.h>
 #import <CoreData/NSEntityDescription.h>
@@ -14,14 +15,41 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @implementation NSFetchRequest
 
++ (NSFetchRequest *)fetchRequestWithEntityName:(NSString *)entityName {
+   /* [self alloc], not [NSFetchRequest alloc], so subclasses get
+      instances of themselves. */
+   return [[[self alloc] initWithEntityName:entityName] autorelease];
+}
+
 -init {
    _entity=nil;
+   _entityName=nil;
    _predicate=nil;
    _sortDescriptors=nil;
    _affectedStores=nil;
    _fetchLimit=0;
    _includesSubentities=YES;
    return self;
+}
+
+-(instancetype)initWithEntityName:(NSString *)entityName {
+   if((self=[self init])==nil)
+    return nil;
+
+   /* Only the name is stored; the entity is resolved against the
+      coordinator's model when the request is executed, matching Apple
+      (no model is available here). */
+   _entityName=[entityName copy];
+
+   return self;
+}
+
+-(NSString *)entityName {
+   return _entityName;
+}
+
+-(NSEntityDescription *)_entityIfResolved {
+   return _entity;
 }
 
 -initWithCoder: (NSCoder *) coder {
@@ -37,6 +65,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSFetchRequest *result=NSCopyObject(self,0,zone);
    
    result->_entity=[_entity retain];
+   result->_entityName=[_entityName copy];
    result->_predicate=[_predicate copy];
    result->_sortDescriptors=[_sortDescriptors copy];
    result->_affectedStores=[_affectedStores copy];
@@ -48,8 +77,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -(void)dealloc {
    [_entity release];
+   [_entityName release];
    [_predicate release];
    [_sortDescriptors release];
+   /* _affectedStores is released by NSPersistentStoreRequest. */
+   [_propertiesToFetch release];
+   [_relationshipKeyPathsForPrefetching release];
    [super dealloc];
 }
 
@@ -58,6 +91,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(NSEntityDescription *)entity {
+   /* Matching Apple (verified on macOS): a request created with an
+      entity name raises until it has been used by a context, e.g.
+      "This fetch request (0x...) was created with a string name
+      (Employee), and cannot respond to -entity until used by an
+      NSManagedObjectContext". */
+   if(_entity==nil && _entityName!=nil)
+    [NSException raise:NSObjectInaccessibleException
+                format:@"This fetch request (%p) was created with a string name (%@), and cannot respond to -entity until used by an NSManagedObjectContext",self,_entityName];
+
    return _entity;
 }
 
