@@ -26,7 +26,8 @@ CoreDataTests_OBJC_FILES = \
 	VersionHashTests.m \
 	MappingModelTests.m \
 	StoreVersioningTests.m \
-	NSTransformableAttributeTests.m
+	NSTransformableAttributeTests.m \
+	NSDerivedAttributeTests.m
 
 CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
 
