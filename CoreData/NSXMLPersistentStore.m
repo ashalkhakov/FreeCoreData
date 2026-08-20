@@ -11,17 +11,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSEntityDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/NSAttributeDescription.h>
+#import "NSAttributeDescription-Private.h"
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSAtomicStoreCacheNode.h>
 #import <Foundation/NSXMLDocument.h>
 #import <Foundation/NSXMLElement.h>
+#import <Foundation/NSData.h>
 #import <Foundation/NSDate.h>
 #import <Foundation/NSDictionary.h>
-
-/* TODO:
-   - binary data??
- */
 
 /* Apple's XML store writes entity names in uppercase in the `type' and
    `destination' attributes (e.g. type="EMPLOYEE" for an entity named
@@ -291,13 +289,20 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
       break;
       
      case NSBinaryDataAttributeType:
-      NSLog(@"Unhandled attribute type NSBinaryDataAttributeType");
+      /* Binary values are stored base64-encoded in the element text. */
+      objectValue=[[[NSData alloc] initWithBase64EncodedString:stringValue options:NSDataBase64DecodingIgnoreUnknownCharacters] autorelease];
       break;
-      
-     case NSTransformableAttributeType:
-      NSLog(@"Unhandled attribute type NSTransformableAttributeType");
+
+     case NSTransformableAttributeType: {
+      /* Transformable values are stored as the base64-encoded output of
+         the attribute's value transformer (or the keyed-archiving
+         default); see NSAttributeDescription. */
+      NSData *data=[[[NSData alloc] initWithBase64EncodedString:stringValue options:NSDataBase64DecodingIgnoreUnknownCharacters] autorelease];
+
+      objectValue=[description _transformableValueFromData:data];
       break;
-      
+     }
+
     }
 
     if(objectValue!=nil)
@@ -459,13 +464,16 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
       
      case NSBinaryDataAttributeType:
       type=@"bin";
-      NSLog(@"Unhandled attribute type NSBinaryDataAttributeType");
+      if(value!=nil)
+       stringValue=[value base64EncodedStringWithOptions:0];
       break;
-      
+
      case NSTransformableAttributeType:
-      NSLog(@"Unhandled attribute type NSTransformableAttributeType");
+      type=@"transformable";
+      if(value!=nil)
+       stringValue=[[attributeDescription _dataFromTransformableValue:value] base64EncodedStringWithOptions:0];
       break;
-      
+
     }
     
     /* Apple omits attribute elements for nil values and lowercases names. */

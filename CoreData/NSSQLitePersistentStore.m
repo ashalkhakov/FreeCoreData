@@ -22,6 +22,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSEntityDescription.h>
 #import "NSEntityDescription-Private.h"
 #import <CoreData/NSAttributeDescription.h>
+#import "NSAttributeDescription-Private.h"
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/CoreDataErrors.h>
 #import "CoreDataUtilities.h"
@@ -181,9 +182,14 @@ static void bindAttributeValue(sqlite3_stmt *statement,int index,NSAttributeDesc
      break;
     case NSTransformableAttributeType:
     default: {
-     NSData *data=[NSKeyedArchiver archivedDataWithRootObject:value];
+     /* The value transformer (or the keyed-archiving default) produces
+        the NSData blob that is stored; see NSAttributeDescription. */
+     NSData *data=[attribute _dataFromTransformableValue:value];
 
-     sqlite3_bind_blob(statement,index,[data bytes],(int)[data length],SQLITE_TRANSIENT);
+     if(data==nil)
+      sqlite3_bind_null(statement,index);
+     else
+      sqlite3_bind_blob(statement,index,[data bytes],(int)[data length],SQLITE_TRANSIENT);
      break;
     }
     case NSStringAttributeType:
@@ -220,7 +226,7 @@ static id attributeValueFromColumn(sqlite3_stmt *statement,int index,NSAttribute
     default: {
      NSData *data=[NSData dataWithBytes:sqlite3_column_blob(statement,index) length:sqlite3_column_bytes(statement,index)];
 
-     return [NSKeyedUnarchiver unarchiveObjectWithData:data];
+     return [attribute _transformableValueFromData:data];
     }
     case NSStringAttributeType: {
      const unsigned char *text=sqlite3_column_text(statement,index);

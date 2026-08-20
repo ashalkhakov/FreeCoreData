@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="22522" systemVersion="23H222" minimumToolsVersion="Automatic" sourceLanguage="Objective-C" userDefinedModelVersionIdentifier="">
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="24299" systemVersion="24G720" minimumToolsVersion="Automatic" sourceLanguage="Objective-C" userDefinedModelVersionIdentifier="">
     <entity name="Contractor" representedClassName="EDContractor" parentEntity="Person" syncable="YES">
         <attribute name="agency" optional="YES" attributeType="String"/>
     </entity>
     <entity name="Department" representedClassName="EDDepartment" syncable="YES">
         <attribute name="name" attributeType="String"/>
-        <relationship name="employees" optional="YES" toMany="YES" deleteRule="Nullify" destinationEntity="Employee" inverseName="department" inverseEntity="Employee"/>
+        <relationship name="employees" optional="YES" toMany="YES" deletionRule="No Action" destinationEntity="Employee" inverseName="department" inverseEntity="Employee"/>
     </entity>
     <entity name="Employee" representedClassName="EDEmployee" parentEntity="Person" syncable="YES">
         <attribute name="salary" attributeType="Integer 32" minValueString="0" usesScalarValueType="NO"/>
-        <relationship name="department" optional="YES" maxCount="1" deleteRule="Nullify" destinationEntity="Department" inverseName="employees" inverseEntity="Department"/>
-        <relationship name="projects" optional="YES" toMany="YES" deleteRule="Nullify" destinationEntity="Project" inverseName="members" inverseEntity="Project"/>
+        <relationship name="department" optional="YES" maxCount="1" deletionRule="No Action" destinationEntity="Department" inverseName="employees" inverseEntity="Department"/>
+        <relationship name="projects" optional="YES" toMany="YES" deletionRule="No Action" destinationEntity="Project" inverseName="members" inverseEntity="Project"/>
     </entity>
     <entity name="Person" representedClassName="EDPerson" isAbstract="YES" syncable="YES">
         <attribute name="birthDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
@@ -20,6 +20,6 @@
     </entity>
     <entity name="Project" representedClassName="EDProject" syncable="YES">
         <attribute name="name" attributeType="String"/>
-        <relationship name="members" optional="YES" toMany="YES" deleteRule="Nullify" destinationEntity="Employee" inverseName="projects" inverseEntity="Employee"/>
+        <relationship name="members" optional="YES" toMany="YES" deletionRule="No Action" destinationEntity="Employee" inverseName="projects" inverseEntity="Employee"/>
     </entity>
 </model>

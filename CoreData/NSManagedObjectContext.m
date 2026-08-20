@@ -223,12 +223,13 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    return _deletedObjects;
 }
 
--(void)_setHasChanges:(BOOL)value {
-   _hasChanges=value;
-}
-
 -(BOOL)hasChanges {
-    return _hasChanges;
+   /* Matching Apple: YES while there are unsaved inserted, deleted or
+      updated objects.  Note that a change made behind KVC's back (such
+      as mutating a mutable transformable value in place) is invisible
+      here. */
+   return [_insertedObjects count]>0 || [_updatedObjects count]>0 ||
+          [_deletedObjects count]>0;
 }
 
 -(void)lock {

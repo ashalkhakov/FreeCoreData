@@ -53,8 +53,6 @@ COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
 
     NSMapTable *_objectIdToObject;
 
-    BOOL _hasChanges;
-
     BOOL _requestedProcessPendingChanges;
 }
 

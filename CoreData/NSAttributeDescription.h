@@ -41,7 +41,18 @@ typedef enum {
 - (NSAttributeType)attributeType;
 - (id)defaultValue;
 
+/* The name of the NSValueTransformer used to convert an
+   NSTransformableAttributeType value to and from NSData.  Per Apple's
+   documentation the transformer must return an NSData instance from
+   -transformedValue: and allow reverse transformation; when the name is
+   nil, a default transformer using keyed archiving (NSCoding) is
+   applied.  The built-in ...UnarchiveFromData... transformers transform
+   data to object and are applied in reverse, matching Apple. */
+- (NSString *)valueTransformerName;
+
 - (void)setAttributeType:(NSAttributeType)value;
+- (void)setAttributeValueClassName:(NSString *)value;
 - (void)setDefaultValue:(id)value;
+- (void)setValueTransformerName:(NSString *)value;
 
 @end
