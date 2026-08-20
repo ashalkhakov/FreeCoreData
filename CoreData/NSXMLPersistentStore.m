@@ -12,6 +12,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/NSAttributeDescription.h>
 #import "NSAttributeDescription-Private.h"
+#import "NSDerivedAttributeDescription-Private.h"
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSAtomicStoreCacheNode.h>
@@ -405,9 +406,16 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
    for(NSString *attributeName in attributeKeys){
     NSAttributeDescription *attributeDescription=[attributesByName objectForKey:attributeName];
     NSXMLElement           *attributeElement=[NSXMLNode elementWithName:@"attribute"];
-    id                      value=[managedObject primitiveValueForKey:attributeName];
+    id                      value;
     NSString               *type=nil;
     NSString               *stringValue=nil;
+
+    /* Derived attributes are recomputed at save time; see
+       NSDerivedAttributeDescription. */
+    if([attributeDescription isKindOfClass:[NSDerivedAttributeDescription class]])
+     value=[(NSDerivedAttributeDescription *)attributeDescription _derivedValueForObject:managedObject];
+    else
+     value=[managedObject primitiveValueForKey:attributeName];
         
     switch([attributeDescription attributeType]){
      case NSUndefinedAttributeType:

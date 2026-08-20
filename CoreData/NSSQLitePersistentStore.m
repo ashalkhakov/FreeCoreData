@@ -23,6 +23,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSEntityDescription-Private.h"
 #import <CoreData/NSAttributeDescription.h>
 #import "NSAttributeDescription-Private.h"
+#import "NSDerivedAttributeDescription-Private.h"
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/CoreDataErrors.h>
 #import "CoreDataUtilities.h"
@@ -578,8 +579,24 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
      for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
       NSPropertyDescription *property=[properties objectForKey:name];
 
-      if([property isKindOfClass:[NSAttributeDescription class]])
-       [columns addObject:[NSString stringWithFormat:@"\"%@\" %@",columnNameForProperty(name),sqlTypeForAttribute((NSAttributeDescription *)property)]];
+      if([property isKindOfClass:[NSAttributeDescription class]]){
+       /* A derived attribute that plainly copies another attribute of
+          the same table is owned by SQLite as a stored generated
+          column (and is omitted from INSERT/UPDATE statements).  All
+          other derivation forms - string transforms (whose SQL
+          UPPER()/LOWER() are ASCII-only, unlike NSString), now() and
+          aggregates - are computed by the shared engine at save time
+          and stored in plain columns. */
+       NSString *generatedSource=nil;
+
+       if([property isKindOfClass:[NSDerivedAttributeDescription class]])
+        generatedSource=[(NSDerivedAttributeDescription *)property _generatedColumnSourceName];
+
+       if(generatedSource!=nil)
+        [columns addObject:[NSString stringWithFormat:@"\"%@\" %@ GENERATED ALWAYS AS (\"%@\") STORED",columnNameForProperty(name),sqlTypeForAttribute((NSAttributeDescription *)property),columnNameForProperty(generatedSource)]];
+       else
+        [columns addObject:[NSString stringWithFormat:@"\"%@\" %@",columnNameForProperty(name),sqlTypeForAttribute((NSAttributeDescription *)property)]];
+      }
       else if([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany])
        [columns addObject:[NSString stringWithFormat:@"\"%@\" INTEGER",columnNameForProperty(name)]];
      }
@@ -1349,7 +1366,15 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     NSPropertyDescription *property=[properties objectForKey:name];
     id                     value=nil;
 
-    if([property isKindOfClass:[NSAttributeDescription class]])
+    if([property isKindOfClass:[NSDerivedAttributeDescription class]]){
+     /* Same-table generated columns are computed by SQLite and cannot be
+        assigned; every other derivation is recomputed here, at save. */
+     if([(NSDerivedAttributeDescription *)property _generatedColumnSourceName]!=nil)
+      continue;
+
+     value=[(NSDerivedAttributeDescription *)property _derivedValueForObject:object];
+    }
+    else if([property isKindOfClass:[NSAttributeDescription class]])
      value=[object valueForKey:name];
     else if([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany]){
      NSManagedObject *destination=[object valueForKey:name];
