@@ -18,6 +18,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSInMemoryPersistentStore.h"
 #import "NSSQLitePersistentStore.h"
 #import "NSManagedObjectID-Private.h"
+#import "NSDerivedAttributeDescription-Private.h"
 #import "CoreDataUtilities.h"
 
 NSString * const NSStoreTypeKey=@"NSStoreTypeKey";
@@ -169,6 +170,11 @@ static NSMutableDictionary *_storeTypes=nil;
 }
 
 -(NSPersistentStore *)addPersistentStoreWithType:(NSString *)storeType configuration:(NSString *)configuration URL:(NSURL *)storeURL options:(NSDictionary *)options error:(NSError **)error {
+   /* Unsupported or malformed derivation expressions are rejected when
+      the first store is added, for every store type. */
+   if(!_NSValidateDerivedAttributesInModel([self managedObjectModel],error))
+    return nil;
+
    if(storeType==nil){
     for(Class class in [_storeTypes allValues]){
      NSDictionary *metadata=[class metadataForPersistentStoreWithURL:storeURL error:nil];

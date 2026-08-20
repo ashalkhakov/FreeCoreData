@@ -13,7 +13,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSAtomicStoreCacheNode.h>
 #import <CoreData/NSEntityDescription.h>
+#import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
+#import "NSDerivedAttributeDescription-Private.h"
 #import "NSManagedObjectID-Private.h"
 #import "NSManagedObject-Private.h"
 #import "CoreDataUtilities.h"
@@ -133,7 +135,17 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSDictionary        *attributesByName=[entity attributesByName];
 
    for(NSString *attributeName in attributesByName){
-    [node setValue:[managedObject primitiveValueForKey:attributeName] forKey:attributeName];
+    NSAttributeDescription *attribute=[attributesByName objectForKey:attributeName];
+    id                      value;
+
+    /* Derived attributes are recomputed at save time; see
+       NSDerivedAttributeDescription. */
+    if([attribute isKindOfClass:[NSDerivedAttributeDescription class]])
+     value=[(NSDerivedAttributeDescription *)attribute _derivedValueForObject:managedObject];
+    else
+     value=[managedObject primitiveValueForKey:attributeName];
+
+    [node setValue:value forKey:attributeName];
    }
 
    NSDictionary *relationshipsByName=[entity relationshipsByName];
