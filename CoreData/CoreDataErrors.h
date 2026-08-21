@@ -24,6 +24,7 @@ COREDATA_EXPORT NSString *const NSPersistentStoreSaveConflictsErrorKey;
 
 enum {
     NSManagedObjectValidationError = 1550,
+    NSManagedObjectConstraintValidationError = 1551,
     NSValidationMultipleErrorsError = 1560,
     NSValidationMissingMandatoryPropertyError = 1570,
     NSValidationRelationshipLacksMinimumCountError = 1580,
@@ -42,11 +43,17 @@ enum {
     NSManagedObjectReferentialIntegrityError = 133000,
     NSManagedObjectExternalRelationshipError = 133010,
     NSManagedObjectMergeError = 133020,
+    NSManagedObjectConstraintMergeError = 133021,
     NSPersistentStoreInvalidTypeError = 134000,
     NSPersistentStoreTypeMismatchError = 134010,
     NSPersistentStoreIncompatibleSchemaError = 134020,
     NSPersistentStoreSaveError = 134030,
     NSPersistentStoreIncompleteSaveError = 134040,
+    /* An unresolved merge conflict during a save; Apple lists the
+       conflicts under NSPersistentStoreSaveConflictsErrorKey.  A store
+       backed by an optimistically locked service should report failed
+       preconditions (e.g. HTTP 412) with this code. */
+    NSPersistentStoreSaveConflictsError = 134050,
     NSPersistentStoreOperationError = 134070,
     NSPersistentStoreOpenError = 134080,
     NSPersistentStoreTimeoutError = 134090,

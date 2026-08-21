@@ -11,6 +11,8 @@
 		BD71BC21B0012B011F4B57D1 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE296390D1E4A2BFE0193C79 /* XCTest.framework */; };
 		CE9446BA30371F9600D23BA1 /* NSTransformableAttributeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */; };
 		CE9446BC30373B5C00D23BA1 /* NSDerivedAttributeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */; };
+		CE9446BE30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */; };
+		CE9446C0303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */; };
 		CED0149F3032FF59009517DE /* NSPersistentStoreRequestTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014993032FF59009517DE /* NSPersistentStoreRequestTests.m */; };
 		CED014A03032FF59009517DE /* NSIncrementalStoreNodeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014933032FF59009517DE /* NSIncrementalStoreNodeTests.m */; };
 		CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014963032FF59009517DE /* NSManagedObjectModelTests.m */; };
@@ -38,6 +40,8 @@
 		CE296390D1E4A2BFE0193C79 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/MacOSX.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
 		CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSTransformableAttributeTests.m; path = Tests/NSTransformableAttributeTests.m; sourceTree = "<group>"; };
 		CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSDerivedAttributeTests.m; path = Tests/NSDerivedAttributeTests.m; sourceTree = "<group>"; };
+		CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSCountAndExistingObjectTests.m; path = Tests/NSCountAndExistingObjectTests.m; sourceTree = "<group>"; };
+		CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPendingChangesFetchTests.m; path = Tests/NSPendingChangesFetchTests.m; sourceTree = "<group>"; };
 		CED0148F3032FF59009517DE /* MappingModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MappingModelTests.m; path = Tests/MappingModelTests.m; sourceTree = "<group>"; };
 		CED014903032FF59009517DE /* MemoryIncrementalStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MemoryIncrementalStore.h; path = Tests/MemoryIncrementalStore.h; sourceTree = "<group>"; };
 		CED014913032FF59009517DE /* MemoryIncrementalStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MemoryIncrementalStore.m; path = Tests/MemoryIncrementalStore.m; sourceTree = "<group>"; };
@@ -86,6 +90,8 @@
 			isa = PBXGroup;
 			children = (
 				CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */,
+				CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */,
+				CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */,
 				CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */,
 				CED0148F3032FF59009517DE /* MappingModelTests.m */,
 				CED014903032FF59009517DE /* MemoryIncrementalStore.h */,
@@ -199,6 +205,8 @@
 				CED014AB3032FF59009517DE /* VersioningTestModels.m in Sources */,
 				CED014AC3032FF59009517DE /* NSFetchRequestTests.m in Sources */,
 				CE9446BC30373B5C00D23BA1 /* NSDerivedAttributeTests.m in Sources */,
+				CE9446BE30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m in Sources */,
+				CE9446C0303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m in Sources */,
 				CED014C13032FF59009517DE /* NSManagedObjectValidationTests.m in Sources */,
 				CED014C33032FF59009517DE /* NSManagedObjectLifecycleTests.m in Sources */,
 				CE9446BA30371F9600D23BA1 /* NSTransformableAttributeTests.m in Sources */,

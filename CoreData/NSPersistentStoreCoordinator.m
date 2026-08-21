@@ -357,9 +357,34 @@ static NSMutableDictionary *_storeTypes=nil;
 -(NSManagedObjectID *)managedObjectIDForURIRepresentation:(NSURL *)URL {
    NSString             *scheme=[URL scheme];
    NSString             *host=[URL host];
-   NSString             *path=[URL path];
-   NSString             *referenceObject=[path lastPathComponent];
-   NSString             *entityName=[[path stringByDeletingLastPathComponent] lastPathComponent];
+
+   /* Parse the raw URI string: x-coredata://HOST/Entity/pREFERENCE.
+      Verified on macOS: the reference is everything after the entity
+      component with the generic "p" prefix stripped, kept VERBATIM -
+      percent escapes are not decoded and a "/" inside a reference stays
+      part of it (Apple returns e.g. "key%20with/slash").  A missing "p"
+      (URIs written by older versions of this port) is tolerated. */
+   NSString *absolute=[URL absoluteString];
+   NSString *referenceObject=nil;
+   NSString *entityName=nil;
+   NSRange   schemeMarker=[absolute rangeOfString:@"://"];
+
+   if(schemeMarker.location!=NSNotFound){
+    NSRange hostEnd=[absolute rangeOfString:@"/" options:0 range:NSMakeRange(NSMaxRange(schemeMarker),[absolute length]-NSMaxRange(schemeMarker))];
+
+    if(hostEnd.location!=NSNotFound){
+     NSString *pathPart=[absolute substringFromIndex:NSMaxRange(hostEnd)];
+     NSRange   entityEnd=[pathPart rangeOfString:@"/"];
+
+     if(entityEnd.location!=NSNotFound){
+      entityName=[[pathPart substringToIndex:entityEnd.location] stringByRemovingPercentEncoding];
+      referenceObject=[pathPart substringFromIndex:NSMaxRange(entityEnd)];
+
+      if([referenceObject hasPrefix:@"p"])
+       referenceObject=[referenceObject substringFromIndex:1];
+     }
+    }
+   }
    NSManagedObjectModel *model=[self managedObjectModel];
    NSEntityDescription  *entity=[[model entitiesByName] objectForKey:entityName];
    NSPersistentStore    *store=[self _persistentStoreWithIdentifier:host];

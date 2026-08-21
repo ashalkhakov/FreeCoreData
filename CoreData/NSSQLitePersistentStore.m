@@ -60,8 +60,12 @@ static NSString *tableNameForEntity(NSEntityDescription *entity){
    return [@"Z" stringByAppendingString:[[rootEntity(entity) name] uppercaseString]];
 }
 
-/* Reference objects are the strings "p<Z_PK>", matching the last path
-   component of Apple's x-coredata://UUID/Entity/p<Z_PK> object ID URIs. */
+/* Reference objects are the plain "<Z_PK>" strings; the "p" seen in
+   Apple's x-coredata://UUID/Entity/p<Z_PK> object ID URIs is added
+   generically by -[NSManagedObjectID URIRepresentation] (verified on
+   macOS: Apple prefixes every reference's description with "p" there).
+   The parser tolerates a leading "p" for object IDs recreated from
+   URIs written by older versions of this store. */
 static long long primaryKeyFromReferenceObject(id referenceObject){
    NSString *string=[referenceObject description];
 
@@ -72,7 +76,7 @@ static long long primaryKeyFromReferenceObject(id referenceObject){
 }
 
 static NSString *referenceObjectForPrimaryKey(long long primaryKey){
-   return [NSString stringWithFormat:@"p%lld",primaryKey];
+   return [NSString stringWithFormat:@"%lld",primaryKey];
 }
 
 /* ------------------------------------------------------------------ */
@@ -1233,10 +1237,16 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
      [bindings removeAllObjects];
    }
 
+   /* NSCountResultType: ordering cannot change a count, so sort
+      descriptors are ignored; when the predicate runs in SQL the count
+      comes straight from the fetched keys, without materializing
+      objects. */
+   BOOL countOnly=([request resultType]==NSCountResultType);
+
    NSString *orderBySQL=nil;
    BOOL      sortsInSQL=YES;
 
-   if([[request sortDescriptors] count]>0){
+   if(!countOnly && [[request sortDescriptors] count]>0){
     orderBySQL=[self _translateSortDescriptors:[request sortDescriptors] entity:entity];
     sortsInSQL=(orderBySQL!=nil);
    }
@@ -1249,6 +1259,9 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
 
    if(objectIDs==nil)
     return nil;
+
+   if(countOnly && predicateInSQL)
+    return [NSArray arrayWithObject:[NSNumber numberWithUnsignedInteger:[objectIDs count]]];
 
    NSMutableArray *objects=[NSMutableArray array];
 
@@ -1276,6 +1289,46 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
 
     if(limit>0 && [objects count]>limit)
      [objects removeObjectsInRange:NSMakeRange(limit,[objects count]-limit)];
+   }
+
+   if(countOnly)
+    return [NSArray arrayWithObject:[NSNumber numberWithUnsignedInteger:[objects count]]];
+
+   /* Dictionary rows reflect the persisted state (committed values),
+      never pending context changes, matching Apple's documented
+      NSDictionaryResultType behavior.  Keys come from propertiesToFetch
+      when set, otherwise every attribute. */
+   if([request resultType]==NSDictionaryResultType){
+    NSMutableArray *names=[NSMutableArray array];
+    NSArray        *fetchProperties=[request propertiesToFetch];
+
+    if([fetchProperties count]>0){
+     for(id fetchProperty in fetchProperties)
+      [names addObject:[fetchProperty isKindOfClass:[NSString class]]?fetchProperty:[(NSPropertyDescription *)fetchProperty name]];
+    }
+    else
+     [names addObjectsFromArray:[[[entity attributesByName] allKeys] sortedArrayUsingSelector:@selector(compare:)]];
+
+    NSMutableArray *rows=[NSMutableArray array];
+
+    for(NSManagedObject *object in objects){
+     NSDictionary        *snapshot=[object committedValuesForKeys:nil];
+     NSMutableDictionary *row=[NSMutableDictionary dictionary];
+
+     for(NSString *name in names){
+      id value=[snapshot objectForKey:name];
+
+      if(value==nil || value==[NSNull null] || [value isKindOfClass:[NSManagedObjectID class]] || [value isKindOfClass:[NSSet class]])
+       continue;
+      [row setObject:value forKey:name];
+     }
+
+     if([request returnsDistinctResults] && [rows containsObject:row])
+      continue;
+     [rows addObject:row];
+    }
+
+    return rows;
    }
 
    if([request resultType]==NSManagedObjectIDResultType){

@@ -22,10 +22,21 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 - (void)testDefaults
 {
+    /* Apple's documented defaults. */
     NSFetchRequest *req = [[NSFetchRequest alloc] init];
     XCTAssertNil([req entity]);
     XCTAssertNil([req predicate]);
     XCTAssertEqual([req fetchLimit], (NSUInteger)0);
+    XCTAssertEqual([req resultType],
+                   (NSFetchRequestResultType)NSManagedObjectResultType);
+    XCTAssertTrue([req includesSubentities]);
+    XCTAssertTrue([req includesPendingChanges]);
+    XCTAssertTrue([req includesPropertyValues]);
+    XCTAssertTrue([req returnsObjectsAsFaults]);
+    XCTAssertFalse([req returnsDistinctResults]);
+    XCTAssertFalse([req shouldRefreshRefetchedObjects]);
+    XCTAssertNil([req propertiesToGroupBy]);
+    XCTAssertNil([req havingPredicate]);
 }
 
 - (void)testSettersGetters

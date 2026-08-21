@@ -28,7 +28,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    _sortDescriptors=nil;
    _affectedStores=nil;
    _fetchLimit=0;
+   /* Apple's defaults. */
    _includesSubentities=YES;
+   _includesPendingChanges=YES;
+   _includesPropertyValues=YES;
+   _returnsObjectsAsFaults=YES;
+   _shouldRefreshRefetchedObjects=NO;
    return self;
 }
 
@@ -71,6 +76,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    result->_affectedStores=[_affectedStores copy];
    result->_propertiesToFetch=[_propertiesToFetch copy];
    result->_relationshipKeyPathsForPrefetching=[_relationshipKeyPathsForPrefetching copy];
+   result->_propertiesToGroupBy=[_propertiesToGroupBy copy];
+   result->_havingPredicate=[_havingPredicate retain];
 
    return result;
 }
@@ -83,6 +90,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    /* _affectedStores is released by NSPersistentStoreRequest. */
    [_propertiesToFetch release];
    [_relationshipKeyPathsForPrefetching release];
+   [_propertiesToGroupBy release];
+   [_havingPredicate release];
    [super dealloc];
 }
 
@@ -151,6 +160,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return _relationshipKeyPathsForPrefetching;
 }
 
+-(NSArray *)propertiesToGroupBy {
+   return _propertiesToGroupBy;
+}
+
+-(NSPredicate *)havingPredicate {
+   return _havingPredicate;
+}
+
+-(BOOL)shouldRefreshRefetchedObjects {
+   return _shouldRefreshRefetchedObjects;
+}
+
 -(void)setResultType:(NSFetchRequestResultType)type {
    _resultType=type;
 }
@@ -215,6 +236,22 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    value=[value copy];
    [_relationshipKeyPathsForPrefetching release];
    _relationshipKeyPathsForPrefetching=value;
+}
+
+-(void)setPropertiesToGroupBy:(NSArray *)value {
+   value=[value copy];
+   [_propertiesToGroupBy release];
+   _propertiesToGroupBy=value;
+}
+
+-(void)setHavingPredicate:(NSPredicate *)value {
+   value=[value retain];
+   [_havingPredicate release];
+   _havingPredicate=value;
+}
+
+-(void)setShouldRefreshRefetchedObjects:(BOOL)value {
+   _shouldRefreshRefetchedObjects=value;
 }
 
 @end

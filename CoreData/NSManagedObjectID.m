@@ -57,11 +57,29 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return _referenceObject;
 }
 
+/* The reference object may be any copyable value - Apple's stores use
+   numbers and strings, and custom incremental stores may use data (an
+   OData-backed store keying rows by JSON, for example).  Verified on
+   macOS: Apple's URI carries "p" + the reference's -description for
+   every reference type (no special hex form for NSData), escaped with
+   standard URL *path* rules - so spaces and braces are percent-escaped
+   while "/" survives, and a reference containing "/" therefore spans
+   path components (and comes back with its escapes intact, exactly as
+   Apple's does). */
+static NSString *URIComponentFromReferenceObject(id reference){
+   NSString *string=[@"p" stringByAppendingString:[reference description]];
+
+   return [string stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
+}
+
 -(NSURL *)URIRepresentation {
-   NSString *path=[[_entity name] stringByAppendingPathComponent:_referenceObject];
    NSString *host=_isTemporaryID?@"":_storeIdentifier;
-   
-   return [[[NSURL alloc] initWithScheme:@"x-coredata" host:host path:path] autorelease];
+   NSString *string=[NSString stringWithFormat:@"x-coredata://%@/%@/%@",
+      (host!=nil)?host:@"",
+      [[_entity name] stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]],
+      URIComponentFromReferenceObject(_referenceObject)];
+
+   return [NSURL URLWithString:string];
 }
 
 -(NSPersistentStore *)persistentStore {

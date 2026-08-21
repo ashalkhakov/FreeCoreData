@@ -411,4 +411,14 @@ static NSManagedObjectModel *MergeTestModel(void)
                    (NSUInteger)2);
 }
 
+- (void)testConflictAndConstraintErrorCodes
+{
+    /* Apple's CoreDataErrors.h values, relevant to stores backed by
+       optimistically locked services. */
+    XCTAssertEqual((int)NSManagedObjectMergeError, 133020);
+    XCTAssertEqual((int)NSManagedObjectConstraintMergeError, 133021);
+    XCTAssertEqual((int)NSManagedObjectConstraintValidationError, 1551);
+    XCTAssertEqual((int)NSPersistentStoreSaveConflictsError, 134050);
+}
+
 @end

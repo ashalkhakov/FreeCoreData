@@ -17,7 +17,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 enum {
     NSManagedObjectResultType = 0x00,
     NSManagedObjectIDResultType = 0x01,
-    NSDictionaryResultType = 0x02
+    NSDictionaryResultType = 0x02,
+    /* The fetch returns an array containing a single NSNumber holding
+       the count of the matching objects, computed without materializing
+       them where the store allows it. */
+    NSCountResultType = 0x04
 };
 typedef NSUInteger NSFetchRequestResultType;
 
@@ -37,6 +41,9 @@ typedef NSUInteger NSFetchRequestResultType;
     BOOL _returnsObjectsAsFaults;
     NSArray *_propertiesToFetch;
     NSArray *_relationshipKeyPathsForPrefetching;
+    NSArray *_propertiesToGroupBy;
+    NSPredicate *_havingPredicate;
+    BOOL _shouldRefreshRefetchedObjects;
 }
 
 + (NSFetchRequest *)fetchRequestWithEntityName:(NSString *)entityName;
@@ -70,6 +77,13 @@ typedef NSUInteger NSFetchRequestResultType;
 
 - (NSArray *)relationshipKeyPathsForPrefetching;
 
+/* Stored for API compatibility; grouping applies to
+   NSDictionaryResultType fetches, which are not implemented yet. */
+- (NSArray *)propertiesToGroupBy;
+- (NSPredicate *)havingPredicate;
+
+- (BOOL)shouldRefreshRefetchedObjects;
+
 - (void)setResultType:(NSFetchRequestResultType)type;
 - (void)setEntity:(NSEntityDescription *)value;
 - (void)setPredicate:(NSPredicate *)value;
@@ -90,5 +104,9 @@ typedef NSUInteger NSFetchRequestResultType;
 - (void)setPropertiesToFetch:(NSArray *)value;
 
 - (void)setRelationshipKeyPathsForPrefetching:(NSArray *)value;
+
+- (void)setPropertiesToGroupBy:(NSArray *)value;
+- (void)setHavingPredicate:(NSPredicate *)value;
+- (void)setShouldRefreshRefetchedObjects:(BOOL)value;
 
 @end

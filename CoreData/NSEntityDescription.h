@@ -19,6 +19,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSDictionary *_userInfo;
     id _versionHashModifier;
     NSMutableDictionary *_selectorPropertyMap;
+    NSArray *_uniquenessConstraints;
+    NSArray *_compoundIndexes;
     BOOL _isAbstract;
     BOOL _hasBeenInstantiated;
 }
@@ -55,5 +57,20 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSData *)versionHash;
 - (NSString *)versionHashModifier;
 - (void)setVersionHashModifier:(NSString *)value;
+
+/* An array of arrays; each inner array holds NSAttributeDescriptions or
+   attribute-name strings whose combined value must be unique per
+   instance.  Matching Apple, the constraints are part of the entity's
+   version hash.  NOTE: the built-in stores do not enforce the
+   constraints yet - the model metadata is exposed for store
+   implementations (and tooling) to consume. */
+- (NSArray *)uniquenessConstraints;
+- (void)setUniquenessConstraints:(NSArray *)value;
+
+/* Deprecated on Apple (replaced by fetch indexes); verified on macOS,
+   the setter is a no-op there and the getter returns an empty array.
+   This port stores the value for callers that still use the API. */
+- (NSArray *)compoundIndexes;
+- (void)setCompoundIndexes:(NSArray *)value;
 
 @end
