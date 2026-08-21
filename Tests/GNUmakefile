@@ -38,7 +38,7 @@ CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
 FRAMEWORK_BUILD_DIR = $(CURDIR)/../CoreData.framework/Versions/Current
 
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
-CoreDataTests_OBJC_LIBS += -lgnustep-corebase -lCoreData -lXCTest
+CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest
 
 XCTEST ?= xctest
 
