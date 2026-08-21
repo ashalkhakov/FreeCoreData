@@ -86,14 +86,33 @@ static NSDerivedAttributeDescription *derivedAttribute(NSString *name,
 /* canonical: is not one of Foundation's predefined functions, so Apple
    only accepts it through the format parser; GNUstep-base's format
    parser does not know it, but the port makes expressionForFunction:
-   accept it. */
+   accept it.  The GNUstep name omits the trailing colon: gnustep-base
+   only strips a trailing colon from the name since 6f47534 (2026-07-30),
+   and on older bases "canonical:" would look up the nonexistent selector
+   _eval_canonical:: while "canonical" resolves to _eval_canonical: on
+   every version. */
 static NSExpression *canonicalExpression(NSString *keyPath)
 {
 #if defined(__APPLE__)
     return [NSExpression expressionWithFormat:
         [NSString stringWithFormat:@"canonical:(%@)", keyPath]];
 #else
-    return [NSExpression expressionForFunction:@"canonical:"
+    return [NSExpression expressionForFunction:@"canonical"
+                                     arguments:[NSArray arrayWithObject:
+        [NSExpression expressionForKeyPath:keyPath]]];
+#endif
+}
+
+/* Same trailing-colon situation as canonicalExpression, but uppercase:
+   is predefined on Apple, so there the colon form is required. */
+static NSExpression *uppercaseExpression(NSString *keyPath)
+{
+#if defined(__APPLE__)
+    return [NSExpression expressionForFunction:@"uppercase:"
+                                     arguments:[NSArray arrayWithObject:
+        [NSExpression expressionForKeyPath:keyPath]]];
+#else
+    return [NSExpression expressionForFunction:@"uppercase"
                                      arguments:[NSArray arrayWithObject:
         [NSExpression expressionForKeyPath:keyPath]]];
 #endif
@@ -136,9 +155,7 @@ static NSManagedObjectModel *derivedModel(BOOL countIsOptional)
 
     NSDerivedAttributeDescription *titleUpper =
         derivedAttribute(@"titleUpper", NSStringAttributeType,
-                         [NSExpression expressionForFunction:@"uppercase:"
-                                                   arguments:[NSArray arrayWithObject:
-                             [NSExpression expressionForKeyPath:@"title"]]]);
+                         uppercaseExpression(@"title"));
     NSDerivedAttributeDescription *authorNameCopy =
         derivedAttribute(@"authorName", NSStringAttributeType,
                          [NSExpression expressionForKeyPath:@"author.name"]);

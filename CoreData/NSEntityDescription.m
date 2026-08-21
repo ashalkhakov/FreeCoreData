@@ -99,6 +99,8 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     _superentity = [[coder decodeObjectForKey: @"NSSuperentity"] retain];
     _userInfo = [[coder decodeObjectForKey: @"NSUserInfo"] retain];
     _versionHashModifier= [[coder decodeObjectForKey: @"NSVersionHashModifier"] retain];
+    _uniquenessConstraints = [[coder decodeObjectForKey: @"NSUniquenessConstraints"] retain];
+    _compoundIndexes = [[coder decodeObjectForKey: @"NSCompoundIndexes"] retain];
     /* Apple's momc only writes the flag when the entity is abstract. */
     _isAbstract = [coder decodeBoolForKey: @"NSIsAbstract"];
     
@@ -160,6 +162,10 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
 	[coder encodeObject:_userInfo forKey: @"NSUserInfo"];
     if(_versionHashModifier!=nil)
 	[coder encodeObject:_versionHashModifier forKey: @"NSVersionHashModifier"];
+    if([_uniquenessConstraints count]>0)
+	[coder encodeObject:_uniquenessConstraints forKey: @"NSUniquenessConstraints"];
+    if([_compoundIndexes count]>0)
+	[coder encodeObject:_compoundIndexes forKey: @"NSCompoundIndexes"];
     /* Mirror Apple's momc: the flag is only written when YES. */
     if(_isAbstract)
 	[coder encodeBool:YES forKey: @"NSIsAbstract"];
@@ -422,6 +428,25 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
    if(_versionHashModifier!=nil)
     [components addObject:_versionHashModifier];
 
+   /* Matching Apple, uniqueness constraints form part of the version
+      hash.  Attribute descriptions and name strings hash identically,
+      and the component is only added when constraints exist so that
+      models without any keep their historical hashes. */
+   if([_uniquenessConstraints count]>0){
+    NSMutableArray *normalized=[NSMutableArray array];
+
+    for(NSArray *constraint in _uniquenessConstraints){
+     NSMutableArray *names=[NSMutableArray array];
+
+     for(id element in constraint)
+      [names addObject:[element isKindOfClass:[NSString class]]?element:[(NSPropertyDescription *)element name]];
+
+     [normalized addObject:[names componentsJoinedByString:@","]];
+    }
+
+    [components addObject:[NSString stringWithFormat:@"constraints:%@",[normalized componentsJoinedByString:@";"]]];
+   }
+
    for(NSString *propertyName in [[_properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
     NSPropertyDescription *property=[_properties objectForKey:propertyName];
     NSData                *hash=[property versionHash];
@@ -443,6 +468,40 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
 
 -(NSString *)versionHashModifier {
    return _versionHashModifier;
+}
+
+
+-(NSArray *)uniquenessConstraints {
+   return (_uniquenessConstraints!=nil)?_uniquenessConstraints:[NSArray array];
+}
+
+
+-(void)setUniquenessConstraints:(NSArray *)value {
+   if(_hasBeenInstantiated) {
+    NSLog(@"Attempt to modify entity after instantiating it.");
+    return;
+   }
+
+   value=[value copy];
+   [_uniquenessConstraints release];
+   _uniquenessConstraints=value;
+}
+
+
+-(NSArray *)compoundIndexes {
+   return (_compoundIndexes!=nil)?_compoundIndexes:[NSArray array];
+}
+
+
+-(void)setCompoundIndexes:(NSArray *)value {
+   if(_hasBeenInstantiated) {
+    NSLog(@"Attempt to modify entity after instantiating it.");
+    return;
+   }
+
+   value=[value copy];
+   [_compoundIndexes release];
+   _compoundIndexes=value;
 }
 
 

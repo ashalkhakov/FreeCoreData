@@ -252,4 +252,39 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [fileManager removeItemAtPath:momdPath error:NULL];
 }
 
+- (void)testUniquenessConstraintsStorageAndVersionHash
+{
+    NSAttributeDescription *code = [[NSAttributeDescription alloc] init];
+    [code setName:@"code"];
+    [code setAttributeType:NSStringAttributeType];
+
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    [entity setName:@"Thing"];
+    [entity setProperties:[NSArray arrayWithObject:code]];
+
+    /* Default: an empty array, not nil, matching Apple. */
+    XCTAssertEqualObjects([entity uniquenessConstraints], [NSArray array]);
+
+    NSData *hashWithout = [entity versionHash];
+
+    NSArray *constraints = [NSArray arrayWithObject:
+        [NSArray arrayWithObject:@"code"]];
+    [entity setUniquenessConstraints:constraints];
+    XCTAssertEqualObjects([entity uniquenessConstraints], constraints);
+
+    /* Matching Apple: "This value forms part of the entity's version
+       hash." */
+    XCTAssertNotEqualObjects([entity versionHash], hashWithout);
+
+    [entity setCompoundIndexes:constraints];
+#if defined(__APPLE__)
+    /* Verified on macOS: the deprecated setter is a no-op there and the
+       getter stays an empty array. */
+    XCTAssertEqualObjects([entity compoundIndexes], [NSArray array]);
+#else
+    /* The port keeps the stored value for callers of the old API. */
+    XCTAssertEqualObjects([entity compoundIndexes], constraints);
+#endif
+}
+
 @end

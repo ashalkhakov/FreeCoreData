@@ -31,6 +31,7 @@ extern NSString * const MemoryIncrementalStoreType;
 @property (nonatomic) NSUInteger fetchRequestCount;
 @property (nonatomic) NSUInteger saveRequestCount;
 @property (nonatomic) NSUInteger newValuesCallCount;
+@property (nonatomic) NSUInteger relationshipCallCount;
 @property (nonatomic) NSUInteger obtainPermanentIDsCallCount;
 @property (nonatomic) NSUInteger lastInsertedCount;
 @property (nonatomic) NSUInteger lastUpdatedCount;

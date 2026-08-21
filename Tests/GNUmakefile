@@ -23,27 +23,39 @@ CoreDataTests_OBJC_FILES = \
 	NSIncrementalStoreTests.m \
 	NSXMLPersistentStoreTests.m \
 	NSSQLitePersistentStoreTests.m \
+	NSTransformableAttributeTests.m \
+	NSDerivedAttributeTests.m \
+	NSCountAndExistingObjectTests.m \
+	NSPendingChangesFetchTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
-	StoreVersioningTests.m \
-	NSTransformableAttributeTests.m \
-	NSDerivedAttributeTests.m
+	StoreVersioningTests.m
 
 CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
 
-ADDITIONAL_LIB_DIRS += -L$(GNUSTEP_SYSTEM_LIBRARIES)
-CoreDataTests_OBJC_LIBS += -lgnustep-corebase -lCoreData -lXCTest
+# Link and run against the freshly built, uninstalled framework in the
+# source tree, not whatever CoreData is installed in the GNUstep domains.
+FRAMEWORK_BUILD_DIR = $(CURDIR)/../CoreData.framework/Versions/Current
+
+ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
+CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest
 
 XCTEST ?= xctest
-
-.PHONY: check run-tests
-run-tests: all $(BUNDLE_NAME).bundle
-	@echo "Running XCTest bundle: $(BUNDLE_NAME)"
-	. $(GNUSTEP_MAKEFILES)/GNUstep.sh; \
-	$(XCTEST) "$(BUNDLE_NAME).bundle"
 
 -include GNUmakefile.preamble
 
 include $(GNUSTEP_MAKEFILES)/bundle.make
 
 -include GNUmakefile.postamble
+
+# Custom rules live below the bundle.make include so that plain 'make'
+# still defaults to building the bundle.
+.PHONY: check run-tests framework
+framework:
+	$(MAKE) -C ..
+
+run-tests: framework all $(BUNDLE_NAME).bundle
+	@echo "Running XCTest bundle: $(BUNDLE_NAME)"
+	. $(GNUSTEP_MAKEFILES)/GNUstep.sh; \
+	LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" \
+	$(XCTEST) "$(BUNDLE_NAME).bundle"

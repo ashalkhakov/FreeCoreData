@@ -330,6 +330,47 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    return result;
 }
 
+/* Builds NSDictionaryResultType rows from saved snapshots (cache-node
+   property caches or committed-value dictionaries).  Keys are limited to
+   propertiesToFetch when set, otherwise every attribute of the entity;
+   relationship values never appear in the rows.  returnsDistinctResults
+   collapses equal rows, preserving order. */
+-(NSArray *)_dictionaryResultsForRequest:(NSFetchRequest *)request snapshots:(NSArray *)snapshots {
+   NSMutableArray *names=[NSMutableArray array];
+   NSArray        *properties=[request propertiesToFetch];
+
+   if([properties count]>0){
+    for(id property in properties)
+     [names addObject:[property isKindOfClass:[NSString class]]?property:[(NSPropertyDescription *)property name]];
+   }
+   else
+    [names addObjectsFromArray:[[[[request entity] attributesByName] allKeys] sortedArrayUsingSelector:@selector(compare:)]];
+
+   NSMutableArray *result=[NSMutableArray array];
+
+   for(NSDictionary *snapshot in snapshots){
+    NSMutableDictionary *row=[NSMutableDictionary dictionary];
+
+    for(NSString *name in names){
+     id value=[snapshot objectForKey:name];
+
+     if(value==nil || value==[NSNull null])
+      continue;
+     if([value isKindOfClass:[NSAtomicStoreCacheNode class]] ||
+        [value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSManagedObjectID class]])
+      continue; /* relationship values are not part of dictionary rows */
+     [row setObject:value forKey:name];
+    }
+
+    if([request returnsDistinctResults] && [result containsObject:row])
+     continue;
+
+    [result addObject:row];
+   }
+
+   return result;
+}
+
 -(NSArray *)executeFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error {
    /* A request created with an entity name resolves it against the
       coordinator's model at execution time, matching Apple.  (The
@@ -350,42 +391,158 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
    if(affectedStores==nil)
     affectedStores=[_storeCoordinator persistentStores];
-  
-   NSMutableSet *resultSet=[NSMutableSet set];
 
-   for(NSManagedObject *check in _insertedObjects){
-    NSEntityDescription *entity=[check entity];
-    
-    if([entity _isKindOfEntity:[fetchRequest entity]]){       
-     if(![_deletedObjects containsObject:check]){
-      if([affectedStores containsObject:[[check objectID] persistentStore]]){
-       [resultSet addObject:check];
-       }
+   NSFetchRequestResultType resultType=[fetchRequest resultType];
+   NSPredicate             *predicate=[fetchRequest predicate];
+
+   /* Apple's fetch is two layers: the store answers with the last saved
+      state, then the context overlays this context's unsaved inserts,
+      updates and deletes and emits the result in the shape resultType
+      asked for.  The overlay is skipped when includesPendingChanges is
+      NO, when there is nothing pending - and always for dictionary
+      results, which Apple documents as reflecting the persistent store
+      only ("A value of YES is not supported in conjunction with the
+      result type NSDictionaryResultType"). */
+   BOOL mergePending=[fetchRequest includesPendingChanges] &&
+                     resultType!=NSDictionaryResultType &&
+                     ([_insertedObjects count]>0 || [_updatedObjects count]>0 || [_deletedObjects count]>0);
+
+   if(!mergePending){
+    /* Pass-through: the store's answer, already in the requested shape
+       when a single incremental store can produce it. */
+    if([affectedStores count]==1 &&
+       [[affectedStores objectAtIndex:0] isKindOfClass:[NSIncrementalStore class]])
+     return [(NSIncrementalStore *)[affectedStores objectAtIndex:0] executeRequest:fetchRequest withContext:self error:error];
+
+    /* Atomic stores (and multi-store unions): collect the saved
+       membership, then shape it here.  Membership and dictionary values
+       come from the stores' saved snapshots (cache nodes / committed
+       values); note that returned managed objects still show this
+       context's in-memory values - membership and values are separate
+       questions, as on Apple. */
+    NSMutableArray *objects=[NSMutableArray array];
+    NSMutableArray *savedSnapshots=[NSMutableArray array]; /* parallel to objects */
+
+    for(NSPersistentStore *genericStore in affectedStores){
+     if([genericStore isKindOfClass:[NSIncrementalStore class]]){
+      NSFetchRequest *inner=[[fetchRequest copy] autorelease];
+
+      [inner setResultType:NSManagedObjectResultType];
+      /* Limits apply to the union, not to each store. */
+      [inner setFetchLimit:0];
+      [inner setFetchOffset:0];
+
+      NSArray *fetched=[(NSIncrementalStore *)genericStore executeRequest:inner withContext:self error:error];
+
+      if(fetched==nil)
+       return nil;
+
+      for(NSManagedObject *check in fetched){
+       [objects addObject:check];
+       [savedSnapshots addObject:[check committedValuesForKeys:nil]];
+      }
+      continue;
      }
+
+     if(![genericStore isKindOfClass:[NSAtomicStore class]])
+      continue;
+
+     for(NSAtomicStoreCacheNode *node in [(NSAtomicStore *)genericStore cacheNodes]){
+      NSEntityDescription *nodeEntity=[[node objectID] entity];
+
+      if(![nodeEntity _isKindOfEntity:[fetchRequest entity]])
+       continue;
+      if(![fetchRequest includesSubentities] &&
+         ![[nodeEntity name] isEqualToString:[[fetchRequest entity] name]])
+       continue;
+
+      /* Saved membership: the predicate is evaluated against the cache
+         node (KVC over the node's property cache). */
+      if(predicate!=nil && ![predicate evaluateWithObject:node])
+       continue;
+
+      [objects addObject:[self objectWithID:[node objectID]]];
+      [savedSnapshots addObject:[node propertyCache]];
+     }
+    }
+
+    /* Order, then window, then shape. */
+    if([[fetchRequest sortDescriptors] count]>0){
+     NSArray *sorted=[objects sortedArrayUsingDescriptors:[fetchRequest sortDescriptors]];
+     NSMutableArray *reorderedSnapshots=[NSMutableArray array];
+
+     for(NSManagedObject *object in sorted)
+      [reorderedSnapshots addObject:[savedSnapshots objectAtIndex:[objects indexOfObjectIdenticalTo:object]]];
+
+     objects=[NSMutableArray arrayWithArray:sorted];
+     savedSnapshots=reorderedSnapshots;
+    }
+
+    NSUInteger offset=[fetchRequest fetchOffset],limit=[fetchRequest fetchLimit];
+
+    if(offset>0){
+     if(offset>=[objects count]){
+      [objects removeAllObjects];
+      [savedSnapshots removeAllObjects];
+     }
+     else {
+      [objects removeObjectsInRange:NSMakeRange(0,offset)];
+      [savedSnapshots removeObjectsInRange:NSMakeRange(0,offset)];
+     }
+    }
+    if(limit>0 && [objects count]>limit){
+     [objects removeObjectsInRange:NSMakeRange(limit,[objects count]-limit)];
+     [savedSnapshots removeObjectsInRange:NSMakeRange(limit,[savedSnapshots count]-limit)];
+    }
+
+    switch(resultType){
+
+     case NSManagedObjectIDResultType: {
+      NSMutableArray *ids=[NSMutableArray array];
+
+      for(NSManagedObject *object in objects)
+       [ids addObject:[object objectID]];
+      return ids;
+     }
+
+     case NSCountResultType:
+      return [NSArray arrayWithObject:[NSNumber numberWithUnsignedInteger:[objects count]]];
+
+     case NSDictionaryResultType:
+      return [self _dictionaryResultsForRequest:fetchRequest snapshots:savedSnapshots];
+
+     default:
+      return objects;
     }
    }
 
-   /* An incremental store returns results that are already filtered,
-      sorted and limited; when the context has no pending inserts,
-      updates or deletes to merge in, return them as-is, preserving the
-      store's ordering. */
-   if([resultSet count]==0 && [_deletedObjects count]==0 && [_updatedObjects count]==0 && [affectedStores count]==1){
-    NSPersistentStore *onlyStore=[affectedStores objectAtIndex:0];
+   /* Overlay path: membership is recomputed with this context's
+      in-memory state.  Saved candidates come from the stores with the
+      predicate applied but without limit/offset (the window only makes
+      sense after the merge); deletes are dropped, updated objects are
+      re-tested with their current values (in both directions), unsaved
+      inserts are added when they match. */
+   NSMutableArray *merged=[NSMutableArray array];
+   NSMutableSet   *seen=[NSMutableSet set];
 
-    if([onlyStore isKindOfClass:[NSIncrementalStore class]])
-     return [(NSIncrementalStore *)onlyStore executeRequest:fetchRequest withContext:self error:error];
-   }
-   
    for(NSPersistentStore *genericStore in affectedStores){
     if([genericStore isKindOfClass:[NSIncrementalStore class]]){
-     NSArray *fetched=[(NSIncrementalStore *)genericStore executeRequest:fetchRequest withContext:self error:error];
+     NSFetchRequest *inner=[[fetchRequest copy] autorelease];
+
+     [inner setResultType:NSManagedObjectResultType];
+     [inner setFetchLimit:0];
+     [inner setFetchOffset:0];
+
+     NSArray *fetched=[(NSIncrementalStore *)genericStore executeRequest:inner withContext:self error:error];
 
      if(fetched==nil)
       return nil;
 
      for(NSManagedObject *check in fetched){
-      if(![_deletedObjects containsObject:check])
-       [resultSet addObject:check];
+      if(![seen containsObject:check]){
+       [seen addObject:check];
+       [merged addObject:check];
+      }
      }
      continue;
     }
@@ -393,37 +550,148 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
     if(![genericStore isKindOfClass:[NSAtomicStore class]])
      continue;
 
-    NSAtomicStore *store=(NSAtomicStore *)genericStore;
-    NSSet *nodes=[store cacheNodes];
-    
-    for(NSAtomicStoreCacheNode *node in nodes){
-     NSManagedObjectID   *checkID=[node objectID];
-     NSEntityDescription *entity=[checkID entity];
-    
-     if([entity _isKindOfEntity:[fetchRequest entity]]){
-      NSManagedObject *check=[self objectWithID:checkID];
-      
-      if(![_deletedObjects containsObject:check]){
-       [resultSet addObject:check];
-       }
-	 }
+    for(NSAtomicStoreCacheNode *node in [(NSAtomicStore *)genericStore cacheNodes]){
+     NSEntityDescription *nodeEntity=[[node objectID] entity];
+
+     if(![nodeEntity _isKindOfEntity:[fetchRequest entity]])
+      continue;
+     if(predicate!=nil && ![predicate evaluateWithObject:node])
+      continue;
+
+     NSManagedObject *check=[self objectWithID:[node objectID]];
+
+     if(![seen containsObject:check]){
+      [seen addObject:check];
+      [merged addObject:check];
+     }
     }
    }
-   
-   NSMutableArray *result=[NSMutableArray arrayWithArray:[resultSet allObjects]];
 
-   NSPredicate *p=[fetchRequest predicate];
-   
-   if(p!=nil)
-    [result filterUsingPredicate:p];
+   /* Drop pending deletes; re-test pending updates with in-memory
+      values. */
+   NSMutableArray *overlaid=[NSMutableArray array];
 
-   [result sortUsingDescriptors:[fetchRequest sortDescriptors]];
- 
-   return result;
+   for(NSManagedObject *check in merged){
+    if([_deletedObjects containsObject:check])
+     continue;
+    if(predicate!=nil && [_updatedObjects containsObject:check] &&
+       ![predicate evaluateWithObject:check])
+     continue;
+    [overlaid addObject:check];
+   }
+
+   /* Pending updates that only match with their unsaved values, and
+      pending inserts. */
+   NSMutableSet *additions=[NSMutableSet setWithSet:_updatedObjects];
+
+   [additions unionSet:_insertedObjects];
+
+   for(NSManagedObject *check in additions){
+    if([_deletedObjects containsObject:check])
+     continue;
+    if([seen containsObject:check] && ![overlaid containsObject:check])
+     continue; /* store candidate that the overlay already rejected */
+    if([overlaid containsObject:check])
+     continue;
+    if(![[check entity] _isKindOfEntity:[fetchRequest entity]])
+     continue;
+    if(![affectedStores containsObject:[[check objectID] persistentStore]])
+     continue;
+    if(predicate!=nil && ![predicate evaluateWithObject:check])
+     continue;
+    [overlaid addObject:check];
+   }
+
+   if([[fetchRequest sortDescriptors] count]>0)
+    [overlaid sortUsingDescriptors:[fetchRequest sortDescriptors]];
+
+   NSUInteger offset=[fetchRequest fetchOffset],limit=[fetchRequest fetchLimit];
+
+   if(offset>0){
+    if(offset>=[overlaid count])
+     [overlaid removeAllObjects];
+    else
+     [overlaid removeObjectsInRange:NSMakeRange(0,offset)];
+   }
+   if(limit>0 && [overlaid count]>limit)
+    [overlaid removeObjectsInRange:NSMakeRange(limit,[overlaid count]-limit)];
+
+   switch(resultType){
+
+    case NSManagedObjectIDResultType: {
+     NSMutableArray *ids=[NSMutableArray array];
+
+     for(NSManagedObject *object in overlaid)
+      [ids addObject:[object objectID]];
+     return ids;
+    }
+
+    case NSCountResultType:
+     return [NSArray arrayWithObject:[NSNumber numberWithUnsignedInteger:[overlaid count]]];
+
+    default:
+     return overlaid;
+   }
 }
 
 -(NSUInteger)countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error {
-   return [[self executeFetchRequest:request error:error] count];
+   /* Matching Apple: the number of objects the request would have
+      returned from executeFetchRequest:, or NSNotFound on error. */
+   NSFetchRequest *counted=[[request copy] autorelease];
+
+   [counted setResultType:NSCountResultType];
+
+   NSArray *result=[self executeFetchRequest:counted error:error];
+
+   if(result==nil)
+    return NSNotFound;
+
+   return [[result lastObject] unsignedIntegerValue];
+}
+
+-(NSManagedObject *)existingObjectWithID:(NSManagedObjectID *)objectID error:(NSError **)error {
+   /* Matching Apple: an object the context recognizes is returned
+      directly; otherwise a fully realized object is fetched from the
+      persistent store - this method never returns a fault.  When the
+      object exists in neither, it fails. */
+   NSManagedObject *registered=(objectID!=nil)?[self objectRegisteredForID:objectID]:nil;
+
+   if(registered!=nil && ![registered isFault])
+    return registered;
+
+   BOOL exists=NO;
+
+   if(objectID!=nil && ![objectID isTemporaryID]){
+    NSPersistentStore *store=[objectID persistentStore];
+
+    if([store isKindOfClass:[NSIncrementalStore class]]){
+     NSError                *nodeError=nil;
+     NSIncrementalStoreNode *node=[(NSIncrementalStore *)store newValuesForObjectWithID:objectID withContext:self error:&nodeError];
+
+     exists=(node!=nil);
+     [node release];
+    }
+    else if([store isKindOfClass:[NSAtomicStore class]])
+     exists=([(NSAtomicStore *)store cacheNodeForObjectID:objectID]!=nil);
+   }
+
+   if(!exists){
+    if(error!=NULL){
+     NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+     [userInfo setObject:[NSString stringWithFormat:@"The object with ID %@ could not be found in the persistent store.",objectID] forKey:NSLocalizedDescriptionKey];
+
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectReferentialIntegrityError userInfo:userInfo];
+    }
+    return nil;
+   }
+
+   NSManagedObject *object=[self objectWithID:objectID];
+
+   /* Realize the object's values so a fault is never returned. */
+   [object _committedValues];
+
+   return object;
 }
 
 -(void)insertObject:(NSManagedObject *)object {

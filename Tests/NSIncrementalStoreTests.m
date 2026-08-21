@@ -431,4 +431,193 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                           [NSNumber numberWithInt:3]);
 }
 
+/* -- reference objects and URI representations ----------------------- */
+
+- (void)testNumberReferenceObjectURIRoundTrips
+{
+    /* Reference objects are not limited to strings.  Verified on macOS:
+       the URI component is "p" + the reference's description, so a
+       number 42 travels as "p42". */
+    NSManagedObjectID *objectID =
+        [self.store newObjectIDForEntity:self.entity
+                         referenceObject:[NSNumber numberWithInt:42]];
+
+    NSURL *uri = [objectID URIRepresentation];
+    XCTAssertNotNil(uri);
+    XCTAssertEqualObjects([uri scheme], @"x-coredata");
+    XCTAssertEqualObjects([uri lastPathComponent], @"p42");
+
+    NSManagedObjectID *back =
+        [self.psc managedObjectIDForURIRepresentation:uri];
+    XCTAssertNotNil(back);
+    XCTAssertEqualObjects([[back entity] name], @"Person");
+    XCTAssertTrue([[[self.store referenceObjectForObjectID:back]
+                       description] rangeOfString:@"42"].location
+                      != NSNotFound);
+}
+
+- (void)testDataReferenceObjectURIUsesDescription
+{
+    /* An OData-backed store may key rows by raw data.  Verified on
+       macOS: there is no special hex form - the URI carries "p" plus
+       the data's escaped -description (whose exact format differs
+       between Foundation implementations, but always contains the hex
+       bytes). */
+    unsigned char bytes[3] = { 0x01, 0xAB, 0xFF };
+    NSManagedObjectID *objectID =
+        [self.store newObjectIDForEntity:self.entity
+                         referenceObject:[NSData dataWithBytes:bytes
+                                                        length:3]];
+
+    NSURL *uri = [objectID URIRepresentation];
+    XCTAssertNotNil(uri);
+    XCTAssertTrue([[[uri path] lastPathComponent] hasPrefix:@"p"] ||
+                  [[[uri absoluteString]
+                       componentsSeparatedByString:@"/"] count] > 4,
+                  @"unexpected URI %@", uri);
+
+    NSManagedObjectID *back =
+        [self.psc managedObjectIDForURIRepresentation:uri];
+    XCTAssertNotNil(back);
+    XCTAssertTrue([[[self.store referenceObjectForObjectID:back]
+                       description] rangeOfString:@"01abff"
+                                         options:NSCaseInsensitiveSearch]
+                      .location != NSNotFound,
+                  @"the reference's bytes survive the round trip");
+}
+
+- (void)testStringReferenceObjectURIMatchesAppleEscaping
+{
+    /* Verified on macOS: the reference is escaped with URL *path* rules
+       (space becomes %20 but "/" survives, splitting the reference over
+       path components), and the coordinator hands the store the raw
+       remainder without decoding - Apple literally returns
+       "key%20with/slash" for this reference.  Lossy, but bit-for-bit
+       what Apple does. */
+    NSManagedObjectID *objectID =
+        [self.store newObjectIDForEntity:self.entity
+                         referenceObject:@"key with/slash"];
+
+    NSURL *uri = [objectID URIRepresentation];
+    XCTAssertNotNil(uri);
+    XCTAssertTrue([[uri absoluteString]
+                      rangeOfString:@"/pkey%20with/slash"].location
+                      != NSNotFound, @"unexpected URI %@", uri);
+
+    NSManagedObjectID *back =
+        [self.psc managedObjectIDForURIRepresentation:uri];
+    XCTAssertEqualObjects([self.store referenceObjectForObjectID:back],
+                          @"key%20with/slash");
+}
+
+- (void)testDictionaryFetchIsShapedByTheStore
+{
+    /* On a clean context the store itself answers a dictionary fetch,
+       building rows from its persisted state. */
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Alice", @"name",
+                      [NSNumber numberWithInt:30], @"age", nil]
+        forReference:@"r1"];
+
+    NSFetchRequest *fetch = [self personFetchRequest];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:[NSArray arrayWithObject:@"name"]];
+
+    NSError *error = nil;
+    NSUInteger fetchesBefore = [self.store fetchRequestCount];
+    NSArray *rows = [self.ctx executeFetchRequest:fetch error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqualObjects(rows,
+        [NSArray arrayWithObject:
+            [NSDictionary dictionaryWithObject:@"Alice" forKey:@"name"]]);
+    XCTAssertTrue([self.store fetchRequestCount] > fetchesBefore);
+}
+
+/* -- relationship faulting ------------------------------------------- */
+
+- (void)seedManagedPair
+{
+    /* p1 is the manager of p2; p1's reports contain p2. */
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Boss", @"name",
+                      [NSArray arrayWithObject:@"p2"], @"reports", nil]
+        forReference:@"p1"];
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Worker", @"name",
+                      @"p1", @"manager", nil]
+        forReference:@"p2"];
+}
+
+- (void)testToOneRelationshipIsSatisfiedFromTheNode
+{
+    [self seedManagedPair];
+
+    NSManagedObjectID *workerID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"p2"];
+    NSManagedObject *worker = [self.ctx objectWithID:workerID];
+
+    /* Fire the row fault first (which may fetch to-many relationships,
+       depending on the implementation's laziness), then measure: the
+       to-one must be satisfied from the NSManagedObjectID the node
+       supplied, without an additional newValueForRelationship: round
+       trip. */
+    XCTAssertEqualObjects([worker valueForKey:@"name"], @"Worker");
+
+    NSUInteger callsBefore = [self.store relationshipCallCount];
+    NSManagedObject *boss = [worker valueForKey:@"manager"];
+
+    XCTAssertNotNil(boss);
+    XCTAssertEqual([self.store relationshipCallCount], callsBefore,
+                   @"the to-one must be satisfied from the node");
+    XCTAssertEqualObjects([boss valueForKey:@"name"], @"Boss");
+}
+
+- (void)testToManyRelationshipGoesThroughNewValueForRelationship
+{
+    [self seedManagedPair];
+
+    NSManagedObjectID *bossID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"p1"];
+    NSManagedObject *boss = [self.ctx objectWithID:bossID];
+
+    NSUInteger callsBefore = [self.store relationshipCallCount];
+    id reports = [boss valueForKey:@"reports"];
+
+    XCTAssertEqual([reports count], (NSUInteger)1);
+    XCTAssertEqualObjects([[reports anyObject] valueForKey:@"name"],
+                          @"Worker");
+    XCTAssertTrue([self.store relationshipCallCount] > callsBefore,
+                  @"a to-many fault is satisfied by the store");
+}
+
+- (void)testRelationshipsSurviveSaveAndRefetch
+{
+    NSManagedObject *boss =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:self.ctx];
+    [boss setValue:@"Boss" forKey:@"name"];
+    NSManagedObject *worker =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:self.ctx];
+    [worker setValue:@"Worker" forKey:@"name"];
+    [worker setValue:boss forKey:@"manager"];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    /* A second context resolves the persisted relationship rows. */
+    NSManagedObjectContext *ctx2 = [[NSManagedObjectContext alloc] init];
+    [ctx2 setPersistentStoreCoordinator:self.psc];
+
+    NSFetchRequest *fetch = [self personFetchRequest];
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"name == %@",
+                                     @"Worker"]];
+    NSArray *workers = [ctx2 executeFetchRequest:fetch error:&error];
+    XCTAssertEqual([workers count], (NSUInteger)1);
+    XCTAssertEqualObjects([[[workers lastObject] valueForKey:@"manager"]
+                              valueForKey:@"name"],
+                          @"Boss");
+}
+
 @end

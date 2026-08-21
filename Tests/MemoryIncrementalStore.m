@@ -72,6 +72,29 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
             if (value != nil)
                 [row setObject:value forKey:key];
         }
+        /* Relationships are stored as reference objects: the
+           destination's reference for a to-one, an array of references
+           for a to-many. */
+        for (NSString *key in [entity relationshipsByName]) {
+            if ([row objectForKey:key] != nil)
+                continue;
+            NSRelationshipDescription *relationship =
+                [[entity relationshipsByName] objectForKey:key];
+            id value = [object valueForKey:key];
+            if (value == nil)
+                continue;
+            if ([relationship isToMany]) {
+                NSMutableArray *refs = [NSMutableArray array];
+                for (NSManagedObject *member in value)
+                    [refs addObject:[self referenceObjectForObjectID:
+                                              [member objectID]]];
+                [row setObject:refs forKey:key];
+            }
+            else
+                [row setObject:[self referenceObjectForObjectID:
+                                         [(NSManagedObject *)value objectID]]
+                        forKey:key];
+        }
     }
     [table setObject:row forKey:ref];
 }
@@ -105,8 +128,48 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
         }
         if ([fetch predicate] != nil)
             [results filterUsingPredicate:[fetch predicate]];
+        /* An incremental store handles NSCountResultType itself (the
+           context forwards the request), returning an array holding a
+           single NSNumber. */
+        if ([fetch resultType] == NSCountResultType)
+            return [NSArray arrayWithObject:
+                [NSNumber numberWithUnsignedInteger:[results count]]];
         if ([[fetch sortDescriptors] count] > 0)
             [results sortUsingDescriptors:[fetch sortDescriptors]];
+        /* Dictionary rows come straight from the persisted rows,
+           matching Apple's "reflects the store, never pending changes"
+           contract for NSDictionaryResultType. */
+        if ([fetch resultType] == NSDictionaryResultType) {
+            NSMutableArray *names = [NSMutableArray array];
+            if ([[fetch propertiesToFetch] count] > 0) {
+                for (id p in [fetch propertiesToFetch])
+                    [names addObject:[p isKindOfClass:[NSString class]]
+                        ? p : [(NSPropertyDescription *)p name]];
+            }
+            else
+                [names addObjectsFromArray:
+                    [[[entity attributesByName] allKeys]
+                        sortedArrayUsingSelector:@selector(compare:)]];
+
+            NSMutableArray *rows = [NSMutableArray array];
+            for (NSManagedObject *object in results) {
+                NSDictionary *stored = [[self.rows
+                    objectForKey:[[[object objectID] entity] name]]
+                    objectForKey:[self referenceObjectForObjectID:
+                                           [object objectID]]];
+                NSMutableDictionary *row = [NSMutableDictionary dictionary];
+                for (NSString *name in names) {
+                    id value = [stored objectForKey:name];
+                    if (value != nil)
+                        [row setObject:value forKey:name];
+                }
+                if ([fetch returnsDistinctResults] &&
+                    [rows containsObject:row])
+                    continue;
+                [rows addObject:row];
+            }
+            return rows;
+        }
         return results;
     }
 
@@ -144,8 +207,30 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
                                      userInfo:nil];
         return nil;
     }
+
+    /* Attributes are returned as stored; a to-one relationship is
+       returned as a real NSManagedObjectID so faulting can satisfy it
+       from the node without a newValueForRelationship: round trip.
+       To-many relationships are not part of the node, matching Apple's
+       contract. */
+    NSMutableDictionary *values = [NSMutableDictionary dictionary];
+    NSDictionary *relationships = [[objectID entity] relationshipsByName];
+    for (NSString *key in row) {
+        NSRelationshipDescription *relationship =
+            [relationships objectForKey:key];
+        if (relationship == nil) {
+            [values setObject:[row objectForKey:key] forKey:key];
+            continue;
+        }
+        if ([relationship isToMany])
+            continue;
+        [values setObject:[self newObjectIDForEntity:
+                                    [relationship destinationEntity]
+                                     referenceObject:[row objectForKey:key]]
+                   forKey:key];
+    }
     return [[NSIncrementalStoreNode alloc] initWithObjectID:objectID
-                                                 withValues:row
+                                                 withValues:values
                                                     version:1];
 }
 
@@ -154,7 +239,26 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
                   withContext:(NSManagedObjectContext *)context
                         error:(NSError **)error
 {
-    return [NSArray array];
+    self.relationshipCallCount++;
+
+    id ref = [self referenceObjectForObjectID:objectID];
+    NSDictionary *row = [[self.rows objectForKey:[[objectID entity] name]]
+                            objectForKey:ref];
+    id stored = [row objectForKey:[relationship name]];
+
+    if ([relationship isToMany]) {
+        NSMutableArray *ids = [NSMutableArray array];
+        for (id memberRef in stored)
+            [ids addObject:[self newObjectIDForEntity:
+                                     [relationship destinationEntity]
+                                  referenceObject:memberRef]];
+        return ids;
+    }
+
+    if (stored == nil)
+        return [NSNull null];
+    return [self newObjectIDForEntity:[relationship destinationEntity]
+                      referenceObject:stored];
 }
 
 - (NSArray *)obtainPermanentIDsForObjects:(NSArray *)array error:(NSError **)error
@@ -186,10 +290,33 @@ NSManagedObjectModel *IncrementalStoreTestModel(void)
     [age setName:@"age"];
     [age setAttributeType:NSInteger32AttributeType];
 
+    /* manager <-->> reports, both on Person, so relationship faulting
+       can be exercised against the store. */
+    NSRelationshipDescription *managerRel =
+        [[NSRelationshipDescription alloc] init];
+    [managerRel setName:@"manager"];
+    [managerRel setMinCount:1];
+    [managerRel setMaxCount:1];
+    [managerRel setOptional:YES];
+
+    NSRelationshipDescription *reportsRel =
+        [[NSRelationshipDescription alloc] init];
+    [reportsRel setName:@"reports"];
+    [reportsRel setMinCount:0];
+    [reportsRel setMaxCount:0];
+    [reportsRel setOptional:YES];
+
     NSEntityDescription *entity = [[NSEntityDescription alloc] init];
     [entity setName:@"Person"];
     [entity setManagedObjectClassName:@"NSManagedObject"];
-    [entity setProperties:[NSArray arrayWithObjects:name, age, nil]];
+
+    [managerRel setDestinationEntity:entity];
+    [managerRel setInverseRelationship:reportsRel];
+    [reportsRel setDestinationEntity:entity];
+    [reportsRel setInverseRelationship:managerRel];
+
+    [entity setProperties:
+        [NSArray arrayWithObjects:name, age, managerRel, reportsRel, nil]];
 
     /* Manager is a subentity of Person and adds a `level' attribute. */
     NSAttributeDescription *level = [[NSAttributeDescription alloc] init];

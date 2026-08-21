@@ -42,16 +42,19 @@ jobs:
 
           ls -la /opt/gnustep-prefix/System/Library/Makefiles/GNUstep.sh
 
-      - name: Build and Install CoreData Framework
+      - name: Build CoreData Framework
         run: |
           export LOCAL_PREFIX="/opt/gnustep-prefix"
           . "${LOCAL_PREFIX}/System/Library/Makefiles/GNUstep.sh"
           export LD_LIBRARY_PATH="${LOCAL_PREFIX}/lib:${LD_LIBRARY_PATH}"
 
           make
-          make install GNUSTEP_INSTALLATION_DOMAIN=LOCAL
 
       - name: Run Tests
+        # Tests link and run against the framework built in the source tree
+        # (Tests/GNUmakefile points -L and LD_LIBRARY_PATH at
+        # ../CoreData.framework/Versions/Current), so any stale CoreData
+        # shipped inside the toolchain tarball is ignored.
         run: |
           export LOCAL_PREFIX="/opt/gnustep-prefix"
           . "${LOCAL_PREFIX}/System/Library/Makefiles/GNUstep.sh"
@@ -59,3 +62,11 @@ jobs:
 
           cd Tests
           make run-tests
+
+      - name: Install CoreData Framework
+        run: |
+          export LOCAL_PREFIX="/opt/gnustep-prefix"
+          . "${LOCAL_PREFIX}/System/Library/Makefiles/GNUstep.sh"
+          export LD_LIBRARY_PATH="${LOCAL_PREFIX}/lib:${LD_LIBRARY_PATH}"
+
+          make install GNUSTEP_INSTALLATION_DOMAIN=LOCAL

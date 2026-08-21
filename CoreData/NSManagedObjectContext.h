@@ -90,6 +90,12 @@ COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
 
 - (NSManagedObject *)objectWithID:(NSManagedObjectID *)objectID;
 
+/* Returns the recognized object, or a fully realized (never faulted)
+   object fetched from the persistent store; nil with *error set
+   (NSManagedObjectReferentialIntegrityError) when the object exists in
+   neither, matching Apple. */
+- (NSManagedObject *)existingObjectWithID:(NSManagedObjectID *)objectID error:(NSError **)error;
+
 - (NSArray *)executeFetchRequest:(NSFetchRequest *)request error:(NSError **)error;
 - (NSUInteger)countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error;
 
