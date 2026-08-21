@@ -22,8 +22,7 @@ Notes:
 - `libgnutls28-dev` and `libxslt1-dev` are required by gnustep-base's
   `configure` (it errors out without TLS support unless you pass
   `--disable-tls`).
-- `libdispatch-dev` is not packaged on Ubuntu 24.04; gnustep-corebase is
-  therefore configured with `--without-gcd` below.
+- `libdispatch-dev` is not packaged on Ubuntu 24.04
 
 ## 2. Sources
 
@@ -32,7 +31,6 @@ mkdir gnustep-build && cd gnustep-build
 git clone --depth 1 https://github.com/gnustep/libobjc2.git
 git clone --depth 1 https://github.com/gnustep/tools-make.git
 git clone --depth 1 https://github.com/gnustep/libs-base.git
-git clone --depth 1 https://github.com/gnustep/libs-corebase.git
 git clone --depth 1 https://github.com/gnustep/tools-xctest.git
 ```
 
@@ -77,24 +75,7 @@ sudo -E bash -c '. /usr/GNUstep/System/Library/Makefiles/GNUstep.sh; make instal
 cd ..
 ```
 
-## 6. gnustep-corebase (CoreFoundation)
-
-Linked by the test bundle (`-lgnustep-corebase`).
-
-```sh
-cd libs-corebase
-./configure --without-gcd
-make -j$(nproc)
-sudo -E bash -c '. /usr/GNUstep/System/Library/Makefiles/GNUstep.sh; make install'
-cd ..
-```
-
-Caveat found while working on this project: corebase's
-`CFUUIDCreateString()` returns corrupted strings on this setup (embedded
-spaces / dropped characters), which is why the framework uses Foundation's
-`NSUUID` for UUID generation instead of `CFUUIDCreate`.
-
-## 7. tools-xctest (the XCTest framework and `xctest` runner)
+## 6. tools-xctest (the XCTest framework and `xctest` runner)
 
 ```sh
 cd tools-xctest
@@ -103,7 +84,7 @@ sudo -E bash -c '. /usr/GNUstep/System/Library/Makefiles/GNUstep.sh; make instal
 cd ..
 ```
 
-## 8. Building and testing this project
+## 7. Building and testing this project
 
 ```sh
 . /usr/GNUstep/System/Library/Makefiles/GNUstep.sh
