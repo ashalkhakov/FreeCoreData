@@ -38,12 +38,15 @@ CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
 FRAMEWORK_BUILD_DIR = $(CURDIR)/../CoreData.framework/Versions/Current
 
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
-CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest
+CoreDataTests_OBJC_LIBS += -lgnustep-corebase -lCoreData -lXCTest
 
 XCTEST ?= xctest
 
-.PHONY: check run-tests
-run-tests: all $(BUNDLE_NAME).bundle
+.PHONY: check run-tests framework
+framework:
+	$(MAKE) -C ..
+
+run-tests: framework all $(BUNDLE_NAME).bundle
 	@echo "Running XCTest bundle: $(BUNDLE_NAME)"
 	. $(GNUSTEP_MAKEFILES)/GNUstep.sh; \
 	LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" \
