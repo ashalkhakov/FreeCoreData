@@ -23,13 +23,13 @@ CoreDataTests_OBJC_FILES = \
 	NSIncrementalStoreTests.m \
 	NSXMLPersistentStoreTests.m \
 	NSSQLitePersistentStoreTests.m \
-	VersionHashTests.m \
-	MappingModelTests.m \
-	StoreVersioningTests.m \
 	NSTransformableAttributeTests.m \
 	NSDerivedAttributeTests.m \
 	NSCountAndExistingObjectTests.m \
-	NSPendingChangesFetchTests.m
+	NSPendingChangesFetchTests.m \
+	VersionHashTests.m \
+	MappingModelTests.m \
+	StoreVersioningTests.m
 
 CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
 
@@ -42,6 +42,14 @@ CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest
 
 XCTEST ?= xctest
 
+-include GNUmakefile.preamble
+
+include $(GNUSTEP_MAKEFILES)/bundle.make
+
+-include GNUmakefile.postamble
+
+# Custom rules live below the bundle.make include so that plain 'make'
+# still defaults to building the bundle.
 .PHONY: check run-tests framework
 framework:
 	$(MAKE) -C ..
@@ -51,9 +59,3 @@ run-tests: framework all $(BUNDLE_NAME).bundle
 	. $(GNUSTEP_MAKEFILES)/GNUstep.sh; \
 	LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" \
 	$(XCTEST) "$(BUNDLE_NAME).bundle"
-
--include GNUmakefile.preamble
-
-include $(GNUSTEP_MAKEFILES)/bundle.make
-
--include GNUmakefile.postamble
