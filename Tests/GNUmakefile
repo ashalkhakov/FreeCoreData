@@ -29,7 +29,9 @@ CoreDataTests_OBJC_FILES = \
 	NSPendingChangesFetchTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
-	StoreVersioningTests.m
+	StoreVersioningTests.m \
+	MomcCompiledModelTests.m \
+	NSUUIDAndOrderedRelationshipTests.m
 
 CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
 
