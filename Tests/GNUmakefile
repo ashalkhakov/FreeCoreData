@@ -44,6 +44,20 @@ CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest
 
 XCTEST ?= xctest
 
+CoreDataTests_XCDATAMODELD_FILES = MomcFixture.xcdatamodeld
+MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" \
+       ../Tools/momc/obj/momc
+
+include ../coredata-model.make
+
+MomcFixture.momd: ../Tools/momc/obj/momc
+
+.PHONY: momc-tool
+momc-tool:
+	$(MAKE) -C ../Tools/momc
+
+../Tools/momc/obj/momc: momc-tool
+
 -include GNUmakefile.preamble
 
 include $(GNUSTEP_MAKEFILES)/bundle.make
