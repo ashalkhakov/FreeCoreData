@@ -27,11 +27,11 @@ CoreDataTests_OBJC_FILES = \
 	NSDerivedAttributeTests.m \
 	NSCountAndExistingObjectTests.m \
 	NSPendingChangesFetchTests.m \
+	MomcCompiledModelTests.m \
+	NSUUIDAndOrderedRelationshipTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
-	StoreVersioningTests.m \
-	MomcCompiledModelTests.m \
-	NSUUIDAndOrderedRelationshipTests.m
+	StoreVersioningTests.m
 
 CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
 
@@ -44,6 +44,10 @@ CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest
 
 XCTEST ?= xctest
 
+# Dogfood the model compiler: MomcFixture.xcdatamodeld is compiled with
+# the freshly built momc through the same makefile fragment other
+# projects use, and lands in the bundle's resources.  (On macOS, Xcode
+# compiles the identical source with Apple's momc.)
 CoreDataTests_XCDATAMODELD_FILES = MomcFixture.xcdatamodeld
 MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" \
        ../Tools/momc/obj/momc
@@ -69,6 +73,7 @@ include $(GNUSTEP_MAKEFILES)/bundle.make
 .PHONY: check run-tests framework
 framework:
 	$(MAKE) -C ..
+	$(MAKE) -C ../Tools/momc
 
 run-tests: framework all $(BUNDLE_NAME).bundle
 	@echo "Running XCTest bundle: $(BUNDLE_NAME)"
