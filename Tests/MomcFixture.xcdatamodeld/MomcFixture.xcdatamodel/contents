@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="23231" systemVersion="24A335" minimumToolsVersion="Automatic" sourceLanguage="Objective-C" userDefinedModelVersionIdentifier="">
+    <entity name="Article" representedClassName="NSManagedObject" syncable="YES">
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="payload" optional="YES" attributeType="Transformable" valueTransformerName="NSSecureUnarchiveFromData" customClassName="NSDictionary"/>
+        <attribute name="title" attributeType="String" defaultValueString="Untitled"/>
+        <attribute name="titleUpper" optional="YES" attributeType="String" derived="YES" derivationExpression="uppercase:(title)"/>
+        <attribute name="wordCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <relationship name="author" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Author" inverseName="articles" inverseEntity="Author"/>
+    </entity>
+    <entity name="Author" representedClassName="NSManagedObject" syncable="YES">
+        <attribute name="name" attributeType="String"/>
+        <attribute name="nameCopy" optional="YES" attributeType="String" derived="YES" derivationExpression="name"/>
+        <relationship name="articles" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Article" inverseName="author" inverseEntity="Article"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="name"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
+    <entity name="FeaturedArticle" representedClassName="NSManagedObject" parentEntity="Article" syncable="YES">
+        <attribute name="badge" optional="YES" attributeType="String"/>
+    </entity>
+    <configuration name="Publishing">
+        <memberEntity name="Article"/>
+        <memberEntity name="Author"/>
+        <memberEntity name="FeaturedArticle"/>
+    </configuration>
+    <fetchRequest name="LongArticles" entity="Article" predicateString="wordCount &gt; 100"/>
+</model>

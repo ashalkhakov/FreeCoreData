@@ -57,13 +57,65 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return _entity;
 }
 
+/* Keyed archiving carries what a fetch request template needs: the
+   entity rides along as an object reference, so unarchiving a model
+   resolves a template's entity to the same NSEntityDescription
+   instance the model owns. */
 -initWithCoder: (NSCoder *) coder {
-   NSUnimplementedMethod();
-   return nil;
+   if((self=[self init])==nil)
+    return nil;
+
+   _entity=[[coder decodeObjectForKey:@"NSEntity"] retain];
+   _entityName=[[coder decodeObjectForKey:@"NSEntityName"] copy];
+   _predicate=[[coder decodeObjectForKey:@"NSPredicate"] retain];
+   _sortDescriptors=[[coder decodeObjectForKey:@"NSSortDescriptors"] retain];
+   _fetchLimit=(NSUInteger)[coder decodeInt64ForKey:@"NSFetchLimit"];
+   _fetchOffset=(NSUInteger)[coder decodeInt64ForKey:@"NSFetchOffset"];
+   _resultType=(NSFetchRequestResultType)[coder decodeInt64ForKey:@"NSResultType"];
+   if([coder containsValueForKey:@"NSIncludesSubentities"])
+    _includesSubentities=[coder decodeBoolForKey:@"NSIncludesSubentities"];
+   if([coder containsValueForKey:@"NSIncludesPendingChanges"])
+    _includesPendingChanges=[coder decodeBoolForKey:@"NSIncludesPendingChanges"];
+   if([coder containsValueForKey:@"NSIncludesPropertyValues"])
+    _includesPropertyValues=[coder decodeBoolForKey:@"NSIncludesPropertyValues"];
+   if([coder containsValueForKey:@"NSReturnsObjectsAsFaults"])
+    _returnsObjectsAsFaults=[coder decodeBoolForKey:@"NSReturnsObjectsAsFaults"];
+   _returnsDistinctResults=[coder decodeBoolForKey:@"NSReturnsDistinctResults"];
+   _propertiesToFetch=[[coder decodeObjectForKey:@"NSPropertiesToFetch"] retain];
+   _relationshipKeyPathsForPrefetching=[[coder decodeObjectForKey:@"NSRelationshipKeyPathsForPrefetching"] retain];
+   _propertiesToGroupBy=[[coder decodeObjectForKey:@"NSPropertiesToGroupBy"] retain];
+   _havingPredicate=[[coder decodeObjectForKey:@"NSHavingPredicate"] retain];
+   _shouldRefreshRefetchedObjects=[coder decodeBoolForKey:@"NSShouldRefreshRefetchedObjects"];
+
+   return self;
 }
 
 -(void)encodeWithCoder:(NSCoder *)coder {
-   NSUnimplementedMethod();
+   if(_entity!=nil)
+    [coder encodeObject:_entity forKey:@"NSEntity"];
+   if(_entityName!=nil)
+    [coder encodeObject:_entityName forKey:@"NSEntityName"];
+   if(_predicate!=nil)
+    [coder encodeObject:_predicate forKey:@"NSPredicate"];
+   if(_sortDescriptors!=nil)
+    [coder encodeObject:_sortDescriptors forKey:@"NSSortDescriptors"];
+   [coder encodeInt64:(int64_t)_fetchLimit forKey:@"NSFetchLimit"];
+   [coder encodeInt64:(int64_t)_fetchOffset forKey:@"NSFetchOffset"];
+   [coder encodeInt64:(int64_t)_resultType forKey:@"NSResultType"];
+   [coder encodeBool:_includesSubentities forKey:@"NSIncludesSubentities"];
+   [coder encodeBool:_includesPendingChanges forKey:@"NSIncludesPendingChanges"];
+   [coder encodeBool:_includesPropertyValues forKey:@"NSIncludesPropertyValues"];
+   [coder encodeBool:_returnsObjectsAsFaults forKey:@"NSReturnsObjectsAsFaults"];
+   [coder encodeBool:_returnsDistinctResults forKey:@"NSReturnsDistinctResults"];
+   if(_propertiesToFetch!=nil)
+    [coder encodeObject:_propertiesToFetch forKey:@"NSPropertiesToFetch"];
+   if(_relationshipKeyPathsForPrefetching!=nil)
+    [coder encodeObject:_relationshipKeyPathsForPrefetching forKey:@"NSRelationshipKeyPathsForPrefetching"];
+   if(_propertiesToGroupBy!=nil)
+    [coder encodeObject:_propertiesToGroupBy forKey:@"NSPropertiesToGroupBy"];
+   if(_havingPredicate!=nil)
+    [coder encodeObject:_havingPredicate forKey:@"NSHavingPredicate"];
+   [coder encodeBool:_shouldRefreshRefetchedObjects forKey:@"NSShouldRefreshRefetchedObjects"];
 }
 
 -copyWithZone:(NSZone *)zone {

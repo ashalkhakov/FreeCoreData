@@ -155,7 +155,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     id                         value=[managedObject primitiveValueForKey:relationshipName];
 
     if([relationship isToMany]){
-     NSMutableSet *nodeSet=[NSMutableSet set];
+     /* Ordered to-manys keep their order in an array of nodes. */
+     id nodeSet=[relationship isOrdered]?(id)[NSMutableArray array]:(id)[NSMutableSet set];
 
      for(NSManagedObjectID *relatedID in value){
       NSAtomicStoreCacheNode *relatedNode=[self cacheNodeForObjectID:relatedID];

@@ -611,7 +611,8 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
       case CDColumnAttribute:
        value=CDSnapshotValueForKeyPath(first,name);
        if([value isKindOfClass:[NSAtomicStoreCacheNode class]] ||
-          [value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSManagedObjectID class]] ||
+          [value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSArray class]] ||
+          [value isKindOfClass:[NSManagedObjectID class]] ||
           [value isKindOfClass:[NSManagedObject class]])
         value=nil; /* stray relationship value under an attribute-style column */
        break;

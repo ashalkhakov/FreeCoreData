@@ -133,6 +133,12 @@ static BOOL tableExists(sqlite3 *database,NSString *name){
    return result;
 }
 
+/* The hidden column keeping an ordered to-many's order, named with
+   Apple's Z_FOK_ convention. */
+static NSString *orderColumnForRelationship(NSRelationshipDescription *relationship){
+   return [NSString stringWithFormat:@"Z_FOK_%@",[[relationship name] uppercaseString]];
+}
+
 /* The SQL column type used in CREATE TABLE, mirroring Apple's choices. */
 static NSString *sqlTypeForAttribute(NSAttributeDescription *attribute){
    switch([attribute attributeType]){
@@ -147,7 +153,10 @@ static NSString *sqlTypeForAttribute(NSAttributeDescription *attribute){
     case NSDecimalAttributeType:
      return @"DECIMAL";
     case NSStringAttributeType:
+    case NSURIAttributeType:
      return @"VARCHAR";
+    case NSUUIDAttributeType:
+     return @"BLOB";
     case NSDateAttributeType:
      return @"TIMESTAMP";
     case NSBinaryDataAttributeType:
@@ -200,6 +209,17 @@ static void bindAttributeValue(sqlite3_stmt *statement,int index,NSAttributeDesc
     case NSStringAttributeType:
      sqlite3_bind_text(statement,index,[[value description] UTF8String],-1,SQLITE_TRANSIENT);
      break;
+    case NSUUIDAttributeType: {
+     /* The 16 raw bytes, as Apple stores them. */
+     uuid_t bytes;
+
+     [(NSUUID *)value getUUIDBytes:bytes];
+     sqlite3_bind_blob(statement,index,bytes,sizeof(bytes),SQLITE_TRANSIENT);
+     break;
+    }
+    case NSURIAttributeType:
+     sqlite3_bind_text(statement,index,[[(NSURL *)value absoluteString] UTF8String],-1,SQLITE_TRANSIENT);
+     break;
    }
 }
 
@@ -237,6 +257,19 @@ static id attributeValueFromColumn(sqlite3_stmt *statement,int index,NSAttribute
      const unsigned char *text=sqlite3_column_text(statement,index);
 
      return (text!=NULL)?[NSString stringWithUTF8String:(const char *)text]:nil;
+    }
+    case NSUUIDAttributeType: {
+     if(sqlite3_column_bytes(statement,index)==sizeof(uuid_t))
+      return [[[NSUUID alloc] initWithUUIDBytes:sqlite3_column_blob(statement,index)] autorelease];
+
+     const unsigned char *text=sqlite3_column_text(statement,index);
+
+     return (text!=NULL)?[[[NSUUID alloc] initWithUUIDString:[NSString stringWithUTF8String:(const char *)text]] autorelease]:nil;
+    }
+    case NSURIAttributeType: {
+     const unsigned char *text=sqlite3_column_text(statement,index);
+
+     return (text!=NULL)?[NSURL URLWithString:[NSString stringWithUTF8String:(const char *)text]]:nil;
     }
    }
 }
@@ -605,6 +638,16 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
        [columns addObject:[NSString stringWithFormat:@"\"%@\" INTEGER",columnNameForProperty(name)]];
      }
 
+     /* An ordered foreign-key to-many keeps its order in a hidden
+        Z_FOK_ column on the destination (many-side) table, as Apple
+        does. */
+     for(NSEntityDescription *other in sortedEntities)
+      for(NSRelationshipDescription *incoming in [[other relationshipsByName] allValues])
+       if([incoming isToMany] && [incoming isOrdered] &&
+          !relationshipUsesJoinTable(incoming) &&
+          rootEntity([incoming destinationEntity])==entity)
+        [columns addObject:[NSString stringWithFormat:@"\"%@\" INTEGER",orderColumnForRelationship(incoming)]];
+
      NSString *sql=[NSString stringWithFormat:@"CREATE TABLE \"%@\" (%@)",tableNameForEntity(entity),[columns componentsJoinedByString:@", "]];
 
      if(!executeSQL(DATABASE,sql,error))
@@ -624,7 +667,16 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
       continue;
      [createdJoinTables addObject:table];
 
-     NSString *sql=[NSString stringWithFormat:@"CREATE TABLE \"%@\" (\"%@\" INTEGER, \"%@\" INTEGER, PRIMARY KEY (\"%@\", \"%@\"))",table,[join objectForKey:@"ownerColumn"],[join objectForKey:@"destinationColumn"],[join objectForKey:@"ownerColumn"],[join objectForKey:@"destinationColumn"]];
+     NSMutableString *joinColumns=[NSMutableString stringWithFormat:@"\"%@\" INTEGER, \"%@\" INTEGER",[join objectForKey:@"ownerColumn"],[join objectForKey:@"destinationColumn"]];
+
+     /* Each ordered side of a many-to-many keeps its own order
+        column. */
+     if([relationship isOrdered])
+      [joinColumns appendFormat:@", \"%@\" INTEGER",orderColumnForRelationship(relationship)];
+     if([[relationship inverseRelationship] isOrdered])
+      [joinColumns appendFormat:@", \"%@\" INTEGER",orderColumnForRelationship([relationship inverseRelationship])];
+
+     NSString *sql=[NSString stringWithFormat:@"CREATE TABLE \"%@\" (%@, PRIMARY KEY (\"%@\", \"%@\"))",table,joinColumns,[join objectForKey:@"ownerColumn"],[join objectForKey:@"destinationColumn"]];
 
      if(!executeSQL(DATABASE,sql,error))
       return NO;
@@ -1375,12 +1427,38 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
      if(!executeSQL(DATABASE,deleteSQL,error))
       return NO;
 
+     /* Both sides of a many-to-many rewrite the same join rows, so
+        every insert carries BOTH order columns - otherwise whichever
+        side saves last would wipe the other side's order. */
+     NSRelationshipDescription *inverse=[relationship inverseRelationship];
+     long long                  position=0;
+
      for(NSManagedObject *member in members){
-      long long memberKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:[member objectID]]);
-      NSString *insertSQL=[NSString stringWithFormat:@"INSERT OR REPLACE INTO \"%@\" (\"%@\", \"%@\") VALUES (%lld, %lld)",[join objectForKey:@"table"],[join objectForKey:@"ownerColumn"],[join objectForKey:@"destinationColumn"],primaryKey,memberKey];
+      long long        memberKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:[member objectID]]);
+      NSMutableString *columns=[NSMutableString stringWithFormat:@"\"%@\", \"%@\"",[join objectForKey:@"ownerColumn"],[join objectForKey:@"destinationColumn"]];
+      NSMutableString *values=[NSMutableString stringWithFormat:@"%lld, %lld",primaryKey,memberKey];
+
+      if([relationship isOrdered]){
+       [columns appendFormat:@", \"%@\"",orderColumnForRelationship(relationship)];
+       [values appendFormat:@", %lld",position];
+      }
+
+      if([inverse isOrdered]){
+       id        memberSide=[member valueForKey:[inverse name]];
+       NSUInteger inversePosition=(memberSide!=nil)?[memberSide indexOfObject:object]:NSNotFound;
+
+       [columns appendFormat:@", \"%@\"",orderColumnForRelationship(inverse)];
+       if(inversePosition!=NSNotFound)
+        [values appendFormat:@", %llu",(unsigned long long)inversePosition];
+       else
+        [values appendString:@", NULL"];
+      }
+
+      NSString *insertSQL=[NSString stringWithFormat:@"INSERT OR REPLACE INTO \"%@\" (%@) VALUES (%@)",[join objectForKey:@"table"],columns,values];
 
       if(!executeSQL(DATABASE,insertSQL,error))
        return NO;
+      position++;
      }
     }
     else {
@@ -1394,12 +1472,20 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
      if(!executeSQL(DATABASE,clearSQL,error))
       return NO;
 
+     long long position=0;
+
      for(NSManagedObject *member in members){
       long long memberKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:[member objectID]]);
-      NSString *setSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = %lld WHERE Z_PK = %lld",destinationTable,foreignKeyColumn,primaryKey,memberKey];
+      NSString *setSQL;
+
+      if([relationship isOrdered])
+       setSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = %lld, \"%@\" = %lld WHERE Z_PK = %lld",destinationTable,foreignKeyColumn,primaryKey,orderColumnForRelationship(relationship),position,memberKey];
+      else
+       setSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = %lld WHERE Z_PK = %lld",destinationTable,foreignKeyColumn,primaryKey,memberKey];
 
       if(!executeSQL(DATABASE,setSQL,error))
        return NO;
+      position++;
      }
     }
    }
@@ -1502,7 +1588,11 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     return NO;
    }
 
-   return [self _writeToManyRelationshipsForObject:object error:error];
+   /* To-many relationships (join rows and ordered Z_FOK columns) are
+      written by _executeSaveRequest AFTER every row exists - an owner
+      saved before its members would otherwise UPDATE rows that are not
+      there yet. */
+   return YES;
 }
 
 -(BOOL)_deleteRowForObject:(NSManagedObject *)object error:(NSError **)error {
@@ -1565,6 +1655,21 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
 
    for(NSManagedObject *object in [request updatedObjects]){
     if(![self _writeRowForObject:object isInsert:NO error:error]){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+   }
+
+   /* Every row exists now; write join rows and ordered positions. */
+   for(NSManagedObject *object in [request insertedObjects]){
+    if(![self _writeToManyRelationshipsForObject:object error:error]){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+   }
+
+   for(NSManagedObject *object in [request updatedObjects]){
+    if(![self _writeToManyRelationshipsForObject:object error:error]){
      executeSQL(DATABASE,@"ROLLBACK",NULL);
      return nil;
     }
@@ -1719,13 +1824,19 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
 
    if(relationshipUsesJoinTable(relationship)){
     NSDictionary *join=[self _joinSpecForRelationship:relationship];
+    NSString     *orderBy=[relationship isOrdered]
+        ?[NSString stringWithFormat:@" ORDER BY \"%@\"",orderColumnForRelationship(relationship)]
+        :@"";
 
-    sql=[NSString stringWithFormat:@"SELECT \"%@\" FROM \"%@\" WHERE \"%@\" = %lld",[join objectForKey:@"destinationColumn"],[join objectForKey:@"table"],[join objectForKey:@"ownerColumn"],primaryKey];
+    sql=[NSString stringWithFormat:@"SELECT \"%@\" FROM \"%@\" WHERE \"%@\" = %lld%@",[join objectForKey:@"destinationColumn"],[join objectForKey:@"table"],[join objectForKey:@"ownerColumn"],primaryKey,orderBy];
    }
    else {
     NSRelationshipDescription *inverse=[relationship inverseRelationship];
+    NSString                  *orderBy=[relationship isOrdered]
+        ?[NSString stringWithFormat:@"\"%@\"",orderColumnForRelationship(relationship)]
+        :@"Z_PK";
 
-    sql=[NSString stringWithFormat:@"SELECT Z_PK FROM \"%@\" WHERE \"%@\" = %lld ORDER BY Z_PK",tableNameForEntity(destination),columnNameForProperty([inverse name]),primaryKey];
+    sql=[NSString stringWithFormat:@"SELECT Z_PK FROM \"%@\" WHERE \"%@\" = %lld ORDER BY %@",tableNameForEntity(destination),columnNameForProperty([inverse name]),primaryKey,orderBy];
    }
 
    sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);

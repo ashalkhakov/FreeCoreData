@@ -354,8 +354,7 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
 
 
 -(NSDictionary *)subentitiesByName {
-   NSUnimplementedMethod();
-   return nil;
+   return (_subentities!=nil)?_subentities:[NSDictionary dictionary];
 }
 
 

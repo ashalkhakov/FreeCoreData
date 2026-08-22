@@ -26,6 +26,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    _destinationEntity = [coder decodeObjectForKey: @"NSDestinationEntity"];
    _inverseRelationship = [coder decodeObjectForKey: @"NSInverseRelationship"];
    _optional = [coder decodeBoolForKey: @"NSIsOptional"];
+   _isOrdered = [coder decodeBoolForKey: @"NSIsOrdered"];
    _maxCount = [coder decodeIntForKey: @"NSMaxCount"];
    _minCount = [coder decodeIntForKey: @"NSMinCount"];
        
@@ -40,6 +41,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    [super encodeWithCoder:coder];
 
    [coder encodeInt:_deleteRule forKey: @"NSDeleteRule"];
+   /* NSIsOptional is encoded (and decoded) by NSPropertyDescription. */
+   if(_isOrdered)
+    [coder encodeBool:_isOrdered forKey: @"NSIsOrdered"];
    [coder encodeConditionalObject:_destinationEntity forKey: @"NSDestinationEntity"];
    [coder encodeConditionalObject:_inverseRelationship forKey: @"NSInverseRelationship"];
    [coder encodeInt:_maxCount forKey: @"NSMaxCount"];
@@ -66,6 +70,21 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       the minimum count only expresses whether it is mandatory.  A max
       count of zero means "unbounded", i.e. to-many. */
    return (_maxCount==1)?NO:YES;
+}
+
+
+- (BOOL) isOrdered {
+   return _isOrdered;
+}
+
+
+- (void) setOrdered: (BOOL) value {
+    if([_entity _hasBeenInstantiated]) {
+	NSLog(@"Attempt to modify entity after instantiating it.");
+	return;
+    }
+
+    _isOrdered = value;
 }
 
 
@@ -155,6 +174,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [components addObject:[NSString stringWithFormat:@"%d",(int)_deleteRule]];
     [components addObject:[NSString stringWithFormat:@"%lu",(unsigned long)_minCount]];
     [components addObject:[NSString stringWithFormat:@"%lu",(unsigned long)_maxCount]];
+    /* Only when set, so the hashes of existing unordered models do not
+       change. */
+    if(_isOrdered)
+     [components addObject:@"ordered"];
 }
 
 

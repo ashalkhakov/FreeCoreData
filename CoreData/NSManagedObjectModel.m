@@ -120,6 +120,7 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
     [_entities setObject:entity forKey:[[entity name] uppercaseString]];
     
    _fetchRequestTemplates=[[coder decodeObjectForKey: @"NSFetchRequestTemplates"] mutableCopy] ?: [[NSMutableDictionary alloc] init];
+   _configurations=[[coder decodeObjectForKey: @"NSConfigurations"] mutableCopy] ?: [[NSMutableDictionary alloc] init];
    _versionIdentifiers=[[coder decodeObjectForKey: @"NSVersionIdentifiers"] retain];
    
    return self;
@@ -138,6 +139,8 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
 
    [coder encodeObject:entities forKey: @"NSEntities"];
    [coder encodeObject:_fetchRequestTemplates forKey: @"NSFetchRequestTemplates"];
+   if([_configurations count]>0)
+    [coder encodeObject:_configurations forKey: @"NSConfigurations"];
    if(_versionIdentifiers!=nil)
     [coder encodeObject:_versionIdentifiers forKey: @"NSVersionIdentifiers"];
 }
@@ -182,6 +185,15 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
    
    if(data==nil)
     return nil;
+
+   /* Model archives contain predicates and expressions; gnustep-base
+      registers its Apple-compatible archive class aliases
+      (NSKeyPathExpression and friends) in +initialize, so poke the
+      classes before unarchiving - otherwise loading a model as the
+      very first CoreData call fails with "no class for name
+      'NSKeyPathExpression'". */
+   [NSPredicate class];
+   [NSExpression class];
 
    NSKeyedUnarchiver *unarchiver=[[NSKeyedUnarchiver alloc] initForReadingWithData: data];
    NSManagedObjectModel *result=[[unarchiver decodeObjectForKey: @"root"] retain];
