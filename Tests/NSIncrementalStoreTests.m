@@ -573,6 +573,40 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects([boss valueForKey:@"name"], @"Boss");
 }
 
+/* To-many relationships are lazy: firing the row fault does not fetch
+   them; the newValueForRelationship: round trip happens on first
+   access and is cached.  Verified against Apple 2026-08-22: firing
+   p1's row fault cost exactly ONE relationship call - Apple resolving
+   the to-one ("manager") that the node did not include, NOT the
+   to-many - and accessing the to-many added exactly one more.  The
+   port does the same. */
+- (void)testToManyRelationshipFaultIsLazy
+{
+    [self seedManagedPair];
+
+    NSManagedObjectID *bossID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"p1"];
+    NSManagedObject *boss = [self.ctx objectWithID:bossID];
+
+    NSUInteger callsBefore = [self.store relationshipCallCount];
+
+    /* Fire the row fault: the node-omitted to-one is resolved as part
+       of the row snapshot (one call); the to-many stays a fault. */
+    XCTAssertEqualObjects([boss valueForKey:@"name"], @"Boss");
+    XCTAssertEqual([self.store relationshipCallCount], callsBefore + 1,
+                   @"row loading resolves the missing to-one and nothing else");
+
+    /* First to-many access pays exactly one round trip... */
+    id reports = [boss valueForKey:@"reports"];
+    XCTAssertEqual([reports count], (NSUInteger)1);
+    XCTAssertEqual([self.store relationshipCallCount], callsBefore + 2);
+
+    /* ...and the resolved value is cached. */
+    reports = [boss valueForKey:@"reports"];
+    XCTAssertEqual([reports count], (NSUInteger)1);
+    XCTAssertEqual([self.store relationshipCallCount], callsBefore + 2);
+}
+
 - (void)testToManyRelationshipGoesThroughNewValueForRelationship
 {
     [self seedManagedPair];
@@ -589,6 +623,51 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                           @"Worker");
     XCTAssertTrue([self.store relationshipCallCount] > callsBefore,
                   @"a to-many fault is satisfied by the store");
+}
+
+/* relationshipKeyPathsForPrefetching on a fetch that takes the pending
+   overlay path: the context fulfills the prefetch itself, driving the
+   store's newValueForRelationship during the fetch, so later access
+   does not go back to the store. */
+- (void)testPrefetchKeyPathsFulfilledOnOverlayRows
+{
+    [self seedManagedPair];
+
+    /* A pending insert keeps the context dirty so the fetch merges. */
+    NSManagedObject *extra =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:self.ctx];
+    [extra setValue:@"Extra" forKey:@"name"];
+
+    NSFetchRequest *fetch = [self personFetchRequest];
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"name == %@",
+                                     @"Boss"]];
+    [fetch setRelationshipKeyPathsForPrefetching:
+        [NSArray arrayWithObject:@"reports"]];
+
+    NSError *error = nil;
+    NSArray *result = [self.ctx executeFetchRequest:fetch error:&error];
+
+    XCTAssertNotNil(result, @"fetch failed: %@", error);
+    XCTAssertEqual([result count], (NSUInteger)1);
+
+#if !defined(__APPLE__)
+    /* The port fulfills the hint during the fetch; whether Apple
+       prefetches through a custom incremental store here is not
+       something it documents, so the round-trip accounting is
+       port-only. */
+    NSUInteger callsAfterFetch = [self.store relationshipCallCount];
+#endif
+
+    id reports = [[result lastObject] valueForKey:@"reports"];
+
+    XCTAssertEqual([reports count], (NSUInteger)1);
+    XCTAssertEqualObjects([[reports anyObject] valueForKey:@"name"],
+                          @"Worker");
+#if !defined(__APPLE__)
+    XCTAssertEqual([self.store relationshipCallCount], callsAfterFetch,
+                   @"prefetched relationship must not hit the store again");
+#endif
 }
 
 - (void)testRelationshipsSurviveSaveAndRefetch

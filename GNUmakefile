@@ -9,6 +9,7 @@ CoreData_OBJC_FILES = \
 	CoreData/NSPropertyDescription.m \
 	CoreData/NSAttributeDescription.m \
 	CoreData/NSDerivedAttributeDescription.m \
+	CoreData/NSExpressionDescription.m \
 	CoreData/NSRelationshipDescription.m \
 	CoreData/NSFetchedPropertyDescription.m \
 	CoreData/NSPersistentStoreRequest.m \
@@ -46,6 +47,7 @@ CoreData_HEADER_FILES = \
 	CoreDataExports.h \
 	NSAttributeDescription.h \
 	NSDerivedAttributeDescription.h \
+	NSExpressionDescription.h \
 	NSAtomicStore.h \
 	NSAtomicStoreCacheNode.h \
 	NSEntityDescription.h \

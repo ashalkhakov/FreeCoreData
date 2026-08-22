@@ -25,6 +25,42 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSManagedObjectSetEnumerator.h"
 #import "NSManagedObjectMutableSet.h"
 
+/* Placeholder stored under a to-many key in _committedValues while the
+   relationship is still a fault.  To-many relationships cost their
+   newValueForRelationship: round trip only when actually accessed
+   (matching Apple - no N+1 while merely browsing rows); to-one
+   relationships are part of the row snapshot and resolve while the row
+   fault fires (also matching Apple - see
+   _committedValuesFromIncrementalStore:).  Resolved and replaced by
+   -primitiveValueForKey:. */
+@interface CDRelationshipFault : NSObject {
+   NSRelationshipDescription *_relationship;
+}
+-(NSRelationshipDescription *)relationship;
+@end
+
+@implementation CDRelationshipFault
+
+-initWithRelationship:(NSRelationshipDescription *)relationship {
+   _relationship=[relationship retain];
+   return self;
+}
+
+-(void)dealloc {
+   [_relationship release];
+   [super dealloc];
+}
+
+-(NSRelationshipDescription *)relationship {
+   return _relationship;
+}
+
+@end
+
+@interface NSManagedObject (CDRelationshipFaultResolution)
+-(id)_resolveRelationshipFault:(CDRelationshipFault *)fault forKey:(NSString *)key;
+@end
+
 @implementation NSManagedObject
 
 -init {
@@ -140,7 +176,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 - (BOOL) hasFaultForRelationshipNamed:(NSString *) key {
-    return _isFault;
+    if(_isFault)
+     return YES;
+    if([_changedValues objectForKey:key]!=nil)
+     return NO;
+    return [[_committedValues objectForKey:key]
+               isKindOfClass:[CDRelationshipFault class]];
 }
 
 - (void) awakeFromFetch {
@@ -180,6 +221,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
      if(![relationship isToMany]){
       id value=[node valueForPropertyDescription:property];
 
+      /* A to-one missing from the node is resolved NOW, as part of
+         completing the row snapshot - Apple does the same (verified
+         2026-08-22: firing a row fault whose node lacked a to-one cost
+         exactly one newValueForRelationship for it). */
       if(value==nil || value==[NSNull null]){
        NSError *relationshipError=nil;
 
@@ -191,19 +236,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
        [storedValues setObject:value forKey:name];
      }
      else {
-      NSError *relationshipError=nil;
-      id       value=[store newValueForRelationship:relationship forObjectWithID:[self objectID] withContext:_context error:&relationshipError];
+      /* To-many relationships stay faults while the row loads - one
+         newValueForRelationship: round trip happens on first ACCESS,
+         not here (matching Apple's laziness; avoids N+1 fetches). */
+      CDRelationshipFault *fault=[[CDRelationshipFault alloc] initWithRelationship:relationship];
 
-      [value autorelease];
-
-      if(value!=nil && value!=[NSNull null]){
-       NSMutableSet *relatedIDs=[NSMutableSet set];
-
-       for(NSManagedObjectID *relatedID in value)
-        [relatedIDs addObject:relatedID];
-
-       [storedValues setObject:relatedIDs forKey:name];
-      }
+      [storedValues setObject:fault forKey:name];
+      [fault release];
      }
     }
    }
@@ -297,20 +336,49 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    [_changedValues removeAllObjects];
 }
 
--(NSDictionary *)committedValuesForKeys:(NSArray *)keys {   
-   if(keys==nil)
-    return [self _committedValues];
+-(NSDictionary *)committedValuesForKeys:(NSArray *)keys {
+   if(keys==nil){
+    /* Unfired to-many faults are omitted rather than fired - asking
+       for everything must not cost one store round trip per to-many
+       relationship.  (Internal callers that only need the row use
+       -_committedValues directly.) */
+    NSDictionary *committed=[self _committedValues];
+    BOOL          hasFaults=NO;
+
+    for(id value in [committed allValues])
+     if([value isKindOfClass:[CDRelationshipFault class]]){
+      hasFaults=YES;
+      break;
+     }
+
+    if(!hasFaults)
+     return committed;
+
+    NSMutableDictionary *filtered=[NSMutableDictionary dictionary];
+
+    for(NSString *key in [committed allKeys]){
+     id value=[committed objectForKey:key];
+
+     if(![value isKindOfClass:[CDRelationshipFault class]])
+      [filtered setObject:value forKey:key];
+    }
+    return filtered;
+   }
    else {
     NSMutableDictionary *result=[NSMutableDictionary dictionary];
-    
+
     for(NSString *key in keys){
      id object=[[self _committedValues] objectForKey:key];
-     
+
+     /* An explicitly requested to-many fires its fault. */
+     if([object isKindOfClass:[CDRelationshipFault class]])
+      object=[self _resolveRelationshipFault:object forKey:key];
+
      if(object!=nil){
       [result setObject:object forKey:key];
      }
     }
-    
+
     return result;
    }
 }
@@ -467,11 +535,50 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return [[[NSManagedObjectMutableSet alloc] initWithManagedObject:self key:key] autorelease];
 }
 
+/* Fires a lazy relationship fault: asks the store, replaces the
+   placeholder in _committedValues with the real value - a set of object
+   IDs for a to-many, a single object ID for a to-one - and returns it
+   (nil when the store answers with nothing; the placeholder is removed
+   so the answer is cached either way). */
+-(id)_resolveRelationshipFault:(CDRelationshipFault *)fault forKey:(NSString *)key {
+   NSPersistentStore *store=[[self objectID] persistentStore];
+   NSError           *relationshipError=nil;
+   id                 value=[(NSIncrementalStore *)store newValueForRelationship:[fault relationship]
+                                                                 forObjectWithID:[self objectID]
+                                                                     withContext:_context
+                                                                           error:&relationshipError];
+
+   [value autorelease];
+
+   NSMutableDictionary *committed=(NSMutableDictionary *)_committedValues;
+
+   if(value==nil || value==[NSNull null]){
+    [committed removeObjectForKey:key];
+    return nil;
+   }
+
+   if(![[fault relationship] isToMany]){
+    [committed setObject:value forKey:key];
+    return value;
+   }
+
+   NSMutableSet *relatedIDs=[NSMutableSet set];
+
+   for(NSManagedObjectID *relatedID in value)
+    [relatedIDs addObject:relatedID];
+
+   [committed setObject:relatedIDs forKey:key];
+   return relatedIDs;
+}
+
 -primitiveValueForKey:(NSString *) key {
    id result=[_changedValues objectForKey:key];
 
    if(result==nil)
     result=[[self _committedValues] objectForKey:key];
+
+   if([result isKindOfClass:[CDRelationshipFault class]])
+    result=[self _resolveRelationshipFault:result forKey:key];
 
    if(result==[NSNull null])
     result=nil;
