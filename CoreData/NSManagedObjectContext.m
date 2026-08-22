@@ -24,7 +24,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSMergePolicy.h>
 #import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
+#import <CoreData/NSExpressionDescription.h>
 #import <CoreData/NSAtomicStoreCacheNode.h>
+#import <Foundation/NSExpression.h>
 #import "NSPersistentStoreCoordinator-Private.h"
 #import <Foundation/NSUndoManager.h>
 #import <Foundation/NSNull.h>
@@ -52,6 +54,52 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
 @interface NSMergeConflict(private)
 -(void)_setObjectSnapshot:(NSDictionary *)snapshot;
+@end
+
+/* The object a havingPredicate is evaluated against.  Column keys
+   (grouped columns and expression-description names) answer with the
+   assembled row's value; any other key path answers with the array of
+   that key path's non-null values across the group's rows, so an
+   aggregate expression in the predicate - Apple's required form,
+   count:(name) > 1 - computes over the group exactly like SQL's
+   HAVING COUNT(name). */
+@interface CDGroupRow : NSObject {
+   NSDictionary *_row;
+   NSArray      *_group;
+}
+@end
+
+@implementation CDGroupRow
+
+-initWithRow:(NSDictionary *)row group:(NSArray *)group {
+   _row=[row retain];
+   _group=[group retain];
+   return self;
+}
+
+-(void)dealloc {
+   [_row release];
+   [_group release];
+   [super dealloc];
+}
+
+-(id)valueForKey:(NSString *)key {
+   id value=[_row objectForKey:key];
+
+   if(value!=nil)
+    return value;
+
+   NSMutableArray *values=[NSMutableArray array];
+
+   for(NSDictionary *snapshot in _group){
+    id snapshotValue=[snapshot valueForKey:key];
+
+    if(snapshotValue!=nil && snapshotValue!=[NSNull null])
+     [values addObject:snapshotValue];
+   }
+   return values;
+}
+
 @end
 
 @implementation NSManagedObjectContext
@@ -330,45 +378,306 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    return result;
 }
 
-/* Builds NSDictionaryResultType rows from saved snapshots (cache-node
-   property caches or committed-value dictionaries).  Keys are limited to
-   propertiesToFetch when set, otherwise every attribute of the entity;
-   relationship values never appear in the rows.  returnsDistinctResults
-   collapses equal rows, preserving order. */
--(NSArray *)_dictionaryResultsForRequest:(NSFetchRequest *)request snapshots:(NSArray *)snapshots {
-   NSMutableArray *names=[NSMutableArray array];
-   NSArray        *properties=[request propertiesToFetch];
+/* --- NSDictionaryResultType shaping ------------------------------- */
 
-   if([properties count]>0){
-    for(id property in properties)
-     [names addObject:[property isKindOfClass:[NSString class]]?property:[(NSPropertyDescription *)property name]];
-   }
-   else
-    [names addObjectsFromArray:[[[[request entity] attributesByName] allKeys] sortedArrayUsingSelector:@selector(compare:)]];
+enum {
+   CDColumnAttribute,
+   CDColumnRelationship,
+   CDColumnExpression,
+   CDColumnAggregate
+};
 
-   NSMutableArray *result=[NSMutableArray array];
+static NSString *CDStrippedFunctionName(NSString *name){
+   return [name hasSuffix:@":"]?[name substringToIndex:[name length]-1]:name;
+}
+
+/* Recognizes count:/sum:/min:/max:/average: over a single key path;
+   returns the canonical function name and the key path, or nil. */
+static NSString *CDAggregateFunction(NSExpression *expression,NSString **keyPathOut){
+   if([expression expressionType]!=NSFunctionExpressionType)
+    return nil;
+
+   NSString *name=CDStrippedFunctionName([expression function]);
+
+   if([name isEqualToString:@"avg"])
+    name=@"average";
+   if(!([name isEqualToString:@"count"] || [name isEqualToString:@"sum"] ||
+        [name isEqualToString:@"min"] || [name isEqualToString:@"max"] ||
+        [name isEqualToString:@"average"]))
+    return nil;
+
+   NSArray *arguments=[expression arguments];
+
+   if([arguments count]!=1 ||
+      [(NSExpression *)[arguments objectAtIndex:0] expressionType]!=NSKeyPathExpressionType)
+    return nil;
+
+   if(keyPathOut!=NULL)
+    *keyPathOut=[[arguments objectAtIndex:0] keyPath];
+   return name;
+}
+
+/* A relationship value in a snapshot may be a managed object (committed
+   values), a cache node (atomic property caches), or already an object
+   ID; dictionary rows carry the object ID, as on Apple. */
+static id CDObjectIDFromRelationshipValue(id value){
+   if([value isKindOfClass:[NSManagedObjectID class]])
+    return value;
+   if([value isKindOfClass:[NSManagedObject class]])
+    return [(NSManagedObject *)value objectID];
+   if([value isKindOfClass:[NSAtomicStoreCacheNode class]])
+    return [(NSAtomicStoreCacheNode *)value objectID];
+   return nil;
+}
+
+static id CDSnapshotValueForKeyPath(NSDictionary *snapshot,NSString *keyPath){
+   id value=[snapshot valueForKeyPath:keyPath];
+
+   return (value==[NSNull null])?nil:value;
+}
+
+static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapshots){
+   NSMutableArray *values=[NSMutableArray array];
 
    for(NSDictionary *snapshot in snapshots){
-    NSMutableDictionary *row=[NSMutableDictionary dictionary];
+    id value=CDSnapshotValueForKeyPath(snapshot,keyPath);
 
-    for(NSString *name in names){
-     id value=[snapshot objectForKey:name];
+    if(value!=nil)
+     [values addObject:value];
+   }
 
-     if(value==nil || value==[NSNull null])
+   if([function isEqualToString:@"count"])
+    return [NSNumber numberWithUnsignedInteger:[values count]];
+   if([values count]==0)
+    return nil;
+   if([function isEqualToString:@"sum"])
+    return [values valueForKeyPath:@"@sum.self"];
+   if([function isEqualToString:@"min"])
+    return [values valueForKeyPath:@"@min.self"];
+   if([function isEqualToString:@"max"])
+    return [values valueForKeyPath:@"@max.self"];
+   if([function isEqualToString:@"average"])
+    return [values valueForKeyPath:@"@avg.self"];
+   return nil;
+}
+
+/* YES when the request's dictionary shaping goes beyond plain attribute
+   columns - grouping, a having filter, expression columns, or
+   relationship columns - and must therefore be done by the context
+   rather than passed through to a store. */
+-(BOOL)_dictionaryRequestNeedsContextShaping:(NSFetchRequest *)request {
+   if([[request propertiesToGroupBy] count]>0 || [request havingPredicate]!=nil)
+    return YES;
+
+   for(id property in [request propertiesToFetch]){
+    if([property isKindOfClass:[NSExpressionDescription class]] ||
+       [property isKindOfClass:[NSRelationshipDescription class]])
+     return YES;
+    if([property isKindOfClass:[NSString class]] &&
+       [[[request entity] relationshipsByName] objectForKey:property]!=nil)
+     return YES;
+   }
+   return NO;
+}
+
+/* Builds NSDictionaryResultType rows from saved snapshots (cache-node
+   property caches or committed-value dictionaries).
+
+   Columns come from propertiesToFetch - attribute names or
+   descriptions, to-one relationships (the row carries the related
+   object's ID), and NSExpressionDescriptions (the row carries the
+   expression's value under the description's name; aggregates
+   [count:/sum:/min:/max:/average: of a key path] compute over the
+   row group).  A to-many relationship column raises, as on Apple.
+   With no propertiesToFetch, every attribute of the entity is a
+   column.
+
+   When propertiesToGroupBy is set the snapshots are grouped by those
+   values and one row per group is returned; havingPredicate then
+   filters the assembled rows ("the predicate will be run after",
+   requiring propertiesToGroupBy).  Aggregate columns with no grouping
+   collapse everything into a single row.  Otherwise one row per
+   snapshot, with returnsDistinctResults collapsing equal rows in
+   order.  Rows here are unwindowed - the caller applies
+   fetchOffset/fetchLimit to the returned rows, matching SQL LIMIT
+   applying after grouping and DISTINCT. */
+-(NSArray *)_dictionaryResultsForRequest:(NSFetchRequest *)request snapshots:(NSArray *)snapshots {
+   NSMutableArray *columnNames=[NSMutableArray array];
+   NSMutableArray *columnKinds=[NSMutableArray array];
+   NSMutableArray *columnExpressions=[NSMutableArray array]; /* NSNull for non-expression columns */
+   NSArray        *properties=[request propertiesToFetch];
+   NSDictionary   *relationships=[[request entity] relationshipsByName];
+   BOOL            hasAggregates=NO;
+
+   if([properties count]>0){
+    for(id property in properties){
+     if([property isKindOfClass:[NSExpressionDescription class]]){
+      NSExpression *expression=[(NSExpressionDescription *)property expression];
+      NSString     *aggregateKeyPath=nil;
+      BOOL          aggregate=(CDAggregateFunction(expression,&aggregateKeyPath)!=nil);
+
+      [columnNames addObject:[(NSExpressionDescription *)property name]];
+      [columnKinds addObject:[NSNumber numberWithInt:aggregate?CDColumnAggregate:CDColumnExpression]];
+      [columnExpressions addObject:expression];
+      if(aggregate)
+       hasAggregates=YES;
       continue;
-     if([value isKindOfClass:[NSAtomicStoreCacheNode class]] ||
-        [value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSManagedObjectID class]])
-      continue; /* relationship values are not part of dictionary rows */
-     [row setObject:value forKey:name];
+     }
+
+     NSString *name=[property isKindOfClass:[NSString class]]?property:[(NSPropertyDescription *)property name];
+     NSRelationshipDescription *relationship=[relationships objectForKey:name];
+
+     if(relationship!=nil){
+      if([relationship isToMany])
+       [NSException raise:NSInvalidArgumentException
+                   format:@"Invalid to-many relationship in setPropertiesToFetch: (%@)",name];
+      [columnNames addObject:name];
+      [columnKinds addObject:[NSNumber numberWithInt:CDColumnRelationship]];
+      [columnExpressions addObject:[NSNull null]];
+      continue;
+     }
+
+     [columnNames addObject:name];
+     [columnKinds addObject:[NSNumber numberWithInt:CDColumnAttribute]];
+     [columnExpressions addObject:[NSNull null]];
+    }
+   }
+   else {
+    for(NSString *name in [[[[request entity] attributesByName] allKeys] sortedArrayUsingSelector:@selector(compare:)]){
+     [columnNames addObject:name];
+     [columnKinds addObject:[NSNumber numberWithInt:CDColumnAttribute]];
+     [columnExpressions addObject:[NSNull null]];
+    }
+   }
+
+   /* Group membership: each element of groups is the array of snapshots
+      the row is built from - one group per distinct groupBy tuple, one
+      group per snapshot without grouping, or a single all-rows group
+      for ungrouped aggregates. */
+   NSArray *groupBy=[request propertiesToGroupBy];
+   NSMutableArray *groups=[NSMutableArray array];
+
+   if([groupBy count]>0){
+    NSMutableArray *groupKeys=[NSMutableArray array]; /* parallel, first-seen order */
+
+    for(NSDictionary *snapshot in snapshots){
+     NSMutableArray *key=[NSMutableArray array];
+
+     for(id property in groupBy){
+      id value=nil;
+
+      if([property isKindOfClass:[NSExpressionDescription class]])
+       value=[[(NSExpressionDescription *)property expression] expressionValueWithObject:snapshot context:nil];
+      else {
+       NSString *name=[property isKindOfClass:[NSString class]]?property:[(NSPropertyDescription *)property name];
+
+       value=CDSnapshotValueForKeyPath(snapshot,name);
+      }
+      [key addObject:(value!=nil)?value:[NSNull null]];
+     }
+
+     NSUInteger index=[groupKeys indexOfObject:key];
+
+     if(index==NSNotFound){
+      [groupKeys addObject:key];
+      [groups addObject:[NSMutableArray arrayWithObject:snapshot]];
+     }
+     else
+      [[groups objectAtIndex:index] addObject:snapshot];
+    }
+   }
+   else if(hasAggregates)
+    [groups addObject:snapshots];
+   else {
+    for(NSDictionary *snapshot in snapshots)
+     [groups addObject:[NSArray arrayWithObject:snapshot]];
+   }
+
+   NSPredicate    *having=[request havingPredicate];
+   NSMutableArray *result=[NSMutableArray array];
+   BOOL            perRow=([groupBy count]==0 && !hasAggregates);
+
+   for(NSArray *group in groups){
+    NSDictionary        *first=[group count]>0?[group objectAtIndex:0]:nil;
+    NSMutableDictionary *row=[NSMutableDictionary dictionary];
+    NSUInteger           i,count=[columnNames count];
+
+    for(i=0;i<count;i++){
+     NSString *name=[columnNames objectAtIndex:i];
+     id        value=nil;
+
+     switch([[columnKinds objectAtIndex:i] intValue]){
+
+      case CDColumnAttribute:
+       value=CDSnapshotValueForKeyPath(first,name);
+       if([value isKindOfClass:[NSAtomicStoreCacheNode class]] ||
+          [value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSManagedObjectID class]] ||
+          [value isKindOfClass:[NSManagedObject class]])
+        value=nil; /* stray relationship value under an attribute-style column */
+       break;
+
+      case CDColumnRelationship:
+       value=CDObjectIDFromRelationshipValue([first objectForKey:name]);
+       break;
+
+      case CDColumnExpression:
+       value=[[columnExpressions objectAtIndex:i] expressionValueWithObject:first context:nil];
+       if(value==[NSNull null])
+        value=nil;
+       break;
+
+      case CDColumnAggregate: {
+       NSString *keyPath=nil;
+       NSString *function=CDAggregateFunction([columnExpressions objectAtIndex:i],&keyPath);
+
+       value=CDAggregateValue(function,keyPath,group);
+       break;
+      }
+     }
+
+     if(value!=nil)
+      [row setObject:value forKey:name];
     }
 
-    if([request returnsDistinctResults] && [result containsObject:row])
+    if(having!=nil){
+     CDGroupRow *evaluationRow=[[[CDGroupRow alloc] initWithRow:row group:group] autorelease];
+
+     if(![having evaluateWithObject:evaluationRow])
+      continue;
+    }
+    if(perRow && [request returnsDistinctResults] && [result containsObject:row])
      continue;
 
     [result addObject:row];
    }
 
    return result;
+}
+
+/* Applies the request's object-realization options to an object-result
+   array: returnsObjectsAsFaults NO realizes every returned fault, and
+   relationshipKeyPathsForPrefetching is fulfilled by walking each key
+   path (for incremental stores this drives newValueForRelationship
+   during the fetch instead of at first access).  Used on results the
+   context shaped itself; a store handling a pass-through request is
+   responsible for its own options. */
+-(void)_finalizeFetchedObjects:(NSArray *)objects request:(NSFetchRequest *)request {
+   if([request resultType]!=NSManagedObjectResultType)
+    return;
+
+   BOOL     realize=![request returnsObjectsAsFaults];
+   NSArray *keyPaths=[request relationshipKeyPathsForPrefetching];
+
+   if(!realize && [keyPaths count]==0)
+    return;
+
+   for(NSManagedObject *object in objects){
+    if(realize && [object isFault])
+     [object _committedValues]; /* fires the row fault; to-many stay lazy */
+
+    for(NSString *keyPath in keyPaths)
+     [object valueForKeyPath:keyPath];
+   }
 }
 
 -(NSArray *)executeFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error {
@@ -409,10 +718,23 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
    if(!mergePending){
     /* Pass-through: the store's answer, already in the requested shape
-       when a single incremental store can produce it. */
+       when a single incremental store can produce it.  Dictionary
+       requests that need grouping, having, expression or relationship
+       columns are shaped here instead - stores only shape plain
+       attribute rows. */
     if([affectedStores count]==1 &&
-       [[affectedStores objectAtIndex:0] isKindOfClass:[NSIncrementalStore class]])
-     return [(NSIncrementalStore *)[affectedStores objectAtIndex:0] executeRequest:fetchRequest withContext:self error:error];
+       [[affectedStores objectAtIndex:0] isKindOfClass:[NSIncrementalStore class]] &&
+       !(resultType==NSDictionaryResultType &&
+         [self _dictionaryRequestNeedsContextShaping:fetchRequest])){
+     NSArray *passed=[(NSIncrementalStore *)[affectedStores objectAtIndex:0] executeRequest:fetchRequest withContext:self error:error];
+
+     /* Realization options are enforced here too - a store is free to
+        return faults regardless of them (realizing an already-realized
+        object, or re-walking a prefetched key path, is a no-op). */
+     if(passed!=nil)
+      [self _finalizeFetchedObjects:passed request:fetchRequest];
+     return passed;
+    }
 
     /* Atomic stores (and multi-store unions): collect the saved
        membership, then shape it here.  Membership and dictionary values
@@ -428,9 +750,12 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
       NSFetchRequest *inner=[[fetchRequest copy] autorelease];
 
       [inner setResultType:NSManagedObjectResultType];
-      /* Limits apply to the union, not to each store. */
+      /* Limits apply to the union, not to each store; a store answers
+         with saved state by definition, so the pending-changes flag is
+         cleared on the request it sees. */
       [inner setFetchLimit:0];
       [inner setFetchOffset:0];
+      [inner setIncludesPendingChanges:NO];
 
       NSArray *fetched=[(NSIncrementalStore *)genericStore executeRequest:inner withContext:self error:error];
 
@@ -439,7 +764,9 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
       for(NSManagedObject *check in fetched){
        [objects addObject:check];
-       [savedSnapshots addObject:[check committedValuesForKeys:nil]];
+       /* Raw row snapshot - unfired to-many faults stay unfired (the
+          dictionary builder never reads to-many values). */
+       [savedSnapshots addObject:[check _committedValues]];
       }
       continue;
      }
@@ -480,20 +807,31 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
     NSUInteger offset=[fetchRequest fetchOffset],limit=[fetchRequest fetchLimit];
 
+    /* Dictionary rows window after shaping - grouping, DISTINCT and
+       LIMIT compose in that order, as in SQL. */
+    if(resultType==NSDictionaryResultType){
+     NSMutableArray *rows=[NSMutableArray arrayWithArray:
+      [self _dictionaryResultsForRequest:fetchRequest snapshots:savedSnapshots]];
+
+     if(offset>0){
+      if(offset>=[rows count])
+       [rows removeAllObjects];
+      else
+       [rows removeObjectsInRange:NSMakeRange(0,offset)];
+     }
+     if(limit>0 && [rows count]>limit)
+      [rows removeObjectsInRange:NSMakeRange(limit,[rows count]-limit)];
+     return rows;
+    }
+
     if(offset>0){
-     if(offset>=[objects count]){
+     if(offset>=[objects count])
       [objects removeAllObjects];
-      [savedSnapshots removeAllObjects];
-     }
-     else {
+     else
       [objects removeObjectsInRange:NSMakeRange(0,offset)];
-      [savedSnapshots removeObjectsInRange:NSMakeRange(0,offset)];
-     }
     }
-    if(limit>0 && [objects count]>limit){
+    if(limit>0 && [objects count]>limit)
      [objects removeObjectsInRange:NSMakeRange(limit,[objects count]-limit)];
-     [savedSnapshots removeObjectsInRange:NSMakeRange(limit,[savedSnapshots count]-limit)];
-    }
 
     switch(resultType){
 
@@ -508,10 +846,8 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
      case NSCountResultType:
       return [NSArray arrayWithObject:[NSNumber numberWithUnsignedInteger:[objects count]]];
 
-     case NSDictionaryResultType:
-      return [self _dictionaryResultsForRequest:fetchRequest snapshots:savedSnapshots];
-
      default:
+      [self _finalizeFetchedObjects:objects request:fetchRequest];
       return objects;
     }
    }
@@ -532,6 +868,7 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
      [inner setResultType:NSManagedObjectResultType];
      [inner setFetchLimit:0];
      [inner setFetchOffset:0];
+     [inner setIncludesPendingChanges:NO];
 
      NSArray *fetched=[(NSIncrementalStore *)genericStore executeRequest:inner withContext:self error:error];
 
@@ -554,6 +891,9 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
      NSEntityDescription *nodeEntity=[[node objectID] entity];
 
      if(![nodeEntity _isKindOfEntity:[fetchRequest entity]])
+      continue;
+     if(![fetchRequest includesSubentities] &&
+        ![[nodeEntity name] isEqualToString:[[fetchRequest entity] name]])
       continue;
      if(predicate!=nil && ![predicate evaluateWithObject:node])
       continue;
@@ -595,8 +935,14 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
      continue;
     if(![[check entity] _isKindOfEntity:[fetchRequest entity]])
      continue;
+    if(![fetchRequest includesSubentities] &&
+       ![[[check entity] name] isEqualToString:[[fetchRequest entity] name]])
+     continue;
     if(![affectedStores containsObject:[[check objectID] persistentStore]])
      continue;
+    /* Membership of pending objects is decided with their in-memory
+       values; a relationship key path in the predicate can fire faults
+       here, as it does on Apple ("changes are evaluated in memory"). */
     if(predicate!=nil && ![predicate evaluateWithObject:check])
      continue;
     [overlaid addObject:check];
@@ -619,6 +965,10 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    switch(resultType){
 
     case NSManagedObjectIDResultType: {
+     /* Sorted like the object fetch.  (Apple does not reliably sort
+        the overlay-only portion of an ID fetch - the port's fully
+        sorted answer is a deliberate divergence inside behavior Apple
+        leaves unspecified; do not rely on Apple-identical ID order.) */
      NSMutableArray *ids=[NSMutableArray array];
 
      for(NSManagedObject *object in overlaid)
@@ -630,6 +980,7 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
      return [NSArray arrayWithObject:[NSNumber numberWithUnsignedInteger:[overlaid count]]];
 
     default:
+     [self _finalizeFetchedObjects:overlaid request:fetchRequest];
      return overlaid;
    }
 }

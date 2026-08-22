@@ -478,4 +478,378 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                    (NSUInteger)2);
 }
 
+/* ------------------------------------------------------------------ */
+#pragma mark - includesSubentities and the overlay
+/* ------------------------------------------------------------------ */
+
+/* Person(name) with subentity Manager(level). */
+static NSManagedObjectModel *inheritancePendingModel(void)
+{
+    NSAttributeDescription *personName = [[NSAttributeDescription alloc] init];
+    [personName setName:@"name"];
+    [personName setAttributeType:NSStringAttributeType];
+    [personName setOptional:YES];
+
+    NSAttributeDescription *level = [[NSAttributeDescription alloc] init];
+    [level setName:@"level"];
+    [level setAttributeType:NSInteger32AttributeType];
+    [level setOptional:YES];
+
+    NSEntityDescription *person = [[NSEntityDescription alloc] init];
+    [person setName:@"Person"];
+    [person setManagedObjectClassName:@"NSManagedObject"];
+    [person setProperties:[NSArray arrayWithObject:personName]];
+
+    NSEntityDescription *manager = [[NSEntityDescription alloc] init];
+    [manager setName:@"Manager"];
+    [manager setManagedObjectClassName:@"NSManagedObject"];
+    [manager setProperties:[NSArray arrayWithObject:level]];
+
+    [person setSubentities:[NSArray arrayWithObject:manager]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObjects:person, manager, nil]];
+    return model;
+}
+
+- (NSManagedObjectContext *)inheritanceContextWithStoreType:(NSString *)storeType
+{
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+        initWithManagedObjectModel:inheritancePendingModel()];
+    NSError *error = nil;
+    NSPersistentStore *store = [psc addPersistentStoreWithType:storeType
+                                                 configuration:nil
+                                                           URL:self.storeURL
+                                                       options:nil
+                                                         error:&error];
+    XCTAssertNotNil(store, @"failed to add %@ store: %@", storeType, error);
+
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+    return ctx;
+}
+
+/* includesSubentities NO must exclude subentity instances from BOTH
+   layers of the fetch - the store's saved membership AND the pending
+   overlay (a pending Manager insert must not leak into a Person-only
+   fetch). */
+- (void)checkSubentityOverlayWithStoreType:(NSString *)storeType
+{
+    NSManagedObjectContext *ctx =
+        [self inheritanceContextWithStoreType:storeType];
+
+    NSManagedObject *pat =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:ctx];
+    [pat setValue:@"pat" forKey:@"name"];
+    NSManagedObject *mia =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Manager"
+                                      inManagedObjectContext:ctx];
+    [mia setValue:@"mia" forKey:@"name"];
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    /* Pending: a Manager insert and a Person update keep the context
+       dirty so the overlay runs. */
+    NSManagedObject *max =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Manager"
+                                      inManagedObjectContext:ctx];
+    [max setValue:@"max" forKey:@"name"];
+    [pat setValue:@"patricia" forKey:@"name"];
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"Person"
+                                 inManagedObjectContext:ctx]];
+
+    NSArray *everyone = [ctx executeFetchRequest:fetch error:&error];
+    XCTAssertNotNil(everyone, @"fetch failed: %@", error);
+    XCTAssertEqual([everyone count], (NSUInteger)3,
+                   @"subentities included by default, pending insert merged");
+
+    [fetch setIncludesSubentities:NO];
+
+    NSArray *personsOnly = [ctx executeFetchRequest:fetch error:&error];
+    XCTAssertNotNil(personsOnly, @"fetch failed: %@", error);
+    XCTAssertEqual([personsOnly count], (NSUInteger)1);
+    XCTAssertEqualObjects([[personsOnly lastObject] valueForKey:@"name"],
+                          @"patricia");
+}
+
+- (void)testPendingSubentityInsertHonorsIncludesSubentities
+{
+    [self checkSubentityOverlayWithStoreType:NSSQLiteStoreType];
+}
+
+- (void)testPendingSubentityInsertHonorsIncludesSubentitiesOnAtomicStore
+{
+    [self checkSubentityOverlayWithStoreType:NSInMemoryStoreType];
+}
+
+/* ------------------------------------------------------------------ */
+#pragma mark - returnsObjectsAsFaults
+/* ------------------------------------------------------------------ */
+
+/* NO realizes the returned objects ("you know you will need to access
+   the property values"); the default YES leaves them as faults. */
+- (void)testReturnsObjectsAsFaultsControlsRealization
+{
+    self.ctx = [self contextWithStoreType:NSSQLiteStoreType];
+    [self insertEmployeeNamed:@"alpha" salary:22 inContext:self.ctx];
+    [self insertEmployeeNamed:@"bravo" salary:25 inContext:self.ctx];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    NSPersistentStoreCoordinator *psc = [self.ctx persistentStoreCoordinator];
+
+    /* Fresh context, default request: faults. */
+    NSManagedObjectContext *ctx2 = [[NSManagedObjectContext alloc] init];
+    [ctx2 setPersistentStoreCoordinator:psc];
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"Employee"
+                                 inManagedObjectContext:ctx2]];
+
+    NSArray *asFaults = [ctx2 executeFetchRequest:fetch error:&error];
+    XCTAssertEqual([asFaults count], (NSUInteger)2);
+#if defined(__APPLE__)
+    /* Apple leaves the objects as faults with the row data cached; the
+       port's SQLite store realizes rows while fetching (the same
+       benign eager-realization divergence as its fresh-values-after-
+       save behavior), so fault-ness here is asserted on Apple only. */
+    for (NSManagedObject *object in asFaults)
+        XCTAssertTrue([object isFault]);
+#endif
+
+    /* Fresh context, returnsObjectsAsFaults NO: realized objects. */
+    NSManagedObjectContext *ctx3 = [[NSManagedObjectContext alloc] init];
+    [ctx3 setPersistentStoreCoordinator:psc];
+
+    NSFetchRequest *realized = [[NSFetchRequest alloc] init];
+    [realized setEntity:[NSEntityDescription entityForName:@"Employee"
+                                    inManagedObjectContext:ctx3]];
+    [realized setReturnsObjectsAsFaults:NO];
+
+    NSArray *asObjects = [ctx3 executeFetchRequest:realized error:&error];
+    XCTAssertEqual([asObjects count], (NSUInteger)2);
+    for (NSManagedObject *object in asObjects)
+        XCTAssertFalse([object isFault]);
+
+    /* And with the overlay running (a pending change in the fetching
+       context): store-sourced rows are still realized. */
+    NSManagedObjectContext *ctx4 = [[NSManagedObjectContext alloc] init];
+    [ctx4 setPersistentStoreCoordinator:psc];
+    [self insertEmployeeNamed:@"charlie" salary:10 inContext:ctx4];
+
+    NSFetchRequest *merged = [[NSFetchRequest alloc] init];
+    [merged setEntity:[NSEntityDescription entityForName:@"Employee"
+                                  inManagedObjectContext:ctx4]];
+    [merged setReturnsObjectsAsFaults:NO];
+
+    NSArray *mergedResult = [ctx4 executeFetchRequest:merged error:&error];
+    XCTAssertEqual([mergedResult count], (NSUInteger)3);
+    for (NSManagedObject *object in mergedResult)
+        XCTAssertFalse([object isFault]);
+}
+
+/* ------------------------------------------------------------------ */
+#pragma mark - NSExpressionDescription, grouping, relationship columns
+/* ------------------------------------------------------------------ */
+
+static NSExpression *aggregateExpression(NSString *function, NSString *keyPath)
+{
+#if defined(__APPLE__)
+    /* Apple predefines the aggregate functions under their colon
+       names; gnustep-base takes them without the colon on every
+       version (see the canonicalExpression note in
+       NSDerivedAttributeTests). */
+    function = [function stringByAppendingString:@":"];
+#endif
+    return [NSExpression expressionForFunction:function
+                                     arguments:[NSArray arrayWithObject:
+        [NSExpression expressionForKeyPath:keyPath]]];
+}
+
+static NSExpressionDescription *expressionColumn(NSString *name,
+                                                 NSExpression *expression,
+                                                 NSAttributeType resultType)
+{
+    NSExpressionDescription *column = [[NSExpressionDescription alloc] init];
+    [column setName:name];
+    [column setExpression:expression];
+    [column setExpressionResultType:resultType];
+    return column;
+}
+
+/* Saves alpha(22)/bravo(25)/charlie(10) and returns a clean context. */
+- (NSManagedObjectContext *)savedEmployeesContext
+{
+    self.ctx = [self contextWithStoreType:NSSQLiteStoreType];
+    [self insertEmployeeNamed:@"alpha" salary:22 inContext:self.ctx];
+    [self insertEmployeeNamed:@"bravo" salary:25 inContext:self.ctx];
+    [self insertEmployeeNamed:@"charlie" salary:10 inContext:self.ctx];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+    return self.ctx;
+}
+
+/* An aggregate column with no propertiesToGroupBy collapses everything
+   into a single row, keyed by the expression description's name. */
+- (void)testAggregateExpressionWithoutGroupBy
+{
+    NSManagedObjectContext *ctx = [self savedEmployeesContext];
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"Employee"
+                                 inManagedObjectContext:ctx]];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:[NSArray arrayWithObject:
+        expressionColumn(@"total", aggregateExpression(@"sum", @"salary"),
+                         NSInteger64AttributeType)]];
+
+    NSError *error = nil;
+    NSArray *rows = [ctx executeFetchRequest:fetch error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([rows count], (NSUInteger)1);
+    XCTAssertEqual([[[rows lastObject] objectForKey:@"total"] intValue], 57);
+}
+
+/* propertiesToGroupBy groups the rows, aggregates compute per group,
+   and havingPredicate "will be run after" against the grouped rows. */
+- (void)testGroupByWithHavingPredicate
+{
+    self.ctx = [self contextWithStoreType:NSSQLiteStoreType];
+    [self insertEmployeeNamed:@"amy" salary:10 inContext:self.ctx];
+    [self insertEmployeeNamed:@"ben" salary:10 inContext:self.ctx];
+    [self insertEmployeeNamed:@"cal" salary:20 inContext:self.ctx];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"Employee"
+                                 inManagedObjectContext:self.ctx]];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:[NSArray arrayWithObjects:
+        @"salary",
+        expressionColumn(@"headcount", aggregateExpression(@"count", @"name"),
+                         NSInteger64AttributeType),
+        nil]];
+    [fetch setPropertiesToGroupBy:[NSArray arrayWithObject:@"salary"]];
+
+    NSArray *rows = [self.ctx executeFetchRequest:fetch error:&error];
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([rows count], (NSUInteger)2);
+
+    /* havingPredicate over an attribute-grouped request is a port
+       capability Apple does not deliver: on macOS (observed
+       2026-08-22) BOTH spellings raise NSInvalidArgumentException at
+       execute - the alias form ("keypath headcount not found in
+       entity Employee") and the SQL-style aggregate-expression form
+       ("Unsupported function expression count:(name)").  The port
+       supports both; Apple's rejection of the expression form is
+       encoded below as observed behavior. */
+    NSPredicate *countHaving = [NSComparisonPredicate
+        predicateWithLeftExpression:aggregateExpression(@"count", @"name")
+                    rightExpression:[NSExpression expressionForConstantValue:
+                                        [NSNumber numberWithInt:1]]
+                           modifier:NSDirectPredicateModifier
+                               type:NSGreaterThanPredicateOperatorType
+                            options:0];
+
+#if defined(__APPLE__)
+    [fetch setHavingPredicate:countHaving];
+    XCTAssertThrows([self.ctx executeFetchRequest:fetch error:&error]);
+#else
+    [fetch setHavingPredicate:countHaving];
+
+    rows = [self.ctx executeFetchRequest:fetch error:&error];
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([rows count], (NSUInteger)1);
+    XCTAssertEqual([[[rows lastObject] objectForKey:@"salary"] intValue], 10);
+    XCTAssertEqual([[[rows lastObject] objectForKey:@"headcount"] intValue],
+                   2);
+
+    /* The alias form works too. */
+    [fetch setHavingPredicate:
+        [NSPredicate predicateWithFormat:@"headcount > 1"]];
+
+    rows = [self.ctx executeFetchRequest:fetch error:&error];
+    XCTAssertEqual([rows count], (NSUInteger)1);
+    XCTAssertEqual([[[rows lastObject] objectForKey:@"salary"] intValue], 10);
+#endif
+}
+
+/* A to-one relationship in propertiesToFetch puts the related object's
+   ID in the row. */
+- (void)testToOneRelationshipColumnYieldsObjectID
+{
+    self.ctx = [self contextWithStoreType:NSSQLiteStoreType];
+
+    NSManagedObject *engineering =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Department"
+                                      inManagedObjectContext:self.ctx];
+    [engineering setValue:@"Engineering" forKey:@"name"];
+
+    NSManagedObject *alpha = [self insertEmployeeNamed:@"alpha" salary:22
+                                             inContext:self.ctx];
+    [alpha setValue:engineering forKey:@"department"];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"Employee"
+                                 inManagedObjectContext:self.ctx]];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:
+        [NSArray arrayWithObjects:@"name", @"department", nil]];
+
+    NSArray *rows = [self.ctx executeFetchRequest:fetch error:&error];
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([rows count], (NSUInteger)1);
+    XCTAssertEqualObjects([[rows lastObject] objectForKey:@"name"], @"alpha");
+    XCTAssertEqualObjects([[rows lastObject] objectForKey:@"department"],
+                          [engineering objectID]);
+}
+
+/* A to-many relationship is not a valid dictionary column.  Apple's
+   validation ("Invalid to-many relationship in setPropertiesToFetch:")
+   fires for property DESCRIPTIONS; a plain string naming a to-many
+   slipped past the setter and crashed with EXC_BAD_ACCESS inside
+   CoreData (observed on macOS 2026-08-22), so the string form is
+   exercised on the port only - the port raises for both forms. */
+- (void)testToManyRelationshipInPropertiesToFetchThrows
+{
+    NSManagedObjectContext *ctx = [self savedEmployeesContext];
+    NSEntityDescription *department =
+        [NSEntityDescription entityForName:@"Department"
+                    inManagedObjectContext:ctx];
+    NSRelationshipDescription *employees =
+        [[department relationshipsByName] objectForKey:@"employees"];
+    NSError *error = nil;
+
+    XCTAssertNotNil(employees);
+    XCTAssertThrows(({
+        NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+        [fetch setEntity:department];
+        [fetch setResultType:NSDictionaryResultType];
+        [fetch setPropertiesToFetch:[NSArray arrayWithObject:employees]];
+        [ctx executeFetchRequest:fetch error:&error];
+    }));
+
+#if !defined(__APPLE__)
+    XCTAssertThrows(({
+        NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+        [fetch setEntity:department];
+        [fetch setResultType:NSDictionaryResultType];
+        [fetch setPropertiesToFetch:[NSArray arrayWithObject:@"employees"]];
+        [ctx executeFetchRequest:fetch error:&error];
+    }));
+#endif
+}
+
 @end
