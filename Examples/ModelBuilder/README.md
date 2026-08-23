@@ -18,8 +18,9 @@ Three panes, springs and struts, no Auto Layout:
 | Right | Inspector for the selection (entity / attribute / relationship / fetch) plus `userInfo` |
 
 The document **is** the `.xcdatamodeld` wrapper. Other versions in the
-package are left alone; only the current `contents` file and
-`.xccurrentversion` are rewritten.
+package are preserved on save; only the current `contents` file and
+`.xccurrentversion` are rewritten. A bare `.xcdatamodel` directory is
+accepted on open.
 
 ## What it edits
 
