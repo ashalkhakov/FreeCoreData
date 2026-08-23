@@ -1,0 +1,253 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		MB0000000000000000000101 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000001 /* main.m */; };
+		MB0000000000000000000102 /* MBModel.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000002 /* MBModel.m */; };
+		MB0000000000000000000103 /* MBDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000003 /* MBDocument.m */; };
+		MB0000000000000000000104 /* MBWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000004 /* MBWindowController.m */; };
+		MB0000000000000000000105 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000009 /* MainMenu.xib */; };
+		MB0000000000000000000106 /* MBDocument.xib in Resources */ = {isa = PBXBuildFile; fileRef = MB000000000000000000000A /* MBDocument.xib */; };
+		MB0000000000000000000107 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000011 /* Cocoa.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		MB0000000000000000000001 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		MB0000000000000000000002 /* MBModel.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBModel.m; sourceTree = "<group>"; };
+		MB0000000000000000000003 /* MBDocument.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBDocument.m; sourceTree = "<group>"; };
+		MB0000000000000000000004 /* MBWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBWindowController.m; sourceTree = "<group>"; };
+		MB0000000000000000000005 /* MBModel.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBModel.h; sourceTree = "<group>"; };
+		MB0000000000000000000006 /* MBDocument.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBDocument.h; sourceTree = "<group>"; };
+		MB0000000000000000000007 /* MBWindowController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBWindowController.h; sourceTree = "<group>"; };
+		MB0000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		MB0000000000000000000009 /* MainMenu.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MainMenu.xib; sourceTree = "<group>"; };
+		MB000000000000000000000A /* MBDocument.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBDocument.xib; sourceTree = "<group>"; };
+		MB0000000000000000000011 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		MB0000000000000000000021 /* ModelBuilder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ModelBuilder.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		MB0000000000000000000201 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				MB0000000000000000000107 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		MB0000000000000000000301 = {
+			isa = PBXGroup;
+			children = (
+				MB0000000000000000000005 /* MBModel.h */,
+				MB0000000000000000000002 /* MBModel.m */,
+				MB0000000000000000000006 /* MBDocument.h */,
+				MB0000000000000000000003 /* MBDocument.m */,
+				MB0000000000000000000007 /* MBWindowController.h */,
+				MB0000000000000000000004 /* MBWindowController.m */,
+				MB0000000000000000000001 /* main.m */,
+				MB0000000000000000000009 /* MainMenu.xib */,
+				MB000000000000000000000A /* MBDocument.xib */,
+				MB0000000000000000000008 /* Info.plist */,
+				MB0000000000000000000302 /* Frameworks */,
+				MB0000000000000000000303 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		MB0000000000000000000302 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				MB0000000000000000000011 /* Cocoa.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		MB0000000000000000000303 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				MB0000000000000000000021 /* ModelBuilder.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		MB0000000000000000000401 /* ModelBuilder */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = MB0000000000000000000501 /* Build configuration list for PBXNativeTarget "ModelBuilder" */;
+			buildPhases = (
+				MB0000000000000000000601 /* Sources */,
+				MB0000000000000000000201 /* Frameworks */,
+				MB0000000000000000000602 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ModelBuilder;
+			productName = ModelBuilder;
+			productReference = MB0000000000000000000021 /* ModelBuilder.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		MB0000000000000000000701 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = MB0000000000000000000502 /* Build configuration list for PBXProject "ModelBuilder" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = MB0000000000000000000301;
+			productRefGroup = MB0000000000000000000303 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				MB0000000000000000000401 /* ModelBuilder */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		MB0000000000000000000602 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				MB0000000000000000000105 /* MainMenu.xib in Resources */,
+				MB0000000000000000000106 /* MBDocument.xib in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		MB0000000000000000000601 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				MB0000000000000000000101 /* main.m in Sources */,
+				MB0000000000000000000102 /* MBModel.m in Sources */,
+				MB0000000000000000000103 /* MBDocument.m in Sources */,
+				MB0000000000000000000104 /* MBWindowController.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		MB0000000000000000000801 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		MB0000000000000000000802 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		MB0000000000000000000803 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.ModelBuilder;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		MB0000000000000000000804 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.ModelBuilder;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		MB0000000000000000000501 /* Build configuration list for PBXNativeTarget "ModelBuilder" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				MB0000000000000000000803 /* Debug */,
+				MB0000000000000000000804 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		MB0000000000000000000502 /* Build configuration list for PBXProject "ModelBuilder" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				MB0000000000000000000801 /* Debug */,
+				MB0000000000000000000802 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = MB0000000000000000000701 /* Project object */;
+}
