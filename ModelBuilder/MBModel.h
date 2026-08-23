@@ -30,6 +30,7 @@
 @property (nonatomic, copy) NSString *inverseEntity;
 @property (nonatomic, assign) BOOL optional;
 @property (nonatomic, assign) BOOL toMany;
+@property (nonatomic, assign) BOOL ordered; /* only meaningful when toMany; momc ordered sets */
 @property (nonatomic, assign) NSUInteger minCount;
 @property (nonatomic, assign) NSUInteger maxCount; /* 0 = unbounded when toMany */
 @property (nonatomic, copy) NSString *deletionRule; /* Nullify, Cascade, Deny, No Action */
