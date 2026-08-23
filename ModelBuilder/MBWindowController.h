@@ -28,6 +28,7 @@
 @property (nonatomic, strong) IBOutlet NSPopUpButton *destinationPopup;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *inversePopup;
 @property (nonatomic, strong) IBOutlet NSButton *toManyButton;
+@property (nonatomic, strong) IBOutlet NSButton *orderedButton; /* ordered to-many (momc ordered sets) */
 @property (nonatomic, strong) IBOutlet NSPopUpButton *deleteRulePopup;
 @property (nonatomic, strong) IBOutlet NSTextField *statusField;
 
