@@ -27,19 +27,40 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
   return self.modelDocument.model;
 }
 
+- (void)configureTable:(NSTableView *)table
+{
+  if (!table) return;
+  table.dataSource = self;
+  table.delegate = self;
+  table.rowHeight = 18.0;
+  table.usesAlternatingRowBackgroundColors = YES;
+  table.allowsEmptySelection = YES;
+  table.allowsMultipleSelection = NO;
+  for (NSTableColumn *col in table.tableColumns) {
+    id cell = col.dataCell;
+    if ([cell isKindOfClass:[NSTextFieldCell class]]) {
+      NSTextFieldCell *tf = (NSTextFieldCell *)cell;
+      tf.font = [NSFont systemFontOfSize:[NSFont systemFontSizeForControlSize:NSControlSizeRegular]];
+      tf.textColor = [NSColor labelColor];
+      tf.drawsBackground = NO;
+      tf.editable = YES;
+      tf.selectable = YES;
+    }
+    id header = col.headerCell;
+    if ([header isKindOfClass:[NSCell class]]) {
+      [(NSCell *)header setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+    }
+  }
+}
+
 - (void)windowDidLoad
 {
   [super windowDidLoad];
-  self.entityTable.dataSource = self;
-  self.entityTable.delegate = self;
-  self.fetchTable.dataSource = self;
-  self.fetchTable.delegate = self;
-  self.attributeTable.dataSource = self;
-  self.attributeTable.delegate = self;
-  self.relationshipTable.dataSource = self;
-  self.relationshipTable.delegate = self;
-  self.userInfoTable.dataSource = self;
-  self.userInfoTable.delegate = self;
+  [self configureTable:self.entityTable];
+  [self configureTable:self.fetchTable];
+  [self configureTable:self.attributeTable];
+  [self configureTable:self.relationshipTable];
+  [self configureTable:self.userInfoTable];
   self.predicateView.delegate = self;
 
   [self.typePopup removeAllItems];
@@ -485,44 +506,96 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
   return 0;
 }
 
-- (id)tableView:(NSTableView *)table objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row
+- (NSString *)stringValueForTable:(NSTableView *)table column:(NSTableColumn *)column row:(NSInteger)row
 {
-  NSString *ident = column.identifier;
+  NSString *ident = column.identifier ?: @"";
   if (table == self.entityTable) {
-    if (row < 0 || (NSUInteger)row >= self.model.entities.count) return nil;
+    if (row < 0 || (NSUInteger)row >= self.model.entities.count) return @"";
     MBEntity *entity = self.model.entities[(NSUInteger)row];
     if ([ident isEqualToString:@"class"]) return entity.representedClassName ?: @"";
-    return entity.name;
+    return entity.name ?: @"";
   }
   if (table == self.fetchTable) {
-    if (row < 0 || (NSUInteger)row >= self.model.fetchRequests.count) return nil;
+    if (row < 0 || (NSUInteger)row >= self.model.fetchRequests.count) return @"";
     MBFetchRequest *req = self.model.fetchRequests[(NSUInteger)row];
     if ([ident isEqualToString:@"entity"]) return req.entityName ?: @"";
-    return req.name;
+    return req.name ?: @"";
   }
   MBEntity *entity = [self selectedEntity];
-  if (table == self.attributeTable && entity && (NSUInteger)row < entity.attributes.count) {
+  if (table == self.attributeTable && entity && row >= 0 && (NSUInteger)row < entity.attributes.count) {
     MBAttribute *attr = entity.attributes[(NSUInteger)row];
-    if ([ident isEqualToString:@"type"]) return attr.attributeType;
+    if ([ident isEqualToString:@"type"]) return attr.attributeType ?: @"";
     if ([ident isEqualToString:@"optional"]) return attr.optional ? @"○" : @"●";
-    return attr.name;
+    return attr.name ?: @"";
   }
-  if (table == self.relationshipTable && entity && (NSUInteger)row < entity.relationships.count) {
+  if (table == self.relationshipTable && entity && row >= 0 && (NSUInteger)row < entity.relationships.count) {
     MBRelationship *rel = entity.relationships[(NSUInteger)row];
     if ([ident isEqualToString:@"destination"]) return rel.destinationEntity ?: @"";
     if ([ident isEqualToString:@"toMany"]) {
       if (!rel.toMany) return @"to-one";
       return rel.ordered ? @"ordered" : @"to-many";
     }
-    return rel.name;
+    return rel.name ?: @"";
   }
   NSArray *info = [self currentUserInfo];
-  if (table == self.userInfoTable && info && (NSUInteger)row < info.count) {
+  if (table == self.userInfoTable && info && row >= 0 && (NSUInteger)row < info.count) {
     MBUserInfo *rowInfo = info[(NSUInteger)row];
-    if ([ident isEqualToString:@"value"]) return rowInfo.value;
-    return rowInfo.key;
+    if ([ident isEqualToString:@"value"]) return rowInfo.value ?: @"";
+    return rowInfo.key ?: @"";
   }
-  return nil;
+  return @"";
+}
+
+- (id)tableView:(NSTableView *)table objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row
+{
+  return [self stringValueForTable:table column:column row:row];
+}
+
+/* View-based path (modern AppKit / Xcode-opened XIBs). Cell-based still uses objectValue. */
+- (NSView *)tableView:(NSTableView *)table viewForTableColumn:(NSTableColumn *)column row:(NSInteger)row
+{
+  NSString *ident = column.identifier ?: @"cell";
+  NSTextField *field = [table makeViewWithIdentifier:ident owner:self];
+  if (!field) {
+    field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, column.width, table.rowHeight)];
+    field.identifier = ident;
+    field.bezeled = NO;
+    field.bordered = NO;
+    field.drawsBackground = NO;
+    field.editable = YES;
+    field.selectable = YES;
+    field.font = [NSFont systemFontOfSize:[NSFont systemFontSizeForControlSize:NSControlSizeRegular]];
+    field.textColor = [NSColor labelColor];
+    field.cell.lineBreakMode = NSLineBreakByTruncatingTail;
+  }
+  field.stringValue = [self stringValueForTable:table column:column row:row];
+  field.target = self;
+  field.action = @selector(tableCellEdited:);
+  field.tag = row; /* row index; column via identifier */
+  return field;
+}
+
+- (IBAction)tableCellEdited:(id)sender
+{
+  if (![sender isKindOfClass:[NSTextField class]]) return;
+  NSTextField *field = (NSTextField *)sender;
+  NSTableView *table = (NSTableView *)field.enclosingScrollView.documentView;
+  if (![table isKindOfClass:[NSTableView class]]) {
+    /* Walk up to find the table. */
+    NSView *v = field.superview;
+    while (v && ![v isKindOfClass:[NSTableView class]]) v = v.superview;
+    table = (NSTableView *)v;
+  }
+  if (![table isKindOfClass:[NSTableView class]]) return;
+  NSInteger row = [table rowForView:field];
+  if (row < 0) row = field.tag;
+  NSTableColumn *col = nil;
+  for (NSTableColumn *c in table.tableColumns) {
+    if ([c.identifier isEqualToString:field.identifier]) { col = c; break; }
+  }
+  if (!col && table.tableColumns.count) col = table.tableColumns[0];
+  if (row < 0 || !col) return;
+  [self tableView:table setObjectValue:field.stringValue forTableColumn:col row:row];
 }
 
 - (void)tableView:(NSTableView *)table setObjectValue:(id)value forTableColumn:(NSTableColumn *)column row:(NSInteger)row
