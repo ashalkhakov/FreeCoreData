@@ -681,4 +681,133 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertEqualObjects(reloadedSettings.label, @"pda");
 }
 
+/* The to-many set returned by -valueForKey: is mutable, and mutating
+   it edits the relationship through the model - change tracking and
+   inverse maintenance included.  This is the NSArrayController
+   contentSet-binding scenario from UDQuakeTools: GNUstep's
+   -[NSArrayController remove:] mutates the bound collection in place,
+   which used to raise doesNotRecognizeSelector on the immutable
+   relationship set and wedge the app mid-event.  Apple's relationship
+   set (_NSFaultingMutableSet) accepts the same mutations. */
+- (void)testToManyRelationshipSetIsMutable
+{
+    NSManagedObject *person = [self insertPersonNamed:@"Alice"];
+    NSManagedObject *pet1 =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Pet"
+                                      inManagedObjectContext:self.ctx];
+    [pet1 setValue:@"Rex" forKey:@"name"];
+    [pet1 setValue:person forKey:@"owner"];
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    NSMutableSet *pets = (NSMutableSet *)[person valueForKey:@"pets"];
+    XCTAssertTrue([pets isKindOfClass:[NSMutableSet class]]);
+    XCTAssertEqual([pets count], (NSUInteger)1);
+
+    /* -member: answers with the managed object itself. */
+    XCTAssertEqualObjects([pets member:pet1], pet1);
+    XCTAssertTrue([pets containsObject:pet1]);
+
+    /* The "+" flow: add through the collection. */
+    NSManagedObject *pet2 =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Pet"
+                                      inManagedObjectContext:self.ctx];
+    [pet2 setValue:@"Fido" forKey:@"name"];
+    [pets addObject:pet2];
+
+    XCTAssertEqual([pets count], (NSUInteger)2);
+    XCTAssertTrue([pets containsObject:pet2]);
+
+#if defined(__APPLE__)
+    /* Mac-verified: Apple's faulting set ACCEPTS in-place mutation but
+       silently bypasses change processing - the inverse is not
+       maintained and the owner is not marked updated (the footgun the
+       docs warn about; mutableSetValueForKey: is the tracked channel).
+       The port deliberately diverges by routing in-place mutations
+       through the model: GNUstep's NSArrayController mutates a bound
+       contentSet in place, and Apple's untracked semantics there would
+       mean edits that never save. */
+    XCTAssertNil([pet2 valueForKey:@"owner"]);
+    XCTAssertFalse([person isUpdated]);
+
+    [pets removeObject:pet2];
+    XCTAssertEqual([pets count], (NSUInteger)1);
+    XCTAssertTrue([pets containsObject:pet1]);
+#else
+    /* The port routes the mutation through -setValue:forKey:, so the
+       inverse is wired and the change is tracked. */
+    XCTAssertEqualObjects([pet2 valueForKey:@"owner"], person);
+    XCTAssertTrue([person isUpdated]);
+
+    /* The "-" flow that used to hang: remove the selected row through
+       the same collection. */
+    [pets removeObject:pet2];
+
+    XCTAssertEqual([pets count], (NSUInteger)1);
+    XCTAssertTrue([pets containsObject:pet1]);
+    XCTAssertNil([pet2 valueForKey:@"owner"]);
+
+    /* Removing a non-member is a no-op, not an error. */
+    [pets removeObject:pet2];
+    XCTAssertEqual([pets count], (NSUInteger)1);
+#endif
+
+    /* pet2 is detached but still inserted; discard it so the save does
+       not trip owner's minCount validation. */
+    [self.ctx deleteObject:pet2];
+
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    NSManagedObjectContext *ctx2 = [[NSManagedObjectContext alloc] init];
+    [ctx2 setPersistentStoreCoordinator:self.psc];
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Person"]];
+    NSManagedObject *reloaded =
+        [[ctx2 executeFetchRequest:fetch error:&error] lastObject];
+    NSSet *reloadedPets = [reloaded valueForKey:@"pets"];
+    XCTAssertEqual([reloadedPets count], (NSUInteger)1);
+    XCTAssertEqualObjects(
+        [[reloadedPets anyObject] valueForKey:@"name"], @"Rex");
+}
+
+/* Pending changes process on an ordinary run loop turn - the
+   objects-did-change notification must not wait for an explicit
+   -processPendingChanges or a save.  (The port's deferred processing
+   was filed under NSRunLoopCommonModes, which GNUstep's run loop
+   matches literally, so the performer never fired; reported by
+   UDQuakeTools.) */
+- (void)testPendingChangesProcessOnRunLoopTurn
+{
+    NSManagedObject *person = [self insertPersonNamed:@"Alice"];
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    __block BOOL notified = NO;
+    __block BOOL personListed = NO;
+    id observer = [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSManagedObjectContextObjectsDidChangeNotification
+                    object:self.ctx
+                     queue:nil
+                usingBlock:^(NSNotification *note) {
+        notified = YES;
+        personListed = [[[note userInfo]
+            objectForKey:NSUpdatedObjectsKey] containsObject:person];
+    }];
+
+    [person setValue:@"Bob" forKey:@"name"];
+
+    /* No explicit processPendingChanges - just turn the run loop. */
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2.0];
+    while (!notified && [deadline timeIntervalSinceNow] > 0)
+        [[NSRunLoop mainRunLoop]
+            runMode:NSDefaultRunLoopMode
+         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+
+    XCTAssertTrue(notified,
+        @"objects-did-change never fired on a run loop turn");
+    XCTAssertTrue(personListed);
+}
+
 @end

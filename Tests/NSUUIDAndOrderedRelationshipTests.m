@@ -447,4 +447,80 @@ static NSManagedObjectModel *playlistModel(void)
         ([NSArray arrayWithObjects:@"summer", @"rock", @"calm", nil]));
 }
 
+
+/* The ordered collection returned by -valueForKey: is a live mutable
+   view, mirroring the unordered NSManagedObjectSet: in-place mutation
+   (GNUstep's NSArrayController mutates bound collections in place)
+   must edit the relationship - order preserved, change tracked,
+   inverse maintained - never a detached snapshot whose edits are
+   silently lost. */
+- (void)testOrderedRelationshipValueIsMutable
+{
+    NSPersistentStoreCoordinator *psc = nil;
+    NSManagedObjectContext *ctx = [self contextWithStoreType:NSSQLiteStoreType
+                                                 coordinator:&psc];
+
+    NSManagedObject *playlist =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Playlist"
+                                      inManagedObjectContext:ctx];
+    NSManagedObject *one = [self insertTrack:@"one" inContext:ctx];
+    NSManagedObject *two = [self insertTrack:@"two" inContext:ctx];
+    [playlist setValue:[NSOrderedSet orderedSetWithObjects:one, two, nil]
+                forKey:@"tracks"];
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    NSMutableOrderedSet *tracks =
+        (NSMutableOrderedSet *)[playlist valueForKey:@"tracks"];
+    XCTAssertTrue([tracks isKindOfClass:[NSMutableOrderedSet class]]);
+    XCTAssertEqualObjects([self titlesOfOrderedSet:tracks],
+        ([NSArray arrayWithObjects:@"one", @"two", nil]));
+
+    NSManagedObject *zero = [self insertTrack:@"zero" inContext:ctx];
+
+#if defined(__APPLE__)
+    /* Apple's faulting ordered set accepts in-place mutation but, like
+       its unordered sibling, bypasses change processing (Mac-verified
+       for the unordered case; encoded symmetrically here). */
+    [tracks insertObject:zero atIndex:0];
+    XCTAssertEqual([tracks count], (NSUInteger)3);
+    [tracks removeObjectAtIndex:0];
+    XCTAssertEqual([tracks count], (NSUInteger)2);
+    [ctx deleteObject:zero];
+#else
+    /* The port routes in-place mutation through the model. */
+    [tracks insertObject:zero atIndex:0];
+    XCTAssertEqual([tracks count], (NSUInteger)3);
+    XCTAssertEqualObjects([self titlesOfOrderedSet:tracks],
+        ([NSArray arrayWithObjects:@"zero", @"one", @"two", nil]));
+    XCTAssertEqualObjects([zero valueForKey:@"playlist"], playlist);
+
+    [tracks removeObjectAtIndex:1];
+    XCTAssertEqualObjects([self titlesOfOrderedSet:tracks],
+        ([NSArray arrayWithObjects:@"zero", @"two", nil]));
+    XCTAssertNil([one valueForKey:@"playlist"]);
+    [ctx deleteObject:one];
+#endif
+
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    NSManagedObjectContext *ctx2 = [[NSManagedObjectContext alloc] init];
+    [ctx2 setPersistentStoreCoordinator:psc];
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"Playlist"
+                                 inManagedObjectContext:ctx2]];
+
+    NSArray *fetched = [ctx2 executeFetchRequest:fetch error:&error];
+#if defined(__APPLE__)
+    XCTAssertEqualObjects(
+        [self titlesOfOrderedSet:[[fetched lastObject] valueForKey:@"tracks"]],
+        ([NSArray arrayWithObjects:@"one", @"two", nil]));
+#else
+    XCTAssertEqualObjects(
+        [self titlesOfOrderedSet:[[fetched lastObject] valueForKey:@"tracks"]],
+        ([NSArray arrayWithObjects:@"zero", @"two", nil]));
+#endif
+}
+
 @end

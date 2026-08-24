@@ -82,9 +82,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(NSOrderedSet *)_current {
-   id value=[_object valueForKey:_key];
+   /* Read through the PRIMITIVE value (an array of object IDs) rather
+      than -valueForKey:, which hands out this proxy itself - the live
+      view must not recurse into itself. */
+   NSMutableOrderedSet *resolved=[NSMutableOrderedSet orderedSet];
+   NSManagedObjectContext *context=[_object managedObjectContext];
 
-   return (value!=nil)?value:[NSOrderedSet orderedSet];
+   for(NSManagedObjectID *memberID in [_object primitiveValueForKey:_key])
+    [resolved addObject:[context objectWithID:memberID]];
+   return resolved;
 }
 
 -(NSUInteger)count {
@@ -97,6 +103,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -(NSUInteger)indexOfObject:object {
    return [[self _current] indexOfObject:object];
+}
+
+-(NSEnumerator *)objectEnumerator {
+   return [[self _current] objectEnumerator];
+}
+
+-(NSEnumerator *)reverseObjectEnumerator {
+   return [[self _current] reverseObjectEnumerator];
 }
 
 -(void)insertObject:object atIndex:(NSUInteger)index {
@@ -505,15 +519,21 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     if(result!=nil){
      if([relationship isToMany]){
       if([relationship isOrdered]){
-       /* Ordered to-many: resolved objects in their stored order. */
-       NSMutableOrderedSet *ordered=[NSMutableOrderedSet orderedSet];
-
-       for(NSManagedObjectID *relatedID in result)
-        [ordered addObject:[_context objectWithID:relatedID]];
-       result=ordered;
+       /* Live mutable view, same policy as the unordered case below:
+          reads track the relationship, mutations route through
+          -setValue:forKey: (a detached snapshot here would let an
+          NSArrayController edit a throwaway collection - accepted,
+          silently lost). */
+       result=[[[CDManagedObjectMutableOrderedSet alloc] initWithManagedObject:self key:propertyName] autorelease];
       }
       else
-       result=[[[NSManagedObjectSet alloc] initWithManagedObjectContext:_context set:result] autorelease];
+       /* Live mutable view - reads track the relationship, mutations
+          route through -setValue:forKey:.  Deliberate divergence:
+          Apple's faulting set accepts in-place mutation but silently
+          skips inverse maintenance and change tracking; the port
+          routes because GNUstep's NSArrayController mutates a bound
+          contentSet in place (see NSManagedObjectSet.h). */
+       result=[[[NSManagedObjectSet alloc] initWithManagedObject:self key:propertyName] autorelease];
      }
      else
       result=[_context objectWithID:result];
