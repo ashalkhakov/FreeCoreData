@@ -434,7 +434,40 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
 /* --- artifact writing ----------------------------------------------- */
 
 static void writeMom(NSManagedObjectModel *model,NSString *path){
-   NSData *data=[NSKeyedArchiver archivedDataWithRootObject:model];
+   NSData *data=nil;
+
+#if !defined(__APPLE__)
+   /* gnustep-base releases up to and including 1.31.1 implement
+      -[NSPredicate encodeWithCoder:] and -[NSExpression encodeWithCoder:]
+      as -subclassResponsibility:.  The exception raised mid-encode leaves
+      NSKeyedArchiver's internal state torn, and DEALLOCATING the archiver
+      afterwards segfaults - so +archivedDataWithRootObject: cannot be
+      wrapped in @try (the crash happens inside it).  Instead we drive a
+      manually allocated archiver and, on failure, park it in a static
+      array so it is never deallocated, then report a readable error.
+      Predicate/expression archiving works on gnustep-base master as of
+      2026-07-30 (libs-base PRs #716/#718). */
+   static NSMutableArray *tornArchivers=nil;
+   NSMutableData   *buffer=[NSMutableData data];
+   NSKeyedArchiver *archiver=[[NSKeyedArchiver alloc] initForWritingWithMutableData:buffer];
+
+   @try {
+      [archiver encodeObject:model forKey:@"root"];
+      [archiver finishEncoding];
+      data=buffer;
+   }
+   @catch(NSException *exception) {
+      if(tornArchivers==nil)
+       tornArchivers=[[NSMutableArray alloc] init];
+      [tornArchivers addObject:archiver]; // deliberate leak, see above
+      failf(@"cannot archive model: %@ - this gnustep-base cannot encode "
+            @"NSPredicate/NSExpression (needed for fetch request templates "
+            @"and derived attributes); use gnustep-base master from "
+            @"2026-07-30 or later",[exception reason]);
+   }
+#else
+   data=[NSKeyedArchiver archivedDataWithRootObject:model];
+#endif
 
    if(![data writeToFile:path atomically:YES])
     failf(@"cannot write %@",path);
