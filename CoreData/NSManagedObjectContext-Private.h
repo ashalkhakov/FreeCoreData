@@ -16,4 +16,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 @interface NSManagedObjectContext (private)
 - (NSAtomicStoreCacheNode *)_cacheNodeForObjectID:(NSManagedObjectID *)objectID;
 - (void)_registerObject:(NSManagedObject *)object;
+
+/* Undo support.  Managed objects report every mutation here from
+   -willChangeValueForKey: BEFORE the change applies, so the context can
+   snapshot the pre-change primitive value for the undo manager.
+   Registration is suspended (recursively) around work that must never
+   be undoable, e.g. fault realization / awakeFromFetch. */
+- (void)_object:(NSManagedObject *)object willChangeValueForKey:(NSString *)key;
+- (void)_disableUndoRegistration;
+- (void)_enableUndoRegistration;
 @end

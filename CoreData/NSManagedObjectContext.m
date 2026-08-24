@@ -107,7 +107,14 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 -init {
    _lock=[[NSLock alloc] init];
    _storeCoordinator=nil;
-   _undoManager=[[NSUndoManager alloc] init];
+   /* No undo manager by default, matching Apple since macOS 10.12 /
+      iOS: undo support costs a pre-change snapshot per mutation, so it
+      is opt-in via -setUndoManager:. */
+   _undoManager=nil;
+   _undoEventOldValues=NSCreateMapTable(NSObjectMapKeyCallBacks,NSObjectMapValueCallBacks,0);
+   _undoEventInserted=[[NSMutableArray alloc] init];
+   _undoEventDeleted=[[NSMutableArray alloc] init];
+   _undoRegistrationDisabled=0;
    _registeredObjects=[[NSMutableSet alloc] init];
    _insertedObjects=[[NSMutableSet alloc] init];
    _updatedObjects=[[NSMutableSet alloc] init];
@@ -142,8 +149,15 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    if(_storeCoordinator!=nil)
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSPersistentStoreCoordinatorStoresDidChangeNotification object:_storeCoordinator];
 
+   /* Undo operations target this context; leaving them behind would let
+      the undo manager message a deallocated object. */
+   [_undoManager removeAllActionsWithTarget:self];
+
    [_storeCoordinator release];
    [_undoManager release];
+   NSFreeMapTable(_undoEventOldValues);
+   [_undoEventInserted release];
+   [_undoEventDeleted release];
    [_registeredObjects release];
    [_insertedObjects release];
    [_updatedObjects release];
@@ -232,6 +246,14 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(void)setUndoManager:(NSUndoManager *)value {
+   if(value==_undoManager)
+    return;
+
+   /* Operations already registered target this context and would apply
+      stale state if replayed by an orphaned manager. */
+   [_undoManager removeAllActionsWithTarget:self];
+   [self _clearUndoEventCapture];
+
    value=[value retain];
    [_undoManager release];
    _undoManager=value;
@@ -294,16 +316,25 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(void)undo {
-    NSUnimplementedMethod();
+   [self processPendingChanges];
+   [_undoManager undo];
 }
 
 
 -(void)redo {
-    NSUnimplementedMethod();
+   [self processPendingChanges];
+   [_undoManager redo];
 }
 
 
 -(void)reset {
+   /* Registered undo operations reference objects this context is about
+      to forget.  removeAllActions (not just ...WithTarget:) also clears
+      the automatic event group NSUndoManager holds open between run
+      loop turns. */
+   [_undoManager removeAllActions];
+   [self _clearUndoEventCapture];
+
    for(NSManagedObject *object in [[_registeredObjects copy] autorelease]){
     NSArray *properties=[[[object entity] propertiesByName] allKeys];
 
@@ -321,6 +352,12 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
 
 -(void)rollback {
+   /* Apple documents -rollback as removing EVERYTHING from the undo
+      stack (removeAllActions, which also clears the automatic event
+      group held open between run loop turns). */
+   [_undoManager removeAllActions];
+   [self _clearUndoEventCapture];
+
    for(NSManagedObject *object in _registeredObjects){
     [object _discardChangedValues];
     [object _invalidateCommittedValues];
@@ -1056,6 +1093,8 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    [_updatedObjects addObject:object];
    [self _registerObject:object];
 
+   [self _noteObjectInsertedForUndo:object];
+
    [_pendingInsertedObjects addObject:object];
    [_pendingDeletedObjects removeObject:object];
    [self _requestProcessPendingChanges];
@@ -1065,6 +1104,9 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    /* Apple re-invokes the callback each time deleteObject: is called,
       even when the object is already marked for deletion. */
    [object prepareForDeletion];
+
+   if(![_deletedObjects containsObject:object])
+    [self _noteObjectDeletedForUndo:object];
 
    [_deletedObjects addObject:object];
 
@@ -1136,6 +1178,12 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 -(void)_processPendingChanges {
     _requestedProcessPendingChanges = NO;
 
+    /* Undo registration happens at event granularity, before the early
+       return: an insert-then-delete of the same object nets out of the
+       pending sets but must still be captured (its undo resurrects and
+       re-removes, arriving back at nothing). */
+    [self _registerUndoEventIfNeeded];
+
     if([_pendingInsertedObjects count]==0 && [_pendingUpdatedObjects count]==0 &&
        [_pendingDeletedObjects count]==0 && [_pendingRefreshedObjects count]==0)
      return;
@@ -1172,6 +1220,227 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 
 -(void)_processPendingChangesForRequest {
     [self _processPendingChanges];
+}
+
+/* --- undo support -------------------------------------------------- */
+
+/* Values held for the undo manager: primitive relationship collections
+   are mutated in place by inverse maintenance, so they are copied on
+   capture and again on restore; attribute values are retained as-is.
+   nil is boxed as NSNull. */
+static id CDUndoCapturedValue(id value){
+   if(value==nil)
+    return [NSNull null];
+   if([value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSArray class]])
+    return [[value mutableCopy] autorelease];
+   return value;
+}
+
+static id CDUndoRestoredValue(id value){
+   if(value==(id)[NSNull null])
+    return nil;
+   if([value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSArray class]])
+    return [[value mutableCopy] autorelease];
+   return value;
+}
+
+-(void)_clearUndoEventCapture {
+   NSResetMapTable(_undoEventOldValues);
+   [_undoEventInserted removeAllObjects];
+   [_undoEventDeleted removeAllObjects];
+}
+
+-(void)_disableUndoRegistration {
+   _undoRegistrationDisabled++;
+}
+
+-(void)_enableUndoRegistration {
+   _undoRegistrationDisabled--;
+}
+
+/* Called by NSManagedObject BEFORE a modeled property changes.  The
+   first change to each (object, key) in an event wins: the recorded
+   value is the property's value at the event boundary, which is what
+   undoing the event must restore. */
+-(void)_object:(NSManagedObject *)object willChangeValueForKey:(NSString *)key {
+   if(_undoManager==nil || _undoRegistrationDisabled>0)
+    return;
+   if(NSMapGet(_objectIdToObject,[object objectID])!=object)
+    return;
+   if([[[object entity] propertiesByName] objectForKey:key]==nil)
+    return;
+
+   NSMutableDictionary *byKey=NSMapGet(_undoEventOldValues,object);
+
+   if(byKey==nil){
+    byKey=[NSMutableDictionary dictionary];
+    NSMapInsert(_undoEventOldValues,object,byKey);
+   }
+   if([byKey objectForKey:key]==nil)
+    [byKey setObject:CDUndoCapturedValue([object primitiveValueForKey:key]) forKey:key];
+}
+
+-(void)_noteObjectInsertedForUndo:(NSManagedObject *)object {
+   if(_undoManager==nil || _undoRegistrationDisabled>0)
+    return;
+   if(![_undoEventInserted containsObject:object])
+    [_undoEventInserted addObject:object];
+}
+
+-(void)_noteObjectDeletedForUndo:(NSManagedObject *)object {
+   if(_undoManager==nil || _undoRegistrationDisabled>0)
+    return;
+
+   /* Snapshot every primitive so the object can be resurrected even
+      after the deletion has been saved (when its row is gone). */
+   NSMutableDictionary *snapshot=[NSMutableDictionary dictionary];
+
+   for(NSString *key in [[object entity] propertiesByName])
+    [snapshot setObject:CDUndoCapturedValue([object primitiveValueForKey:key]) forKey:key];
+
+   [_undoEventDeleted addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+       object,@"object",
+       snapshot,@"snapshot",
+       [NSNumber numberWithBool:[_insertedObjects containsObject:object]],@"wasInserted",
+       nil]];
+}
+
+/* One undo operation per change event, registered by
+   -_processPendingChanges.  Undoing resurrects the event's deletions,
+   restores the event's pre-change values, and removes the event's
+   insertions.  Every step goes back through the normal change paths, so
+   the redo operation is captured the same way and NSUndoManager files
+   it on the redo stack. */
+-(void)_registerUndoEventIfNeeded {
+   if(_undoManager==nil)
+    return;
+   if(NSCountMapTable(_undoEventOldValues)==0 &&
+      [_undoEventInserted count]==0 && [_undoEventDeleted count]==0)
+    return;
+
+   NSMutableArray *updated=[NSMutableArray array];
+   NSMapEnumerator state=NSEnumerateMapTable(_undoEventOldValues);
+   void *mapKey,*mapValue;
+
+   while(NSNextMapEnumeratorPair(&state,&mapKey,&mapValue))
+    [updated addObject:[NSDictionary dictionaryWithObjectsAndKeys:
+        (NSManagedObject *)mapKey,@"object",
+        (NSMutableDictionary *)mapValue,@"values",
+        nil]];
+   NSEndMapTableEnumeration(&state);
+
+   NSDictionary *event=[NSDictionary dictionaryWithObjectsAndKeys:
+       updated,@"updated",
+       [[_undoEventInserted copy] autorelease],@"inserted",
+       [[_undoEventDeleted copy] autorelease],@"deleted",
+       nil];
+
+   [_undoManager registerUndoWithTarget:self
+                               selector:@selector(_undoApplyEvent:)
+                                 object:event];
+   [self _clearUndoEventCapture];
+}
+
+-(void)_undoApplyEvent:(NSDictionary *)event {
+   /* Resurrect deletions first so value restores may reference the
+      objects again. */
+   for(NSDictionary *record in [event objectForKey:@"deleted"]){
+    NSManagedObject *object=[record objectForKey:@"object"];
+    BOOL             wasInserted=[[record objectForKey:@"wasInserted"] boolValue];
+
+    if(NSMapGet(_objectIdToObject,[object objectID])!=object){
+     /* The deletion was saved and the object dropped from the object
+        map: bring it back as a fresh insertion carrying its old values.
+        A save leaves the KVO observations of deleted objects in place
+        (they are balanced out in dealloc via _registeredObjects), so
+        when the object is still in _registeredObjects only the
+        bookkeeping is redone - _registerObject would observe it twice. */
+     if([_registeredObjects containsObject:object]){
+      NSPersistentStore *store=[_storeCoordinator _persistentStoreForObject:object];
+
+      [[object objectID] setStoreIdentifier:[store identifier]];
+      [[object objectID] setPersistentStore:store];
+      NSMapInsert(_objectIdToObject,[object objectID],object);
+      [_insertedObjects addObject:object];
+      [_updatedObjects addObject:object];
+      [self _noteObjectInsertedForUndo:object];
+      [_pendingInsertedObjects addObject:object];
+      [self _requestProcessPendingChanges];
+     }
+     else
+      [self insertObject:object];
+
+     NSDictionary *snapshot=[record objectForKey:@"snapshot"];
+
+     for(NSString *key in snapshot){
+      [object willChangeValueForKey:key];
+      [object setPrimitiveValue:CDUndoRestoredValue([snapshot objectForKey:key]) forKey:key];
+      [object didChangeValueForKey:key];
+     }
+    }
+    else {
+     /* Unsaved deletion: the object still holds its values - just
+        unmark it.  Recorded as an insertion for the redo operation, so
+        redo deletes it again. */
+     [_deletedObjects removeObject:object];
+     [_pendingDeletedObjects removeObject:object];
+
+     if(wasInserted){
+      [_insertedObjects addObject:object];
+      [_pendingInsertedObjects addObject:object];
+     }
+     else
+      [_pendingUpdatedObjects addObject:object];
+
+     [self _noteObjectInsertedForUndo:object];
+     [self _requestProcessPendingChanges];
+    }
+   }
+
+   for(NSDictionary *record in [event objectForKey:@"updated"]){
+    NSManagedObject *object=[record objectForKey:@"object"];
+    NSDictionary    *values=[record objectForKey:@"values"];
+
+    for(NSString *key in values){
+     [object willChangeValueForKey:key];
+     [object setPrimitiveValue:CDUndoRestoredValue([values objectForKey:key]) forKey:key];
+     [object didChangeValueForKey:key];
+    }
+   }
+
+   for(NSManagedObject *object in [[event objectForKey:@"inserted"] reverseObjectEnumerator]){
+    /* An "inserted" record covers two cases.  A never-saved object (it
+       is still insert-pending) is forgotten outright: after undoing its
+       insertion the context reports no inserted OR deleted objects, as
+       if it had never existed.  An object whose insertion record stems
+       from resurrecting an unsaved deletion (redo of a delete) has a
+       persisted row, so it must become deletion-pending instead.
+       deleteObject: first, so the inverse operation resurrects it
+       either way. */
+    BOOL neverSaved=[_insertedObjects containsObject:object];
+
+    [self deleteObject:object];
+
+    if(neverSaved){
+     NSArray *properties=[[[object entity] propertiesByName] allKeys];
+
+     for(NSString *key in properties)
+      [object removeObserver:self forKeyPath:key];
+
+     [_registeredObjects removeObject:object];
+     [_insertedObjects removeObject:object];
+     [_updatedObjects removeObject:object];
+     [_deletedObjects removeObject:object];
+     [_pendingInsertedObjects removeObject:object];
+     [_pendingUpdatedObjects removeObject:object];
+     [_pendingDeletedObjects removeObject:object];
+     NSMapRemove(_objectIdToObject,[object objectID]);
+    }
+   }
+
+   /* Flush now, while the undo manager is still undoing/redoing, so the
+      inverse operation registered above lands on the correct stack. */
+   [self processPendingChanges];
 }
 
 -(void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {

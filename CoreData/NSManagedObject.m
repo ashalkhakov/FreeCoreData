@@ -334,7 +334,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
      if(_isFault){
       _isFault=NO;
+      /* Changes made in awakeFromFetch are not undoable (Apple disables
+         undo registration around it). */
+      [_context _disableUndoRegistration];
       [self awakeFromFetch];
+      [_context _enableUndoRegistration];
      }
 
      return _committedValues;
@@ -385,7 +389,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
     if(_isFault){
      _isFault=NO;
+     /* See the incremental-store path: awakeFromFetch changes are not
+        undoable. */
+     [_context _disableUndoRegistration];
      [self awakeFromFetch];
+     [_context _enableUndoRegistration];
     }
    }
    return _committedValues;
@@ -619,6 +627,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    }
    
    [super setValue:value forKey:key];
+}
+
+/* Every modeled mutation funnels through will/didChangeValueForKey: -
+   the public setters, the collection proxies (which copy, mutate and
+   set back), and inverse maintenance on the other object all emit it -
+   so this is the single choke point where the context can snapshot the
+   pre-change value for the undo manager. */
+-(void)willChangeValueForKey:(NSString *)key {
+   [_context _object:self willChangeValueForKey:key];
+   [super willChangeValueForKey:key];
 }
 
 -(NSMutableSet *) mutableSetValueForKey:(NSString *) key {

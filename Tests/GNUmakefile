@@ -29,6 +29,7 @@ CoreDataTests_OBJC_FILES = \
 	NSPendingChangesFetchTests.m \
 	MomcCompiledModelTests.m \
 	NSUUIDAndOrderedRelationshipTests.m \
+	NSManagedObjectContextUndoTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
 	StoreVersioningTests.m
