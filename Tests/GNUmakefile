@@ -48,8 +48,14 @@ XCTEST ?= xctest
 # the freshly built momc through the same makefile fragment other
 # projects use, and lands in the bundle's resources.  (On macOS, Xcode
 # compiles the identical source with Apple's momc.)
+#
+# momc runs under a PINNED library path: the build-tree framework
+# first, then the GNUstep library domains - deliberately ahead of
+# whatever the surrounding environment prepended (a CI shell that puts
+# a prefix's bare lib/ directory first would otherwise hand momc any
+# stale copies living there).
 CoreDataTests_XCDATAMODELD_FILES = MomcFixture.xcdatamodeld
-MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" \
+MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" \
        ../Tools/momc/obj/momc
 
 include ../coredata-model.make
