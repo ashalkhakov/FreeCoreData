@@ -68,11 +68,10 @@ jobs:
       - name: momc backtrace on failure
         if: failure()
         run: |
-          command -v gdb >/dev/null || { echo "gdb not installed on runner host"; exit 0; }
           export LOCAL_PREFIX="/opt/gnustep-prefix"
           . "${LOCAL_PREFIX}/System/Library/Makefiles/GNUstep.sh"
-          export LD_LIBRARY_PATH="${LOCAL_PREFIX}/lib:${LD_LIBRARY_PATH}"
           cd Tests
+          export LD_LIBRARY_PATH="$PWD/../CoreData.framework/Versions/Current:${LOCAL_PREFIX}/Local/Library/Libraries:${LOCAL_PREFIX}/System/Library/Libraries:$LD_LIBRARY_PATH"
           gdb -batch -ex run -ex bt -ex 'info sharedlibrary' \
               --args ../Tools/momc/obj/momc MomcFixture.xcdatamodeld /tmp/MomcFixture.momd || true
 
