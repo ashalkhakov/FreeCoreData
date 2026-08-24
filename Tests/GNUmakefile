@@ -27,6 +27,8 @@ CoreDataTests_OBJC_FILES = \
 	NSDerivedAttributeTests.m \
 	NSCountAndExistingObjectTests.m \
 	NSPendingChangesFetchTests.m \
+	MomcCompiledModelTests.m \
+	NSUUIDAndOrderedRelationshipTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
 	StoreVersioningTests.m
@@ -42,6 +44,30 @@ CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest
 
 XCTEST ?= xctest
 
+# Dogfood the model compiler: MomcFixture.xcdatamodeld is compiled with
+# the freshly built momc through the same makefile fragment other
+# projects use, and lands in the bundle's resources.  (On macOS, Xcode
+# compiles the identical source with Apple's momc.)
+#
+# momc runs under a PINNED library path: the build-tree framework
+# first, then the GNUstep library domains - deliberately ahead of
+# whatever the surrounding environment prepended (a CI shell that puts
+# a prefix's bare lib/ directory first would otherwise hand momc any
+# stale copies living there).
+CoreDataTests_XCDATAMODELD_FILES = MomcFixture.xcdatamodeld
+MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" \
+       ../Tools/momc/obj/momc
+
+include ../coredata-model.make
+
+MomcFixture.momd: ../Tools/momc/obj/momc
+
+.PHONY: momc-tool
+momc-tool:
+	$(MAKE) -C ../Tools/momc
+
+../Tools/momc/obj/momc: momc-tool
+
 -include GNUmakefile.preamble
 
 include $(GNUSTEP_MAKEFILES)/bundle.make
@@ -53,6 +79,7 @@ include $(GNUSTEP_MAKEFILES)/bundle.make
 .PHONY: check run-tests framework
 framework:
 	$(MAKE) -C ..
+	$(MAKE) -C ../Tools/momc
 
 run-tests: framework all $(BUNDLE_NAME).bundle
 	@echo "Running XCTest bundle: $(BUNDLE_NAME)"

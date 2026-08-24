@@ -215,7 +215,10 @@ row-fault firing when the node omitted them — Apple does the same;
 to-many relationships stay relationship faults
 (`hasFaultForRelationshipNamed:`) and go through
 `newValueForRelationship:` on first access, exactly one round trip
-each, after which the answer is cached in the committed values.
+each, after which the answer is cached in the committed values —
+as a set of IDs, or an array preserving store order for ordered
+relationships, which surface to callers as `NSOrderedSet`s
+(`mutableOrderedSetValueForKey:` gives a live mutable view).
 `refreshObject:mergeChanges:` turns
 an object back into a fault (NO) or re-reads under the current edits
 (YES).
@@ -226,8 +229,15 @@ an object back into a fault (NO) or re-reads under the current edits
 mirroring Apple's: one table per entity hierarchy root named `Z<NAME>`,
 columns `Z_PK INTEGER PRIMARY KEY`, `Z_ENT` (entity tag, how
 subentities share the root table), `Z_OPT` (optimistic-lock version),
-one `Z<ATTR>` column per attribute, foreign-key columns for to-one
-relationships, and separate join tables for many-to-many. Bookkeeping
+one `Z<ATTR>` column per attribute (UUIDs as 16-byte BLOBs, URIs as
+their absolute strings), foreign-key columns for to-one relationships,
+and separate join tables for many-to-many. Ordered to-manys keep their
+positions in hidden `Z_FOK_<REL>` columns — on the destination table
+for foreign-key relationships, in the join table for many-to-many
+(every join-row write fills both sides' order columns, since either
+side's save rewrites the shared rows). Rows are written in two phases
+per save — all rows first, then all to-many/order writes — so an owner
+saved before its members cannot update rows that do not exist yet. Bookkeeping
 tables: `Z_METADATA` (`Z_VERSION`, `Z_UUID`, `Z_PLIST` — the metadata
 plist carries store type, UUID and the model's version hashes) and
 `Z_PRIMARYKEY` (per-entity `Z_MAX` for primary-key allocation).
@@ -288,6 +298,28 @@ error unless `NSIgnorePersistentStoreVersioningOption` is set.
 matches entities/attributes by name and hash; `NSMigrationManager`
 walks the mapping, copies rows source→destination through the entity
 migration policies, and swaps the store.
+
+## The model compiler (momc)
+
+`Tools/momc` is the port's equivalent of Apple's model compiler: it
+parses Xcode's `.xcdatamodeld`/`.xcdatamodel` source format
+(`contents` XML plus `.xccurrentversion`) with NSXMLDocument, builds
+an `NSManagedObjectModel` using the framework's own description
+classes, and writes the keyed-archive `.mom`/`.momd` form the runtime
+loads — every version compiled, the current version and per-version
+entity hashes recorded in `VersionInfo.plist`. It covers the port's
+whole feature set: derived attributes (constructed colon-safely for
+old gnustep-base), transformables, UUID/URI attribute types, ordered
+relationships, subentities, constraints, configurations, and fetch
+request templates. Other projects consume it through `coredata-model.make`
+(installed into `$(GNUSTEP_MAKEFILES)` by `make install` in
+Tools/momc): setting `<target>_XCDATAMODELD_FILES` compiles the models
+and adds the `.momd` to the target's resources; models are recompiled
+on every build (model directories don't change mtime when edited
+inside, and Xcode's space-containing version names cannot ride in make
+prerequisites). The test suite dogfoods the fragment: Apple's momc and
+the port's momc compile the identical `MomcFixture.xcdatamodeld`, and
+`MomcCompiledModelTests` asserts both produced the same model.
 
 ## Build and tests
 

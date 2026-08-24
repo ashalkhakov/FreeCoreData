@@ -29,6 +29,24 @@ static NSUInteger didTurnIntoFaultCount;
 - (NSString *)displayName;
 @end
 
+/* A plain @dynamic subclass over a PROGRAMMATICALLY built model - the
+   framework must synthesize these accessors no matter how the model
+   was constructed (they historically existed only for models decoded
+   from a compiled file, so pda.sourceText raised
+   doesNotRecognizeSelector; found by the Doom3 PDA editor project). */
+@interface DynamicPDA : NSManagedObject
+
+@property (nonatomic, strong) NSString *sourceText;
+@property (nonatomic, strong) DynamicPDA *linked;
+
+@end
+
+@implementation DynamicPDA
+
+@dynamic sourceText, linked;
+
+@end
+
 @implementation LifecyclePerson
 
 /* Custom accessor for the transient displayName attribute; -valueForKey:
@@ -443,6 +461,83 @@ static NSManagedObjectModel *LifecycleTestModel(void)
                           @"Alice \"buddy\"");
     /* Attributes without a custom accessor still read modeled storage. */
     XCTAssertEqualObjects([person valueForKey:@"name"], @"Alice");
+}
+
+/* Direct property messages on a @dynamic subclass, model built in
+   code (never through initWithCoder:). */
+- (void)testDynamicAccessorsOnProgrammaticModel
+{
+    NSAttributeDescription *sourceText =
+        [[NSAttributeDescription alloc] init];
+    [sourceText setName:@"sourceText"];
+    [sourceText setAttributeType:NSStringAttributeType];
+    [sourceText setOptional:YES];
+
+    NSRelationshipDescription *linked =
+        [[NSRelationshipDescription alloc] init];
+    [linked setName:@"linked"];
+    [linked setMinCount:0];
+    [linked setMaxCount:1];
+    [linked setOptional:YES];
+    [linked setDeleteRule:NSNullifyDeleteRule];
+
+    NSEntityDescription *pdaEntity = [[NSEntityDescription alloc] init];
+    [pdaEntity setName:@"PDA"];
+    [pdaEntity setManagedObjectClassName:@"DynamicPDA"];
+    [pdaEntity setProperties:
+        [NSArray arrayWithObjects:sourceText, linked, nil]];
+    [linked setDestinationEntity:pdaEntity];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObject:pdaEntity]];
+
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+        initWithManagedObjectModel:model];
+    NSError *error = nil;
+    NSPersistentStore *store =
+        [psc addPersistentStoreWithType:NSInMemoryStoreType
+                          configuration:nil
+                                    URL:nil
+                                options:nil
+                                  error:&error];
+    XCTAssertNotNil(store, @"failed to add store: %@", error);
+
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+
+    DynamicPDA *pda = (DynamicPDA *)
+        [NSEntityDescription insertNewObjectForEntityForName:@"PDA"
+                                      inManagedObjectContext:ctx];
+    DynamicPDA *other = (DynamicPDA *)
+        [NSEntityDescription insertNewObjectForEntityForName:@"PDA"
+                                      inManagedObjectContext:ctx];
+
+    /* The direct sends that used to raise doesNotRecognizeSelector. */
+    pda.sourceText = @"personal data assistant";
+    other.sourceText = @"other";
+    pda.linked = other;
+
+    XCTAssertEqualObjects(pda.sourceText, @"personal data assistant");
+    XCTAssertEqualObjects(pda.linked, other);
+
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    /* And they read persisted state through a fresh context. */
+    NSManagedObjectContext *ctx2 = [[NSManagedObjectContext alloc] init];
+    [ctx2 setPersistentStoreCoordinator:psc];
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"PDA"
+                                 inManagedObjectContext:ctx2]];
+    [fetch setPredicate:[NSPredicate predicateWithFormat:
+        @"sourceText == %@", @"personal data assistant"]];
+
+    NSArray *fetched = [ctx2 executeFetchRequest:fetch error:&error];
+    XCTAssertEqual([fetched count], (NSUInteger)1);
+
+    DynamicPDA *reloaded = [fetched lastObject];
+    XCTAssertEqualObjects(reloaded.sourceText, @"personal data assistant");
+    XCTAssertEqualObjects(reloaded.linked.sourceText, @"other");
 }
 
 @end

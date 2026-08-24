@@ -294,6 +294,14 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
       objectValue=[[[NSData alloc] initWithBase64EncodedString:stringValue options:NSDataBase64DecodingIgnoreUnknownCharacters] autorelease];
       break;
 
+     case NSUUIDAttributeType:
+      objectValue=[[[NSUUID alloc] initWithUUIDString:stringValue] autorelease];
+      break;
+
+     case NSURIAttributeType:
+      objectValue=[NSURL URLWithString:stringValue];
+      break;
+
      case NSTransformableAttributeType: {
       /* Transformable values are stored as the base64-encoded output of
          the attribute's value transformer (or the keyed-archiving
@@ -328,8 +336,10 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
     NSEntityDescription *destinationEntity=entityInModelWithName(model,destinationEntityName);
     NSString            *idrefsString=[[relationship attributeForName:@"idrefs"] stringValue];
     NSArray             *idrefs=[idrefsString length]?[idrefsString componentsSeparatedByString:@" "]:nil;
-    id                   objectValue=[NSMutableSet set];
-        
+    /* The idrefs attribute lists destinations in relationship order;
+       an ordered to-many keeps that order in an array. */
+    id                   objectValue=[description isOrdered]?(id)[NSMutableArray array]:(id)[NSMutableSet set];
+
     for(NSString *ref in idrefs){     
      NSAtomicStoreCacheNode *relCacheNode=[self cacheNodeForEntity:destinationEntity referenceObject:ref];
 
@@ -342,7 +352,7 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
       NSLog(@"relationship description is not to many, but destination count is %lu (unsigned)",(unsigned long)[objectValue count]);
      }
      
-     objectValue=[objectValue anyObject];
+     objectValue=[description isOrdered]?[objectValue lastObject]:[objectValue anyObject];
     }
 
     [cacheNode setValue:objectValue forKey:name];
@@ -476,6 +486,18 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
        stringValue=[value base64EncodedStringWithOptions:0];
       break;
 
+     case NSUUIDAttributeType:
+      type=@"uuid";
+      if(value!=nil)
+       stringValue=[(NSUUID *)value UUIDString];
+      break;
+
+     case NSURIAttributeType:
+      type=@"uri";
+      if(value!=nil)
+       stringValue=[(NSURL *)value absoluteString];
+      break;
+
      case NSTransformableAttributeType:
       type=@"transformable";
       if(value!=nil)
@@ -505,12 +527,12 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
     NSString                  *relationshipType=[NSString stringWithFormat:@"%d/%d",[relationshipDescription minCount],[relationshipDescription maxCount]];
     NSEntityDescription       *destinationEntity=[relationshipDescription destinationEntity];
     id                         value=[managedObject primitiveValueForKey:relationshipName];
-    NSSet                     *valueSet;
-    NSMutableSet              *cacheNodeSet=[NSMutableSet set];
-    
+    id                         valueSet; /* IDs in relationship order for ordered to-manys */
+    id                         cacheNodeSet=[relationshipDescription isOrdered]?(id)[NSMutableArray array]:(id)[NSMutableSet set];
+
     if([relationshipDescription isToMany]){
-     if(value!=nil && ![value isKindOfClass:[NSSet class]]){
-      NSLog(@"relationship isToMany, value is not a set");
+     if(value!=nil && ![value isKindOfClass:[NSSet class]] && ![value isKindOfClass:[NSArray class]]){
+      NSLog(@"relationship isToMany, value is not a set or array");
       continue;
      }
      valueSet=value;

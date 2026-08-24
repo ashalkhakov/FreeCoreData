@@ -32,13 +32,12 @@ jobs:
 
       - name: Download and Install GNUstep Toolchain
         run: |
-          echo "=== Downloading Pre-compiled Toolchain ==="
-          curl -H "Authorization: Bearer ${{ secrets.CI_PACKAGES_2 }}" \
+          curl --fail -H "Authorization: Bearer ${{ secrets.CI_PACKAGES_2 }}" \
                -o gnustep-toolchain.tar.gz \
                "${{ github.server_url }}/api/packages/${{ github.repository_owner }}/generic/gnustep-toolchain/latest/gnustep-toolchain.tar.gz"
 
-          echo "=== Extracting Toolchain to /opt ==="
-          tar -xzvf gnustep-toolchain.tar.gz -C /opt
+          find /opt/gnustep-prefix -mindepth 1 -delete
+          tar -xzf gnustep-toolchain.tar.gz -C /opt
 
           ls -la /opt/gnustep-prefix/System/Library/Makefiles/GNUstep.sh
 
@@ -48,6 +47,8 @@ jobs:
           . "${LOCAL_PREFIX}/System/Library/Makefiles/GNUstep.sh"
           export LD_LIBRARY_PATH="${LOCAL_PREFIX}/lib:${LD_LIBRARY_PATH}"
 
+          rm -rf CoreData.framework obj Tests/obj Tools/momc/obj derived_src
+          make clean
           make
 
       - name: Run Tests
@@ -62,6 +63,16 @@ jobs:
 
           cd Tests
           make run-tests
+
+      - name: momc backtrace on failure
+        if: failure()
+        run: |
+          export LOCAL_PREFIX="/opt/gnustep-prefix"
+          . "${LOCAL_PREFIX}/System/Library/Makefiles/GNUstep.sh"
+          cd Tests
+          export LD_LIBRARY_PATH="$PWD/../CoreData.framework/Versions/Current:${LOCAL_PREFIX}/Local/Library/Libraries:${LOCAL_PREFIX}/System/Library/Libraries:$LD_LIBRARY_PATH"
+          gdb -batch -ex run -ex bt -ex 'info sharedlibrary' \
+              --args ../Tools/momc/obj/momc MomcFixture.xcdatamodeld /tmp/MomcFixture.momd || true
 
       - name: Install CoreData Framework
         run: |

@@ -13,6 +13,9 @@
 		CE9446BC30373B5C00D23BA1 /* NSDerivedAttributeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */; };
 		CE9446BE30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */; };
 		CE9446C0303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */; };
+		CE9446C2303B0C0000D23BA1 /* MomcCompiledModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C1303B0C0000D23BA1 /* MomcCompiledModelTests.m */; };
+		CE9446C6303B0C0000D23BA1 /* MomcFixture.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C3303B0C0000D23BA1 /* MomcFixture.xcdatamodeld */; };
+		CE9446C8303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C7303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m */; };
 		CED0149F3032FF59009517DE /* NSPersistentStoreRequestTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014993032FF59009517DE /* NSPersistentStoreRequestTests.m */; };
 		CED014A03032FF59009517DE /* NSIncrementalStoreNodeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014933032FF59009517DE /* NSIncrementalStoreNodeTests.m */; };
 		CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014963032FF59009517DE /* NSManagedObjectModelTests.m */; };
@@ -42,6 +45,10 @@
 		CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSDerivedAttributeTests.m; path = Tests/NSDerivedAttributeTests.m; sourceTree = "<group>"; };
 		CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSCountAndExistingObjectTests.m; path = Tests/NSCountAndExistingObjectTests.m; sourceTree = "<group>"; };
 		CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPendingChangesFetchTests.m; path = Tests/NSPendingChangesFetchTests.m; sourceTree = "<group>"; };
+		CE9446C1303B0C0000D23BA1 /* MomcCompiledModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MomcCompiledModelTests.m; path = Tests/MomcCompiledModelTests.m; sourceTree = "<group>"; };
+		CE9446C4303B0C0000D23BA1 /* MomcFixture.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = MomcFixture.xcdatamodel; sourceTree = "<group>"; };
+		CE9446C5303B0C0000D23BA1 /* MomcFixture 2.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "MomcFixture 2.xcdatamodel"; sourceTree = "<group>"; };
+		CE9446C7303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSUUIDAndOrderedRelationshipTests.m; path = Tests/NSUUIDAndOrderedRelationshipTests.m; sourceTree = "<group>"; };
 		CED0148F3032FF59009517DE /* MappingModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MappingModelTests.m; path = Tests/MappingModelTests.m; sourceTree = "<group>"; };
 		CED014903032FF59009517DE /* MemoryIncrementalStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MemoryIncrementalStore.h; path = Tests/MemoryIncrementalStore.h; sourceTree = "<group>"; };
 		CED014913032FF59009517DE /* MemoryIncrementalStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MemoryIncrementalStore.m; path = Tests/MemoryIncrementalStore.m; sourceTree = "<group>"; };
@@ -92,6 +99,9 @@
 				CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */,
 				CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */,
 				CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */,
+				CE9446C1303B0C0000D23BA1 /* MomcCompiledModelTests.m */,
+				CE9446C3303B0C0000D23BA1 /* MomcFixture.xcdatamodeld */,
+				CE9446C7303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m */,
 				CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */,
 				CED0148F3032FF59009517DE /* MappingModelTests.m */,
 				CED014903032FF59009517DE /* MemoryIncrementalStore.h */,
@@ -207,6 +217,9 @@
 				CE9446BC30373B5C00D23BA1 /* NSDerivedAttributeTests.m in Sources */,
 				CE9446BE30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m in Sources */,
 				CE9446C0303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m in Sources */,
+				CE9446C2303B0C0000D23BA1 /* MomcCompiledModelTests.m in Sources */,
+				CE9446C6303B0C0000D23BA1 /* MomcFixture.xcdatamodeld in Sources */,
+				CE9446C8303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m in Sources */,
 				CED014C13032FF59009517DE /* NSManagedObjectValidationTests.m in Sources */,
 				CED014C33032FF59009517DE /* NSManagedObjectLifecycleTests.m in Sources */,
 				CE9446BA30371F9600D23BA1 /* NSTransformableAttributeTests.m in Sources */,
@@ -215,6 +228,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCVersionGroup section */
+		CE9446C3303B0C0000D23BA1 /* MomcFixture.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				CE9446C4303B0C0000D23BA1 /* MomcFixture.xcdatamodel */,
+				CE9446C5303B0C0000D23BA1 /* MomcFixture 2.xcdatamodel */,
+			);
+			currentVersion = CE9446C5303B0C0000D23BA1 /* MomcFixture 2.xcdatamodel */;
+			name = MomcFixture.xcdatamodeld;
+			path = Tests/MomcFixture.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
 
 /* Begin XCBuildConfiguration section */
 		47D53771281D97E3FA007F14 /* Release */ = {

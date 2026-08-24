@@ -57,6 +57,74 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @end
 
+/* Mutable proxy handed out by -mutableOrderedSetValueForKey:.  Like
+   NSManagedObjectMutableSet it goes through the public accessors on
+   every operation (copy, mutate, set back), so change tracking and
+   inverse maintenance happen exactly as for -setValue:forKey:. */
+@interface CDManagedObjectMutableOrderedSet : NSMutableOrderedSet {
+   NSManagedObject *_object;
+   NSString        *_key;
+}
+@end
+
+@implementation CDManagedObjectMutableOrderedSet
+
+-initWithManagedObject:(NSManagedObject *)object key:(NSString *)key {
+   _object=[object retain];
+   _key=[key copy];
+   return self;
+}
+
+-(void)dealloc {
+   [_object release];
+   [_key release];
+   [super dealloc];
+}
+
+-(NSOrderedSet *)_current {
+   id value=[_object valueForKey:_key];
+
+   return (value!=nil)?value:[NSOrderedSet orderedSet];
+}
+
+-(NSUInteger)count {
+   return [[self _current] count];
+}
+
+-objectAtIndex:(NSUInteger)index {
+   return [[self _current] objectAtIndex:index];
+}
+
+-(NSUInteger)indexOfObject:object {
+   return [[self _current] indexOfObject:object];
+}
+
+-(void)insertObject:object atIndex:(NSUInteger)index {
+   NSMutableOrderedSet *ordered=[[self _current] mutableCopy];
+
+   [ordered insertObject:object atIndex:index];
+   [_object setValue:ordered forKey:_key];
+   [ordered release];
+}
+
+-(void)removeObjectAtIndex:(NSUInteger)index {
+   NSMutableOrderedSet *ordered=[[self _current] mutableCopy];
+
+   [ordered removeObjectAtIndex:index];
+   [_object setValue:ordered forKey:_key];
+   [ordered release];
+}
+
+-(void)replaceObjectAtIndex:(NSUInteger)index withObject:object {
+   NSMutableOrderedSet *ordered=[[self _current] mutableCopy];
+
+   [ordered replaceObjectAtIndex:index withObject:object];
+   [_object setValue:ordered forKey:_key];
+   [ordered release];
+}
+
+@end
+
 @interface NSManagedObject (CDRelationshipFaultResolution)
 -(id)_resolveRelationshipFault:(CDRelationshipFault *)fault forKey:(NSString *)key;
 @end
@@ -300,8 +368,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
        if(![relationship isToMany])
         value=[indirectValue objectID];
        else {
-        value=[NSMutableSet set];
-        
+        value=[relationship isOrdered]?(id)[NSMutableArray array]:(id)[NSMutableSet set];
+
         for(NSAtomicStoreCacheNode *relNode in indirectValue){
          [value addObject:[relNode objectID]];
         }
@@ -427,8 +495,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     id result=[self primitiveValueForKey:propertyName];
     
     if(result!=nil){
-     if([relationship isToMany])
-      result=[[[NSManagedObjectSet alloc] initWithManagedObjectContext:_context set:result] autorelease];
+     if([relationship isToMany]){
+      if([relationship isOrdered]){
+       /* Ordered to-many: resolved objects in their stored order. */
+       NSMutableOrderedSet *ordered=[NSMutableOrderedSet orderedSet];
+
+       for(NSManagedObjectID *relatedID in result)
+        [ordered addObject:[_context objectWithID:relatedID]];
+       result=ordered;
+      }
+      else
+       result=[[[NSManagedObjectSet alloc] initWithManagedObjectContext:_context set:result] autorelease];
+     }
      else
       result=[_context objectWithID:result];
     }
@@ -459,12 +537,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     id                         valueByID;
         
     if([relationship isToMany]){
-     NSMutableSet *set=[NSMutableSet set];
-     
-     for(NSManagedObject *object in value)
-      [set addObject:[object objectID]];
-      
-     valueByID=set;
+     if([relationship isOrdered]){
+      NSMutableArray *ordered=[NSMutableArray array];
+
+      for(NSManagedObject *object in value)
+       if(![ordered containsObject:[object objectID]])
+        [ordered addObject:[object objectID]];
+
+      valueByID=ordered;
+     }
+     else {
+      NSMutableSet *set=[NSMutableSet set];
+
+      for(NSManagedObject *object in value)
+       [set addObject:[object objectID]];
+
+      valueByID=set;
+     }
     }
     else {
      valueByID=[value objectID];
@@ -474,7 +563,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
      id primitivePrevious=[self primitiveValueForKey:key];
      
      if(primitivePrevious!=nil){
-      NSSet *allPrevious=[relationship isToMany]?primitivePrevious:[NSSet setWithObject:primitivePrevious];
+      id allPrevious=[relationship isToMany]?primitivePrevious:[NSSet setWithObject:primitivePrevious];
       
       for(NSManagedObjectID *previousID in allPrevious){
        NSManagedObject *previous=[_context objectWithID:previousID];
@@ -496,7 +585,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [self didChangeValueForKey:propertyName];
 
     if(inverse!=nil){     
-     NSSet *allValues;
+     id allValues;
 
      if([relationship isToMany])
       allValues=valueByID;
@@ -509,14 +598,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       [relValue willChangeValueForKey:inverseName];
      
       if([inverse isToMany]){
-       NSMutableSet *set=[relValue primitiveValueForKey:inverseName];
-    
-       if(set==nil){
-        set=[NSMutableSet set];
-        [relValue setPrimitiveValue:set forKey:inverseName];
+       id collection=[relValue primitiveValueForKey:inverseName];
+
+       if(collection==nil){
+        collection=[inverse isOrdered]?(id)[NSMutableArray array]:(id)[NSMutableSet set];
+        [relValue setPrimitiveValue:collection forKey:inverseName];
        }
 
-       [set addObject:[self objectID]];
+       if(![collection containsObject:[self objectID]])
+        [collection addObject:[self objectID]];
       }
       else{
        [relValue setPrimitiveValue:[self objectID] forKey:inverseName];
@@ -533,6 +623,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -(NSMutableSet *) mutableSetValueForKey:(NSString *) key {
    return [[[NSManagedObjectMutableSet alloc] initWithManagedObject:self key:key] autorelease];
+}
+
+-(NSMutableOrderedSet *) mutableOrderedSetValueForKey:(NSString *) key {
+   return [[[CDManagedObjectMutableOrderedSet alloc] initWithManagedObject:self key:key] autorelease];
 }
 
 /* Fires a lazy relationship fault: asks the store, replaces the
@@ -560,6 +654,19 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    if(![[fault relationship] isToMany]){
     [committed setObject:value forKey:key];
     return value;
+   }
+
+   /* Ordered to-many keeps the store's order in an array; unordered
+      stays a set. */
+   if([[fault relationship] isOrdered]){
+    NSMutableArray *relatedIDs=[NSMutableArray array];
+
+    for(NSManagedObjectID *relatedID in value)
+     if(![relatedIDs containsObject:relatedID])
+      [relatedIDs addObject:relatedID];
+
+    [committed setObject:relatedIDs forKey:key];
+    return relatedIDs;
    }
 
    NSMutableSet *relatedIDs=[NSMutableSet set];
