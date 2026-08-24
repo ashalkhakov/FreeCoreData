@@ -47,6 +47,29 @@ static NSUInteger didTurnIntoFaultCount;
 
 @end
 
+/* Scalar-typed @dynamic properties - the synthesized accessors must
+   match the DECLARED ABI instead of boxing through object-typed IMPs: a
+   float getter returning an NSNumber pointer in the integer register
+   leaves the caller reading garbage from the FP register, and a BOOL
+   getter reading the pointer's low byte is almost always YES.  KVC was
+   unaffected, which masked the bug (reported by UDQuakeTools). */
+@interface ScalarSettings : NSManagedObject
+
+@property (nonatomic) float depthHack;
+@property (nonatomic) double ratio;
+@property (nonatomic) BOOL enabled;
+@property (nonatomic) int32_t hitCount;
+@property (nonatomic) int64_t bigCount;
+@property (nonatomic, strong) NSString *label;
+
+@end
+
+@implementation ScalarSettings
+
+@dynamic depthHack, ratio, enabled, hitCount, bigCount, label;
+
+@end
+
 @implementation LifecyclePerson
 
 /* Custom accessor for the transient displayName attribute; -valueForKey:
@@ -538,6 +561,124 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     DynamicPDA *reloaded = [fetched lastObject];
     XCTAssertEqualObjects(reloaded.sourceText, @"personal data assistant");
     XCTAssertEqualObjects(reloaded.linked.sourceText, @"other");
+}
+
+/* Scalar-typed @dynamic properties read and write correctly through
+   direct property syntax - the synthesized IMPs must match the
+   declared ABI (float returned in the FP register, etc.), not box
+   everything as objects.  The UDQuakeTools repro: a Float attribute
+   defaulting to 1.5 read 1.5 via KVC but garbage via the property. */
+- (void)testScalarDynamicAccessors
+{
+    NSAttributeDescription *depthHack = [[NSAttributeDescription alloc] init];
+    [depthHack setName:@"depthHack"];
+    [depthHack setAttributeType:NSFloatAttributeType];
+    [depthHack setDefaultValue:[NSNumber numberWithFloat:1.5f]];
+    [depthHack setOptional:YES];
+
+    NSAttributeDescription *ratio = [[NSAttributeDescription alloc] init];
+    [ratio setName:@"ratio"];
+    [ratio setAttributeType:NSDoubleAttributeType];
+    [ratio setOptional:YES];
+
+    NSAttributeDescription *enabled = [[NSAttributeDescription alloc] init];
+    [enabled setName:@"enabled"];
+    [enabled setAttributeType:NSBooleanAttributeType];
+    [enabled setOptional:YES];
+
+    NSAttributeDescription *hitCount = [[NSAttributeDescription alloc] init];
+    [hitCount setName:@"hitCount"];
+    [hitCount setAttributeType:NSInteger32AttributeType];
+    [hitCount setOptional:YES];
+
+    NSAttributeDescription *bigCount = [[NSAttributeDescription alloc] init];
+    [bigCount setName:@"bigCount"];
+    [bigCount setAttributeType:NSInteger64AttributeType];
+    [bigCount setOptional:YES];
+
+    NSAttributeDescription *label = [[NSAttributeDescription alloc] init];
+    [label setName:@"label"];
+    [label setAttributeType:NSStringAttributeType];
+    [label setOptional:YES];
+
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    [entity setName:@"Settings"];
+    [entity setManagedObjectClassName:@"ScalarSettings"];
+    [entity setProperties:[NSArray arrayWithObjects:
+        depthHack, ratio, enabled, hitCount, bigCount, label, nil]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObject:entity]];
+
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+        initWithManagedObjectModel:model];
+    NSError *error = nil;
+    NSPersistentStore *store =
+        [psc addPersistentStoreWithType:NSInMemoryStoreType
+                          configuration:nil
+                                    URL:nil
+                                options:nil
+                                  error:&error];
+    XCTAssertNotNil(store, @"failed to add store: %@", error);
+
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+
+    ScalarSettings *settings = (ScalarSettings *)
+        [NSEntityDescription insertNewObjectForEntityForName:@"Settings"
+                                      inManagedObjectContext:ctx];
+
+    /* The repro itself: the modeled default must come back through the
+       property exactly as it does through KVC. */
+    XCTAssertEqual(settings.depthHack, 1.5f);
+    XCTAssertEqual([[settings valueForKey:@"depthHack"] floatValue], 1.5f);
+
+    /* Unset scalar properties read as zero/NO, not as the low bits of
+       an NSNumber pointer (the old BOOL bug: almost always YES). */
+    XCTAssertFalse(settings.enabled);
+    XCTAssertEqual(settings.ratio, 0.0);
+    XCTAssertEqual(settings.hitCount, (int32_t)0);
+
+    settings.depthHack = 0.25f;
+    settings.ratio = 2.75;
+    settings.enabled = YES;
+    settings.hitCount = -42;
+    settings.bigCount = 1LL << 40;
+    settings.label = @"pda";
+
+    XCTAssertEqual(settings.depthHack, 0.25f);
+    XCTAssertEqual(settings.ratio, 2.75);
+    XCTAssertTrue(settings.enabled);
+    XCTAssertEqual(settings.hitCount, (int32_t)-42);
+    XCTAssertEqual(settings.bigCount, (int64_t)(1LL << 40));
+    XCTAssertEqualObjects(settings.label, @"pda");
+
+    /* Property writes and KVC reads agree (and vice versa). */
+    XCTAssertEqualObjects([settings valueForKey:@"ratio"],
+                          [NSNumber numberWithDouble:2.75]);
+    [settings setValue:[NSNumber numberWithInt:7] forKey:@"hitCount"];
+    XCTAssertEqual(settings.hitCount, (int32_t)7);
+
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    /* Persisted values come back through the typed accessors in a
+       fresh context. */
+    NSManagedObjectContext *ctx2 = [[NSManagedObjectContext alloc] init];
+    [ctx2 setPersistentStoreCoordinator:psc];
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"Settings"
+                                 inManagedObjectContext:ctx2]];
+
+    ScalarSettings *reloadedSettings =
+        [[ctx2 executeFetchRequest:fetch error:&error] lastObject];
+    XCTAssertNotNil(reloadedSettings, @"fetch failed: %@", error);
+    XCTAssertEqual(reloadedSettings.depthHack, 0.25f);
+    XCTAssertEqual(reloadedSettings.ratio, 2.75);
+    XCTAssertTrue(reloadedSettings.enabled);
+    XCTAssertEqual(reloadedSettings.hitCount, (int32_t)7);
+    XCTAssertEqual(reloadedSettings.bigCount, (int64_t)(1LL << 40));
+    XCTAssertEqualObjects(reloadedSettings.label, @"pda");
 }
 
 @end
