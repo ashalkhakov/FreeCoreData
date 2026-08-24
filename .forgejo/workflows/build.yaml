@@ -32,13 +32,12 @@ jobs:
 
       - name: Download and Install GNUstep Toolchain
         run: |
-          echo "=== Downloading Pre-compiled Toolchain ==="
-          curl -H "Authorization: Bearer ${{ secrets.CI_PACKAGES_2 }}" \
+          curl --fail -H "Authorization: Bearer ${{ secrets.CI_PACKAGES_2 }}" \
                -o gnustep-toolchain.tar.gz \
                "${{ github.server_url }}/api/packages/${{ github.repository_owner }}/generic/gnustep-toolchain/latest/gnustep-toolchain.tar.gz"
 
-          echo "=== Extracting Toolchain to /opt ==="
-          tar -xzvf gnustep-toolchain.tar.gz -C /opt
+          find /opt/gnustep-prefix -mindepth 1 -delete
+          tar -xzf gnustep-toolchain.tar.gz -C /opt
 
           ls -la /opt/gnustep-prefix/System/Library/Makefiles/GNUstep.sh
 
