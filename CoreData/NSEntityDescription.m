@@ -108,41 +108,69 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     
     _hasBeenInstantiated = NO;
     
-    if(_className) {
-        Class class=NSClassFromString(_className);
+    [self _installPropertyAccessors];
+    return self;
+}
+
+/* Installs the generated @dynamic accessor implementations
+   (property/setProperty:, and add<Key>Object:-style mutators for
+   to-manys) on the entity's managed object class, and fills the
+   selector -> property map they dispatch through.  Historically this
+   only ran while decoding a compiled model, so entities built in code
+   answered valueForKey: but raised doesNotRecognizeSelector for a
+   plain property message; it now also runs when the model is attached
+   to a persistent store coordinator (see -_setInstantiated).
+   Idempotent: class_addMethod leaves existing implementations alone
+   and the map entries are simply rewritten. */
+-(void)_installPropertyAccessors {
+    if(_className==nil)
+        return;
+
+    Class class=NSClassFromString(_className);
+
+    if(class==Nil)
+        return;
+    if(_selectorPropertyMap==nil)
+        _selectorPropertyMap=[[NSMutableDictionary alloc] init];
+
+    for(NSPropertyDescription *property in [_properties allValues]) {
+        NSString *propertyName=[property name];
+        NSString *upperName=[[[propertyName substringToIndex:1] uppercaseString] stringByAppendingString:[propertyName substringFromIndex: 1]];
+        SEL       selector;
         
-        for(NSPropertyDescription *property in [_properties allValues]) {
-            NSString *propertyName=[property name];
-            NSString *upperName=[[[propertyName substringToIndex:1] uppercaseString] stringByAppendingString:[propertyName substringFromIndex: 1]];
-            NSString *selectorName;
-            SEL       selector;
+        appendMethodToList(class,propertyName,(IMP) getValue,"@@:",&selector);
+        [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
+        
+        appendMethodToList(class,[NSString stringWithFormat: @"set%@:",upperName],(IMP) setValue,"v@:@",&selector);     
+        [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
+        
+        if([property isKindOfClass: [NSRelationshipDescription class]]) {
+            NSRelationshipDescription *relationship= (NSRelationshipDescription *) property;
             
-            appendMethodToList(class,propertyName,(IMP) getValue,"@@:",&selector);
-            [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
-            
-            appendMethodToList(class,[NSString stringWithFormat: @"set%@:",upperName],(IMP) setValue,"v@:@",&selector);     
-            [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
-            
-            if([property isKindOfClass: [NSRelationshipDescription class]]) {
-                NSRelationshipDescription *relationship= (NSRelationshipDescription *) property;
+            if([relationship isToMany]){
+                appendMethodToList(class,[NSString stringWithFormat: @"add%@Object:",upperName],(IMP)addObject,"v@:@",&selector);     
+                [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
                 
-                if([relationship isToMany]){
-                    appendMethodToList(class,[NSString stringWithFormat: @"add%@Object:",upperName],(IMP)addObject,"v@:@",&selector);     
-                    [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
-                    
-                    appendMethodToList(class,[NSString stringWithFormat: @"remove%@Object:",upperName],(IMP)removeObject,"v@:@",&selector);     
-                    [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
-                    
-                    appendMethodToList(class,[NSString stringWithFormat: @"add%@:",upperName],(IMP)addObjectSet,"v@:@",&selector);     
-                    [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
-                    
-                    appendMethodToList(class,[NSString stringWithFormat: @"remove%@:",upperName],(IMP)removeObjectSet,"v@:@",&selector);     
-                    [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
-                }
+                appendMethodToList(class,[NSString stringWithFormat: @"remove%@Object:",upperName],(IMP)removeObject,"v@:@",&selector);     
+                [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
+                
+                appendMethodToList(class,[NSString stringWithFormat: @"add%@:",upperName],(IMP)addObjectSet,"v@:@",&selector);     
+                [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
+                
+                appendMethodToList(class,[NSString stringWithFormat: @"remove%@:",upperName],(IMP)removeObjectSet,"v@:@",&selector);     
+                [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
             }
         }
     }
-    return self;
+}
+
+/* Called when the model this entity belongs to is attached to a
+   persistent store coordinator: the entity is in use from here on
+   (description setters refuse changes) and its accessor
+   implementations must exist no matter how the entity was built. */
+-(void)_setInstantiated {
+    _hasBeenInstantiated = YES;
+    [self _installPropertyAccessors];
 }
 
 
@@ -176,22 +204,63 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     return [NSString stringWithFormat: @"<NSEntityDescription %@>", _name];
 }
 
+/* The property-name candidates a generated accessor selector can
+   stand for: "sourceText", "setSourceText:", "addTracksObject:",
+   "removeTracksObject:", "addTracks:", "removeTracks:".  The inner
+   name is tried both verbatim and with its first letter lowercased
+   ("setURL:" names a property spelled "URL"). */
+static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *selectorName){
+   NSString *inner=nil;
+
+   if([selectorName rangeOfString:@":"].location==NSNotFound){
+    [candidates addObject:selectorName];
+    return;
+   }
+
+   if([selectorName hasPrefix:@"set"] && [selectorName hasSuffix:@":"])
+    inner=[selectorName substringWithRange:NSMakeRange(3,[selectorName length]-4)];
+   else if([selectorName hasPrefix:@"add"] && [selectorName hasSuffix:@"Object:"])
+    inner=[selectorName substringWithRange:NSMakeRange(3,[selectorName length]-10)];
+   else if([selectorName hasPrefix:@"remove"] && [selectorName hasSuffix:@"Object:"])
+    inner=[selectorName substringWithRange:NSMakeRange(6,[selectorName length]-13)];
+   else if([selectorName hasPrefix:@"add"] && [selectorName hasSuffix:@":"])
+    inner=[selectorName substringWithRange:NSMakeRange(3,[selectorName length]-4)];
+   else if([selectorName hasPrefix:@"remove"] && [selectorName hasSuffix:@":"])
+    inner=[selectorName substringWithRange:NSMakeRange(6,[selectorName length]-7)];
+
+   if([inner length]==0)
+    return;
+
+   [candidates addObject:inner];
+   [candidates addObject:[[[inner substringToIndex:1] lowercaseString]
+       stringByAppendingString:[inner substringFromIndex:1]]];
+}
+
 -(NSPropertyDescription *)_propertyForSelector:(SEL) selector {
    id keyObject=keyObjectForSelector(selector);
+   NSString *selectorName=NSStringFromSelector(selector);
+   NSMutableArray *candidates=[NSMutableArray array];
    NSEntityDescription *entity;
-   
+
+   appendPropertyNameCandidates(candidates,selectorName);
+
    for(entity = self; entity; entity = [entity superentity]) {
     NSPropertyDescription *result= [entity->_selectorPropertyMap objectForKey:keyObject];
     
 	if(result)
      return result;
 
-    /* Entities built programmatically (not decoded from a model file) have
-       no selector map; fall back to looking the property up by name. */
-    result=[entity->_properties objectForKey:NSStringFromSelector(selector)];
+    /* Name-based resolution: the map above keys selectors by pointer,
+       which misses when the dispatched selector is a typed one (the ng
+       runtime interns typed and untyped selectors separately), and is
+       empty for entities built programmatically - the accessor name
+       itself is the reliable identity. */
+    for(NSString *candidate in candidates){
+     result=[entity->_properties objectForKey:candidate];
 
-    if(result)
-     return result;
+     if(result)
+      return result;
+    }
    }
    return nil;
 }

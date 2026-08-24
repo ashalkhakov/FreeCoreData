@@ -63,6 +63,14 @@ static NSMutableDictionary *_storeTypes=nil;
    _lock=[[NSLock alloc] init];
    _model=[model retain];
    _stores=[[NSMutableArray alloc] init];
+
+   /* The model is in use from here on: freeze its entities and make
+      sure every entity's generated property accessors exist - however
+      the model was built (compiled and decoded, or assembled in
+      code). */
+   for(NSEntityDescription *entity in [model entities])
+    [entity _setInstantiated];
+
    return self;
 }
 

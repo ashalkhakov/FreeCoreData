@@ -14,6 +14,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 @interface NSEntityDescription (private)
 - (BOOL)_isKindOfEntity:(NSEntityDescription *)other;
 - (NSPropertyDescription *)_propertyForSelector:(SEL)selector;
+- (void)_installPropertyAccessors;
+- (void)_setInstantiated;
 @end
 
 /* Returns YES when the IMP is one of the property accessors that the
