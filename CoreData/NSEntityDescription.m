@@ -41,6 +41,79 @@ static void setValue(id self, SEL selector, id newValue) {
     [self setValue: newValue forKey:[property name]];
 }
 
+/* Scalar-typed accessors.  A @dynamic property declared with a scalar
+   type ("@property (nonatomic) float depthHack;") must be backed by an
+   IMP whose ABI matches that declaration: the object-typed getValue
+   above returns an NSNumber pointer in the integer return register,
+   while the caller of a float property reads the FP return register -
+   so scalar reads through dot syntax returned garbage (and writes
+   corrupted, boxing the bit pattern of a float as a pointer).  KVC was
+   unaffected, which masked the bug (reported by UDQuakeTools).  One
+   getter/setter pair per scalar encoding, boxing through KVC like the
+   object versions. */
+#define CD_SCALAR_ACCESSORS(SUFFIX,TYPE,BOX,UNBOX) \
+static TYPE getValue_##SUFFIX(id self,SEL selector) { \
+    NSPropertyDescription *property=[[self entity] _propertyForSelector:selector]; \
+    return [[self valueForKey:[property name]] UNBOX]; \
+} \
+static void setValue_##SUFFIX(id self,SEL selector,TYPE newValue) { \
+    NSPropertyDescription *property=[[self entity] _propertyForSelector:selector]; \
+    [self setValue:[NSNumber BOX:newValue] forKey:[property name]]; \
+}
+
+CD_SCALAR_ACCESSORS(char,signed char,numberWithChar,charValue)
+CD_SCALAR_ACCESSORS(uchar,unsigned char,numberWithUnsignedChar,unsignedCharValue)
+CD_SCALAR_ACCESSORS(bool,bool,numberWithBool,boolValue)
+CD_SCALAR_ACCESSORS(short,short,numberWithShort,shortValue)
+CD_SCALAR_ACCESSORS(ushort,unsigned short,numberWithUnsignedShort,unsignedShortValue)
+CD_SCALAR_ACCESSORS(int,int,numberWithInt,intValue)
+CD_SCALAR_ACCESSORS(uint,unsigned int,numberWithUnsignedInt,unsignedIntValue)
+CD_SCALAR_ACCESSORS(long,long,numberWithLong,longValue)
+CD_SCALAR_ACCESSORS(ulong,unsigned long,numberWithUnsignedLong,unsignedLongValue)
+CD_SCALAR_ACCESSORS(longlong,long long,numberWithLongLong,longLongValue)
+CD_SCALAR_ACCESSORS(ulonglong,unsigned long long,numberWithUnsignedLongLong,unsignedLongLongValue)
+CD_SCALAR_ACCESSORS(float,float,numberWithFloat,floatValue)
+CD_SCALAR_ACCESSORS(double,double,numberWithDouble,doubleValue)
+
+#undef CD_SCALAR_ACCESSORS
+
+/* Getter/setter IMP pair for one scalar type encoding character, or
+   NULL IMPs when the encoding is not a supported scalar. */
+static void scalarAccessorsForEncoding(char encoding,IMP *getterp,IMP *setterp){
+    switch(encoding){
+        case 'c': *getterp=(IMP)getValue_char;     *setterp=(IMP)setValue_char;     return;
+        case 'C': *getterp=(IMP)getValue_uchar;    *setterp=(IMP)setValue_uchar;    return;
+        case 'B': *getterp=(IMP)getValue_bool;     *setterp=(IMP)setValue_bool;     return;
+        case 's': *getterp=(IMP)getValue_short;    *setterp=(IMP)setValue_short;    return;
+        case 'S': *getterp=(IMP)getValue_ushort;   *setterp=(IMP)setValue_ushort;   return;
+        case 'i': *getterp=(IMP)getValue_int;      *setterp=(IMP)setValue_int;      return;
+        case 'I': *getterp=(IMP)getValue_uint;     *setterp=(IMP)setValue_uint;     return;
+        case 'l': *getterp=(IMP)getValue_long;     *setterp=(IMP)setValue_long;     return;
+        case 'L': *getterp=(IMP)getValue_ulong;    *setterp=(IMP)setValue_ulong;    return;
+        case 'q': *getterp=(IMP)getValue_longlong; *setterp=(IMP)setValue_longlong; return;
+        case 'Q': *getterp=(IMP)getValue_ulonglong;*setterp=(IMP)setValue_ulonglong;return;
+        case 'f': *getterp=(IMP)getValue_float;    *setterp=(IMP)setValue_float;    return;
+        case 'd': *getterp=(IMP)getValue_double;   *setterp=(IMP)setValue_double;   return;
+        default:  *getterp=NULL;                   *setterp=NULL;                   return;
+    }
+}
+
+/* First character of the declared @property type on the target class
+   (from the runtime's "T<encoding>,..." attribute string), or 0 when
+   the class declares no such property. */
+static char declaredPropertyTypeEncoding(Class class,NSString *propertyName){
+    objc_property_t property=class_getProperty(class,[propertyName UTF8String]);
+
+    if(property==NULL)
+        return 0;
+
+    const char *attributes=property_getAttributes(property);
+
+    if(attributes==NULL || attributes[0]!='T')
+        return 0;
+    return attributes[1];
+}
+
 static void addObject(id self,SEL selector, id value){
    NSPropertyDescription *property=[[self entity] _propertyForSelector:selector];
    NSMutableSet *set=[self mutableSetValueForKey:[property name]];
@@ -67,8 +140,22 @@ static void removeObjectSet(id self,SEL selector,NSSet *values){
 }
 
 BOOL _NSManagedObjectIMPIsGeneratedAccessor(IMP imp) {
-   return imp==(IMP)getValue || imp==(IMP)setValue || imp==(IMP)addObject ||
-          imp==(IMP)removeObject || imp==(IMP)addObjectSet || imp==(IMP)removeObjectSet;
+   if(imp==(IMP)getValue || imp==(IMP)setValue || imp==(IMP)addObject ||
+      imp==(IMP)removeObject || imp==(IMP)addObjectSet || imp==(IMP)removeObjectSet)
+    return YES;
+
+   /* The scalar accessors read through -valueForKey:; failing to
+      recognize them here would make that read recurse forever. */
+   static const char scalarEncodings[]="cCBsSiIlLqQfd";
+
+   for(const char *encoding=scalarEncodings;*encoding!=0;encoding++){
+    IMP getter=NULL,setter=NULL;
+
+    scalarAccessorsForEncoding(*encoding,&getter,&setter);
+    if(imp==getter || imp==setter)
+     return YES;
+   }
+   return NO;
 }
 
 id keyObjectForSelector(SEL selector){
@@ -137,11 +224,36 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
         NSString *propertyName=[property name];
         NSString *upperName=[[[propertyName substringToIndex:1] uppercaseString] stringByAppendingString:[propertyName substringFromIndex: 1]];
         SEL       selector;
-        
-        appendMethodToList(class,propertyName,(IMP) getValue,"@@:",&selector);
+
+        /* The accessor ABI must match the property's DECLARED type on
+           the subclass: "@property (nonatomic) float x;" needs an IMP
+           that returns float in the FP register - the object-typed IMP
+           would leave an NSNumber in the integer register and the
+           caller would read garbage.  Classes without a matching
+           @property declaration (or with an object-typed one) get the
+           object accessors, as before. */
+        IMP  getterIMP=(IMP)getValue;
+        IMP  setterIMP=(IMP)setValue;
+        char getterTypes[4]={'@','@',':',0};
+        char setterTypes[5]={'v','@',':','@',0};
+        char encoding=declaredPropertyTypeEncoding(class,propertyName);
+
+        if(encoding!=0 && encoding!='@'){
+            IMP scalarGetter=NULL,scalarSetter=NULL;
+
+            scalarAccessorsForEncoding(encoding,&scalarGetter,&scalarSetter);
+            if(scalarGetter!=NULL){
+                getterIMP=scalarGetter;
+                setterIMP=scalarSetter;
+                getterTypes[0]=encoding;
+                setterTypes[3]=encoding;
+            }
+        }
+
+        appendMethodToList(class,propertyName,getterIMP,getterTypes,&selector);
         [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
         
-        appendMethodToList(class,[NSString stringWithFormat: @"set%@:",upperName],(IMP) setValue,"v@:@",&selector);     
+        appendMethodToList(class,[NSString stringWithFormat: @"set%@:",upperName],setterIMP,setterTypes,&selector);
         [_selectorPropertyMap setObject:property forKey:keyObjectForSelector(selector)];
         
         if([property isKindOfClass: [NSRelationshipDescription class]]) {
