@@ -38,6 +38,16 @@ endef
 $(foreach _cd_target,$(_CD_MODEL_TARGETS),\
     $(eval $(call _cd_model_template,$(_cd_target))))
 
+# This file is documented to be included BEFORE the target's
+# {application,tool,framework,bundle}.make - but in that position our
+# first explicit rule would become make's default goal, so a plain
+# 'make' would stop after the fragment's own rules and never build the
+# target (reported by UDQuakeTools).  Save whatever default goal was in
+# effect on entry and restore it below, falling back to gnustep-make's
+# canonical 'all' (defined later by the target makefile - naming a
+# not-yet-defined goal is fine).
+_CD_SAVED_DEFAULT_GOAL := $(.DEFAULT_GOAL)
+
 # Models are recompiled on every build: a directory's own mtime does
 # not change when a file inside it is edited, and Xcode's version names
 # contain spaces ("Model 2.xcdatamodel"), which make cannot carry in a
@@ -57,3 +67,10 @@ before-all:: $(_CD_ALL_COMPILED_MODELS)
 
 after-clean::
 	rm -rf $(_CD_ALL_COMPILED_MODELS)
+
+# Restore the default goal (see comment above _CD_SAVED_DEFAULT_GOAL).
+ifeq ($(_CD_SAVED_DEFAULT_GOAL),)
+.DEFAULT_GOAL := all
+else
+.DEFAULT_GOAL := $(_CD_SAVED_DEFAULT_GOAL)
+endif
