@@ -54,6 +54,14 @@ COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
     NSMapTable *_objectIdToObject;
 
     BOOL _requestedProcessPendingChanges;
+
+    /* Undo support: pre-change values, insertions and deletions captured
+       since the last processPendingChanges, registered with the undo
+       manager as one operation per change event. */
+    NSMapTable     *_undoEventOldValues;   /* object -> {key -> old primitive} */
+    NSMutableArray *_undoEventInserted;
+    NSMutableArray *_undoEventDeleted;     /* records: object, snapshot, wasInserted */
+    NSUInteger      _undoRegistrationDisabled;
 }
 
 - (NSPersistentStoreCoordinator *)persistentStoreCoordinator;
