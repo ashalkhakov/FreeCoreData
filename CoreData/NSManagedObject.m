@@ -513,7 +513,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
        result=ordered;
       }
       else
-       result=[[[NSManagedObjectSet alloc] initWithManagedObjectContext:_context set:result] autorelease];
+       /* Live mutable view - reads track the relationship, mutations
+          route through -setValue:forKey:.  Deliberate divergence:
+          Apple's faulting set accepts in-place mutation but silently
+          skips inverse maintenance and change tracking; the port
+          routes because GNUstep's NSArrayController mutates a bound
+          contentSet in place (see NSManagedObjectSet.h). */
+       result=[[[NSManagedObjectSet alloc] initWithManagedObject:self key:propertyName] autorelease];
      }
      else
       result=[_context objectWithID:result];

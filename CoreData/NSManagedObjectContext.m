@@ -1166,11 +1166,23 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     if(!_requestedProcessPendingChanges){
 
 	NSRunLoop *runLoop = [NSRunLoop mainRunLoop];
+	/* Concrete mode names rather than NSRunLoopCommonModes: GNUstep's
+	   run loop performers match mode strings literally (the constant
+	   exists but nothing expands it), so a performer filed under the
+	   "common modes" pseudo-mode never fires and pending-change
+	   processing (change notifications, undo registration) is deferred
+	   until the next explicit -processPendingChanges, typically the
+	   save.  The AppKit modes are spelled as literals to keep CoreData
+	   off AppKit.  (Reported by UDQuakeTools.) */
 	[runLoop performSelector: @selector(_processPendingChangesForRequest)
 		 target: self
 		 argument: nil
 		 order: 0
-		 modes: [NSArray arrayWithObject:NSRunLoopCommonModes]];
+		 modes: [NSArray arrayWithObjects:
+		            NSDefaultRunLoopMode,
+		            @"NSModalPanelRunLoopMode",
+		            @"NSEventTrackingRunLoopMode",
+		            nil]];
 	_requestedProcessPendingChanges = YES;
    }
 }

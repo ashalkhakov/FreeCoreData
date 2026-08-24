@@ -11,13 +11,31 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <Foundation/NSSet.h>
 
-@class NSManagedObjectContext;
+@class NSManagedObjectContext, NSManagedObject;
 
-@interface NSManagedObjectSet : NSSet {
+/* The set handed out by -valueForKey: for an unordered to-many
+   relationship.  A LIVE, MUTABLE view: reads reflect the current
+   membership, and addObject:/removeObject: route through the owning
+   object's setter so change tracking and inverse maintenance apply.
+
+   DELIBERATE DIVERGENCE (Mac-verified): Apple's faulting set also
+   accepts in-place mutation, but silently bypasses change processing -
+   no inverse maintenance, owner not marked updated (the footgun its
+   docs warn about; mutableSetValueForKey: is the tracked channel).
+   The port routes instead because GNUstep's NSArrayController mutates
+   a bound contentSet in place: untracked semantics there would mean
+   UI edits that never save. */
+@interface NSManagedObjectSet : NSMutableSet {
     NSManagedObjectContext *_context;
+    NSManagedObject *_owner;
+    NSString *_key;
     NSSet *_set;
 }
 
+/* Live relationship view (the normal case). */
+- initWithManagedObject:(NSManagedObject *)owner key:(NSString *)key;
+
+/* Immutable snapshot over a set of object IDs (mutations raise). */
 - initWithManagedObjectContext:(NSManagedObjectContext *)context set:(NSSet *)set;
 
 @end
