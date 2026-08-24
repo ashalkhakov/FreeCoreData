@@ -48,6 +48,7 @@ jobs:
           . "${LOCAL_PREFIX}/System/Library/Makefiles/GNUstep.sh"
           export LD_LIBRARY_PATH="${LOCAL_PREFIX}/lib:${LD_LIBRARY_PATH}"
 
+          rm -rf CoreData.framework obj Tests/obj Tools/momc/obj derived_src
           make clean
           make
 
