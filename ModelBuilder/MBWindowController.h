@@ -32,6 +32,15 @@
 @property (nonatomic, strong) IBOutlet NSPopUpButton *deleteRulePopup;
 @property (nonatomic, strong) IBOutlet NSTextField *statusField;
 
+/* Created in code (kept out of the xib so both nib loaders stay happy):
+   version bar in the status row, derivation editor in the inspector. */
+@property (nonatomic, strong) NSPopUpButton *versionPopup;
+@property (nonatomic, strong) NSButton *addVersionButton;
+@property (nonatomic, strong) NSButton *makeCurrentButton;
+@property (nonatomic, strong) NSButton *validateButton;
+@property (nonatomic, strong) NSTextField *derivationLabel;
+@property (nonatomic, strong) NSTextField *derivationField;
+
 - (IBAction)addEntity:(id)sender;
 - (IBAction)removeEntity:(id)sender;
 - (IBAction)addFetchRequest:(id)sender;
@@ -43,5 +52,9 @@
 - (IBAction)addUserInfo:(id)sender;
 - (IBAction)removeUserInfo:(id)sender;
 - (IBAction)inspectorChanged:(id)sender;
+- (IBAction)versionSelected:(id)sender;
+- (IBAction)addModelVersion:(id)sender;
+- (IBAction)makeCurrentVersion:(id)sender;
+- (IBAction)validateModel:(id)sender;
 
 @end

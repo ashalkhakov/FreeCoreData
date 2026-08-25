@@ -12,19 +12,34 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 /* momc - compiles Xcode data model sources (.xcdatamodeld /
    .xcdatamodel) into the runtime form FreeCoreData loads
-   (.momd / .mom).  The compiler itself lives in CDModelCompiler;
-   this file is only the command line. */
+   (.momd / .mom), and decompiles those artifacts back into source.
+   The compiler lives in CDModelCompiler, its inverse in
+   CDModelSerializer; this file is only the command line. */
 
 #import <Foundation/Foundation.h>
 #import "CDModelCompiler.h"
+#import "CDModelSerializer.h"
+
+static void usage(void){
+   fprintf(stderr,"usage: momc <Model.xcdatamodeld> <Model.momd>\n"
+                  "       momc <Model.xcdatamodel> <Model.mom>\n"
+                  "       momc --decompile <Model.momd> <Model.xcdatamodeld>\n"
+                  "       momc --decompile <Model.mom> <Model.xcdatamodel>\n");
+}
 
 int main(int argc,const char *argv[]){
    @autoreleasepool {
     NSArray *arguments=[[NSProcessInfo processInfo] arguments];
+    BOOL decompile=NO;
+
+    if([arguments count]==4 && [[arguments objectAtIndex:1] isEqualToString:@"--decompile"]){
+     decompile=YES;
+     arguments=[NSArray arrayWithObjects:[arguments objectAtIndex:0],
+                [arguments objectAtIndex:2],[arguments objectAtIndex:3],nil];
+    }
 
     if([arguments count]!=3){
-     fprintf(stderr,"usage: momc <Model.xcdatamodeld> <Model.momd>\n"
-                    "       momc <Model.xcdatamodel> <Model.mom>\n");
+     usage();
      return 1;
     }
 
@@ -33,10 +48,17 @@ int main(int argc,const char *argv[]){
     }];
 
     NSError *error=nil;
+    BOOL ok;
 
-    if(![CDModelCompiler compileModelSourceAtPath:[arguments objectAtIndex:1]
+    if(decompile)
+     ok=[CDModelSerializer decompileModelArtifactAtPath:[arguments objectAtIndex:1]
+                                                 toPath:[arguments objectAtIndex:2]
+                                                  error:&error];
+    else
+     ok=[CDModelCompiler compileModelSourceAtPath:[arguments objectAtIndex:1]
                                            toPath:[arguments objectAtIndex:2]
-                                            error:&error]){
+                                            error:&error];
+    if(!ok){
      fprintf(stderr,"momc: error: %s\n",[[error localizedDescription] UTF8String]);
      return 1;
     }

@@ -29,6 +29,13 @@ typedef enum {
     NSURIAttributeType = 1200,
     NSTransformableAttributeType = 1800
 } NSAttributeType;
+#else
+/* AppKit's copy of the enum predates the UUID and URI attribute types;
+   supply the two enumerators it lacks. */
+enum {
+    NSUUIDAttributeType = 1100,
+    NSURIAttributeType = 1200
+};
 #endif
 
 @interface NSAttributeDescription : NSPropertyDescription {

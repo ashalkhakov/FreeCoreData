@@ -12,13 +12,15 @@ CC = clang
 OBJC = clang
 
 APP_NAME = ModelBuilder
-ModelBuilder_OBJC_FILES = main.m MBModel.m MBDocument.m MBWindowController.m
+ModelBuilder_OBJC_FILES = main.m MBDocument.m MBWindowController.m \
+	../Tools/momc/CDModelCompiler.m ../Tools/momc/CDModelSerializer.m
 ModelBuilder_RESOURCE_FILES = MainMenu.xib MBDocument.xib Info-gnustep.plist
 ModelBuilder_MAIN_MODEL_FILE = MainMenu.xib
 ModelBuilder_APPLICATION_ICON =
 
 # Repo-root layout: headers/framework sit one directory up.
-ModelBuilder_INCLUDE_DIRS = -I..
+ModelBuilder_INCLUDE_DIRS = -I.. -I../Tools/momc
+ModelBuilder_OBJC_LIBS += -lCoreData
 ADDITIONAL_LIB_DIRS += -L$(CURDIR)/../CoreData.framework/Versions/Current \
 	-L$(GNUSTEP_SYSTEM_LIBRARIES)
 

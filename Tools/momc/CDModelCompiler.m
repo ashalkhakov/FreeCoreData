@@ -133,6 +133,13 @@ static NSExpression *derivationExpressionFromString(NSString *string,NSString *c
     NSString *argument=[trimmed substringWithRange:
         NSMakeRange(open.location+2,[trimmed length]-open.location-3)];
 
+#if defined(__APPLE__)
+    /* Apple registers the derivation helpers under their colon-suffixed
+       names (canonical:, uppercase:, ...); gnustep-base registers the
+       colon-less spellings. */
+    function=[function stringByAppendingString:@":"];
+#endif
+
     return [NSExpression expressionForFunction:function
                                      arguments:[NSArray arrayWithObject:
         [NSExpression expressionForKeyPath:argument]]];
@@ -166,15 +173,23 @@ static BOOL boolAttr(NSXMLElement *element,NSString *name){
    return [attr(element,name) isEqualToString:@"YES"];
 }
 
+static NSDictionary *userInfoFromElement(NSXMLElement *element){
+   NSXMLElement *wrapper=childNamed(element,@"userInfo");
+
+   if(wrapper==nil)
+    return nil;
+
+   NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+   for(NSXMLElement *entry in [wrapper elementsForName:@"entry"])
+    if(attr(entry,@"key")!=nil)
+     [userInfo setObject:attr(entry,@"value")?:@"" forKey:attr(entry,@"key")];
+   return [userInfo count]>0?userInfo:nil;
+}
+
 /* --- model compilation ---------------------------------------------- */
 
-static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
-   NSString *contentsPath=[xcdatamodelPath stringByAppendingPathComponent:@"contents"];
-   NSData   *data=[NSData dataWithContentsOfFile:contentsPath];
-
-   if(data==nil)
-    failf(@"cannot read %@",contentsPath);
-
+static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPath){
    NSError       *xmlError=nil;
    NSXMLDocument *document=[[NSXMLDocument alloc] initWithData:data options:0 error:&xmlError];
 
@@ -268,6 +283,8 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
 
      if(defaultValue!=nil)
       [attribute setDefaultValue:defaultValue];
+     if(userInfoFromElement(attributeElement)!=nil)
+      [attribute setUserInfo:userInfoFromElement(attributeElement)];
 
      [properties addObject:attribute];
     }
@@ -313,6 +330,8 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
      if(destination==nil)
       failf(@"%@: unknown destination entity '%@'",context,destinationName);
      [relationship setDestinationEntity:destination];
+     if(userInfoFromElement(relationshipElement)!=nil)
+      [relationship setUserInfo:userInfoFromElement(relationshipElement)];
 
      [properties addObject:relationship];
     }
@@ -363,17 +382,10 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
       [entity setUniquenessConstraints:constraints];
     }
 
-    NSXMLElement *userInfoElement=childNamed(entityElement,@"userInfo");
+    NSDictionary *entityUserInfo=userInfoFromElement(entityElement);
 
-    if(userInfoElement!=nil){
-     NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
-
-     for(NSXMLElement *entry in [userInfoElement elementsForName:@"entry"])
-      if(attr(entry,@"key")!=nil)
-       [userInfo setObject:attr(entry,@"value")?:@"" forKey:attr(entry,@"key")];
-     if([userInfo count]>0)
-      [entity setUserInfo:userInfo];
-    }
+    if(entityUserInfo!=nil)
+     [entity setUserInfo:entityUserInfo];
    }
 
    /* Pass 4: subentity wiring. */
@@ -429,6 +441,16 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
    }
 
    return model;
+}
+
+static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
+   NSString *contentsPath=[xcdatamodelPath stringByAppendingPathComponent:@"contents"];
+   NSData   *data=[NSData dataWithContentsOfFile:contentsPath];
+
+   if(data==nil)
+    failf(@"cannot read %@",contentsPath);
+
+   return compileModelData(data,contentsPath);
 }
 
 /* --- artifact writing ----------------------------------------------- */
@@ -605,6 +627,67 @@ static NSError *errorFromException(NSException *exception){
     if(error!=NULL)
      *error=errorFromException(exception);
     return NO;
+   }
+}
+
++ (NSManagedObjectModel *)compileModelContentsXML:(NSString *)xml
+                                            error:(NSError **)error {
+   @try {
+    NSData *data=[xml dataUsingEncoding:NSUTF8StringEncoding];
+
+    if(data==nil)
+     failf(@"model contents are not encodable as UTF-8");
+    return compileModelData(data,@"(in-memory contents)");
+   }
+   @catch(NSException *exception) {
+    if(![[exception name] isEqualToString:CDModelCompilerException])
+     @throw;
+    if(error!=NULL)
+     *error=errorFromException(exception);
+    return nil;
+   }
+}
+
++ (NSArray *)attributeTypeNames {
+   return [NSArray arrayWithObjects:
+       @"Undefined",@"Integer 16",@"Integer 32",@"Integer 64",
+       @"Decimal",@"Double",@"Float",@"String",@"Boolean",
+       @"Date",@"Binary",@"UUID",@"URI",@"Transformable",nil];
+}
+
++ (NSInteger)attributeTypeNamed:(NSString *)name {
+   @try {
+    return attributeTypeFromString(name,@"attributeTypeNamed:");
+   }
+   @catch(NSException *exception) {
+    if(![[exception name] isEqualToString:CDModelCompilerException])
+     @throw;
+    return -1;
+   }
+}
+
++ (NSString *)nameForAttributeType:(NSInteger)type {
+   for(NSString *name in [self attributeTypeNames])
+    if(attributeTypeFromString(name,@"nameForAttributeType:")==type)
+     return name;
+   return nil;
+}
+
++ (NSArray *)deleteRuleNames {
+   return [NSArray arrayWithObjects:@"Nullify",@"Cascade",@"Deny",@"No Action",nil];
+}
+
++ (NSExpression *)derivationExpressionFromString:(NSString *)string
+                                           error:(NSError **)error {
+   @try {
+    return derivationExpressionFromString(string,@"derivation expression");
+   }
+   @catch(NSException *exception) {
+    if(![[exception name] isEqualToString:CDModelCompilerException])
+     @throw;
+    if(error!=NULL)
+     *error=errorFromException(exception);
+    return nil;
    }
 }
 

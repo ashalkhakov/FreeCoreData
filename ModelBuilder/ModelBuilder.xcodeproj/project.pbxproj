@@ -8,7 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		MB0000000000000000000101 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000001 /* main.m */; };
-		MB0000000000000000000102 /* MBModel.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000002 /* MBModel.m */; };
+		MB0000000000000000000102 /* CDModelCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000002 /* CDModelCompiler.m */; };
+		MB0000000000000000000112 /* CDModelSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000012 /* CDModelSerializer.m */; };
 		MB0000000000000000000103 /* MBDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000003 /* MBDocument.m */; };
 		MB0000000000000000000104 /* MBWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000004 /* MBWindowController.m */; };
 		MB0000000000000000000105 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000009 /* MainMenu.xib */; };
@@ -18,10 +19,12 @@
 
 /* Begin PBXFileReference section */
 		MB0000000000000000000001 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
-		MB0000000000000000000002 /* MBModel.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBModel.m; sourceTree = "<group>"; };
+		MB0000000000000000000002 /* CDModelCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelCompiler.m; path = ../Tools/momc/CDModelCompiler.m; sourceTree = "<group>"; };
+		MB0000000000000000000012 /* CDModelSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelSerializer.m; path = ../Tools/momc/CDModelSerializer.m; sourceTree = "<group>"; };
 		MB0000000000000000000003 /* MBDocument.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBDocument.m; sourceTree = "<group>"; };
 		MB0000000000000000000004 /* MBWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBWindowController.m; sourceTree = "<group>"; };
-		MB0000000000000000000005 /* MBModel.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBModel.h; sourceTree = "<group>"; };
+		MB0000000000000000000005 /* CDModelCompiler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelCompiler.h; path = ../Tools/momc/CDModelCompiler.h; sourceTree = "<group>"; };
+		MB0000000000000000000015 /* CDModelSerializer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelSerializer.h; path = ../Tools/momc/CDModelSerializer.h; sourceTree = "<group>"; };
 		MB0000000000000000000006 /* MBDocument.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBDocument.h; sourceTree = "<group>"; };
 		MB0000000000000000000007 /* MBWindowController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBWindowController.h; sourceTree = "<group>"; };
 		MB0000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -46,8 +49,10 @@
 		MB0000000000000000000301 = {
 			isa = PBXGroup;
 			children = (
-				MB0000000000000000000005 /* MBModel.h */,
-				MB0000000000000000000002 /* MBModel.m */,
+				MB0000000000000000000005 /* CDModelCompiler.h */,
+				MB0000000000000000000002 /* CDModelCompiler.m */,
+				MB0000000000000000000015 /* CDModelSerializer.h */,
+				MB0000000000000000000012 /* CDModelSerializer.m */,
 				MB0000000000000000000006 /* MBDocument.h */,
 				MB0000000000000000000003 /* MBDocument.m */,
 				MB0000000000000000000007 /* MBWindowController.h */,
@@ -142,7 +147,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				MB0000000000000000000101 /* main.m in Sources */,
-				MB0000000000000000000102 /* MBModel.m in Sources */,
+				MB0000000000000000000102 /* CDModelCompiler.m in Sources */,
+				MB0000000000000000000112 /* CDModelSerializer.m in Sources */,
 				MB0000000000000000000103 /* MBDocument.m in Sources */,
 				MB0000000000000000000104 /* MBWindowController.m in Sources */,
 			);

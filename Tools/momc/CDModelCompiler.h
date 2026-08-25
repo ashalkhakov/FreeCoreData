@@ -44,4 +44,27 @@ extern NSString * const CDModelCompilerErrorDomain;
                           toPath:(NSString *)destinationPath
                            error:(NSError **)error;
 
+/* One .xcdatamodel contents XML string -> the model it describes.
+   The editor's load path (documents arrive as file wrappers, not
+   always as paths). */
++ (NSManagedObjectModel *)compileModelContentsXML:(NSString *)xml
+                                            error:(NSError **)error;
+
+/* Schema vocabulary, for tooling that presents it (the ModelBuilder
+   editor): Xcode's attribute type spellings in menu order, and the
+   mapping to/from NSAttributeType.  attributeTypeNamed: returns
+   NSNotFound-like -1 for an unknown spelling. */
++ (NSArray *)attributeTypeNames;
++ (NSInteger)attributeTypeNamed:(NSString *)name;
++ (NSString *)nameForAttributeType:(NSInteger)type;
+
+/* Xcode's deletion rule spellings in menu order, and the mapping to
+   NSDeleteRule. */
++ (NSArray *)deleteRuleNames;
+
+/* Parses Xcode's derivationExpression spelling ("uppercase:(title)",
+   "now()", a bare key path) into the expression the runtime evaluates. */
++ (NSExpression *)derivationExpressionFromString:(NSString *)string
+                                           error:(NSError **)error;
+
 @end

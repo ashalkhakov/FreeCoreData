@@ -1,8 +1,14 @@
-/* ModelBuilder three-pane editor.
+/* ModelBuilder three-pane editor over FreeCoreData's own description
+   classes: the tables and inspector read and mutate NSEntityDescription /
+   NSAttributeDescription / NSRelationshipDescription directly; structural
+   surgery (reparent, delete entity) goes through the document's XML
+   mutation path so momc's compiler renormalizes the graph.
    Copyright (c) 2026 the GNUstep CoreData port contributors.
    Released under the MIT license. */
 #import "MBWindowController.h"
 #import "MBDocument.h"
+#import "CDModelCompiler.h"
+#import "CDModelSerializer.h"
 
 typedef NS_ENUM(NSInteger, MBInspectKind) {
   MBInspectNone = 0,
@@ -15,6 +21,11 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 @implementation MBWindowController {
   MBInspectKind _kind;
   BOOL _updating;
+  NSArray *_entities;          /* sorted NSEntityDescription rows */
+  NSArray *_templateNames;     /* sorted fetch template names */
+  NSArray *_attributeNames;    /* selected entity's own attributes, sorted */
+  NSArray *_relationshipNames; /* selected entity's own relationships, sorted */
+  NSArray *_userInfoKeys;      /* sorted keys of the inspected userInfo */
 }
 
 - (MBDocument *)modelDocument
@@ -22,10 +33,43 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
   return (MBDocument *)self.document;
 }
 
-- (MBModel *)model
+- (NSManagedObjectModel *)model
 {
   return self.modelDocument.model;
 }
+
+#pragma mark - Row caches
+
+- (void)rebuildEntityRows
+{
+  _entities = [self.modelDocument sortedEntities];
+  _templateNames = [[[self.model fetchRequestTemplatesByName] allKeys]
+      sortedArrayUsingSelector:@selector(compare:)];
+}
+
+/* Xcode lists an entity's OWN properties; inherited ones live on the
+   parent. */
+- (void)rebuildPropertyRowsForEntity:(NSEntityDescription *)entity
+{
+  NSMutableArray *attributes = [NSMutableArray array];
+  NSMutableArray *relationships = [NSMutableArray array];
+  for (NSPropertyDescription *property in entity.properties) {
+    if ([property isKindOfClass:[NSAttributeDescription class]])
+      [attributes addObject:property.name];
+    else if ([property isKindOfClass:[NSRelationshipDescription class]])
+      [relationships addObject:property.name];
+  }
+  _attributeNames = [attributes sortedArrayUsingSelector:@selector(compare:)];
+  _relationshipNames = [relationships sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (void)rebuildUserInfoRows
+{
+  _userInfoKeys = [[[self currentUserInfo] allKeys]
+      sortedArrayUsingSelector:@selector(compare:)];
+}
+
+#pragma mark - Setup
 
 - (void)configureTable:(NSTableView *)table
 {
@@ -53,6 +97,82 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
   }
 }
 
+/* The version bar lives in the status row: the status field is
+   shortened and the controls take the reclaimed width.  Created in
+   code so the xib stays loadable by both GSXib5 and Xcode. */
+- (void)installVersionBar
+{
+  NSView *host = self.statusField.superview;
+  if (!host) return;
+
+  NSRect status = self.statusField.frame;
+  CGFloat barWidth = 470.0;
+  if (status.size.width <= barWidth + 120.0) barWidth = status.size.width / 2.0;
+  NSRect carved = status;
+  carved.size.width -= barWidth;
+  self.statusField.frame = carved;
+  self.statusField.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
+
+  CGFloat x = NSMaxX(carved);
+  NSRect rowFrame = NSMakeRect(x, status.origin.y, 190, status.size.height);
+
+  self.versionPopup = [[NSPopUpButton alloc] initWithFrame:rowFrame pullsDown:NO];
+  self.versionPopup.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin;
+  self.versionPopup.target = self;
+  self.versionPopup.action = @selector(versionSelected:);
+  [host addSubview:self.versionPopup];
+  x += 190;
+
+  NSButton *(^makeButton)(NSString *, SEL, CGFloat) = ^(NSString *title, SEL action, CGFloat width) {
+    NSButton *button = [[NSButton alloc]
+        initWithFrame:NSMakeRect(x, status.origin.y, width, status.size.height)];
+    button.title = title;
+    button.bezelStyle = NSRoundedBezelStyle;
+    button.target = self;
+    button.action = action;
+    button.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin;
+    [host addSubview:button];
+    return button;
+  };
+  self.addVersionButton = makeButton(@"+ Version", @selector(addModelVersion:), 90);
+  x += 90;
+  self.makeCurrentButton = makeButton(@"Make Current", @selector(makeCurrentVersion:), 110);
+  x += 110;
+  self.validateButton = makeButton(@"Validate", @selector(validateModel:), 80);
+}
+
+/* Derivation editor, shown for attributes: a labelled text field
+   dropped below the max field. */
+- (void)installDerivationField
+{
+  NSView *host = self.maxField.superview;
+  if (!host) return;
+
+  NSRect anchor = self.maxField.frame;
+  NSRect labelFrame = anchor;
+  labelFrame.origin.y -= (anchor.size.height + 8.0);
+  labelFrame.size.width = 70.0;
+  labelFrame.origin.x = anchor.origin.x - 74.0;
+  if (labelFrame.origin.x < 4.0) labelFrame.origin.x = 4.0;
+
+  self.derivationLabel = [[NSTextField alloc] initWithFrame:labelFrame];
+  self.derivationLabel.stringValue = @"Derivation";
+  self.derivationLabel.bezeled = NO;
+  self.derivationLabel.bordered = NO;
+  self.derivationLabel.editable = NO;
+  self.derivationLabel.selectable = NO;
+  self.derivationLabel.drawsBackground = NO;
+  self.derivationLabel.autoresizingMask = self.maxField.autoresizingMask;
+  [host addSubview:self.derivationLabel];
+
+  NSRect fieldFrame = anchor;
+  fieldFrame.origin.y = labelFrame.origin.y;
+  self.derivationField = [[NSTextField alloc] initWithFrame:fieldFrame];
+  self.derivationField.autoresizingMask = self.maxField.autoresizingMask;
+  self.derivationField.delegate = self;
+  [host addSubview:self.derivationField];
+}
+
 - (void)windowDidLoad
 {
   [super windowDidLoad];
@@ -64,24 +184,31 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
   self.predicateView.delegate = self;
 
   [self.typePopup removeAllItems];
-  [self.typePopup addItemsWithTitles:[MBModel attributeTypeNames]];
+  [self.typePopup addItemsWithTitles:[CDModelCompiler attributeTypeNames]];
   [self.deleteRulePopup removeAllItems];
-  [self.deleteRulePopup addItemsWithTitles:[MBModel deletionRuleNames]];
+  [self.deleteRulePopup addItemsWithTitles:[CDModelCompiler deleteRuleNames]];
+
+  [self installVersionBar];
+  [self installDerivationField];
 
   [self reloadAll];
-  if (self.model.entities.count)
+  if (_entities.count)
     [self.entityTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
   [self inspectEntity];
 }
 
 - (void)reloadAll
 {
+  [self rebuildEntityRows];
+  [self rebuildPropertyRowsForEntity:[self selectedEntity]];
+  [self rebuildUserInfoRows];
   [self.entityTable reloadData];
   [self.fetchTable reloadData];
   [self.attributeTable reloadData];
   [self.relationshipTable reloadData];
   [self.userInfoTable reloadData];
   [self updateStatus];
+  [self updateVersionBar];
 }
 
 - (void)noteChanged
@@ -92,57 +219,99 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 
 - (void)updateStatus
 {
-  MBModel *model = self.model;
-  self.statusField.stringValue = [NSString stringWithFormat:@"%@  —  %lu entities, %lu fetch requests",
-                                  model.versionName ?: @"untitled",
-                                  (unsigned long)model.entities.count,
-                                  (unsigned long)model.fetchRequests.count];
+  MBDocument *doc = self.modelDocument;
+  self.statusField.stringValue = [NSString stringWithFormat:@"%@%@  —  %lu entities, %lu fetch requests",
+                                  doc.editedVersionName ?: @"untitled",
+                                  [doc.editedVersionName isEqualToString:doc.currentVersionName]
+                                      ? @" (current)" : @"",
+                                  (unsigned long)self.model.entities.count,
+                                  (unsigned long)_templateNames.count];
+}
+
+- (void)updateVersionBar
+{
+  MBDocument *doc = self.modelDocument;
+  [self.versionPopup removeAllItems];
+  for (NSString *name in [doc versionNames]) {
+    NSString *title = [name isEqualToString:doc.currentVersionName]
+        ? [name stringByAppendingString:@"  ✓"] : name;
+    [self.versionPopup addItemWithTitle:title];
+    [[self.versionPopup lastItem] setRepresentedObject:name];
+  }
+  for (NSMenuItem *item in [[self.versionPopup menu] itemArray]) {
+    if ([[item representedObject] isEqualToString:doc.editedVersionName]) {
+      [self.versionPopup selectItem:item];
+      break;
+    }
+  }
+  self.makeCurrentButton.enabled =
+      ![doc.editedVersionName isEqualToString:doc.currentVersionName];
 }
 
 #pragma mark - Selection
 
-- (MBEntity *)selectedEntity
+- (NSEntityDescription *)selectedEntity
 {
   NSInteger row = self.entityTable.selectedRow;
-  if (row < 0 || (NSUInteger)row >= self.model.entities.count) return nil;
-  return self.model.entities[(NSUInteger)row];
+  if (row < 0 || (NSUInteger)row >= _entities.count) return nil;
+  return _entities[(NSUInteger)row];
 }
 
-- (MBFetchRequest *)selectedFetch
+- (NSString *)selectedTemplateName
 {
   NSInteger row = self.fetchTable.selectedRow;
-  if (row < 0 || (NSUInteger)row >= self.model.fetchRequests.count) return nil;
-  return self.model.fetchRequests[(NSUInteger)row];
+  if (row < 0 || (NSUInteger)row >= _templateNames.count) return nil;
+  return _templateNames[(NSUInteger)row];
 }
 
-- (MBAttribute *)selectedAttribute
+- (NSFetchRequest *)selectedTemplate
 {
-  MBEntity *entity = [self selectedEntity];
+  NSString *name = [self selectedTemplateName];
+  return name ? [self.model fetchRequestTemplateForName:name] : nil;
+}
+
+- (NSAttributeDescription *)selectedAttribute
+{
+  NSEntityDescription *entity = [self selectedEntity];
   NSInteger row = self.attributeTable.selectedRow;
-  if (!entity || row < 0 || (NSUInteger)row >= entity.attributes.count) return nil;
-  return entity.attributes[(NSUInteger)row];
+  if (!entity || row < 0 || (NSUInteger)row >= _attributeNames.count) return nil;
+  return entity.attributesByName[_attributeNames[(NSUInteger)row]];
 }
 
-- (MBRelationship *)selectedRelationship
+- (NSRelationshipDescription *)selectedRelationship
 {
-  MBEntity *entity = [self selectedEntity];
+  NSEntityDescription *entity = [self selectedEntity];
   NSInteger row = self.relationshipTable.selectedRow;
-  if (!entity || row < 0 || (NSUInteger)row >= entity.relationships.count) return nil;
-  return entity.relationships[(NSUInteger)row];
+  if (!entity || row < 0 || (NSUInteger)row >= _relationshipNames.count) return nil;
+  return entity.relationshipsByName[_relationshipNames[(NSUInteger)row]];
 }
 
-- (NSMutableArray<MBUserInfo *> *)currentUserInfo
+- (NSDictionary *)currentUserInfo
 {
-  if (_kind == MBInspectEntity) return [self selectedEntity].userInfo;
-  if (_kind == MBInspectAttribute) return [self selectedAttribute].userInfo;
-  if (_kind == MBInspectRelationship) return [self selectedRelationship].userInfo;
+  if (_kind == MBInspectEntity) return [[self selectedEntity] userInfo];
+  if (_kind == MBInspectAttribute) return [[self selectedAttribute] userInfo];
+  if (_kind == MBInspectRelationship) return [[self selectedRelationship] userInfo];
   return nil;
+}
+
+- (void)setCurrentUserInfo:(NSDictionary *)userInfo
+{
+  if (_kind == MBInspectEntity) [[self selectedEntity] setUserInfo:userInfo];
+  else if (_kind == MBInspectAttribute) [[self selectedAttribute] setUserInfo:userInfo];
+  else if (_kind == MBInspectRelationship) [[self selectedRelationship] setUserInfo:userInfo];
+  [self rebuildUserInfoRows];
 }
 
 - (void)showEntityPane:(BOOL)entityNotFetch
 {
   self.entityPane.hidden = !entityNotFetch;
   self.fetchPane.hidden = entityNotFetch;
+}
+
+- (void)showDerivation:(BOOL)visible
+{
+  self.derivationLabel.hidden = !visible;
+  self.derivationField.hidden = !visible;
 }
 
 - (void)inspectNone
@@ -193,8 +362,8 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 {
   [self.parentPopup removeAllItems];
   [self.parentPopup addItemWithTitle:@"(none)"];
-  MBEntity *current = [self selectedEntity];
-  for (MBEntity *entity in self.model.entities) {
+  NSEntityDescription *current = [self selectedEntity];
+  for (NSEntityDescription *entity in _entities) {
     if (entity == current) continue;
     [self.parentPopup addItemWithTitle:entity.name ?: @""];
   }
@@ -204,7 +373,7 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 {
   [self.destinationPopup removeAllItems];
   [self.destinationPopup addItemWithTitle:@"(none)"];
-  for (MBEntity *entity in self.model.entities)
+  for (NSEntityDescription *entity in _entities)
     [self.destinationPopup addItemWithTitle:entity.name ?: @""];
 }
 
@@ -212,117 +381,313 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 {
   [self.inversePopup removeAllItems];
   [self.inversePopup addItemWithTitle:@"(none)"];
-  MBRelationship *rel = [self selectedRelationship];
-  MBEntity *dest = rel.destinationEntity.length ? [self.model entityNamed:rel.destinationEntity] : nil;
+  NSRelationshipDescription *rel = [self selectedRelationship];
+  NSEntityDescription *dest = rel.destinationEntity;
   if (!dest) return;
-  for (MBRelationship *other in dest.relationships)
+  for (NSRelationshipDescription *other in dest.relationshipsByName.allValues)
     [self.inversePopup addItemWithTitle:other.name ?: @""];
 }
 
 - (void)fillInspector
 {
   _updating = YES;
-  MBEntity *entity = [self selectedEntity];
-  MBAttribute *attr = [self selectedAttribute];
-  MBRelationship *rel = [self selectedRelationship];
-  MBFetchRequest *fetch = [self selectedFetch];
+  NSEntityDescription *entity = [self selectedEntity];
+  NSAttributeDescription *attr = [self selectedAttribute];
+  NSRelationshipDescription *rel = [self selectedRelationship];
+  NSFetchRequest *fetch = [self selectedTemplate];
 
   [self rebuildParentPopup];
   [self rebuildDestinationPopup];
   [self rebuildInversePopup];
+  [self rebuildUserInfoRows];
 
   self.nameField.stringValue = @"";
   self.classField.stringValue = @"";
   self.defaultField.stringValue = @"";
   self.minField.stringValue = @"";
   self.maxField.stringValue = @"";
+  self.derivationField.stringValue = @"";
   self.abstractButton.state = NSOffState;
   self.optionalButton.state = NSOffState;
   self.transientButton.state = NSOffState;
   self.toManyButton.state = NSOffState;
   if (self.orderedButton) self.orderedButton.state = NSOffState;
   self.predicateView.string = @"";
+  [self showDerivation:NO];
 
   if (_kind == MBInspectEntity && entity) {
     self.nameField.stringValue = entity.name ?: @"";
-    self.classField.stringValue = entity.representedClassName ?: @"";
+    self.classField.stringValue = entity.managedObjectClassName ?: @"";
     self.abstractButton.state = entity.isAbstract ? NSOnState : NSOffState;
-    if (entity.parentEntity.length && [self.parentPopup itemWithTitle:entity.parentEntity])
-      [self.parentPopup selectItemWithTitle:entity.parentEntity];
+    NSString *parent = entity.superentity.name;
+    if (parent.length && [self.parentPopup itemWithTitle:parent])
+      [self.parentPopup selectItemWithTitle:parent];
     else
       [self.parentPopup selectItemAtIndex:0];
   } else if (_kind == MBInspectAttribute && attr) {
+    [self showDerivation:YES];
     self.nameField.stringValue = attr.name ?: @"";
-    if (attr.attributeType.length && [self.typePopup itemWithTitle:attr.attributeType])
-      [self.typePopup selectItemWithTitle:attr.attributeType];
-    self.optionalButton.state = attr.optional ? NSOnState : NSOffState;
-    self.transientButton.state = attr.transient ? NSOnState : NSOffState;
-    self.defaultField.stringValue = attr.defaultValueString ?: @"";
-    self.minField.stringValue = attr.minValueString ?: @"";
-    self.maxField.stringValue = attr.maxValueString ?: @"";
+    NSString *typeName = [CDModelCompiler nameForAttributeType:attr.attributeType];
+    if (typeName.length && [self.typePopup itemWithTitle:typeName])
+      [self.typePopup selectItemWithTitle:typeName];
+    self.optionalButton.state = attr.isOptional ? NSOnState : NSOffState;
+    self.transientButton.state = attr.isTransient ? NSOnState : NSOffState;
+    self.defaultField.stringValue = attr.defaultValue
+        ? [self stringForDefaultValue:attr.defaultValue type:attr.attributeType] : @"";
+    if ([attr isKindOfClass:[NSDerivedAttributeDescription class]]) {
+      NSExpression *expr = [(NSDerivedAttributeDescription *)attr derivationExpression];
+      self.derivationField.stringValue = expr ? [self stringForDerivation:expr] : @"";
+    }
   } else if (_kind == MBInspectRelationship && rel) {
     self.nameField.stringValue = rel.name ?: @"";
-    self.optionalButton.state = rel.optional ? NSOnState : NSOffState;
-    self.toManyButton.state = rel.toMany ? NSOnState : NSOffState;
-    if (self.orderedButton) self.orderedButton.state = (rel.toMany && rel.ordered) ? NSOnState : NSOffState;
-    if (rel.destinationEntity.length && [self.destinationPopup itemWithTitle:rel.destinationEntity])
-      [self.destinationPopup selectItemWithTitle:rel.destinationEntity];
+    self.optionalButton.state = rel.isOptional ? NSOnState : NSOffState;
+    self.transientButton.state = rel.isTransient ? NSOnState : NSOffState;
+    self.toManyButton.state = rel.isToMany ? NSOnState : NSOffState;
+    if (self.orderedButton) self.orderedButton.state = (rel.isToMany && rel.isOrdered) ? NSOnState : NSOffState;
+    NSString *dest = rel.destinationEntity.name;
+    if (dest.length && [self.destinationPopup itemWithTitle:dest])
+      [self.destinationPopup selectItemWithTitle:dest];
     else
       [self.destinationPopup selectItemAtIndex:0];
-    if (rel.inverseName.length && [self.inversePopup itemWithTitle:rel.inverseName])
-      [self.inversePopup selectItemWithTitle:rel.inverseName];
+    NSString *inverse = rel.inverseRelationship.name;
+    if (inverse.length && [self.inversePopup itemWithTitle:inverse])
+      [self.inversePopup selectItemWithTitle:inverse];
     else
       [self.inversePopup selectItemAtIndex:0];
-    if (rel.deletionRule.length && [self.deleteRulePopup itemWithTitle:rel.deletionRule])
-      [self.deleteRulePopup selectItemWithTitle:rel.deletionRule];
-    self.minField.stringValue = rel.minCount ? [NSString stringWithFormat:@"%lu", (unsigned long)rel.minCount] : @"";
-    self.maxField.stringValue = (rel.toMany && rel.maxCount) ? [NSString stringWithFormat:@"%lu", (unsigned long)rel.maxCount] : @"";
+    NSArray *ruleNames = [CDModelCompiler deleteRuleNames];
+    NSUInteger ruleIndex;
+    switch (rel.deleteRule) {
+      case NSCascadeDeleteRule:  ruleIndex = 1; break;
+      case NSDenyDeleteRule:     ruleIndex = 2; break;
+      case NSNoActionDeleteRule: ruleIndex = 3; break;
+      default:                   ruleIndex = 0; break;
+    }
+    [self.deleteRulePopup selectItemWithTitle:ruleNames[ruleIndex]];
+    self.minField.stringValue = rel.minCount
+        ? [NSString stringWithFormat:@"%ld", (long)rel.minCount] : @"";
+    self.maxField.stringValue = (rel.isToMany && rel.maxCount)
+        ? [NSString stringWithFormat:@"%ld", (long)rel.maxCount] : @"";
   } else if (_kind == MBInspectFetch && fetch) {
-    self.nameField.stringValue = fetch.name ?: @"";
-    self.predicateView.string = fetch.predicateString ?: @"";
-    [self rebuildDestinationPopup];
-    if (fetch.entityName.length && [self.destinationPopup itemWithTitle:fetch.entityName])
-      [self.destinationPopup selectItemWithTitle:fetch.entityName];
+    self.nameField.stringValue = [self selectedTemplateName] ?: @"";
+    self.predicateView.string = fetch.predicate ? [fetch.predicate predicateFormat] : @"";
+    if (fetch.entity.name.length && [self.destinationPopup itemWithTitle:fetch.entity.name])
+      [self.destinationPopup selectItemWithTitle:fetch.entity.name];
   }
   [self.userInfoTable reloadData];
   _updating = NO;
 }
 
-#pragma mark - Actions
+- (NSString *)stringForDefaultValue:(id)value type:(NSAttributeType)type
+{
+  switch (type) {
+    case NSBooleanAttributeType: return [value boolValue] ? @"YES" : @"NO";
+    case NSDateAttributeType:
+      return [@([value timeIntervalSinceReferenceDate]) stringValue];
+    case NSUUIDAttributeType: return [value UUIDString];
+    case NSURIAttributeType: return [value absoluteString];
+    default: return [value description];
+  }
+}
+
+- (NSString *)stringForDerivation:(NSExpression *)expression
+{
+  switch (expression.expressionType) {
+    case NSKeyPathExpressionType: return expression.keyPath;
+    case NSFunctionExpressionType: {
+      NSString *name = expression.function;
+      if ([name hasSuffix:@":"]) name = [name substringToIndex:name.length - 1];
+      if (expression.arguments.count == 0) return [name stringByAppendingString:@"()"];
+      NSExpression *arg = expression.arguments.firstObject;
+      NSString *argString = (arg.expressionType == NSKeyPathExpressionType)
+          ? arg.keyPath : [arg description];
+      return [NSString stringWithFormat:@"%@:(%@)", name, argString];
+    }
+    default: return [expression description];
+  }
+}
+
+#pragma mark - Version bar actions
+
+- (void)presentError:(NSError *)error title:(NSString *)title
+{
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = title;
+  alert.informativeText = error.localizedDescription ?: @"Unknown error.";
+  [alert runModal];
+}
+
+- (IBAction)versionSelected:(id)sender
+{
+  (void)sender;
+  NSString *name = [[self.versionPopup selectedItem] representedObject];
+  if (!name.length) return;
+  NSError *error = nil;
+  if (![self.modelDocument switchToVersion:name error:&error]) {
+    [self presentError:error title:@"Cannot switch versions"];
+    [self updateVersionBar];
+    return;
+  }
+  [self reloadAll];
+  [self inspectNone];
+}
+
+- (IBAction)addModelVersion:(id)sender
+{
+  (void)sender;
+  if (![self.modelDocument addModelVersion]) return;
+  [self reloadAll];
+  [self inspectNone];
+}
+
+- (IBAction)makeCurrentVersion:(id)sender
+{
+  (void)sender;
+  [self.modelDocument makeEditedVersionCurrent];
+  [self updateStatus];
+  [self updateVersionBar];
+}
+
+- (IBAction)validateModel:(id)sender
+{
+  (void)sender;
+  NSError *error = nil;
+  NSArray *warnings = nil;
+  BOOL ok = [self.modelDocument validateModel:&error warnings:&warnings];
+
+  NSAlert *alert = [[NSAlert alloc] init];
+  if (!ok) {
+    alert.messageText = @"Model does not compile";
+    alert.informativeText = error.localizedDescription ?: @"Unknown error.";
+  } else if (warnings.count) {
+    alert.messageText = [NSString stringWithFormat:@"Model compiles with %lu warning%@",
+                         (unsigned long)warnings.count, warnings.count == 1 ? @"" : @"s"];
+    alert.informativeText = [warnings componentsJoinedByString:@"\n"];
+  } else {
+    alert.messageText = @"Model compiles cleanly";
+    alert.informativeText = @"momc found no problems.";
+  }
+  [alert runModal];
+}
+
+#pragma mark - Editing actions
+
+- (NSString *)uniqueName:(NSString *)base among:(NSArray *)names
+{
+  if (![names containsObject:base]) return base;
+  NSUInteger counter = 2;
+  NSString *candidate;
+  do {
+    candidate = [NSString stringWithFormat:@"%@%lu", base, (unsigned long)counter];
+    counter++;
+  } while ([names containsObject:candidate]);
+  return candidate;
+}
+
+- (void)selectEntityNamed:(NSString *)name
+{
+  [self rebuildEntityRows];
+  [self.entityTable reloadData];
+  for (NSUInteger i = 0; i < _entities.count; i++) {
+    if ([[_entities[i] name] isEqualToString:name]) {
+      [self.entityTable selectRowIndexes:[NSIndexSet indexSetWithIndex:i]
+                    byExtendingSelection:NO];
+      break;
+    }
+  }
+}
 
 - (IBAction)addEntity:(id)sender
 {
   (void)sender;
-  MBEntity *entity = [self.model addEntityNamed:nil];
-  [self.entityTable reloadData];
-  NSUInteger idx = [self.model.entities indexOfObject:entity];
-  [self.entityTable selectRowIndexes:[NSIndexSet indexSetWithIndex:idx] byExtendingSelection:NO];
+  NSString *name = [self uniqueName:@"Entity"
+                              among:[self.model.entities valueForKey:@"name"]];
+  NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+  entity.name = name;
+  entity.managedObjectClassName = @"NSManagedObject";
+  self.model.entities = [self.model.entities arrayByAddingObject:entity];
+  [self selectEntityNamed:name];
   [self.fetchTable deselectAll:nil];
-  [self inspectEntity];
+  [self rebuildPropertyRowsForEntity:entity];
   [self.attributeTable reloadData];
   [self.relationshipTable reloadData];
+  [self inspectEntity];
   [self noteChanged];
 }
 
+/* Deleting an entity ripples: relationships targeting it, fetch
+   templates on it, configuration membership, subentity links.  The XML
+   mutation path lets momc's compiler renormalize all of it. */
 - (IBAction)removeEntity:(id)sender
 {
   (void)sender;
-  MBEntity *entity = [self selectedEntity];
+  NSEntityDescription *entity = [self selectedEntity];
   if (!entity) return;
-  [self.model removeEntity:entity];
+  NSString *doomed = entity.name;
+  [self.modelDocument.entityLayouts removeObjectForKey:doomed];
+
+  NSError *error = nil;
+  BOOL ok = [self.modelDocument performXMLMutation:^(NSXMLElement *root) {
+    NSMutableArray *goners = [NSMutableArray array];
+    for (NSXMLElement *el in [root elementsForName:@"entity"]) {
+      NSString *name = [[el attributeForName:@"name"] stringValue];
+      if ([name isEqualToString:doomed]) { [goners addObject:el]; continue; }
+      if ([[[el attributeForName:@"parentEntity"] stringValue] isEqualToString:doomed])
+        [el removeAttributeForName:@"parentEntity"];
+      NSMutableArray *deadRels = [NSMutableArray array];
+      for (NSXMLElement *rel in [el elementsForName:@"relationship"]) {
+        if ([[[rel attributeForName:@"destinationEntity"] stringValue] isEqualToString:doomed])
+          [deadRels addObject:rel];
+        else if ([[[rel attributeForName:@"inverseEntity"] stringValue] isEqualToString:doomed]) {
+          [rel removeAttributeForName:@"inverseName"];
+          [rel removeAttributeForName:@"inverseEntity"];
+        }
+      }
+      for (NSXMLElement *rel in deadRels)
+        [el removeChildAtIndex:[[el children] indexOfObjectIdenticalTo:rel]];
+    }
+    for (NSXMLElement *el in [root elementsForName:@"configuration"]) {
+      NSMutableArray *deadMembers = [NSMutableArray array];
+      for (NSXMLElement *member in [el elementsForName:@"memberEntity"])
+        if ([[[member attributeForName:@"name"] stringValue] isEqualToString:doomed])
+          [deadMembers addObject:member];
+      for (NSXMLElement *member in deadMembers)
+        [el removeChildAtIndex:[[el children] indexOfObjectIdenticalTo:member]];
+    }
+    for (NSXMLElement *fetch in [root elementsForName:@"fetchRequest"])
+      if ([[[fetch attributeForName:@"entity"] stringValue] isEqualToString:doomed])
+        [goners addObject:fetch];
+    for (NSXMLElement *wrap in [root elementsForName:@"elements"])
+      for (NSXMLElement *el in [wrap elementsForName:@"element"])
+        if ([[[el attributeForName:@"name"] stringValue] isEqualToString:doomed])
+          [goners addObject:el];
+    for (NSXMLElement *el in goners)
+      [(NSXMLElement *)[el parent] removeChildAtIndex:
+          [[[el parent] children] indexOfObjectIdenticalTo:el]];
+  } error:&error];
+
+  if (!ok) {
+    [self presentError:error title:@"Cannot delete entity"];
+    return;
+  }
   [self reloadAll];
   [self inspectNone];
-  [self noteChanged];
 }
 
 - (IBAction)addFetchRequest:(id)sender
 {
   (void)sender;
-  MBEntity *entity = [self selectedEntity] ?: self.model.entities.firstObject;
-  MBFetchRequest *req = [self.model addFetchRequestNamed:nil entityName:entity.name];
+  NSEntityDescription *entity = [self selectedEntity] ?: _entities.firstObject;
+  if (!entity) return;
+  NSString *name = [self uniqueName:@"FetchRequest" among:_templateNames];
+  NSFetchRequest *request = [[NSFetchRequest alloc] init];
+  request.entity = entity;
+  [self.model setFetchRequestTemplate:request forName:name];
+  [self rebuildEntityRows];
   [self.fetchTable reloadData];
-  NSUInteger idx = [self.model.fetchRequests indexOfObject:req];
-  [self.fetchTable selectRowIndexes:[NSIndexSet indexSetWithIndex:idx] byExtendingSelection:NO];
+  NSUInteger idx = [_templateNames indexOfObject:name];
+  if (idx != NSNotFound)
+    [self.fetchTable selectRowIndexes:[NSIndexSet indexSetWithIndex:idx]
+                 byExtendingSelection:NO];
   [self.entityTable deselectAll:nil];
   [self inspectFetch];
   [self noteChanged];
@@ -331,27 +696,45 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 - (IBAction)removeFetchRequest:(id)sender
 {
   (void)sender;
-  MBFetchRequest *req = [self selectedFetch];
-  if (!req) return;
-  [self.model removeFetchRequest:req];
+  NSString *name = [self selectedTemplateName];
+  if (!name) return;
+  [self.model setFetchRequestTemplate:nil forName:name];
+  [self rebuildEntityRows];
   [self.fetchTable reloadData];
   [self inspectNone];
   [self noteChanged];
 }
 
+- (void)replaceProperty:(NSPropertyDescription *)old
+                   with:(NSPropertyDescription *)replacement
+               ofEntity:(NSEntityDescription *)entity
+{
+  NSMutableArray *properties = [entity.properties mutableCopy];
+  NSUInteger idx = [properties indexOfObjectIdenticalTo:old];
+  if (idx == NSNotFound) return;
+  if (replacement) [properties replaceObjectAtIndex:idx withObject:replacement];
+  else [properties removeObjectAtIndex:idx];
+  entity.properties = properties;
+}
+
 - (IBAction)addAttribute:(id)sender
 {
   (void)sender;
-  MBEntity *entity = [self selectedEntity];
+  NSEntityDescription *entity = [self selectedEntity];
   if (!entity) return;
-  NSMutableArray *names = [NSMutableArray array];
-  for (MBAttribute *a in entity.attributes) if (a.name) [names addObject:a.name];
-  MBAttribute *attr = [[MBAttribute alloc] init];
-  attr.name = [self.model uniqueName:@"attribute" among:names];
-  [entity.attributes addObject:attr];
+  NSString *name = [self uniqueName:@"attribute"
+                              among:entity.propertiesByName.allKeys];
+  NSAttributeDescription *attribute = [[NSAttributeDescription alloc] init];
+  attribute.name = name;
+  attribute.attributeType = NSStringAttributeType;
+  attribute.optional = YES;
+  entity.properties = [entity.properties arrayByAddingObject:attribute];
+  [self rebuildPropertyRowsForEntity:entity];
   [self.attributeTable reloadData];
-  NSUInteger idx = [entity.attributes indexOfObject:attr];
-  [self.attributeTable selectRowIndexes:[NSIndexSet indexSetWithIndex:idx] byExtendingSelection:NO];
+  NSUInteger idx = [_attributeNames indexOfObject:name];
+  if (idx != NSNotFound)
+    [self.attributeTable selectRowIndexes:[NSIndexSet indexSetWithIndex:idx]
+                     byExtendingSelection:NO];
   [self inspectAttribute];
   [self noteChanged];
 }
@@ -359,10 +742,11 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 - (IBAction)removeAttribute:(id)sender
 {
   (void)sender;
-  MBEntity *entity = [self selectedEntity];
-  MBAttribute *attr = [self selectedAttribute];
-  if (!entity || !attr) return;
-  [entity.attributes removeObject:attr];
+  NSEntityDescription *entity = [self selectedEntity];
+  NSAttributeDescription *attribute = [self selectedAttribute];
+  if (!entity || !attribute) return;
+  [self replaceProperty:attribute with:nil ofEntity:entity];
+  [self rebuildPropertyRowsForEntity:entity];
   [self.attributeTable reloadData];
   [self inspectEntity];
   [self noteChanged];
@@ -371,19 +755,27 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 - (IBAction)addRelationship:(id)sender
 {
   (void)sender;
-  MBEntity *entity = [self selectedEntity];
+  NSEntityDescription *entity = [self selectedEntity];
   if (!entity) return;
-  NSMutableArray *names = [NSMutableArray array];
-  for (MBRelationship *r in entity.relationships) if (r.name) [names addObject:r.name];
-  MBRelationship *rel = [[MBRelationship alloc] init];
-  rel.name = [self.model uniqueName:@"relationship" among:names];
-  MBEntity *other = nil;
-  for (MBEntity *e in self.model.entities) { if (e != entity) { other = e; break; } }
-  rel.destinationEntity = (other ?: entity).name;
-  [entity.relationships addObject:rel];
+  NSString *name = [self uniqueName:@"relationship"
+                              among:entity.propertiesByName.allKeys];
+  NSRelationshipDescription *relationship = [[NSRelationshipDescription alloc] init];
+  relationship.name = name;
+  relationship.optional = YES;
+  relationship.minCount = 0;
+  relationship.maxCount = 1;
+  relationship.deleteRule = NSNullifyDeleteRule;
+  NSEntityDescription *destination = entity;
+  for (NSEntityDescription *other in _entities)
+    if (other != entity) { destination = other; break; }
+  relationship.destinationEntity = destination;
+  entity.properties = [entity.properties arrayByAddingObject:relationship];
+  [self rebuildPropertyRowsForEntity:entity];
   [self.relationshipTable reloadData];
-  NSUInteger idx = [entity.relationships indexOfObject:rel];
-  [self.relationshipTable selectRowIndexes:[NSIndexSet indexSetWithIndex:idx] byExtendingSelection:NO];
+  NSUInteger idx = [_relationshipNames indexOfObject:name];
+  if (idx != NSNotFound)
+    [self.relationshipTable selectRowIndexes:[NSIndexSet indexSetWithIndex:idx]
+                        byExtendingSelection:NO];
   [self inspectRelationship];
   [self noteChanged];
 }
@@ -391,10 +783,15 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 - (IBAction)removeRelationship:(id)sender
 {
   (void)sender;
-  MBEntity *entity = [self selectedEntity];
-  MBRelationship *rel = [self selectedRelationship];
-  if (!entity || !rel) return;
-  [entity.relationships removeObject:rel];
+  NSEntityDescription *entity = [self selectedEntity];
+  NSRelationshipDescription *relationship = [self selectedRelationship];
+  if (!entity || !relationship) return;
+  /* Clear the back-pointer on the inverse, if any. */
+  NSRelationshipDescription *inverse = relationship.inverseRelationship;
+  if (inverse.inverseRelationship == relationship)
+    inverse.inverseRelationship = nil;
+  [self replaceProperty:relationship with:nil ofEntity:entity];
+  [self rebuildPropertyRowsForEntity:entity];
   [self.relationshipTable reloadData];
   [self inspectEntity];
   [self noteChanged];
@@ -403,9 +800,12 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 - (IBAction)addUserInfo:(id)sender
 {
   (void)sender;
-  NSMutableArray *rows = [self currentUserInfo];
-  if (!rows) return;
-  [rows addObject:[MBUserInfo entryWithKey:@"key" value:@""]];
+  if (_kind != MBInspectEntity && _kind != MBInspectAttribute && _kind != MBInspectRelationship)
+    return;
+  NSMutableDictionary *info = [([self currentUserInfo] ?: @{}) mutableCopy];
+  NSString *key = [self uniqueName:@"key" among:info.allKeys];
+  info[key] = @"";
+  [self setCurrentUserInfo:info];
   [self.userInfoTable reloadData];
   [self noteChanged];
 }
@@ -413,70 +813,233 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 - (IBAction)removeUserInfo:(id)sender
 {
   (void)sender;
-  NSMutableArray *rows = [self currentUserInfo];
   NSInteger row = self.userInfoTable.selectedRow;
-  if (!rows || row < 0 || (NSUInteger)row >= rows.count) return;
-  [rows removeObjectAtIndex:(NSUInteger)row];
+  if (row < 0 || (NSUInteger)row >= _userInfoKeys.count) return;
+  NSMutableDictionary *info = [([self currentUserInfo] ?: @{}) mutableCopy];
+  [info removeObjectForKey:_userInfoKeys[(NSUInteger)row]];
+  [self setCurrentUserInfo:info.count ? info : nil];
   [self.userInfoTable reloadData];
   [self noteChanged];
+}
+
+#pragma mark - Inspector writes
+
+- (void)applyDerivationString:(NSString *)string toAttribute:(NSAttributeDescription *)attribute
+                     ofEntity:(NSEntityDescription *)entity
+{
+  BOOL isDerived = [attribute isKindOfClass:[NSDerivedAttributeDescription class]];
+  if (!string.length) {
+    if (!isDerived) return;
+    /* Derived -> plain: replace the object, keep the shared fields. */
+    NSAttributeDescription *plain = [[NSAttributeDescription alloc] init];
+    plain.name = attribute.name;
+    plain.attributeType = attribute.attributeType;
+    plain.optional = attribute.isOptional;
+    plain.transient = attribute.isTransient;
+    plain.defaultValue = attribute.defaultValue;
+    plain.userInfo = attribute.userInfo;
+    [self replaceProperty:attribute with:plain ofEntity:entity];
+    return;
+  }
+
+  NSError *error = nil;
+  NSExpression *expression = [CDModelCompiler derivationExpressionFromString:string
+                                                                      error:&error];
+  if (!expression) {
+    [self presentError:error title:@"Invalid derivation expression"];
+    return;
+  }
+  if (isDerived) {
+    [(NSDerivedAttributeDescription *)attribute setDerivationExpression:expression];
+    return;
+  }
+  /* Plain -> derived: replace the object. */
+  NSDerivedAttributeDescription *derived = [[NSDerivedAttributeDescription alloc] init];
+  derived.name = attribute.name;
+  derived.attributeType = attribute.attributeType;
+  derived.optional = attribute.isOptional;
+  derived.transient = attribute.isTransient;
+  derived.userInfo = attribute.userInfo;
+  derived.derivationExpression = expression;
+  [self replaceProperty:attribute with:derived ofEntity:entity];
+}
+
+- (void)applyDefaultString:(NSString *)string toAttribute:(NSAttributeDescription *)attribute
+{
+  if (!string.length) {
+    attribute.defaultValue = nil;
+    return;
+  }
+  switch (attribute.attributeType) {
+    case NSStringAttributeType: attribute.defaultValue = string; break;
+    case NSInteger16AttributeType:
+    case NSInteger32AttributeType:
+    case NSInteger64AttributeType:
+      attribute.defaultValue = @([string longLongValue]); break;
+    case NSDoubleAttributeType:
+    case NSFloatAttributeType:
+      attribute.defaultValue = @([string doubleValue]); break;
+    case NSDecimalAttributeType:
+      attribute.defaultValue = [NSDecimalNumber decimalNumberWithString:string]; break;
+    case NSBooleanAttributeType:
+      attribute.defaultValue = @([string isEqualToString:@"YES"] || [string isEqualToString:@"1"]);
+      break;
+    case NSDateAttributeType:
+      attribute.defaultValue =
+          [NSDate dateWithTimeIntervalSinceReferenceDate:[string doubleValue]];
+      break;
+    case NSUUIDAttributeType:
+      attribute.defaultValue = [[NSUUID alloc] initWithUUIDString:string]; break;
+    case NSURIAttributeType:
+      attribute.defaultValue = [NSURL URLWithString:string]; break;
+    default: break;
+  }
+}
+
+- (void)renameEntity:(NSEntityDescription *)entity to:(NSString *)newName
+{
+  if ([entity.name isEqualToString:newName]) return;
+  if ([[self.model.entities valueForKey:@"name"] containsObject:newName]) return;
+  NSMutableDictionary *layouts = self.modelDocument.entityLayouts;
+  if (layouts[entity.name]) {
+    layouts[newName] = layouts[entity.name];
+    [layouts removeObjectForKey:entity.name];
+  }
+  entity.name = newName;
+}
+
+/* Reparenting rewrites the XML so the compiler renormalizes subentity
+   wiring - the description classes cannot detach a child. */
+- (void)setParentOfEntityNamed:(NSString *)entityName to:(NSString *)parentName
+{
+  NSError *error = nil;
+  BOOL ok = [self.modelDocument performXMLMutation:^(NSXMLElement *root) {
+    for (NSXMLElement *el in [root elementsForName:@"entity"]) {
+      if (![[[el attributeForName:@"name"] stringValue] isEqualToString:entityName])
+        continue;
+      [el removeAttributeForName:@"parentEntity"];
+      if (parentName.length)
+        [el addAttribute:[NSXMLNode attributeWithName:@"parentEntity"
+                                          stringValue:parentName]];
+    }
+  } error:&error];
+  if (!ok)
+    [self presentError:error title:@"Cannot change parent entity"];
+  [self reloadAll];
+  [self selectEntityNamed:entityName];
+  [self inspectEntity];
 }
 
 - (IBAction)inspectorChanged:(id)sender
 {
   (void)sender;
   if (_updating) return;
-  MBEntity *entity = [self selectedEntity];
-  MBAttribute *attr = [self selectedAttribute];
-  MBRelationship *rel = [self selectedRelationship];
-  MBFetchRequest *fetch = [self selectedFetch];
+  NSEntityDescription *entity = [self selectedEntity];
+  NSAttributeDescription *attr = [self selectedAttribute];
+  NSRelationshipDescription *rel = [self selectedRelationship];
+  NSString *templateName = [self selectedTemplateName];
 
   if (_kind == MBInspectEntity && entity) {
     NSString *newName = self.nameField.stringValue;
-    if (newName.length && ![newName isEqualToString:entity.name])
-      [self.model renameEntity:entity to:newName];
-    entity.representedClassName = self.classField.stringValue;
-    entity.isAbstract = (self.abstractButton.state == NSOnState);
+    if (newName.length) [self renameEntity:entity to:newName];
+    entity.managedObjectClassName = self.classField.stringValue.length
+        ? self.classField.stringValue : @"NSManagedObject";
+    entity.abstract = (self.abstractButton.state == NSOnState);
+
     NSString *parent = self.parentPopup.titleOfSelectedItem;
-    entity.parentEntity = ([parent isEqualToString:@"(none)"] || !parent.length) ? nil : parent;
+    NSString *wantedParent = ([parent isEqualToString:@"(none)"] || !parent.length) ? @"" : parent;
+    NSString *haveParent = entity.superentity.name ?: @"";
+    [self rebuildEntityRows];
     [self.entityTable reloadData];
-  } else if (_kind == MBInspectAttribute && attr) {
-    attr.name = self.nameField.stringValue.length ? self.nameField.stringValue : attr.name;
-    attr.attributeType = self.typePopup.titleOfSelectedItem;
+    if (![wantedParent isEqualToString:haveParent]) {
+      [self setParentOfEntityNamed:entity.name to:wantedParent];
+      return; /* reload/selection handled by the XML path */
+    }
+  } else if (_kind == MBInspectAttribute && attr && entity) {
+    if (self.nameField.stringValue.length &&
+        !entity.propertiesByName[self.nameField.stringValue])
+      attr.name = self.nameField.stringValue;
+    NSInteger type = [CDModelCompiler attributeTypeNamed:self.typePopup.titleOfSelectedItem];
+    if (type >= 0) attr.attributeType = (NSAttributeType)type;
     attr.optional = (self.optionalButton.state == NSOnState);
     attr.transient = (self.transientButton.state == NSOnState);
-    attr.defaultValueString = self.defaultField.stringValue;
-    attr.minValueString = self.minField.stringValue;
-    attr.maxValueString = self.maxField.stringValue;
+    [self applyDefaultString:self.defaultField.stringValue toAttribute:attr];
+    [self applyDerivationString:self.derivationField.stringValue
+                    toAttribute:attr
+                       ofEntity:entity];
+    [self rebuildPropertyRowsForEntity:entity];
     [self.attributeTable reloadData];
-  } else if (_kind == MBInspectRelationship && rel) {
-    rel.name = self.nameField.stringValue.length ? self.nameField.stringValue : rel.name;
+  } else if (_kind == MBInspectRelationship && rel && entity) {
+    if (self.nameField.stringValue.length &&
+        !entity.propertiesByName[self.nameField.stringValue])
+      rel.name = self.nameField.stringValue;
     rel.optional = (self.optionalButton.state == NSOnState);
-    rel.toMany = (self.toManyButton.state == NSOnState);
-    if (!rel.toMany) {
+    rel.transient = (self.transientButton.state == NSOnState);
+    BOOL toMany = (self.toManyButton.state == NSOnState);
+    if (toMany) {
+      rel.minCount = self.minField.stringValue.integerValue;
+      rel.maxCount = self.maxField.stringValue.integerValue;
+      if (self.orderedButton) rel.ordered = (self.orderedButton.state == NSOnState);
+    } else {
+      rel.minCount = rel.isOptional ? 0 : 1;
       rel.maxCount = 1;
       rel.ordered = NO;
-    } else if (self.orderedButton) {
-      rel.ordered = (self.orderedButton.state == NSOnState);
     }
     NSString *dest = self.destinationPopup.titleOfSelectedItem;
-    rel.destinationEntity = ([dest isEqualToString:@"(none)"] || !dest.length) ? nil : dest;
-    NSString *inv = self.inversePopup.titleOfSelectedItem;
-    if ([inv isEqualToString:@"(none)"] || !inv.length) {
-      rel.inverseName = nil;
-      rel.inverseEntity = nil;
+    if ([dest isEqualToString:@"(none)"] || !dest.length)
+      rel.destinationEntity = nil;
+    else
+      rel.destinationEntity = self.model.entitiesByName[dest];
+    NSString *inverseName = self.inversePopup.titleOfSelectedItem;
+    NSRelationshipDescription *previousInverse = rel.inverseRelationship;
+    if ([inverseName isEqualToString:@"(none)"] || !inverseName.length) {
+      if (previousInverse.inverseRelationship == rel)
+        previousInverse.inverseRelationship = nil;
+      rel.inverseRelationship = nil;
     } else {
-      rel.inverseName = inv;
-      rel.inverseEntity = rel.destinationEntity;
+      NSRelationshipDescription *inverse =
+          rel.destinationEntity.relationshipsByName[inverseName];
+      if (inverse && inverse != previousInverse) {
+        if (previousInverse.inverseRelationship == rel)
+          previousInverse.inverseRelationship = nil;
+        rel.inverseRelationship = inverse;
+        inverse.inverseRelationship = rel;
+      }
     }
-    rel.deletionRule = self.deleteRulePopup.titleOfSelectedItem;
-    rel.minCount = (NSUInteger)self.minField.stringValue.integerValue;
-    if (rel.toMany) rel.maxCount = (NSUInteger)self.maxField.stringValue.integerValue;
+    NSArray *ruleNames = [CDModelCompiler deleteRuleNames];
+    NSUInteger ruleIndex = [ruleNames indexOfObject:self.deleteRulePopup.titleOfSelectedItem];
+    switch (ruleIndex) {
+      case 1: rel.deleteRule = NSCascadeDeleteRule; break;
+      case 2: rel.deleteRule = NSDenyDeleteRule; break;
+      case 3: rel.deleteRule = NSNoActionDeleteRule; break;
+      default: rel.deleteRule = NSNullifyDeleteRule; break;
+    }
+    [self rebuildPropertyRowsForEntity:entity];
     [self.relationshipTable reloadData];
-  } else if (_kind == MBInspectFetch && fetch) {
-    fetch.name = self.nameField.stringValue.length ? self.nameField.stringValue : fetch.name;
-    NSString *ent = self.destinationPopup.titleOfSelectedItem;
-    if (ent.length && ![ent isEqualToString:@"(none)"]) fetch.entityName = ent;
-    fetch.predicateString = self.predicateView.string;
+  } else if (_kind == MBInspectFetch && templateName) {
+    NSFetchRequest *request = [self selectedTemplate];
+    NSString *newName = self.nameField.stringValue;
+    if (newName.length && ![newName isEqualToString:templateName] &&
+        ![self.model fetchRequestTemplateForName:newName]) {
+      [self.model setFetchRequestTemplate:nil forName:templateName];
+      [self.model setFetchRequestTemplate:request forName:newName];
+      templateName = newName;
+    }
+    NSString *entityName = self.destinationPopup.titleOfSelectedItem;
+    if (entityName.length && ![entityName isEqualToString:@"(none)"] &&
+        self.model.entitiesByName[entityName])
+      request.entity = self.model.entitiesByName[entityName];
+    NSString *predicateString = self.predicateView.string;
+    if (predicateString.length) {
+      @try {
+        request.predicate = [NSPredicate predicateWithFormat:predicateString];
+      } @catch (NSException *exception) {
+        /* keep the old predicate; the string stays visible for fixing */
+      }
+    } else {
+      request.predicate = nil;
+    }
+    [self rebuildEntityRows];
     [self.fetchTable reloadData];
   }
   [self noteChanged];
@@ -498,11 +1061,11 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)table
 {
-  if (table == self.entityTable) return (NSInteger)self.model.entities.count;
-  if (table == self.fetchTable) return (NSInteger)self.model.fetchRequests.count;
-  if (table == self.attributeTable) return (NSInteger)[self selectedEntity].attributes.count;
-  if (table == self.relationshipTable) return (NSInteger)[self selectedEntity].relationships.count;
-  if (table == self.userInfoTable) return (NSInteger)[self currentUserInfo].count;
+  if (table == self.entityTable) return (NSInteger)_entities.count;
+  if (table == self.fetchTable) return (NSInteger)_templateNames.count;
+  if (table == self.attributeTable) return (NSInteger)_attributeNames.count;
+  if (table == self.relationshipTable) return (NSInteger)_relationshipNames.count;
+  if (table == self.userInfoTable) return (NSInteger)_userInfoKeys.count;
   return 0;
 }
 
@@ -510,38 +1073,40 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 {
   NSString *ident = column.identifier ?: @"";
   if (table == self.entityTable) {
-    if (row < 0 || (NSUInteger)row >= self.model.entities.count) return @"";
-    MBEntity *entity = self.model.entities[(NSUInteger)row];
-    if ([ident isEqualToString:@"class"]) return entity.representedClassName ?: @"";
+    if (row < 0 || (NSUInteger)row >= _entities.count) return @"";
+    NSEntityDescription *entity = _entities[(NSUInteger)row];
+    if ([ident isEqualToString:@"class"]) return entity.managedObjectClassName ?: @"";
     return entity.name ?: @"";
   }
   if (table == self.fetchTable) {
-    if (row < 0 || (NSUInteger)row >= self.model.fetchRequests.count) return @"";
-    MBFetchRequest *req = self.model.fetchRequests[(NSUInteger)row];
-    if ([ident isEqualToString:@"entity"]) return req.entityName ?: @"";
-    return req.name ?: @"";
+    if (row < 0 || (NSUInteger)row >= _templateNames.count) return @"";
+    NSString *name = _templateNames[(NSUInteger)row];
+    if ([ident isEqualToString:@"entity"])
+      return [[self.model fetchRequestTemplateForName:name] entity].name ?: @"";
+    return name;
   }
-  MBEntity *entity = [self selectedEntity];
-  if (table == self.attributeTable && entity && row >= 0 && (NSUInteger)row < entity.attributes.count) {
-    MBAttribute *attr = entity.attributes[(NSUInteger)row];
-    if ([ident isEqualToString:@"type"]) return attr.attributeType ?: @"";
-    if ([ident isEqualToString:@"optional"]) return attr.optional ? @"○" : @"●";
+  NSEntityDescription *entity = [self selectedEntity];
+  if (table == self.attributeTable && entity && row >= 0 && (NSUInteger)row < _attributeNames.count) {
+    NSAttributeDescription *attr = entity.attributesByName[_attributeNames[(NSUInteger)row]];
+    if ([ident isEqualToString:@"type"])
+      return [CDModelCompiler nameForAttributeType:attr.attributeType] ?: @"";
+    if ([ident isEqualToString:@"optional"]) return attr.isOptional ? @"○" : @"●";
     return attr.name ?: @"";
   }
-  if (table == self.relationshipTable && entity && row >= 0 && (NSUInteger)row < entity.relationships.count) {
-    MBRelationship *rel = entity.relationships[(NSUInteger)row];
-    if ([ident isEqualToString:@"destination"]) return rel.destinationEntity ?: @"";
+  if (table == self.relationshipTable && entity && row >= 0 && (NSUInteger)row < _relationshipNames.count) {
+    NSRelationshipDescription *rel = entity.relationshipsByName[_relationshipNames[(NSUInteger)row]];
+    if ([ident isEqualToString:@"destination"]) return rel.destinationEntity.name ?: @"";
     if ([ident isEqualToString:@"toMany"]) {
-      if (!rel.toMany) return @"to-one";
-      return rel.ordered ? @"ordered" : @"to-many";
+      if (!rel.isToMany) return @"to-one";
+      return rel.isOrdered ? @"ordered" : @"to-many";
     }
     return rel.name ?: @"";
   }
-  NSArray *info = [self currentUserInfo];
-  if (table == self.userInfoTable && info && row >= 0 && (NSUInteger)row < info.count) {
-    MBUserInfo *rowInfo = info[(NSUInteger)row];
-    if ([ident isEqualToString:@"value"]) return rowInfo.value ?: @"";
-    return rowInfo.key ?: @"";
+  if (table == self.userInfoTable && row >= 0 && (NSUInteger)row < _userInfoKeys.count) {
+    NSString *key = _userInfoKeys[(NSUInteger)row];
+    if ([ident isEqualToString:@"value"])
+      return [[self currentUserInfo][key] description] ?: @"";
+    return key;
   }
   return @"";
 }
@@ -566,7 +1131,7 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
     field.selectable = YES;
     field.font = [NSFont systemFontOfSize:[NSFont systemFontSizeForControlSize:NSControlSizeRegular]];
     field.textColor = [NSColor labelColor];
-    field.cell.lineBreakMode = NSLineBreakByTruncatingTail;
+    [(NSCell *)field.cell setLineBreakMode:NSLineBreakByTruncatingTail];
   }
   field.stringValue = [self stringValueForTable:table column:column row:row];
   field.target = self;
@@ -581,7 +1146,6 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
   NSTextField *field = (NSTextField *)sender;
   NSTableView *table = (NSTableView *)field.enclosingScrollView.documentView;
   if (![table isKindOfClass:[NSTableView class]]) {
-    /* Walk up to find the table. */
     NSView *v = field.superview;
     while (v && ![v isKindOfClass:[NSTableView class]]) v = v.superview;
     table = (NSTableView *)v;
@@ -602,44 +1166,71 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
 {
   NSString *ident = column.identifier;
   NSString *text = [value isKindOfClass:[NSString class]] ? value : [value description];
+
   if (table == self.userInfoTable) {
-    NSMutableArray *info = [self currentUserInfo];
-    if (!info || row < 0 || (NSUInteger)row >= info.count) return;
-    MBUserInfo *rowInfo = info[(NSUInteger)row];
-    if ([ident isEqualToString:@"value"]) rowInfo.value = text;
-    else rowInfo.key = text;
+    if (row < 0 || (NSUInteger)row >= _userInfoKeys.count) return;
+    NSString *key = _userInfoKeys[(NSUInteger)row];
+    NSMutableDictionary *info = [([self currentUserInfo] ?: @{}) mutableCopy];
+    if ([ident isEqualToString:@"value"]) {
+      info[key] = text;
+    } else if (text.length && !info[text]) {
+      info[text] = info[key] ?: @"";
+      [info removeObjectForKey:key];
+    }
+    [self setCurrentUserInfo:info];
+    [self.userInfoTable reloadData];
     [self noteChanged];
     return;
   }
-  if (table == self.entityTable && (NSUInteger)row < self.model.entities.count) {
-    MBEntity *entity = self.model.entities[(NSUInteger)row];
-    if ([ident isEqualToString:@"class"]) entity.representedClassName = text;
-    else if (text.length) [self.model renameEntity:entity to:text];
+  if (table == self.entityTable && (NSUInteger)row < _entities.count) {
+    NSEntityDescription *entity = _entities[(NSUInteger)row];
+    if ([ident isEqualToString:@"class"]) entity.managedObjectClassName = text;
+    else if (text.length) [self renameEntity:entity to:text];
+    [self rebuildEntityRows];
+    [self.entityTable reloadData];
     [self fillInspector];
     [self noteChanged];
     return;
   }
-  if (table == self.fetchTable && (NSUInteger)row < self.model.fetchRequests.count) {
-    MBFetchRequest *req = self.model.fetchRequests[(NSUInteger)row];
-    if ([ident isEqualToString:@"entity"]) req.entityName = text;
-    else if (text.length) req.name = text;
+  if (table == self.fetchTable && (NSUInteger)row < _templateNames.count) {
+    NSString *name = _templateNames[(NSUInteger)row];
+    NSFetchRequest *request = [self.model fetchRequestTemplateForName:name];
+    if ([ident isEqualToString:@"entity"]) {
+      if (self.model.entitiesByName[text]) request.entity = self.model.entitiesByName[text];
+    } else if (text.length && ![self.model fetchRequestTemplateForName:text]) {
+      [self.model setFetchRequestTemplate:nil forName:name];
+      [self.model setFetchRequestTemplate:request forName:text];
+    }
+    [self rebuildEntityRows];
+    [self.fetchTable reloadData];
     [self fillInspector];
     [self noteChanged];
     return;
   }
-  MBEntity *entity = [self selectedEntity];
-  if (table == self.attributeTable && entity && (NSUInteger)row < entity.attributes.count) {
-    MBAttribute *attr = entity.attributes[(NSUInteger)row];
-    if ([ident isEqualToString:@"type"] && text.length) attr.attributeType = text;
-    else if (text.length) attr.name = text;
+  NSEntityDescription *entity = [self selectedEntity];
+  if (table == self.attributeTable && entity && (NSUInteger)row < _attributeNames.count) {
+    NSAttributeDescription *attr = entity.attributesByName[_attributeNames[(NSUInteger)row]];
+    if ([ident isEqualToString:@"type"]) {
+      NSInteger type = [CDModelCompiler attributeTypeNamed:text];
+      if (type >= 0) attr.attributeType = (NSAttributeType)type;
+    } else if (text.length && !entity.propertiesByName[text]) {
+      attr.name = text;
+    }
+    [self rebuildPropertyRowsForEntity:entity];
+    [self.attributeTable reloadData];
     [self fillInspector];
     [self noteChanged];
     return;
   }
-  if (table == self.relationshipTable && entity && (NSUInteger)row < entity.relationships.count) {
-    MBRelationship *rel = entity.relationships[(NSUInteger)row];
-    if ([ident isEqualToString:@"destination"]) rel.destinationEntity = text;
-    else if (text.length) rel.name = text;
+  if (table == self.relationshipTable && entity && (NSUInteger)row < _relationshipNames.count) {
+    NSRelationshipDescription *rel = entity.relationshipsByName[_relationshipNames[(NSUInteger)row]];
+    if ([ident isEqualToString:@"destination"]) {
+      if (self.model.entitiesByName[text]) rel.destinationEntity = self.model.entitiesByName[text];
+    } else if (text.length && !entity.propertiesByName[text]) {
+      rel.name = text;
+    }
+    [self rebuildPropertyRowsForEntity:entity];
+    [self.relationshipTable reloadData];
     [self fillInspector];
     [self noteChanged];
   }
@@ -650,6 +1241,7 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
   NSTableView *table = notification.object;
   if (table == self.entityTable) {
     [self.fetchTable deselectAll:nil];
+    [self rebuildPropertyRowsForEntity:[self selectedEntity]];
     [self.attributeTable reloadData];
     [self.relationshipTable reloadData];
     [self inspectEntity];
