@@ -52,7 +52,10 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
 
 - (void)makeWindowControllers
 {
-  MBWindowController *controller = [[MBWindowController alloc] initWithWindowNibName:@"MBDocument"];
+  /* The window is built in code: one construction
+     path that behaves identically under GSXib5-less GNUstep and AppKit,
+     instead of one hand-written xib serving two nib loaders. */
+  MBWindowController *controller = [[MBWindowController alloc] init];
   [self addWindowController:controller];
 }
 
@@ -165,6 +168,88 @@ static NSMutableDictionary *layoutsFromContentsXML(NSString *xml)
   self.entityLayouts = layoutsFromContentsXML(mutated);
   [self noteModelChanged];
   return YES;
+}
+
+#pragma mark - Configurations
+
+- (NSArray *)configurationNames
+{
+  return [[self.model configurations] sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (NSString *)addConfiguration
+{
+  NSArray *names = [self configurationNames];
+  NSUInteger counter = 1;
+  NSString *candidate = @"Configuration";
+  while ([names containsObject:candidate]) {
+    counter++;
+    candidate = [NSString stringWithFormat:@"Configuration %lu", (unsigned long)counter];
+  }
+  NSString *name = candidate;
+  if (![self performXMLMutation:^(NSXMLElement *root) {
+        NSXMLElement *el = [NSXMLElement elementWithName:@"configuration"];
+        [el addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:name]];
+        /* Insert before <elements> to keep Xcode's section order. */
+        NSArray *elements = [root elementsForName:@"elements"];
+        if (elements.count) {
+          NSUInteger idx = [[root children] indexOfObjectIdenticalTo:elements.firstObject];
+          [root insertChild:el atIndex:idx];
+        } else {
+          [root addChild:el];
+        }
+      } error:NULL])
+    return nil;
+  return name;
+}
+
+- (BOOL)removeConfigurationNamed:(NSString *)name error:(NSError **)error
+{
+  return [self performXMLMutation:^(NSXMLElement *root) {
+    NSMutableArray *dead = [NSMutableArray array];
+    for (NSXMLElement *el in [root elementsForName:@"configuration"])
+      if ([[[el attributeForName:@"name"] stringValue] isEqualToString:name])
+        [dead addObject:el];
+    for (NSXMLElement *el in dead)
+      [root removeChildAtIndex:[[root children] indexOfObjectIdenticalTo:el]];
+  } error:error];
+}
+
+- (BOOL)renameConfiguration:(NSString *)name to:(NSString *)newName error:(NSError **)error
+{
+  if (!newName.length || [name isEqualToString:newName]) return YES;
+  if ([[self configurationNames] containsObject:newName]) return YES;
+  return [self performXMLMutation:^(NSXMLElement *root) {
+    for (NSXMLElement *el in [root elementsForName:@"configuration"]) {
+      if (![[[el attributeForName:@"name"] stringValue] isEqualToString:name]) continue;
+      [el removeAttributeForName:@"name"];
+      [el addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:newName]];
+    }
+  } error:error];
+}
+
+- (BOOL)setEntityNamed:(NSString *)entityName
+       inConfiguration:(NSString *)configurationName
+                member:(BOOL)member
+                 error:(NSError **)error
+{
+  return [self performXMLMutation:^(NSXMLElement *root) {
+    for (NSXMLElement *el in [root elementsForName:@"configuration"]) {
+      if (![[[el attributeForName:@"name"] stringValue] isEqualToString:configurationName])
+        continue;
+      NSXMLElement *existing = nil;
+      for (NSXMLElement *m in [el elementsForName:@"memberEntity"])
+        if ([[[m attributeForName:@"name"] stringValue] isEqualToString:entityName])
+          existing = m;
+      if (member && !existing) {
+        NSXMLElement *m = [NSXMLElement elementWithName:@"memberEntity"];
+        [m addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:entityName]];
+        [el addChild:m];
+      } else if (!member && existing) {
+        [el removeChildAtIndex:[[el children] indexOfObjectIdenticalTo:existing]];
+      }
+    }
+  } error:error];
 }
 
 #pragma mark - Versions (Xcode Editor menu)

@@ -13,7 +13,6 @@
 		MB0000000000000000000103 /* MBDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000003 /* MBDocument.m */; };
 		MB0000000000000000000104 /* MBWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000004 /* MBWindowController.m */; };
 		MB0000000000000000000105 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000009 /* MainMenu.xib */; };
-		MB0000000000000000000106 /* MBDocument.xib in Resources */ = {isa = PBXBuildFile; fileRef = MB000000000000000000000A /* MBDocument.xib */; };
 		MB0000000000000000000107 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000011 /* Cocoa.framework */; };
 /* End PBXBuildFile section */
 
@@ -29,7 +28,6 @@
 		MB0000000000000000000007 /* MBWindowController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBWindowController.h; sourceTree = "<group>"; };
 		MB0000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		MB0000000000000000000009 /* MainMenu.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MainMenu.xib; sourceTree = "<group>"; };
-		MB000000000000000000000A /* MBDocument.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBDocument.xib; sourceTree = "<group>"; };
 		MB0000000000000000000011 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		MB0000000000000000000021 /* ModelBuilder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ModelBuilder.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -59,7 +57,6 @@
 				MB0000000000000000000004 /* MBWindowController.m */,
 				MB0000000000000000000001 /* main.m */,
 				MB0000000000000000000009 /* MainMenu.xib */,
-				MB000000000000000000000A /* MBDocument.xib */,
 				MB0000000000000000000008 /* Info.plist */,
 				MB0000000000000000000302 /* Frameworks */,
 				MB0000000000000000000303 /* Products */,
@@ -135,7 +132,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				MB0000000000000000000105 /* MainMenu.xib in Resources */,
-				MB0000000000000000000106 /* MBDocument.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

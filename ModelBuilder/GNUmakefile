@@ -14,7 +14,7 @@ OBJC = clang
 APP_NAME = ModelBuilder
 ModelBuilder_OBJC_FILES = main.m MBDocument.m MBWindowController.m \
 	../Tools/momc/CDModelCompiler.m ../Tools/momc/CDModelSerializer.m
-ModelBuilder_RESOURCE_FILES = MainMenu.xib MBDocument.xib Info-gnustep.plist
+ModelBuilder_RESOURCE_FILES = MainMenu.xib Info-gnustep.plist
 ModelBuilder_MAIN_MODEL_FILE = MainMenu.xib
 ModelBuilder_APPLICATION_ICON =
 
@@ -35,4 +35,4 @@ after-all::
 	@dst="$(GNUSTEP_OBJ_DIR)/$(APP_NAME).app/Resources"; \
 	if [ ! -d "$$dst" ]; then dst="./$(APP_NAME).app/Resources"; fi; \
 	mkdir -p "$$dst"; \
-	cp -f MainMenu.xib MBDocument.xib Info-gnustep.plist "$$dst/"
+	cp -f MainMenu.xib Info-gnustep.plist "$$dst/"

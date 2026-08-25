@@ -18,13 +18,15 @@ Built for GNUstep (libobjc2 / clang, ARC, GSXib5) and for macOS.
 
 ## Layout
 
-Three panes, springs and struts, no Auto Layout:
+The window is built entirely in code — cell-based tables, springs and
+struts, one construction path for both toolkits. Three panes
+in a split view, like Xcode's editor:
 
 | Pane | Contents |
 |---|---|
-| Left | Entities and fetch request templates of the edited version |
-| Center | Attributes and relationships of the selected entity, or the fetch predicate |
-| Right | Inspector for the selection (entity / attribute / relationship / fetch) plus `userInfo` |
+| Left | Source list — ENTITIES, FETCH REQUESTS, CONFIGURATIONS — with add/remove underneath (HIG placement) |
+| Center | The selected item's editor: attribute + relationship tables for an entity (each with +/− below), entity popup and predicate editor for a fetch request, membership checklist for a configuration |
+| Right | Data model inspector for the selection (entity / attribute / relationship / fetch / configuration) plus the `userInfo` table |
 
 The status row carries the version bar: a popup listing every
 `.xcdatamodel` in the package (the ✓ marks the current version),
@@ -43,6 +45,7 @@ recompiles through momc, reporting its errors and warnings).
 - Relationship name, destination, inverse, to-one / to-many, ordered,
   delete rule, min / max count, `userInfo`
 - Fetch request template name, entity, predicate
+- Configuration name and entity membership
 - Model versions (add, switch, set current)
 
 Structural changes with graph-wide consequences — deleting an entity,
@@ -50,10 +53,10 @@ changing an entity's parent — are applied to the XML and recompiled, so
 momc renormalizes relationships, configurations and subentity wiring in
 one step and invalid edits are rejected with the compiler's error.
 
-Uniqueness constraints, configurations and every other schema feature
-momc understands survive open/save untouched even where the editor has
-no UI for them yet: the document round-trips through the same
-serializer the tests pin down.
+Uniqueness constraints and every other schema feature momc understands
+survive open/save untouched even where the editor has no UI for them
+yet: the document round-trips through the same serializer the tests
+pin down.
 
 ## Compiling and decompiling
 
@@ -78,7 +81,8 @@ make
 openapp ./ModelBuilder.app
 ```
 
-`MainMenu.xib` and `MBDocument.xib` load through `GSXib5Loader`.
+Only `MainMenu.xib` remains as a nib; the document window is
+programmatic.
 
 ## macOS
 

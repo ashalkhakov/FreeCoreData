@@ -42,6 +42,17 @@
 - (BOOL)performXMLMutation:(void (^)(NSXMLElement *root))mutation
                      error:(NSError **)error;
 
+/* Configurations, edited through the XML path (add, remove, rename,
+   membership toggling) so the compiler renormalizes each change. */
+- (NSArray *)configurationNames;   /* sorted */
+- (NSString *)addConfiguration;
+- (BOOL)removeConfigurationNamed:(NSString *)name error:(NSError **)error;
+- (BOOL)renameConfiguration:(NSString *)name to:(NSString *)newName error:(NSError **)error;
+- (BOOL)setEntityNamed:(NSString *)entityName
+       inConfiguration:(NSString *)configurationName
+                member:(BOOL)member
+                 error:(NSError **)error;
+
 /* Serialize-and-recompile the edited model through momc's compiler:
    the same checks a build would run.  Warnings collected, first error
    reported. */
