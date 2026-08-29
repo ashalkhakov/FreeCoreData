@@ -7,28 +7,54 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CE39E2D33042F6F60075866A /* MBEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D23042F6F60075866A /* MBEditors.m */; };
+		CE39E2D63042FBC30075866A /* CDModelMutator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D53042FBC30075866A /* CDModelMutator.m */; };
+		CE80DED2303EB3BF0028CAFF /* MBDocumentWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = CE80DED1303EB3BF0028CAFF /* MBDocumentWindow.xib */; };
+		CE80DEDD303EE4280028CAFF /* JUInspectorViewHeader.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEDC303EE4280028CAFF /* JUInspectorViewHeader.m */; };
+		CE80DEDE303EE4280028CAFF /* JUInspectorView.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DED8303EE4280028CAFF /* JUInspectorView.m */; };
+		CE80DEDF303EE4280028CAFF /* JUInspectorBaseView.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DED6303EE4280028CAFF /* JUInspectorBaseView.m */; };
+		CE80DEE0303EE4280028CAFF /* JUInspectorViewContainer.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEDA303EE4280028CAFF /* JUInspectorViewContainer.m */; };
+		CE80DEE6304161360028CAFF /* DMTabBar.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEE3304161360028CAFF /* DMTabBar.m */; };
+		CE80DEE7304161360028CAFF /* DMTabBarItem.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEE5304161360028CAFF /* DMTabBarItem.m */; };
 		MB0000000000000000000101 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000001 /* main.m */; };
 		MB0000000000000000000102 /* CDModelCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000002 /* CDModelCompiler.m */; };
-		MB0000000000000000000112 /* CDModelSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000012 /* CDModelSerializer.m */; };
 		MB0000000000000000000103 /* MBDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000003 /* MBDocument.m */; };
 		MB0000000000000000000104 /* MBWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000004 /* MBWindowController.m */; };
 		MB0000000000000000000105 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000009 /* MainMenu.xib */; };
 		MB0000000000000000000107 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000011 /* Cocoa.framework */; };
+		MB0000000000000000000112 /* CDModelSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000012 /* CDModelSerializer.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		CE39E2D13042F6F60075866A /* MBEditors.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBEditors.h; sourceTree = "<group>"; };
+		CE39E2D23042F6F60075866A /* MBEditors.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBEditors.m; sourceTree = "<group>"; };
+		CE39E2D43042FBC30075866A /* CDModelMutator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelMutator.h; path = ../Tools/momc/CDModelMutator.h; sourceTree = SOURCE_ROOT; };
+		CE39E2D53042FBC30075866A /* CDModelMutator.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelMutator.m; path = ../Tools/momc/CDModelMutator.m; sourceTree = SOURCE_ROOT; };
+		CE80DED1303EB3BF0028CAFF /* MBDocumentWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBDocumentWindow.xib; sourceTree = "<group>"; };
+		CE80DED5303EE4280028CAFF /* JUInspectorBaseView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = JUInspectorBaseView.h; path = ThirdParty/JUInspectorView/Source/JUInspectorBaseView.h; sourceTree = "<group>"; };
+		CE80DED6303EE4280028CAFF /* JUInspectorBaseView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = JUInspectorBaseView.m; path = ThirdParty/JUInspectorView/Source/JUInspectorBaseView.m; sourceTree = "<group>"; };
+		CE80DED7303EE4280028CAFF /* JUInspectorView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = JUInspectorView.h; path = ThirdParty/JUInspectorView/Source/JUInspectorView.h; sourceTree = "<group>"; };
+		CE80DED8303EE4280028CAFF /* JUInspectorView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = JUInspectorView.m; path = ThirdParty/JUInspectorView/Source/JUInspectorView.m; sourceTree = "<group>"; };
+		CE80DED9303EE4280028CAFF /* JUInspectorViewContainer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = JUInspectorViewContainer.h; path = ThirdParty/JUInspectorView/Source/JUInspectorViewContainer.h; sourceTree = "<group>"; };
+		CE80DEDA303EE4280028CAFF /* JUInspectorViewContainer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = JUInspectorViewContainer.m; path = ThirdParty/JUInspectorView/Source/JUInspectorViewContainer.m; sourceTree = "<group>"; };
+		CE80DEDB303EE4280028CAFF /* JUInspectorViewHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = JUInspectorViewHeader.h; path = ThirdParty/JUInspectorView/Source/JUInspectorViewHeader.h; sourceTree = "<group>"; };
+		CE80DEDC303EE4280028CAFF /* JUInspectorViewHeader.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = JUInspectorViewHeader.m; path = ThirdParty/JUInspectorView/Source/JUInspectorViewHeader.m; sourceTree = "<group>"; };
+		CE80DEE2304161360028CAFF /* DMTabBar.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = DMTabBar.h; path = ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.h; sourceTree = "<group>"; };
+		CE80DEE3304161360028CAFF /* DMTabBar.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = DMTabBar.m; path = ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.m; sourceTree = "<group>"; };
+		CE80DEE4304161360028CAFF /* DMTabBarItem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = DMTabBarItem.h; path = ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.h; sourceTree = "<group>"; };
+		CE80DEE5304161360028CAFF /* DMTabBarItem.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = DMTabBarItem.m; path = ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.m; sourceTree = "<group>"; };
 		MB0000000000000000000001 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		MB0000000000000000000002 /* CDModelCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelCompiler.m; path = ../Tools/momc/CDModelCompiler.m; sourceTree = "<group>"; };
-		MB0000000000000000000012 /* CDModelSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelSerializer.m; path = ../Tools/momc/CDModelSerializer.m; sourceTree = "<group>"; };
 		MB0000000000000000000003 /* MBDocument.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBDocument.m; sourceTree = "<group>"; };
 		MB0000000000000000000004 /* MBWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBWindowController.m; sourceTree = "<group>"; };
 		MB0000000000000000000005 /* CDModelCompiler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelCompiler.h; path = ../Tools/momc/CDModelCompiler.h; sourceTree = "<group>"; };
-		MB0000000000000000000015 /* CDModelSerializer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelSerializer.h; path = ../Tools/momc/CDModelSerializer.h; sourceTree = "<group>"; };
 		MB0000000000000000000006 /* MBDocument.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBDocument.h; sourceTree = "<group>"; };
 		MB0000000000000000000007 /* MBWindowController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBWindowController.h; sourceTree = "<group>"; };
 		MB0000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		MB0000000000000000000009 /* MainMenu.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MainMenu.xib; sourceTree = "<group>"; };
 		MB0000000000000000000011 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		MB0000000000000000000012 /* CDModelSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelSerializer.m; path = ../Tools/momc/CDModelSerializer.m; sourceTree = "<group>"; };
+		MB0000000000000000000015 /* CDModelSerializer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelSerializer.h; path = ../Tools/momc/CDModelSerializer.h; sourceTree = "<group>"; };
 		MB0000000000000000000021 /* ModelBuilder.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ModelBuilder.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -47,12 +73,29 @@
 		MB0000000000000000000301 = {
 			isa = PBXGroup;
 			children = (
+				CE39E2D43042FBC30075866A /* CDModelMutator.h */,
+				CE39E2D53042FBC30075866A /* CDModelMutator.m */,
+				CE80DEE2304161360028CAFF /* DMTabBar.h */,
+				CE80DEE3304161360028CAFF /* DMTabBar.m */,
+				CE80DEE4304161360028CAFF /* DMTabBarItem.h */,
+				CE80DEE5304161360028CAFF /* DMTabBarItem.m */,
+				CE80DED5303EE4280028CAFF /* JUInspectorBaseView.h */,
+				CE80DED6303EE4280028CAFF /* JUInspectorBaseView.m */,
+				CE80DED7303EE4280028CAFF /* JUInspectorView.h */,
+				CE80DED8303EE4280028CAFF /* JUInspectorView.m */,
+				CE80DED9303EE4280028CAFF /* JUInspectorViewContainer.h */,
+				CE80DEDA303EE4280028CAFF /* JUInspectorViewContainer.m */,
+				CE80DEDB303EE4280028CAFF /* JUInspectorViewHeader.h */,
+				CE80DEDC303EE4280028CAFF /* JUInspectorViewHeader.m */,
 				MB0000000000000000000005 /* CDModelCompiler.h */,
 				MB0000000000000000000002 /* CDModelCompiler.m */,
 				MB0000000000000000000015 /* CDModelSerializer.h */,
 				MB0000000000000000000012 /* CDModelSerializer.m */,
+				CE39E2D13042F6F60075866A /* MBEditors.h */,
+				CE39E2D23042F6F60075866A /* MBEditors.m */,
 				MB0000000000000000000006 /* MBDocument.h */,
 				MB0000000000000000000003 /* MBDocument.m */,
+				CE80DED1303EB3BF0028CAFF /* MBDocumentWindow.xib */,
 				MB0000000000000000000007 /* MBWindowController.h */,
 				MB0000000000000000000004 /* MBWindowController.m */,
 				MB0000000000000000000001 /* main.m */,
@@ -132,6 +175,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				MB0000000000000000000105 /* MainMenu.xib in Resources */,
+				CE80DED2303EB3BF0028CAFF /* MBDocumentWindow.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -146,7 +190,15 @@
 				MB0000000000000000000102 /* CDModelCompiler.m in Sources */,
 				MB0000000000000000000112 /* CDModelSerializer.m in Sources */,
 				MB0000000000000000000103 /* MBDocument.m in Sources */,
+				CE80DEDD303EE4280028CAFF /* JUInspectorViewHeader.m in Sources */,
+				CE80DEE6304161360028CAFF /* DMTabBar.m in Sources */,
+				CE80DEE7304161360028CAFF /* DMTabBarItem.m in Sources */,
+				CE80DEDE303EE4280028CAFF /* JUInspectorView.m in Sources */,
+				CE80DEDF303EE4280028CAFF /* JUInspectorBaseView.m in Sources */,
+				CE80DEE0303EE4280028CAFF /* JUInspectorViewContainer.m in Sources */,
 				MB0000000000000000000104 /* MBWindowController.m in Sources */,
+				CE39E2D33042F6F60075866A /* MBEditors.m in Sources */,
+				CE39E2D63042FBC30075866A /* CDModelMutator.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

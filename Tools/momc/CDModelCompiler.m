@@ -274,6 +274,8 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
      [attribute setOptional:boolAttr(attributeElement,@"optional")];
      if(boolAttr(attributeElement,@"transient"))
       [attribute setTransient:YES];
+     if(attr(attributeElement,@"versionHashModifier")!=nil)
+      [attribute setVersionHashModifier:attr(attributeElement,@"versionHashModifier")];
      if(attr(attributeElement,@"valueTransformerName")!=nil)
       [attribute setValueTransformerName:attr(attributeElement,@"valueTransformerName")];
      if(attr(attributeElement,@"customClassName")!=nil)
@@ -298,6 +300,8 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
      [relationship setOptional:boolAttr(relationshipElement,@"optional")];
      if(boolAttr(relationshipElement,@"transient"))
       [relationship setTransient:YES];
+     if(attr(relationshipElement,@"versionHashModifier")!=nil)
+      [relationship setVersionHashModifier:attr(relationshipElement,@"versionHashModifier")];
 
      if(boolAttr(relationshipElement,@"toMany")){
       [relationship setMinCount:[attr(relationshipElement,@"minCount") intValue]];

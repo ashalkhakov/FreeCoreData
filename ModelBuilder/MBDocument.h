@@ -34,16 +34,28 @@
 - (BOOL)switchToVersion:(NSString *)name error:(NSError **)error;
 - (void)makeEditedVersionCurrent;
 
-/* Structural surgery (reparent an entity, delete an entity) runs at
-   the XML level and back through the compiler, which renormalizes the
-   whole graph - the description classes have no API for detaching
-   subentities.  The mutation block edits the <model> element in place;
-   on a compile failure the document is left unchanged. */
-- (BOOL)performXMLMutation:(void (^)(NSXMLElement *root))mutation
-                     error:(NSError **)error;
+/* Entity lifecycle.  Renames re-key the layout sidecar and refuse
+   duplicates; removal and reparenting are structural surgery performed
+   at the model layer (CDModelMutator, beside the compiler and
+   serializer), so momc renormalizes relationships, configurations,
+   fetch templates and subentity wiring in one step and a failed edit
+   leaves the document unchanged. */
+- (NSString *)addEntity;                       /* returns the new name */
+- (BOOL)renameEntityNamed:(NSString *)name to:(NSString *)newName;
+- (BOOL)removeEntityNamed:(NSString *)name error:(NSError **)error;
+- (BOOL)setParentOfEntityNamed:(NSString *)entityName
+                            to:(NSString *)parentName   /* empty = detach */
+                         error:(NSError **)error;
 
-/* Configurations, edited through the XML path (add, remove, rename,
-   membership toggling) so the compiler renormalizes each change. */
+/* Fetch request template lifecycle.  Add picks the named entity, or
+   the first entity when nil; rename refuses duplicates. */
+- (NSString *)addFetchRequestForEntityNamed:(NSString *)entityName;
+- (void)removeFetchRequestNamed:(NSString *)name;
+- (BOOL)renameFetchRequestNamed:(NSString *)name to:(NSString *)newName;
+
+/* Configurations, edited through CDModelMutator (add, remove, rename,
+   membership toggling) so the compiler renormalizes each change -
+   NSManagedObjectModel has no mutation API for them. */
 - (NSArray *)configurationNames;   /* sorted */
 - (NSString *)addConfiguration;
 - (BOOL)removeConfigurationNamed:(NSString *)name error:(NSError **)error;

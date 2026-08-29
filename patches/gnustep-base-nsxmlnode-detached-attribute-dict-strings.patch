@@ -1,0 +1,41 @@
+diff --git a/Source/NSXMLNode.m b/Source/NSXMLNode.m
+index bab9640..d8abe1d 100644
+--- a/Source/NSXMLNode.m
++++ b/Source/NSXMLNode.m
+@@ -164,7 +164,35 @@ setTreeDoc(xmlNodePtr node, xmlDocPtr doc)
+       node->content
+ 	= (xmlChar *)adoptString(node->content, oldDoc, doc, adoptStr);
+     }
+-  
++
++  /* An attribute node detached directly (e.g. NSXMLElement's
++   * -removeAttributeForName:, or the subnode detach that -dealloc
++   * performs) arrives here as the top-level node.  Its name is
++   * interned in the old document's dictionary and must be adopted,
++   * or xmlFreeProp later frees an interior pointer of that
++   * dictionary. The value text children are handled by the
++   * recursive children walk below.
++   */
++  if (node->type == XML_ATTRIBUTE_NODE)
++    {
++      node->name = adoptString(node->name, oldDoc, doc, adoptStr);
++    }
++
++  /* Content-bearing nodes other than text: same dictionary-interning
++   * hazard for their content (and a processing instruction's name).
++   */
++  if (node->type == XML_COMMENT_NODE
++    || node->type == XML_CDATA_SECTION_NODE
++    || node->type == XML_PI_NODE)
++    {
++      node->content
++	= (xmlChar *)adoptString(node->content, oldDoc, doc, adoptStr);
++      if (node->type == XML_PI_NODE)
++	{
++	  node->name = adoptString(node->name, oldDoc, doc, adoptStr);
++	}
++    }
++
+   if (node->type == XML_ELEMENT_NODE)
+     {
+       xmlAttrPtr attr;

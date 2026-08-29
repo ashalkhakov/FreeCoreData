@@ -108,6 +108,18 @@
                                     <action selector="addEntity:" target="-1" id="AADDENT"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Add Fetch Request" id="MADDFETCH">
+                                <connections>
+                                    <action selector="addFetchRequest:" target="-1" id="AADDFETCH"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Add Configuration" id="s1H-nr-Xuh">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="addConfiguration:" target="-1" id="C2d-U4-XtT"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="AuS-WG-HpZ"/>
                             <menuItem title="Add Attribute" id="MADDATTR">
                                 <connections>
                                     <action selector="addAttribute:" target="-1" id="AADDATTR"/>
@@ -118,12 +130,36 @@
                                     <action selector="addRelationship:" target="-1" id="AADDREL"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Add Fetch Request" id="MADDFETCH">
+                            <menuItem isSeparatorItem="YES" id="S3"/>
+                            <menuItem title="Add Model Version" id="PPh-mD-m37">
+                                <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
-                                    <action selector="addFetchRequest:" target="-1" id="AADDFETCH"/>
+                                    <action selector="addModelVersion:" target="-1" id="pkg-Lu-btl"/>
                                 </connections>
                             </menuItem>
-                            <menuItem isSeparatorItem="YES" id="S3"/>
+                            <menuItem title="Make Current Version" id="1vm-zk-0nD">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="makeCurrentVersion:" target="-1" id="ffd-3B-AOg"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Model Version" id="A2H-Uz-LhZ">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="6VX-W1-leQ"/>
+                            <menuItem title="Validate" id="RoM-qR-o7l">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="validateModel:" target="-1" id="t1P-yH-ro5"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Compile to momd" id="vwE-rE-B7i">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="compileModel:" target="-1" id="iRJ-5K-fEE"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="FET-92-Fdf"/>
                             <menuItem title="Remove Entity" id="MREMENT">
                                 <connections>
                                     <action selector="removeEntity:" target="-1" id="AREMENT"/>

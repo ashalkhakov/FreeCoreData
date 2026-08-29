@@ -18,33 +18,49 @@ Built for GNUstep (libobjc2 / clang, ARC, GSXib5) and for macOS.
 
 ## Layout
 
-The window is built entirely in code — cell-based tables, springs and
-struts, one construction path for both toolkits. Three panes
-in a split view, like Xcode's editor:
+The window layout lives in `MBDocumentWindow.xib`, modeled closely on
+Xcode's Core Data editor and loaded by AppKit on macOS and by GSXib5
+on GNUstep.  `MBWindowController` adds only behavior: outlet wiring,
+target/action, runtime column identifiers, popup population.  Three
+panes in a split view, like Xcode's editor:
 
 | Pane | Contents |
 |---|---|
-| Left | Source list — ENTITIES, FETCH REQUESTS, CONFIGURATIONS — with add/remove underneath (HIG placement) |
-| Center | The selected item's editor: attribute + relationship tables for an entity (each with +/− below), entity popup and predicate editor for a fetch request, membership checklist for a configuration |
-| Right | Data model inspector for the selection (entity / attribute / relationship / fetch / configuration) plus the `userInfo` table |
+| Left | Source list — ENTITIES, FETCH REQUESTS, CONFIGURATIONS — with "+/− Entity" and "+/− Attribute" segmented controls in the bottom bar |
+| Center | The selected item's editor: Attributes and Relationships tables in collapsible sections (JUInspectorView) for an entity, "Fetch all" popup and predicate editor (with a T/S source toggle) for a fetch request, membership checklist for a configuration |
+| Right | DMTabBar over the data model inspector — one tab per selection kind (entity / fetch request / attribute / relationship) with per-type attribute detail pages, uniqueness constraints, `userInfo` tables and versioning fields |
 
-The status row carries the version bar: a popup listing every
-`.xcdatamodel` in the package (the ✓ marks the current version),
-**+ Version** (Xcode's Add Model Version — duplicates the edited
-version under the next free "Model N" name), **Make Current** (moves
-the `.xccurrentversion` pointer), and **Validate** (serializes and
-recompiles through momc, reporting its errors and warnings).
+The vendored `ThirdParty/` controls (DMTabBar, JUInspectorView — both
+MIT) supply the Xcode-style inspector chrome.
+
+Version management and validation live in the **Editor** menu (built
+programmatically in `main.m`, routed through the responder chain):
+**Add Model Version** (duplicates the edited version under the next
+free "Model N" name), **Make Current Version** (moves the
+`.xccurrentversion` pointer), a **Model Version** submenu for
+switching (the edited version is checked, the current one marked),
+**Validate Model** (serializes and recompiles through momc, reporting
+its errors and warnings) and **Compile to momd**.  The window title
+shows the edited version.
+
+Controls whose schema features the serializer does not round-trip yet
+(codegen, validation predicates, renaming identifiers, fetch result
+types and batch sizes, scalar flags) are disabled with explanatory
+tooltips rather than hidden — the layout stays Xcode's.
 
 ## What it edits
 
-- Entity name, class, parent, abstract, `userInfo`
+- Entity name, class, parent, abstract, uniqueness constraints,
+  version hash modifier, `userInfo`
 - Attribute name, type (including `UUID` and `URI`), optional /
-  transient, default, derivation expression (`uppercase:(title)`,
-  `now()`, key paths — a non-empty derivation makes the attribute
-  derived), `userInfo`
+  transient, per-type defaults, derivation expression
+  (`uppercase:(title)`, `now()`, key paths — the Derived checkbox
+  prompts for it), transformer name and custom class for
+  Transformable, version hash modifier, `userInfo`
 - Relationship name, destination, inverse, to-one / to-many, ordered,
-  delete rule, min / max count, `userInfo`
-- Fetch request template name, entity, predicate
+  delete rule, min / max count, optional / transient, version hash
+  modifier, `userInfo`
+- Fetch request template name, entity, fetch limit, predicate
 - Configuration name and entity membership
 - Model versions (add, switch, set current)
 
@@ -81,8 +97,8 @@ make
 openapp ./ModelBuilder.app
 ```
 
-Only `MainMenu.xib` remains as a nib; the document window is
-programmatic.
+`MainMenu.xib` and `MBDocumentWindow.xib` are the app's two nibs;
+both load through GSXib5.
 
 ## macOS
 

@@ -7,6 +7,7 @@
 #import "MBWindowController.h"
 #import "CDModelCompiler.h"
 #import "CDModelSerializer.h"
+#import "CDModelMutator.h"
 
 static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
 
@@ -52,10 +53,11 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
 
 - (void)makeWindowControllers
 {
-  /* The window is built in code: one construction
-     path that behaves identically under GSXib5-less GNUstep and AppKit,
-     instead of one hand-written xib serving two nib loaders. */
-  MBWindowController *controller = [[MBWindowController alloc] init];
+  /* The window layout lives in MBDocumentWindow.xib (loaded by AppKit
+     on macOS and by GSXib5 on GNUstep); MBWindowController adds the
+     behavior in -windowDidLoad. */
+  MBWindowController *controller =
+      [[MBWindowController alloc] initWithWindowNibName:@"MBDocumentWindow"];
   [self addWindowController:controller];
 }
 
@@ -150,22 +152,112 @@ static NSMutableDictionary *layoutsFromContentsXML(NSString *xml)
   return YES;
 }
 
-- (BOOL)performXMLMutation:(void (^)(NSXMLElement *root))mutation
-                     error:(NSError **)error
+/* Structural surgery lives at the model layer (CDModelMutator, next
+   to the compiler and serializer); the document adopts a successful
+   mutation's renormalized model and re-derives the layout sidecar
+   from the mutated XML. */
+- (BOOL)adoptMutation:(CDModelMutationResult *)result
 {
-  NSString *xml = [self serializedEditedVersion:error];
-  if (!xml) return NO;
+  if (!result) return NO;
+  self.model = result.model;
+  self.entityLayouts = layoutsFromContentsXML(result.contentsXML);
+  [self noteModelChanged];
+  return YES;
+}
 
-  NSXMLDocument *doc = [[NSXMLDocument alloc] initWithXMLString:xml options:0 error:error];
-  if (!doc) return NO;
-  mutation([doc rootElement]);
+#pragma mark - Entity lifecycle
 
-  NSString *mutated = [doc XMLStringWithOptions:NSXMLNodePrettyPrint];
-  NSManagedObjectModel *model = [CDModelCompiler compileModelContentsXML:mutated error:error];
-  if (!model) return NO;
+static NSString *MBUniqueName(NSString *base, NSArray *names)
+{
+  if (![names containsObject:base]) return base;
+  NSUInteger counter = 2;
+  NSString *candidate;
+  do {
+    candidate = [NSString stringWithFormat:@"%@%lu", base, (unsigned long)counter];
+    counter++;
+  } while ([names containsObject:candidate]);
+  return candidate;
+}
 
-  self.model = model;
-  self.entityLayouts = layoutsFromContentsXML(mutated);
+- (NSString *)addEntity
+{
+  NSString *name = MBUniqueName(@"Entity",
+      [self.model.entities valueForKey:@"name"] ?: @[]);
+  NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+  entity.name = name;
+  entity.managedObjectClassName = @"NSManagedObject";
+  self.model.entities = [self.model.entities arrayByAddingObject:entity];
+  [self noteModelChanged];
+  return name;
+}
+
+- (BOOL)renameEntityNamed:(NSString *)name to:(NSString *)newName
+{
+  NSEntityDescription *entity = self.model.entitiesByName[name];
+  if (!entity || !newName.length) return NO;
+  if ([name isEqualToString:newName]) return YES;
+  if (self.model.entitiesByName[newName]) return NO;
+  if (self.entityLayouts[name]) {
+    self.entityLayouts[newName] = self.entityLayouts[name];
+    [self.entityLayouts removeObjectForKey:name];
+  }
+  entity.name = newName;
+  [self noteModelChanged];
+  return YES;
+}
+
+/* Entity deletion ripples through relationships, configurations, fetch
+   templates and subentity wiring; reparenting has no description-class
+   API.  Both are CDModelMutator surgery, renormalized by momc. */
+- (BOOL)removeEntityNamed:(NSString *)name error:(NSError **)error
+{
+  return [self adoptMutation:[CDModelMutator model:self.model
+                                     entityLayouts:self.entityLayouts
+                               removingEntityNamed:name
+                                             error:error]];
+}
+
+- (BOOL)setParentOfEntityNamed:(NSString *)entityName
+                            to:(NSString *)parentName
+                         error:(NSError **)error
+{
+  return [self adoptMutation:[CDModelMutator model:self.model
+                                     entityLayouts:self.entityLayouts
+                        settingParentOfEntityNamed:entityName
+                                                to:parentName
+                                             error:error]];
+}
+
+#pragma mark - Fetch request lifecycle
+
+- (NSString *)addFetchRequestForEntityNamed:(NSString *)entityName
+{
+  NSEntityDescription *entity = entityName.length
+      ? self.model.entitiesByName[entityName] : nil;
+  if (!entity) entity = [self sortedEntities].firstObject;
+  if (!entity) return nil;
+  NSString *name = MBUniqueName(@"FetchRequest",
+      [[self.model fetchRequestTemplatesByName] allKeys]);
+  NSFetchRequest *request = [[NSFetchRequest alloc] init];
+  request.entity = entity;
+  [self.model setFetchRequestTemplate:request forName:name];
+  [self noteModelChanged];
+  return name;
+}
+
+- (void)removeFetchRequestNamed:(NSString *)name
+{
+  [self.model setFetchRequestTemplate:nil forName:name];
+  [self noteModelChanged];
+}
+
+- (BOOL)renameFetchRequestNamed:(NSString *)name to:(NSString *)newName
+{
+  if (!newName.length || [name isEqualToString:newName]) return NO;
+  NSFetchRequest *request = [self.model fetchRequestTemplateForName:name];
+  if (!request || [self.model fetchRequestTemplateForName:newName]) return NO;
+  [self.model setFetchRequestTemplate:nil forName:name];
+  [self.model setFetchRequestTemplate:request forName:newName];
   [self noteModelChanged];
   return YES;
 }
@@ -186,46 +278,31 @@ static NSMutableDictionary *layoutsFromContentsXML(NSString *xml)
     counter++;
     candidate = [NSString stringWithFormat:@"Configuration %lu", (unsigned long)counter];
   }
-  NSString *name = candidate;
-  if (![self performXMLMutation:^(NSXMLElement *root) {
-        NSXMLElement *el = [NSXMLElement elementWithName:@"configuration"];
-        [el addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:name]];
-        /* Insert before <elements> to keep Xcode's section order. */
-        NSArray *elements = [root elementsForName:@"elements"];
-        if (elements.count) {
-          NSUInteger idx = [[root children] indexOfObjectIdenticalTo:elements.firstObject];
-          [root insertChild:el atIndex:idx];
-        } else {
-          [root addChild:el];
-        }
-      } error:NULL])
+  if (![self adoptMutation:[CDModelMutator model:self.model
+                                   entityLayouts:self.entityLayouts
+                        addingConfigurationNamed:candidate
+                                           error:NULL]])
     return nil;
-  return name;
+  return candidate;
 }
 
 - (BOOL)removeConfigurationNamed:(NSString *)name error:(NSError **)error
 {
-  return [self performXMLMutation:^(NSXMLElement *root) {
-    NSMutableArray *dead = [NSMutableArray array];
-    for (NSXMLElement *el in [root elementsForName:@"configuration"])
-      if ([[[el attributeForName:@"name"] stringValue] isEqualToString:name])
-        [dead addObject:el];
-    for (NSXMLElement *el in dead)
-      [root removeChildAtIndex:[[root children] indexOfObjectIdenticalTo:el]];
-  } error:error];
+  return [self adoptMutation:[CDModelMutator model:self.model
+                                     entityLayouts:self.entityLayouts
+                        removingConfigurationNamed:name
+                                             error:error]];
 }
 
 - (BOOL)renameConfiguration:(NSString *)name to:(NSString *)newName error:(NSError **)error
 {
   if (!newName.length || [name isEqualToString:newName]) return YES;
   if ([[self configurationNames] containsObject:newName]) return YES;
-  return [self performXMLMutation:^(NSXMLElement *root) {
-    for (NSXMLElement *el in [root elementsForName:@"configuration"]) {
-      if (![[[el attributeForName:@"name"] stringValue] isEqualToString:name]) continue;
-      [el removeAttributeForName:@"name"];
-      [el addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:newName]];
-    }
-  } error:error];
+  return [self adoptMutation:[CDModelMutator model:self.model
+                                     entityLayouts:self.entityLayouts
+                        renamingConfigurationNamed:name
+                                                to:newName
+                                             error:error]];
 }
 
 - (BOOL)setEntityNamed:(NSString *)entityName
@@ -233,23 +310,12 @@ static NSMutableDictionary *layoutsFromContentsXML(NSString *xml)
                 member:(BOOL)member
                  error:(NSError **)error
 {
-  return [self performXMLMutation:^(NSXMLElement *root) {
-    for (NSXMLElement *el in [root elementsForName:@"configuration"]) {
-      if (![[[el attributeForName:@"name"] stringValue] isEqualToString:configurationName])
-        continue;
-      NSXMLElement *existing = nil;
-      for (NSXMLElement *m in [el elementsForName:@"memberEntity"])
-        if ([[[m attributeForName:@"name"] stringValue] isEqualToString:entityName])
-          existing = m;
-      if (member && !existing) {
-        NSXMLElement *m = [NSXMLElement elementWithName:@"memberEntity"];
-        [m addAttribute:[NSXMLNode attributeWithName:@"name" stringValue:entityName]];
-        [el addChild:m];
-      } else if (!member && existing) {
-        [el removeChildAtIndex:[[el children] indexOfObjectIdenticalTo:existing]];
-      }
-    }
-  } error:error];
+  return [self adoptMutation:[CDModelMutator model:self.model
+                                     entityLayouts:self.entityLayouts
+                                settingEntityNamed:entityName
+                                   inConfiguration:configurationName
+                                            member:member
+                                             error:error]];
 }
 
 #pragma mark - Versions (Xcode Editor menu)

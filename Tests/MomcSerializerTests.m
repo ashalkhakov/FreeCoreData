@@ -48,7 +48,7 @@ static NSString *const kRichModelXML = @""
 "    <attribute name=\"homepage\" optional=\"YES\" attributeType=\"URI\"/>\n"
 "    <attribute name=\"blob\" optional=\"YES\" attributeType=\"Binary\"/>\n"
 "    <attribute name=\"payload\" optional=\"YES\" attributeType=\"Transformable\" valueTransformerName=\"NSSecureUnarchiveFromData\" customClassName=\"NSDictionary\"/>\n"
-"    <attribute name=\"cached\" optional=\"YES\" transient=\"YES\" attributeType=\"String\">\n"
+"    <attribute name=\"cached\" optional=\"YES\" transient=\"YES\" versionHashModifier=\"pv1\" attributeType=\"String\">\n"
 "      <userInfo>\n"
 "        <entry key=\"note\" value=\"per-property info\"/>\n"
 "      </userInfo>\n"
@@ -164,6 +164,8 @@ static NSString *const kRichModelXML = @""
     NSEntityDescription *articleB = [[reparsed entitiesByName] objectForKey:@"Article"];
     NSAttributeDescription *cachedB = [[articleB attributesByName] objectForKey:@"cached"];
     XCTAssertTrue([cachedB isTransient]);
+    XCTAssertEqualObjects([cachedB versionHashModifier], @"pv1",
+                          @"property-level versionHashModifier round-trips");
     XCTAssertEqualObjects([cachedB userInfo],
                           [[[articleA attributesByName] objectForKey:@"cached"] userInfo]);
 

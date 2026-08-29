@@ -187,9 +187,12 @@ static NSXMLElement *elementForAttribute(NSAttributeDescription *attribute,NSStr
            attributeTypeName([attribute attributeType],context));
    if([attribute isTransient])
     setAttr(element,@"transient",@"YES");
-   if([attribute valueTransformerName]!=nil)
+   if([attribute versionHashModifier]!=nil)
+    setAttr(element,@"versionHashModifier",[attribute versionHashModifier]);
+   if([[attribute valueTransformerName] length]>0 &&
+      [attribute attributeType]==NSTransformableAttributeType)
     setAttr(element,@"valueTransformerName",[attribute valueTransformerName]);
-   if([attribute attributeValueClassName]!=nil &&
+   if([[attribute attributeValueClassName] length]>0 &&
       [attribute attributeType]==NSTransformableAttributeType)
     setAttr(element,@"customClassName",[attribute attributeValueClassName]);
    writeDefaultValue(element,attribute,context);
@@ -206,6 +209,8 @@ static NSXMLElement *elementForRelationship(NSRelationshipDescription *relations
     setAttr(element,@"optional",@"YES");
    if([relationship isTransient])
     setAttr(element,@"transient",@"YES");
+   if([relationship versionHashModifier]!=nil)
+    setAttr(element,@"versionHashModifier",[relationship versionHashModifier]);
 
    if([relationship isToMany]){
     setAttr(element,@"toMany",@"YES");
