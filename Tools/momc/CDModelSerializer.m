@@ -11,6 +11,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 
 #import "CDModelSerializer.h"
+#import "CDModelCompiler.h"
 #import <CoreData/CoreData.h>
 
 NSString * const CDModelSerializerErrorDomain=@"CDModelSerializerErrorDomain";
@@ -196,7 +197,42 @@ static NSXMLElement *elementForAttribute(NSAttributeDescription *attribute,NSStr
       [attribute attributeType]==NSTransformableAttributeType)
     setAttr(element,@"customClassName",[attribute attributeValueClassName]);
    writeDefaultValue(element,attribute,context);
-   setAttr(element,@"usesScalarValueType",@"NO");
+   setAttr(element,@"usesScalarValueType",
+           [CDModelCompiler attributeUsesScalarValueType:attribute]?@"YES":@"NO");
+
+   /* Renaming identifier: Apple's getter falls back to the name, so
+      only an explicitly different value is worth writing. */
+   {
+    NSString *renaming=[attribute renamingIdentifier];
+    if(renaming!=nil && ![renaming isEqualToString:[attribute name]])
+     setAttr(element,@"renamingIdentifier",renaming);
+   }
+
+   /* Validation: re-emit the canonical predicate shapes in Xcode's
+      spellings (lengths and numbers share min/maxValueString; dates
+      use the interval attributes). */
+   {
+    NSDictionary *validation=[CDModelCompiler validationInfoForAttribute:attribute];
+
+    if([validation objectForKey:@"min"]!=nil)
+     setAttr(element,@"minValueString",[validation objectForKey:@"min"]);
+    if([validation objectForKey:@"max"]!=nil)
+     setAttr(element,@"maxValueString",[validation objectForKey:@"max"]);
+    if([validation objectForKey:@"minLength"]!=nil)
+     setAttr(element,@"minValueString",[validation objectForKey:@"minLength"]);
+    if([validation objectForKey:@"maxLength"]!=nil)
+     setAttr(element,@"maxValueString",[validation objectForKey:@"maxLength"]);
+    if([validation objectForKey:@"regex"]!=nil)
+     setAttr(element,@"regularExpressionString",[validation objectForKey:@"regex"]);
+    if([validation objectForKey:@"minDate"]!=nil)
+     setAttr(element,@"minDateTimeInterval",
+             [[NSNumber numberWithDouble:
+                 [[validation objectForKey:@"minDate"] timeIntervalSinceReferenceDate]] stringValue]);
+    if([validation objectForKey:@"maxDate"]!=nil)
+     setAttr(element,@"maxDateTimeInterval",
+             [[NSNumber numberWithDouble:
+                 [[validation objectForKey:@"maxDate"] timeIntervalSinceReferenceDate]] stringValue]);
+   }
    writeUserInfo(element,[attribute userInfo]);
    return element;
 }
@@ -211,6 +247,11 @@ static NSXMLElement *elementForRelationship(NSRelationshipDescription *relations
     setAttr(element,@"transient",@"YES");
    if([relationship versionHashModifier]!=nil)
     setAttr(element,@"versionHashModifier",[relationship versionHashModifier]);
+   {
+    NSString *renaming=[relationship renamingIdentifier];
+    if(renaming!=nil && ![renaming isEqualToString:[relationship name]])
+     setAttr(element,@"renamingIdentifier",renaming);
+   }
 
    if([relationship isToMany]){
     setAttr(element,@"toMany",@"YES");
@@ -252,6 +293,16 @@ static NSXMLElement *elementForEntity(NSEntityDescription *entity){
     setAttr(element,@"isAbstract",@"YES");
    if([entity versionHashModifier]!=nil)
     setAttr(element,@"versionHashModifier",[entity versionHashModifier]);
+   {
+    NSString *renaming=[entity renamingIdentifier];
+    if(renaming!=nil && ![renaming isEqualToString:[entity name]])
+     setAttr(element,@"elementID",renaming);
+   }
+   {
+    NSString *codegen=[CDModelCompiler entityCodeGenerationType:entity];
+    if(codegen!=nil)
+     setAttr(element,@"codeGenerationType",codegen);
+   }
    setAttr(element,@"syncable",@"YES");
 
    NSDictionary *attributes=[entity attributesByName];
@@ -348,6 +399,27 @@ static NSString *serializeModel(NSManagedObjectModel *model,NSDictionary *entity
     if([request fetchLimit]>0)
      setAttr(element,@"fetchLimit",
              [NSString stringWithFormat:@"%lu",(unsigned long)[request fetchLimit]]);
+    if([request fetchBatchSize]>0)
+     setAttr(element,@"fetchBatchSize",
+             [NSString stringWithFormat:@"%lu",(unsigned long)[request fetchBatchSize]]);
+    /* Xcode's integer spelling: 0 objects, 1 object IDs, 2 dictionaries. */
+    if([request resultType]==NSManagedObjectIDResultType)
+     setAttr(element,@"resultType",@"1");
+    else if([request resultType]==NSDictionaryResultType)
+     setAttr(element,@"resultType",@"2");
+    /* Template flags: like Apple's momc, written only when YES (an
+       absent attribute compiles as NO).  Xcode's spellings are
+       inconsistent; these match its files. */
+    if([request includesSubentities])
+     setAttr(element,@"includeSubentities",@"YES");
+    if([request includesPropertyValues])
+     setAttr(element,@"includePropertyValues",@"YES");
+    if([request returnsObjectsAsFaults])
+     setAttr(element,@"returnObjectsAsFaults",@"YES");
+    if([request includesPendingChanges])
+     setAttr(element,@"includesPendingChanges",@"YES");
+    if([request returnsDistinctResults])
+     setAttr(element,@"returnDistinctResults",@"YES");
     [root addChild:element];
    }
 

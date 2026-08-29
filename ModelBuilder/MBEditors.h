@@ -40,6 +40,8 @@
 @property (nonatomic, assign, getter=isAbstract) BOOL abstract;
 @property (nonatomic, copy) NSString *parentName;    /* empty detaches; XML path */
 @property (nonatomic, copy) NSString *hashModifier;  /* empty -> nil */
+@property (nonatomic, copy) NSString *renamingIdentifier; /* shows the name when defaulted; setting it to the name (or empty) resets */
+@property (nonatomic, copy) NSString *codegenType; /* Xcode XML spelling: @"class", @"category", or empty for Manual/None */
 @property (nonatomic, copy) NSDictionary *userInfo;
 
 /* Uniqueness constraints as comma-joined attribute-name strings, one
@@ -88,6 +90,22 @@
 @property (nonatomic, copy) NSString *derivationString;
 @property (nonatomic, readonly, getter=isDerived) BOOL derived;
 
+@property (nonatomic, copy) NSString *renamingIdentifier;
+
+/* usesScalarValueType (codegen metadata; see CDModelCompiler). */
+@property (nonatomic, assign) BOOL scalarType;
+
+/* Validation, over CDModelCompiler's canonical predicate shapes.
+   Strings; empty clears.  Numbers use min/max, strings use the length
+   pair and the regex, dates use the NSDate pair (nil clears). */
+@property (nonatomic, copy) NSString *validationMin;
+@property (nonatomic, copy) NSString *validationMax;
+@property (nonatomic, copy) NSString *minLengthString;
+@property (nonatomic, copy) NSString *maxLengthString;
+@property (nonatomic, copy) NSString *regexString;
+@property (nonatomic, copy) NSDate *validationMinDate;
+@property (nonatomic, copy) NSDate *validationMaxDate;
+
 @end
 
 /* ---------------------------------------------------------------- */
@@ -110,6 +128,7 @@
 @property (nonatomic, assign, getter=isOptional) BOOL optional;
 @property (nonatomic, assign, getter=isTransient) BOOL transient;
 @property (nonatomic, copy) NSString *hashModifier;
+@property (nonatomic, copy) NSString *renamingIdentifier;
 @property (nonatomic, copy) NSDictionary *userInfo;
 
 @end
@@ -129,5 +148,16 @@
    sets lastError and keeps the old predicate. */
 @property (nonatomic, copy) NSString *predicateFormat;
 @property (nonatomic, strong) NSPredicate *predicate;
+
+/* Template result shape and paging. */
+@property (nonatomic, assign) NSFetchRequestResultType resultType;
+@property (nonatomic, assign) NSUInteger fetchBatchSize;
+
+/* The template flags; like Apple's momc, absent-in-XML means NO. */
+@property (nonatomic, assign) BOOL includesSubentities;
+@property (nonatomic, assign) BOOL includesPropertyValues;
+@property (nonatomic, assign) BOOL returnsObjectsAsFaults;
+@property (nonatomic, assign) BOOL includesPendingChanges;
+@property (nonatomic, assign) BOOL returnsDistinctResults;
 
 @end

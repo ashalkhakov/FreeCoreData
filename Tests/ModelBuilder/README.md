@@ -19,6 +19,7 @@ exit non-zero on any failure.
 | Validation runs momc's checks in-process | `validateModel:` |
 | Model versions: add, make current, switch | the Xcode Editor-menu semantics |
 | Configurations: add, membership, rename, remove | the CDModelMutator XML path |
+| Renaming IDs, fetch features, scalar flags and validation round-trip | elementID/renamingIdentifier, fetch resultType/batch/flags, usesScalarValueType, validation predicates — serializer spellings + recompile |
 | Reparenting an entity is graph surgery | mutator + momc renormalization |
 | Saving and reopening preserves everything | write/read round trip |
 | Compile to momd produces a loadable artifact | in-process momc |
@@ -37,6 +38,9 @@ dispatch, cell-based table edits).
 | A type flip through Transformable leaves no transformer residue | the Apple `setValueTransformerName:nil` crash class |
 | Center-pane combo columns list and apply their choices | NSComboBoxCell columns: Type / Destination / Inverse |
 | The xib's delete-rule items match momc's vocabulary | IB-authored items pinned against `CDModelCompiler` |
+| Renaming, scalar, validation and fetch-template controls are live | inspector enablement + fill/apply for the newly round-tripped features |
+| The Codegen popup is live and round-trips codeGenerationType | codegen metadata: popup ↔ compiler carry ↔ serialized XML |
+| Stepper text fields own and drive their steppers | MBStepperTextField: self-created stepper, apply through the field's action, enablement mirroring |
 
 ## Requirements
 

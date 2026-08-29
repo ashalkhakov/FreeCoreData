@@ -252,6 +252,82 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [fileManager removeItemAtPath:momdPath error:NULL];
 }
 
+/* What Apple actually guarantees about -properties order: NOTHING.
+   The arbitration run on macOS returned dictionary hash order (input
+   zeta/alpha/middle/beta came back alpha/zeta/middle/beta), not
+   setProperties: order - Apple stores a dictionary internally, and
+   Xcode's own generator preserves editing order only because it works
+   from its editor document, not from NSEntityDescription.  So the
+   shared assertions here are the invariants both platforms hold: the
+   set of properties, hash invariance under reordering, and order
+   stability across an archive round trip.  The port additionally
+   promises insertion order (its deterministic instance of
+   "unspecified", carried through archives by GSPropertyOrder) - those
+   assertions are port-only. */
+- (void)testPropertiesPreserveTheirOrder
+{
+    /* deliberately non-alphabetical */
+    NSArray *names = [NSArray arrayWithObjects:
+        @"zeta", @"alpha", @"middle", @"beta", nil];
+    NSMutableArray *properties = [NSMutableArray array];
+    for (NSString *name in names) {
+        NSAttributeDescription *attribute = [[NSAttributeDescription alloc] init];
+        [attribute setName:name];
+        [attribute setAttributeType:NSStringAttributeType];
+        [attribute setOptional:YES];
+        [properties addObject:attribute];
+    }
+
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    [entity setName:@"Ordered"];
+    [entity setManagedObjectClassName:@"NSManagedObject"];
+    [entity setProperties:properties];
+
+    XCTAssertEqualObjects(
+        [NSSet setWithArray:[[entity properties] valueForKey:@"name"]],
+        [NSSet setWithArray:names],
+        @"every property is present, whatever the order");
+#if !defined(__APPLE__)
+    XCTAssertEqualObjects([[entity properties] valueForKey:@"name"], names,
+                          @"port guarantee: -properties returns setProperties: order");
+#endif
+
+    /* reordering must not disturb the version hash (macOS-verified) */
+    NSData *hashBefore = [entity versionHash];
+    NSMutableArray *reversed = [NSMutableArray array];
+    for (NSPropertyDescription *property in
+             [[entity properties] reverseObjectEnumerator])
+        [reversed addObject:property];
+    [entity setProperties:reversed];
+    XCTAssertEqualObjects([entity versionHash], hashBefore,
+                          @"property order is not part of the version hash");
+    [entity setProperties:properties];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObject:entity]];
+
+    NSMutableData *data = [NSMutableData data];
+    NSKeyedArchiver *archiver =
+        [[NSKeyedArchiver alloc] initForWritingWithMutableData:data];
+    [archiver encodeObject:model forKey:@"root"];
+    [archiver finishEncoding];
+
+    NSKeyedUnarchiver *unarchiver =
+        [[NSKeyedUnarchiver alloc] initForReadingWithData:data];
+    NSManagedObjectModel *decoded = [unarchiver decodeObjectForKey:@"root"];
+    NSEntityDescription *decodedEntity =
+        [[decoded entitiesByName] objectForKey:@"Ordered"];
+
+    XCTAssertEqualObjects([[decodedEntity properties] valueForKey:@"name"],
+                          [[entity properties] valueForKey:@"name"],
+                          @"whatever the order is, an archive round trip keeps it");
+#if !defined(__APPLE__)
+    XCTAssertEqualObjects([[decodedEntity properties] valueForKey:@"name"], names,
+                          @"port guarantee: insertion order survives the archive "
+                          @"(GSPropertyOrder)");
+#endif
+}
+
 - (void)testUniquenessConstraintsStorageAndVersionHash
 {
     NSAttributeDescription *code = [[NSAttributeDescription alloc] init];

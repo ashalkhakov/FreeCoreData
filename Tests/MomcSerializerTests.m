@@ -34,16 +34,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 static NSString *const kRichModelXML = @""
 "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
 "<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\" sourceLanguage=\"Objective-C\">\n"
-"  <entity name=\"Article\" representedClassName=\"NSManagedObject\" versionHashModifier=\"v2\" syncable=\"YES\">\n"
-"    <attribute name=\"title\" attributeType=\"String\" defaultValueString=\"Untitled\"/>\n"
+"  <entity name=\"Article\" representedClassName=\"NSManagedObject\" versionHashModifier=\"v2\" elementID=\"Post\" syncable=\"YES\">\n"
+"    <attribute name=\"title\" attributeType=\"String\" defaultValueString=\"Untitled\" minValueString=\"1\" maxValueString=\"80\" regularExpressionString=\".+\"/>\n"
 "    <attribute name=\"titleUpper\" optional=\"YES\" attributeType=\"String\" derived=\"YES\" derivationExpression=\"uppercase:(title)\"/>\n"
 "    <attribute name=\"titleCopy\" optional=\"YES\" attributeType=\"String\" derived=\"YES\" derivationExpression=\"title\"/>\n"
 "    <attribute name=\"stamp\" optional=\"YES\" attributeType=\"Date\" derived=\"YES\" derivationExpression=\"now()\"/>\n"
-"    <attribute name=\"wordCount\" optional=\"YES\" attributeType=\"Integer 32\" defaultValueString=\"7\"/>\n"
+"    <attribute name=\"wordCount\" optional=\"YES\" attributeType=\"Integer 32\" defaultValueString=\"7\" renamingIdentifier=\"wc\" usesScalarValueType=\"YES\" minValueString=\"0\" maxValueString=\"100000\"/>\n"
 "    <attribute name=\"rating\" optional=\"YES\" attributeType=\"Double\" defaultValueString=\"1.5\"/>\n"
 "    <attribute name=\"price\" optional=\"YES\" attributeType=\"Decimal\" defaultValueString=\"9.99\"/>\n"
 "    <attribute name=\"published\" optional=\"YES\" attributeType=\"Boolean\" defaultValueString=\"YES\"/>\n"
-"    <attribute name=\"createdAt\" optional=\"YES\" attributeType=\"Date\" defaultDateTimeInterval=\"631152000\"/>\n"
+"    <attribute name=\"createdAt\" optional=\"YES\" attributeType=\"Date\" defaultDateTimeInterval=\"631152000\" minDateTimeInterval=\"100\" maxDateTimeInterval=\"631152000\"/>\n"
 "    <attribute name=\"externalID\" optional=\"YES\" attributeType=\"UUID\"/>\n"
 "    <attribute name=\"homepage\" optional=\"YES\" attributeType=\"URI\"/>\n"
 "    <attribute name=\"blob\" optional=\"YES\" attributeType=\"Binary\"/>\n"
@@ -58,9 +58,9 @@ static NSString *const kRichModelXML = @""
 "      <entry key=\"team\" value=\"docs\"/>\n"
 "    </userInfo>\n"
 "  </entity>\n"
-"  <entity name=\"Author\" representedClassName=\"NSManagedObject\" syncable=\"YES\">\n"
+"  <entity name=\"Author\" representedClassName=\"NSManagedObject\" codeGenerationType=\"class\" syncable=\"YES\">\n"
 "    <attribute name=\"name\" attributeType=\"String\"/>\n"
-"    <relationship name=\"articles\" optional=\"YES\" toMany=\"YES\" ordered=\"YES\" minCount=\"1\" maxCount=\"12\" deletionRule=\"Cascade\" destinationEntity=\"Article\" inverseName=\"author\" inverseEntity=\"Article\">\n"
+"    <relationship name=\"articles\" optional=\"YES\" toMany=\"YES\" ordered=\"YES\" minCount=\"1\" maxCount=\"12\" deletionRule=\"Cascade\" renamingIdentifier=\"posts\" destinationEntity=\"Article\" inverseName=\"author\" inverseEntity=\"Article\">\n"
 "      <userInfo>\n"
 "        <entry key=\"hint\" value=\"ordered shelf\"/>\n"
 "      </userInfo>\n"
@@ -83,7 +83,7 @@ static NSString *const kRichModelXML = @""
 "    <memberEntity name=\"Author\"/>\n"
 "    <memberEntity name=\"FeaturedArticle\"/>\n"
 "  </configuration>\n"
-"  <fetchRequest name=\"LongArticles\" entity=\"Article\" predicateString=\"wordCount &gt; 100\" fetchLimit=\"5\"/>\n"
+"  <fetchRequest name=\"LongArticles\" entity=\"Article\" predicateString=\"wordCount &gt; 100\" fetchLimit=\"5\" fetchBatchSize=\"20\" resultType=\"2\" includeSubentities=\"YES\" includePropertyValues=\"YES\" includesPendingChanges=\"YES\" returnDistinctResults=\"YES\"/>\n"
 "</model>\n";
 
 @interface MomcSerializerTests : XCTestCase
@@ -219,6 +219,40 @@ static NSString *const kRichModelXML = @""
         [[original configurations] sortedArrayUsingSelector:@selector(compare:)]);
     XCTAssertEqual([[reparsed entitiesForConfiguration:@"Publishing"] count], (NSUInteger)3);
 
+    /* Renaming identifiers: entities spell theirs elementID, properties
+       renamingIdentifier; unset ones report the current name. */
+    XCTAssertEqualObjects([articleB renamingIdentifier], @"Post");
+    NSAttributeDescription *wordCountB = [[articleB attributesByName] objectForKey:@"wordCount"];
+    XCTAssertEqualObjects([wordCountB renamingIdentifier], @"wc");
+    XCTAssertEqualObjects([articlesB renamingIdentifier], @"posts");
+    XCTAssertEqualObjects([titleB renamingIdentifier], @"title",
+                          @"unset renamingIdentifier falls back to the name");
+
+    /* usesScalarValueType is codegen metadata carried by the compiler. */
+    XCTAssertTrue([CDModelCompiler attributeUsesScalarValueType:wordCountB]);
+    XCTAssertFalse([CDModelCompiler attributeUsesScalarValueType:titleB]);
+
+    /* codeGenerationType is entity-level codegen metadata; absent means
+       Manual/None and stays absent. */
+    XCTAssertEqualObjects([CDModelCompiler entityCodeGenerationType:authorB], @"class");
+    XCTAssertNil([CDModelCompiler entityCodeGenerationType:articleB]);
+
+    /* Validation bounds become the canonical predicate shapes and are
+       recognized back into Xcode's min/max/regex vocabulary. */
+    NSDictionary *wordInfo = [CDModelCompiler validationInfoForAttribute:wordCountB];
+    XCTAssertEqualObjects([wordInfo objectForKey:@"min"], @"0");
+    XCTAssertEqualObjects([wordInfo objectForKey:@"max"], @"100000");
+    NSDictionary *titleInfo = [CDModelCompiler validationInfoForAttribute:titleB];
+    XCTAssertEqualObjects([titleInfo objectForKey:@"minLength"], @"1");
+    XCTAssertEqualObjects([titleInfo objectForKey:@"maxLength"], @"80");
+    XCTAssertEqualObjects([titleInfo objectForKey:@"regex"], @".+");
+    NSDictionary *createdInfo = [CDModelCompiler validationInfoForAttribute:
+        [[articleB attributesByName] objectForKey:@"createdAt"]];
+    XCTAssertEqualObjects([createdInfo objectForKey:@"minDate"],
+                          [NSDate dateWithTimeIntervalSinceReferenceDate:100]);
+    XCTAssertEqualObjects([createdInfo objectForKey:@"maxDate"],
+                          [NSDate dateWithTimeIntervalSinceReferenceDate:631152000]);
+
     /* Fetch request templates. */
     NSFetchRequest *template = [reparsed fetchRequestTemplateForName:@"LongArticles"];
     XCTAssertNotNil(template);
@@ -227,6 +261,21 @@ static NSString *const kRichModelXML = @""
     XCTAssertEqualObjects(
         [[template predicate] predicateFormat],
         [[[original fetchRequestTemplateForName:@"LongArticles"] predicate] predicateFormat]);
+
+    /* Result shape, paging and the five flags (returnObjectsAsFaults is
+       absent from the fixture, so it must come back NO — Apple momc's
+       absent-means-NO convention). */
+    XCTAssertEqual([template resultType], NSDictionaryResultType);
+    XCTAssertEqual([template fetchBatchSize], (NSUInteger)20);
+    XCTAssertTrue([template includesSubentities]);
+    XCTAssertTrue([template includesPropertyValues]);
+    /* The fixture authors includesPendingChanges="YES", but Apple does
+       not support YES with NSDictionaryResultType: a dictionary request
+       reads the flag as NO on macOS, and the port mirrors that.  This
+       assertion is the Mac arbitration of that clamp. */
+    XCTAssertFalse([template includesPendingChanges]);
+    XCTAssertTrue([template returnsDistinctResults]);
+    XCTAssertFalse([template returnsObjectsAsFaults]);
 }
 
 /* serialize(compile(serialize(m))) == serialize(m): the output is

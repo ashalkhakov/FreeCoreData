@@ -29,8 +29,10 @@ CoreDataTests_OBJC_FILES = \
 	NSPendingChangesFetchTests.m \
 	MomcCompiledModelTests.m \
 	MomcSerializerTests.m \
+	CodeGeneratorTests.m \
 	../Tools/momc/CDModelCompiler.m \
 	../Tools/momc/CDModelSerializer.m \
+	../Tools/momc/CDCodeGenerator.m \
 	NSUUIDAndOrderedRelationshipTests.m \
 	NSManagedObjectContextUndoTests.m \
 	VersionHashTests.m \

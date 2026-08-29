@@ -97,6 +97,121 @@ int main(void)
               isEqualToString:@"r2"], "relationship hash modifier recompiled");
     CHECK([person2 uniquenessConstraints].count == 1, "constraint recompiled");
 
+    SCENARIO("Renaming IDs, fetch features, scalar flags and validation round-trip");
+    /* GIVEN renaming identifiers on an entity, an attribute and a
+            relationship, a fetch template using result type, batch
+            size and the five template flags, a usesScalarValueType
+            codegen flag, and numeric, string and date validation
+       WHEN the model is serialized and recompiled through momc
+       THEN the XML carries Xcode's spellings (including the
+            inconsistent include/includes flag names, YES-only) and
+            every value survives the round trip */
+    NSAttributeDescription *age = [person attributesByName][@"age"];
+    [person setRenamingIdentifier:@"OldPerson"];
+    [age setRenamingIdentifier:@"years"];
+    [pets setRenamingIdentifier:@"animals"];
+    CHECK([[[person attributesByName][@"name"] renamingIdentifier]
+              isEqualToString:@"name"], "renamingIdentifier defaults to the name");
+    [CDModelCompiler setAttribute:age usesScalarValueType:YES];
+    [CDModelCompiler applyValidationInfo:@{ @"min": @"0", @"max": @"150" }
+                             toAttribute:age];
+    [CDModelCompiler applyValidationInfo:@{ @"minLength": @"1", @"maxLength": @"64",
+                                            @"regex": @"[A-Za-z ]+" }
+                             toAttribute:nameAttr];
+    NSAttributeDescription *born = [[NSAttributeDescription alloc] init];
+    [born setName:@"born"];
+    [born setAttributeType:NSDateAttributeType];
+    [born setOptional:YES];
+    [person setProperties:[[person properties] arrayByAddingObject:born]];
+    [CDModelCompiler applyValidationInfo:@{
+        /* not 0: GNUstep's NSDate does not round-trip interval 0 exactly */
+        @"minDate": [NSDate dateWithTimeIntervalSinceReferenceDate:100],
+        @"maxDate": [NSDate dateWithTimeIntervalSinceReferenceDate:86400] }
+                             toAttribute:born];
+    NSFetchRequest *adults = [[NSFetchRequest alloc] init];
+    [adults setEntity:person];
+    [adults setPredicate:[NSPredicate predicateWithFormat:@"age >= 18"]];
+    [adults setResultType:NSDictionaryResultType];
+    [adults setFetchBatchSize:50];
+    [adults setIncludesSubentities:YES];
+    [adults setIncludesPropertyValues:YES];
+    [adults setReturnsObjectsAsFaults:NO];   /* NO = absent from the XML */
+    /* clamped to NO: Apple does not support YES with dictionary results */
+    [adults setIncludesPendingChanges:YES];
+    [adults setReturnsDistinctResults:YES];
+    [doc.model setFetchRequestTemplate:adults forName:@"Adults"];
+    xml = [CDModelSerializer contentsXMLForModel:doc.model
+                                   entityLayouts:nil
+                                           error:&error];
+    CHECK(xml != nil, "serialize model with the new features");
+    CHECK([xml rangeOfString:@"elementID=\"OldPerson\""].location != NSNotFound,
+          "entity renaming spelled elementID");
+    CHECK([xml rangeOfString:@"renamingIdentifier=\"years\""].location != NSNotFound,
+          "attribute renamingIdentifier serialized");
+    CHECK([xml rangeOfString:@"renamingIdentifier=\"animals\""].location != NSNotFound,
+          "relationship renamingIdentifier serialized");
+    CHECK([xml rangeOfString:@"renamingIdentifier=\"name\""].location == NSNotFound,
+          "defaulted renamingIdentifier not serialized");
+    CHECK([xml rangeOfString:@"usesScalarValueType=\"YES\""].location != NSNotFound,
+          "usesScalarValueType serialized");
+    CHECK([xml rangeOfString:@"minValueString=\"0\""].location != NSNotFound &&
+          [xml rangeOfString:@"maxValueString=\"150\""].location != NSNotFound,
+          "numeric bounds serialized");
+    CHECK([xml rangeOfString:@"minValueString=\"1\""].location != NSNotFound &&
+          [xml rangeOfString:@"maxValueString=\"64\""].location != NSNotFound,
+          "string length bounds serialized as min/maxValueString");
+    CHECK([xml rangeOfString:@"regularExpressionString="].location != NSNotFound,
+          "regularExpressionString serialized");
+    CHECK([xml rangeOfString:@"minDateTimeInterval=\"100\""].location != NSNotFound &&
+          [xml rangeOfString:@"maxDateTimeInterval=\"86400\""].location != NSNotFound,
+          "date bounds serialized as timeIntervals");
+    CHECK([xml rangeOfString:@"resultType=\"2\""].location != NSNotFound,
+          "dictionary resultType spelled 2");
+    CHECK([xml rangeOfString:@"fetchBatchSize=\"50\""].location != NSNotFound,
+          "fetchBatchSize serialized");
+    CHECK([xml rangeOfString:@"includeSubentities=\"YES\""].location != NSNotFound &&
+          [xml rangeOfString:@"includePropertyValues=\"YES\""].location != NSNotFound &&
+          [xml rangeOfString:@"returnDistinctResults=\"YES\""].location != NSNotFound,
+          "YES flags use Xcode's (inconsistent) spellings");
+    CHECK([xml rangeOfString:@"returnObjectsAsFaults"].location == NSNotFound,
+          "NO flag left absent, like Apple momc");
+    CHECK([xml rangeOfString:@"includesPendingChanges"].location == NSNotFound,
+          "pendingChanges clamped off for dictionary results (Apple rule)");
+    recompiled = [CDModelCompiler compileModelContentsXML:xml error:&error];
+    CHECK(recompiled != nil, "recompile with the new features");
+    person2 = recompiled.entitiesByName[@"Person"];
+    CHECK([[person2 renamingIdentifier] isEqualToString:@"OldPerson"],
+          "entity renaming recompiled");
+    NSAttributeDescription *age2 = [person2 attributesByName][@"age"];
+    CHECK([[age2 renamingIdentifier] isEqualToString:@"years"],
+          "attribute renaming recompiled");
+    CHECK([[[person2 relationshipsByName][@"pets"] renamingIdentifier]
+              isEqualToString:@"animals"], "relationship renaming recompiled");
+    CHECK([CDModelCompiler attributeUsesScalarValueType:age2],
+          "scalar flag recompiled");
+    NSDictionary *ageInfo = [CDModelCompiler validationInfoForAttribute:age2];
+    CHECK([ageInfo[@"min"] isEqualToString:@"0"] &&
+          [ageInfo[@"max"] isEqualToString:@"150"], "numeric validation recompiled");
+    NSDictionary *nameInfo = [CDModelCompiler
+        validationInfoForAttribute:[person2 attributesByName][@"name"]];
+    CHECK([nameInfo[@"minLength"] isEqualToString:@"1"] &&
+          [nameInfo[@"maxLength"] isEqualToString:@"64"] &&
+          [nameInfo[@"regex"] isEqualToString:@"[A-Za-z ]+"],
+          "string validation recompiled");
+    NSDictionary *bornInfo = [CDModelCompiler
+        validationInfoForAttribute:[person2 attributesByName][@"born"]];
+    CHECK([bornInfo[@"minDate"] timeIntervalSinceReferenceDate] == 100 &&
+          [bornInfo[@"maxDate"] timeIntervalSinceReferenceDate] == 86400,
+          "date validation recompiled");
+    NSFetchRequest *adults2 =
+        [recompiled fetchRequestTemplateForName:@"Adults"];
+    CHECK(adults2 != nil, "fetch template recompiled");
+    CHECK([adults2 resultType] == NSDictionaryResultType, "resultType recompiled");
+    CHECK([adults2 fetchBatchSize] == 50, "fetchBatchSize recompiled");
+    CHECK([adults2 includesSubentities] && [adults2 includesPropertyValues] &&
+          ![adults2 includesPendingChanges] && [adults2 returnsDistinctResults] &&
+          ![adults2 returnsObjectsAsFaults], "the five flags recompiled");
+
     SCENARIO("Validation runs momc's checks in-process");
     /* validation */
     NSArray *warnings = nil;

@@ -283,6 +283,144 @@ int main(void)
     CHECK(others.destinationEntity == thing, "center Destination edit retargets");
     CHECK(others.inverseRelationship == nil, "stale inverse dropped on retarget");
 
+    SCENARIO("Renaming, scalar, validation and fetch-template controls are live");
+    /* GIVEN the serializer now round-trips renaming identifiers,
+            usesScalarValueType, validation bounds and the fetch
+            template features (result type, batch size, the flags)
+       WHEN the inspector controls for them are used as a user would
+       THEN they are enabled, prefill from the model, and each edit
+            reaches the description objects */
+    CHECK(wc.attributeRenamingField.isEnabled && wc.entityRenamingField.isEnabled &&
+          wc.relationshipRenamingField.isEnabled, "renaming fields enabled");
+    CHECK(wc.fetchResultTypePopup.isEnabled && wc.fetchBatchField.isEnabled &&
+          wc.fetchDistinctCheckbox.isEnabled, "fetch feature controls enabled");
+    CHECK(wc.numberMinField.isEnabled && wc.stringRegexField.isEnabled &&
+          wc.dateMinPicker.isEnabled, "validation controls enabled");
+    CHECK(wc.dateScalarCheckbox.isEnabled, "scalar checkboxes enabled");
+
+    /* cDate (row 2) kept its Date type through the earlier scenarios. */
+    selectAttributeRow(wc, 2);
+    NSAttributeDescription *cDate = thing.attributesByName[@"cDate"];
+    CHECK([wc.attributeRenamingField.stringValue isEqualToString:@"cDate"],
+          "renaming field shows the name while defaulted");
+    wc.attributeRenamingField.stringValue = @"createdAt";
+    [wc inspectorChanged:wc.attributeRenamingField];
+    CHECK([[cDate renamingIdentifier] isEqualToString:@"createdAt"],
+          "renaming edit reaches the model");
+    [wc.dateScalarCheckbox setState:NSOnState];
+    [wc inspectorChanged:wc.dateScalarCheckbox];
+    CHECK([CDModelCompiler attributeUsesScalarValueType:cDate],
+          "scalar checkbox sets the codegen flag");
+    [wc.dateMinCheckbox setState:NSOnState];
+    wc.dateMinPicker.dateValue = [NSDate dateWithTimeIntervalSinceReferenceDate:100];
+    [wc inspectorChanged:wc.dateMinCheckbox];
+    NSDictionary *dateInfo = [CDModelCompiler validationInfoForAttribute:cDate];
+    CHECK([dateInfo[@"minDate"] timeIntervalSinceReferenceDate] == 100,
+          "date lower bound applied as a validation predicate");
+
+    /* bInt became a String attribute in the combo-column scenario. */
+    selectAttributeRow(wc, 1);
+    wc.stringMinField.stringValue = @"2";
+    wc.stringMaxField.stringValue = @"10";
+    wc.stringRegexField.stringValue = @"[a-z]+";
+    [wc inspectorChanged:wc.stringMaxField];
+    NSDictionary *strInfo = [CDModelCompiler validationInfoForAttribute:bInt];
+    CHECK([strInfo[@"minLength"] isEqualToString:@"2"] &&
+          [strInfo[@"maxLength"] isEqualToString:@"10"] &&
+          [strInfo[@"regex"] isEqualToString:@"[a-z]+"],
+          "string length bounds and regex applied");
+
+    [wc addFetchRequest:nil];   /* adds for Thing, selects it */
+    NSString *templateName = wc.fetchNameField.stringValue;
+    CHECK(templateName.length > 0, "fetch request added and selected");
+    CHECK(wc.fetchSubentitiesCheckbox.state == NSOnState &&
+          wc.fetchDistinctCheckbox.state == NSOffState,
+          "checkboxes prefill with the runtime defaults");
+    [wc.fetchResultTypePopup selectItemAtIndex:2];   /* Dictionaries */
+    wc.fetchBatchField.stringValue = @"25";
+    [wc.fetchDistinctCheckbox setState:NSOnState];
+    [wc.fetchSubentitiesCheckbox setState:NSOffState];
+    [wc inspectorChanged:wc.fetchResultTypePopup];
+    NSFetchRequest *template = [doc.model fetchRequestTemplateForName:templateName];
+    CHECK(template != nil, "template stored under its name");
+    CHECK([template resultType] == NSDictionaryResultType,
+          "result-type popup applied (Dictionaries)");
+    CHECK([template fetchBatchSize] == 25, "batch size applied");
+    CHECK([template returnsDistinctResults] && ![template includesSubentities],
+          "flag flips applied in both directions");
+
+    SCENARIO("The Codegen popup is live and round-trips codeGenerationType");
+    /* GIVEN codegen metadata now rides through the momc layer
+       WHEN an entity's Codegen popup is switched to Class Definition
+       THEN the compiler metadata and the serialized XML both carry it,
+            and the refill maps it back to the same popup item */
+    CHECK(([[NSSet setWithArray:[wc.codegenPopup itemTitles]] isEqualToSet:
+            [NSSet setWithArray:@[ @"Manual/None", @"Class Definition",
+                                   @"Category/Extension" ]]]),
+          "xib codegen items match the known modes");
+    for (NSInteger i = 0; i < [wc.sourceList numberOfRows]; i++) {
+      id item = [wc.sourceList itemAtRow:i];
+      if ([item respondsToSelector:@selector(name)] &&
+          [[item performSelector:@selector(name)] isEqualToString:@"Thing"]) {
+        [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)i]
+                   byExtendingSelection:NO];
+        break;
+      }
+    }
+    CHECK(wc.codegenPopup.isEnabled, "codegen popup enabled");
+    [wc.codegenPopup selectItemAtIndex:1];   /* Class Definition */
+    [wc inspectorChanged:wc.codegenPopup];
+    CHECK([[CDModelCompiler entityCodeGenerationType:thing]
+              isEqualToString:@"class"], "popup writes the compiler metadata");
+    CHECK([wc.codegenPopup indexOfSelectedItem] == 1,
+          "refill maps the metadata back to the item");
+    xml = [CDModelSerializer contentsXMLForModel:doc.model
+                                   entityLayouts:nil error:&error];
+    CHECK(xml != nil &&
+          [xml rangeOfString:@"codeGenerationType=\"class\""].location != NSNotFound,
+          "codeGenerationType serialized");
+
+    SCENARIO("Stepper text fields own and drive their steppers");
+    /* GIVEN the numeric inspector fields are MBStepperTextFields in
+            the xib, each creating its own stepper on nib load
+       WHEN a stepper click is simulated (value +1, action fired, as a
+            real click leaves it)
+       THEN the field increments, the edit applies through the field's
+            own action (inspectorChanged:), the stepper returns to
+            rest, and it mirrors the field's enabled state */
+    int owned = 0;
+    for (MBStepperTextField *field in @[ wc.numberDefaultField, wc.numberMinField,
+                                         wc.numberMaxField, wc.stringMinField,
+                                         wc.stringMaxField, wc.minCountField,
+                                         wc.maxCountField, wc.fetchLimitField,
+                                         wc.fetchBatchField ]) {
+      if ([field isKindOfClass:[MBStepperTextField class]] &&
+          field.stepper != nil && field.stepper.target == field &&
+          field.stepper.superview == field.superview) owned++;
+    }
+    CHECK(owned == 9, "all 9 fields are MBStepperTextFields with a live stepper");
+    CHECK(wc.numberMinField.allowsNegative && !wc.stringMinField.allowsNegative,
+          "number bounds signed, lengths clamped at zero");
+
+    selectAttributeRow(wc, 1);   /* bInt (String type), minLength "2" */
+    CHECK([wc.stringMinField.stringValue isEqualToString:@"2"],
+          "string min length prefilled");
+    NSStepper *minStepper = wc.stringMinField.stepper;
+    minStepper.doubleValue = 1;   /* an up-click leaves +1 behind */
+    [minStepper sendAction:minStepper.action to:minStepper.target];
+    CHECK([wc.stringMinField.stringValue isEqualToString:@"3"],
+          "up-click increments the field");
+    CHECK([[CDModelCompiler validationInfoForAttribute:bInt][@"minLength"]
+              isEqualToString:@"3"], "stepped value applied to the model");
+    CHECK(minStepper.doubleValue == 0, "stepper back at rest");
+    minStepper.doubleValue = -1;  /* a down-click */
+    [minStepper sendAction:minStepper.action to:minStepper.target];
+    CHECK([wc.stringMinField.stringValue isEqualToString:@"2"],
+          "down-click decrements the field");
+    wc.minCountField.enabled = NO;
+    CHECK(!wc.minCountField.stepper.isEnabled, "stepper follows field enablement");
+    wc.minCountField.enabled = YES;
+
     printf("---\n%d passed, %d failed\n", passed, failed);
     exit(failed ? 1 : 0);   /* skip pool teardown */
   }

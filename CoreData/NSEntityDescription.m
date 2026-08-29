@@ -181,11 +181,43 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     _className = [[coder decodeObjectForKey: @"NSClassNameForEntity"] retain];
     _name = [[coder decodeObjectForKey: @"NSEntityName"] retain];
     _model = [coder decodeObjectForKey: @"NSManagedObjectModel"];
-    _properties = [[coder decodeObjectForKey: @"NSProperties"] retain];
+    /* NSProperties is a name->property dictionary, matching Apple's
+       mom archives.  The port adds GSPropertyOrder (property names)
+       so its own archive round trips keep -properties stable;
+       archives without it (older port moms) fall back to name order
+       - which is what Xcode's alphabetized model XML compiles to
+       anyway.  (Apple's -properties order is unspecified, so the
+       side key is a port nicety, not a compatibility need.) */
+    {
+     id decodedProperties = [coder decodeObjectForKey: @"NSProperties"];
+     NSArray *order = [coder decodeObjectForKey: @"GSPropertyOrder"];
+
+     _properties = [[NSMutableArray alloc] init];
+     if([decodedProperties isKindOfClass: [NSDictionary class]]) {
+        _propertiesByName = [decodedProperties mutableCopy];
+        if(order == nil)
+            order = [[decodedProperties allKeys]
+                sortedArrayUsingSelector: @selector(compare:)];
+        for(NSString *propertyName in order) {
+            id property = [decodedProperties objectForKey: propertyName];
+            if(property != nil)
+                [_properties addObject: property];
+        }
+     }
+     else {
+        /* tolerate an array encoding: the array is its own order */
+        _propertiesByName = [[NSMutableDictionary alloc] init];
+        for(NSPropertyDescription *property in decodedProperties) {
+            [_properties addObject: property];
+            [_propertiesByName setObject: property forKey: [property name]];
+        }
+     }
+    }
     _subentities = [[coder decodeObjectForKey: @"NSSubentities"] retain];
     _superentity = [[coder decodeObjectForKey: @"NSSuperentity"] retain];
     _userInfo = [[coder decodeObjectForKey: @"NSUserInfo"] retain];
     _versionHashModifier= [[coder decodeObjectForKey: @"NSVersionHashModifier"] retain];
+    _renamingIdentifier= [[coder decodeObjectForKey: @"NSRenamingIdentifier"] retain];
     _uniquenessConstraints = [[coder decodeObjectForKey: @"NSUniquenessConstraints"] retain];
     _compoundIndexes = [[coder decodeObjectForKey: @"NSCompoundIndexes"] retain];
     /* Apple's momc only writes the flag when the entity is abstract. */
@@ -220,7 +252,7 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     if(_selectorPropertyMap==nil)
         _selectorPropertyMap=[[NSMutableDictionary alloc] init];
 
-    for(NSPropertyDescription *property in [_properties allValues]) {
+    for(NSPropertyDescription *property in _properties) {
         NSString *propertyName=[property name];
         NSString *upperName=[[[propertyName substringToIndex:1] uppercaseString] stringByAppendingString:[propertyName substringFromIndex: 1]];
         SEL       selector;
@@ -294,7 +326,10 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
 	[coder encodeObject:_className forKey: @"NSClassNameForEntity"];
     [coder encodeObject:_name forKey: @"NSEntityName"];
     [coder encodeConditionalObject:_model forKey: @"NSManagedObjectModel"];
-    [coder encodeObject:_properties forKey: @"NSProperties"];
+    /* the Apple-shaped dictionary plus the port's order side-key (see
+       initWithCoder:) */
+    [coder encodeObject:_propertiesByName forKey: @"NSProperties"];
+    [coder encodeObject:[_properties valueForKey: @"name"] forKey: @"GSPropertyOrder"];
     if([_subentities count]>0)
 	[coder encodeObject:_subentities forKey: @"NSSubentities"];
     [coder encodeConditionalObject:_superentity forKey: @"NSSuperentity"];
@@ -302,6 +337,8 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
 	[coder encodeObject:_userInfo forKey: @"NSUserInfo"];
     if(_versionHashModifier!=nil)
 	[coder encodeObject:_versionHashModifier forKey: @"NSVersionHashModifier"];
+    if(_renamingIdentifier!=nil)
+	[coder encodeObject:_renamingIdentifier forKey: @"NSRenamingIdentifier"];
     if([_uniquenessConstraints count]>0)
 	[coder encodeObject:_uniquenessConstraints forKey: @"NSUniquenessConstraints"];
     if([_compoundIndexes count]>0)
@@ -368,7 +405,7 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
        empty for entities built programmatically - the accessor name
        itself is the reliable identity. */
     for(NSString *candidate in candidates){
-     result=[entity->_properties objectForKey:candidate];
+     result=[entity->_propertiesByName objectForKey:candidate];
 
      if(result)
       return result;
@@ -430,7 +467,9 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
 
 
 -(NSArray *)properties {
-   return [_properties allValues];
+   /* insertion order - a deterministic instance of Apple's
+      unspecified (dictionary-driven) order; see the header note */
+   return [[_properties copy] autorelease];
 }
 
 
@@ -484,15 +523,19 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
     return;
    }
 
-   NSMutableDictionary *properties=[[NSMutableDictionary alloc] init];
+   NSMutableArray *properties=[[NSMutableArray alloc] init];
+   NSMutableDictionary *byName=[[NSMutableDictionary alloc] init];
 
    for(NSPropertyDescription *property in value){
-    [properties setObject:property forKey:[property name]];
+    [properties addObject:property];
+    [byName setObject:property forKey:[property name]];
     [property _setEntity:self];
    }
 
    [_properties release];
    _properties=properties;
+   [_propertiesByName release];
+   _propertiesByName=byName;
 }
 
 
@@ -557,15 +600,15 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
    property shadows a same-named inherited one). */
 -(NSDictionary *)propertiesByName {
    if(_superentity==nil)
-    return _properties;
+    return _propertiesByName;
 
    NSMutableDictionary *result=[NSMutableDictionary dictionary];
    NSEntityDescription *check;
 
    for(check=self;check!=nil;check=check->_superentity){
-    for(NSString *name in check->_properties){
+    for(NSString *name in check->_propertiesByName){
      if([result objectForKey:name]==nil)
-      [result setObject:[check->_properties objectForKey:name] forKey:name];
+      [result setObject:[check->_propertiesByName objectForKey:name] forKey:name];
     }
    }
 
@@ -589,7 +632,7 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
 -(NSArray *)relationshipsWithDestinationEntity:(NSEntityDescription *)entity {
    NSMutableArray *result=[NSMutableArray array];
 
-   for(NSPropertyDescription *check in [_properties allValues]){
+   for(NSPropertyDescription *check in _properties){
     if([check isKindOfClass:[NSRelationshipDescription class]]){
      if([[check entity] isEqual:entity])
       [result addObject:check];
@@ -627,8 +670,10 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
     [components addObject:[NSString stringWithFormat:@"constraints:%@",[normalized componentsJoinedByString:@";"]]];
    }
 
-   for(NSString *propertyName in [[_properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
-    NSPropertyDescription *property=[_properties objectForKey:propertyName];
+   /* name-sorted, not model-ordered: reordering properties must not
+      change the version hash */
+   for(NSString *propertyName in [[_propertiesByName allKeys] sortedArrayUsingSelector:@selector(compare:)]){
+    NSPropertyDescription *property=[_propertiesByName objectForKey:propertyName];
     NSData                *hash=[property versionHash];
     NSMutableString       *hex=[NSMutableString string];
     const uint8_t         *bytes=[hash bytes];
@@ -694,6 +739,21 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
    value=[value copy];
    [_versionHashModifier release];
    _versionHashModifier=value;
+}
+
+
+/* Apple semantics: an unset renaming identifier reads as the name;
+   the raw value stays nil so serializers can tell "defaulted" from
+   "explicitly set".  Does not participate in the version hash. */
+-(NSString *)renamingIdentifier {
+   return (_renamingIdentifier!=nil)?_renamingIdentifier:_name;
+}
+
+
+-(void)setRenamingIdentifier:(NSString *)value {
+   value=[value copy];
+   [_renamingIdentifier release];
+   _renamingIdentifier=value;
 }
 
 

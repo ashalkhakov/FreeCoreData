@@ -11,6 +11,7 @@
 #import "MBDocument.h"
 #import "CDModelCompiler.h"
 #import "CDModelSerializer.h"
+#import "CDCodeGenerator.h"
 #import "MBEditors.h"
 #import "JUInspectorView.h"
 #import "JUInspectorViewContainer.h"
@@ -181,31 +182,19 @@ static NSImage *MBFirstImageNamed(NSArray *names)
      (not disabled in the xib) DELIBERATELY: each line below is the
      to-do list for a schema feature, and enabling one should happen
      next to the serializer change that supports it. --- */
-  MBDisable(self.codegenPopup,
-      @"Codegen is an Xcode build-phase feature; FreeCoreData does not use it.");
-  MBDisable(self.entityRenamingField, MBNotSerializedTip);
-  MBDisable(self.attributeRenamingField, MBNotSerializedTip);
-  MBDisable(self.relationshipRenamingField, MBNotSerializedTip);
-  MBDisable(self.fetchResultTypePopup, MBNotSerializedTip);
-  MBDisable(self.fetchBatchField, MBNotSerializedTip);
-  for (NSButton *checkbox in @[ self.fetchPropertyValuesCheckbox, self.fetchFaultsCheckbox,
-                                self.fetchPendingChangesCheckbox, self.fetchDistinctCheckbox,
-                                self.fetchSubentitiesCheckbox ])
-    MBDisable(checkbox, MBNotSerializedTip);
-  for (NSButton *checkbox in @[ self.numberScalarCheckbox, self.boolScalarCheckbox,
-                                self.dateScalarCheckbox, self.uuidScalarCheckbox ])
-    MBDisable(checkbox,
-        @"FreeCoreData always generates both object and scalar accessors.");
-  for (id control in @[ self.numberMinField, self.numberMaxField, self.stringMinField,
-                        self.stringMaxField, self.stringRegexField, self.dateMinCheckbox,
-                        self.dateMinPicker, self.dateMaxCheckbox, self.dateMaxPicker ])
-    MBDisable(control, @"Validation predicates are not serialized yet.");
   MBDisable(self.preserveCheckbox, MBNotSerializedTip);
   MBDisable(self.undefinedClassField,
       @"Custom value classes apply to Transformable attributes.");
-  MBDisableControlsOfClass(self.inspectorTabView, [NSStepper class], nil);
   MBDisableControlsOfClass(self.inspectorTabView, [NSComboBox class],
       @"Modules are an Xcode/Swift concept; not used by FreeCoreData.");
+
+  /* The number page's bounds may be negative (numeric attributes);
+     set in code because GNUstep's xib loader does not apply IB
+     runtime attributes to nested subviews.  Every other stepper
+     field (counts, lengths, limits) keeps the clamp at zero. */
+  self.numberDefaultField.allowsNegative = YES;
+  self.numberMinField.allowsNegative = YES;
+  self.numberMaxField.allowsNegative = YES;
 
   /* Right-click menu on the source list, so a first fetch request or
      configuration can be added even when the "+" segment's context is
@@ -222,6 +211,12 @@ static NSImage *MBFirstImageNamed(NSArray *names)
                                    keyEquivalent:@""];
     item.target = self;
   }
+  [addMenu addItem:[NSMenuItem separatorItem]];
+  NSMenuItem *subclassItem =
+      [addMenu addItemWithTitle:@"Create NSManagedObject Subclass…"
+                         action:@selector(createManagedObjectSubclass:)
+                  keyEquivalent:@""];
+  subclassItem.target = self;
   self.sourceList.menu = addMenu;
 
   /* Default to the textual predicate editor off-Apple: GNUstep's
@@ -576,6 +571,14 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   else
     [self.parentPopup selectItemAtIndex:0];
   self.entityHashModifierField.stringValue = [entity versionHashModifier] ?: @"";
+  /* shows the entity name while defaulted (Xcode does the same) */
+  self.entityRenamingField.stringValue = [entity renamingIdentifier] ?: @"";
+  /* popup order: Manual/None, Class Definition, Category/Extension */
+  NSString *codegen = [CDModelCompiler entityCodeGenerationType:entity];
+  NSInteger codegenIndex = 0;
+  if ([codegen isEqualToString:@"class"]) codegenIndex = 1;
+  else if ([codegen isEqualToString:@"category"]) codegenIndex = 2;
+  [self.codegenPopup selectItemAtIndex:codegenIndex];
 }
 
 - (void)fillAttributeInspector:(NSAttributeDescription *)attr
@@ -610,21 +613,36 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
     case NSDoubleAttributeType:
     case NSFloatAttributeType:
       self.numberDefaultField.stringValue = value ? [value description] : @"";
+      self.numberScalarCheckbox.state = editor.scalarType ? NSOnState : NSOffState;
+      self.numberMinField.stringValue = editor.validationMin ?: @"";
+      self.numberMaxField.stringValue = editor.validationMax ?: @"";
       break;
     case NSStringAttributeType:
       self.stringDefaultCheckbox.state = value ? NSOnState : NSOffState;
       self.stringDefaultField.stringValue = value ? [value description] : @"";
+      self.stringMinField.stringValue = editor.minLengthString ?: @"";
+      self.stringMaxField.stringValue = editor.maxLengthString ?: @"";
+      self.stringRegexField.stringValue = editor.regexString ?: @"";
       break;
     case NSBooleanAttributeType:
       if (!value) [self.boolDefaultPopup selectItemAtIndex:0];
       else [self.boolDefaultPopup selectItemWithTitle:[value boolValue] ? @"YES" : @"NO"];
+      self.boolScalarCheckbox.state = editor.scalarType ? NSOnState : NSOffState;
       break;
-    case NSDateAttributeType:
+    case NSDateAttributeType: {
       self.dateDefaultCheckbox.state = value ? NSOnState : NSOffState;
       if (value) self.dateDefaultPicker.dateValue = value;
+      self.dateScalarCheckbox.state = editor.scalarType ? NSOnState : NSOffState;
+      NSDate *minDate = editor.validationMinDate, *maxDate = editor.validationMaxDate;
+      self.dateMinCheckbox.state = minDate ? NSOnState : NSOffState;
+      if (minDate) self.dateMinPicker.dateValue = minDate;
+      self.dateMaxCheckbox.state = maxDate ? NSOnState : NSOffState;
+      if (maxDate) self.dateMaxPicker.dateValue = maxDate;
       break;
+    }
     case NSUUIDAttributeType:
       self.uuidDefaultField.stringValue = value ? [value UUIDString] : @"";
+      self.uuidScalarCheckbox.state = editor.scalarType ? NSOnState : NSOffState;
       break;
     case NSURIAttributeType:
       self.uriDefaultField.stringValue = value ? [value absoluteString] : @"";
@@ -637,6 +655,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
       break;
   }
   self.attributeHashModifierField.stringValue = [attr versionHashModifier] ?: @"";
+  self.attributeRenamingField.stringValue = editor.renamingIdentifier ?: @"";
 }
 
 - (void)fillRelationshipInspector:(NSRelationshipDescription *)rel
@@ -675,6 +694,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   self.maxCountField.stringValue = (rel.isToMany && rel.maxCount)
       ? [NSString stringWithFormat:@"%ld", (long)rel.maxCount] : @"";
   self.relationshipHashModifierField.stringValue = [rel versionHashModifier] ?: @"";
+  self.relationshipRenamingField.stringValue = [rel renamingIdentifier] ?: @"";
 }
 
 - (void)fillFetchInspector:(NSFetchRequest *)fetch
@@ -691,6 +711,24 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   }
   self.fetchLimitField.stringValue = fetch.fetchLimit
       ? [NSString stringWithFormat:@"%lu", (unsigned long)fetch.fetchLimit] : @"";
+
+  /* Result shape and paging.  The popup's item order (Objects /
+     Object IDs / Dictionaries) matches the .xcdatamodel resultType
+     integers, so index == XML value. */
+  NSInteger resultIndex;
+  switch (fetch.resultType) {
+    case NSManagedObjectIDResultType: resultIndex = 1; break;
+    case NSDictionaryResultType:      resultIndex = 2; break;
+    default:                          resultIndex = 0; break;
+  }
+  [self.fetchResultTypePopup selectItemAtIndex:resultIndex];
+  self.fetchBatchField.stringValue = fetch.fetchBatchSize
+      ? [NSString stringWithFormat:@"%lu", (unsigned long)fetch.fetchBatchSize] : @"";
+  self.fetchSubentitiesCheckbox.state = fetch.includesSubentities ? NSOnState : NSOffState;
+  self.fetchPropertyValuesCheckbox.state = fetch.includesPropertyValues ? NSOnState : NSOffState;
+  self.fetchFaultsCheckbox.state = fetch.returnsObjectsAsFaults ? NSOnState : NSOffState;
+  self.fetchPendingChangesCheckbox.state = fetch.includesPendingChanges ? NSOnState : NSOffState;
+  self.fetchDistinctCheckbox.state = fetch.returnsDistinctResults ? NSOnState : NSOffState;
 
   NSString *format = fetch.predicate ? [fetch.predicate predicateFormat] : @"";
   self.predicateSourceView.stringValue = format;
@@ -1090,24 +1128,37 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
     case NSFloatAttributeType:
     case NSDecimalAttributeType:
       editor.defaultString = self.numberDefaultField.stringValue;
+      editor.scalarType = (self.numberScalarCheckbox.state == NSOnState);
+      editor.validationMin = self.numberMinField.stringValue;
+      editor.validationMax = self.numberMaxField.stringValue;
       break;
     case NSStringAttributeType:
       editor.defaultString = (self.stringDefaultCheckbox.state == NSOnState)
           ? self.stringDefaultField.stringValue : @"";
+      editor.minLengthString = self.stringMinField.stringValue;
+      editor.maxLengthString = self.stringMaxField.stringValue;
+      editor.regexString = self.stringRegexField.stringValue;
       break;
     case NSBooleanAttributeType: {
       /* Only YES/NO are values; the first item ("No Value") clears. */
       NSString *title = self.boolDefaultPopup.titleOfSelectedItem;
       BOOL isValue = [title isEqualToString:@"YES"] || [title isEqualToString:@"NO"];
       editor.defaultString = isValue ? title : @"";
+      editor.scalarType = (self.boolScalarCheckbox.state == NSOnState);
       break;
     }
     case NSDateAttributeType:
       editor.defaultDate = (self.dateDefaultCheckbox.state == NSOnState)
           ? self.dateDefaultPicker.dateValue : nil;
+      editor.scalarType = (self.dateScalarCheckbox.state == NSOnState);
+      editor.validationMinDate = (self.dateMinCheckbox.state == NSOnState)
+          ? self.dateMinPicker.dateValue : nil;
+      editor.validationMaxDate = (self.dateMaxCheckbox.state == NSOnState)
+          ? self.dateMaxPicker.dateValue : nil;
       break;
     case NSUUIDAttributeType:
       editor.defaultString = self.uuidDefaultField.stringValue;
+      editor.scalarType = (self.uuidScalarCheckbox.state == NSOnState);
       break;
     case NSURIAttributeType:
       editor.defaultString = self.uriDefaultField.stringValue;
@@ -1129,6 +1180,12 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   editor.className = self.classField.stringValue;
   editor.abstract = (self.abstractCheckbox.state == NSOnState);
   editor.hashModifier = self.entityHashModifierField.stringValue;
+  editor.renamingIdentifier = self.entityRenamingField.stringValue;
+  switch (self.codegenPopup.indexOfSelectedItem) {
+    case 1:  editor.codegenType = @"class"; break;
+    case 2:  editor.codegenType = @"category"; break;
+    default: editor.codegenType = @""; break;
+  }
 
   NSString *parent = self.parentPopup.titleOfSelectedItem;
   NSString *wanted = ([parent isEqualToString:@"(none)"] || !parent.length) ? @"" : parent;
@@ -1154,6 +1211,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   editor.optional = (self.optionalCheckbox.state == NSOnState);
   editor.transient = (self.transientCheckbox.state == NSOnState);
   editor.hashModifier = self.attributeHashModifierField.stringValue;
+  editor.renamingIdentifier = self.attributeRenamingField.stringValue;
 
   NSString *wantedType = self.attributeTypePopup.titleOfSelectedItem;
   BOOL typeChanged = ![wantedType isEqualToString:editor.typeName];
@@ -1181,6 +1239,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   editor.transient = (self.relationshipTransientCheckbox.state == NSOnState);
   editor.optional = (self.relationshipOptionalCheckbox.state == NSOnState);
   editor.hashModifier = self.relationshipHashModifierField.stringValue;
+  editor.renamingIdentifier = self.relationshipRenamingField.stringValue;
 
   editor.toMany = [self.relationshipTypePopup.titleOfSelectedItem isEqualToString:@"To Many"];
   if (editor.isToMany) {
@@ -1216,6 +1275,19 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
       (sender == self.fetchEntityPopup) ? self.fetchEntityPopup : self.fetchInspectorEntityPopup;
   editor.entityName = entitySender.titleOfSelectedItem;
   editor.fetchLimit = (NSUInteger)MAX(0, self.fetchLimitField.stringValue.integerValue);
+
+  /* popup index == resultType integer in the model XML (0/1/2) */
+  switch (self.fetchResultTypePopup.indexOfSelectedItem) {
+    case 1:  editor.resultType = NSManagedObjectIDResultType; break;
+    case 2:  editor.resultType = NSDictionaryResultType; break;
+    default: editor.resultType = NSManagedObjectResultType; break;
+  }
+  editor.fetchBatchSize = (NSUInteger)MAX(0, self.fetchBatchField.stringValue.integerValue);
+  editor.includesSubentities = (self.fetchSubentitiesCheckbox.state == NSOnState);
+  editor.includesPropertyValues = (self.fetchPropertyValuesCheckbox.state == NSOnState);
+  editor.returnsObjectsAsFaults = (self.fetchFaultsCheckbox.state == NSOnState);
+  editor.includesPendingChanges = (self.fetchPendingChangesCheckbox.state == NSOnState);
+  editor.returnsDistinctResults = (self.fetchDistinctCheckbox.state == NSOnState);
 
   /* The predicate comes from whichever editor the user is on. */
   BOOL fromEditor = NO;
@@ -1329,9 +1401,65 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   [alert runModal];
 }
 
+/* Xcode's Editor > Create NSManagedObject Subclass..., for the
+   selected entity - or, with no entity selection, for every entity
+   marked Class Definition / Category/Extension (falling back to every
+   entity with a custom class when none is marked). */
+- (IBAction)createManagedObjectSubclass:(id)sender
+{
+  (void)sender;
+  NSArray *entities = nil;
+  NSEntityDescription *selected = [self selectedEntity];
+  if (selected != nil && selected.managedObjectClassName.length &&
+      ![selected.managedObjectClassName isEqualToString:@"NSManagedObject"]) {
+    entities = @[ selected ];
+  } else {
+    entities = [CDCodeGenerator generatableEntitiesInModel:self.model onlyMarked:YES];
+    if (!entities.count)
+      entities = [CDCodeGenerator generatableEntitiesInModel:self.model onlyMarked:NO];
+  }
+  if (!entities.count) {
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"Nothing to generate";
+    alert.informativeText =
+        @"Give an entity a class other than NSManagedObject first (the Class field in the inspector).";
+    [alert runModal];
+    return;
+  }
+
+  NSOpenPanel *panel = [NSOpenPanel openPanel];
+  panel.canChooseFiles = NO;
+  panel.canChooseDirectories = YES;
+  panel.canCreateDirectories = YES;
+  panel.allowsMultipleSelection = NO;
+  panel.prompt = @"Generate";
+  panel.message = entities.count == 1
+      ? [NSString stringWithFormat:@"Generate class files for %@ into:",
+         [(NSEntityDescription *)entities.firstObject name]]
+      : [NSString stringWithFormat:@"Generate class files for %lu entities into:",
+         (unsigned long)entities.count];
+  if ([panel runModal] != NSModalResponseOK) return;
+
+  NSError *error = nil;
+  NSArray *written = [CDCodeGenerator writeSourcesForEntities:entities
+                                                  toDirectory:panel.URL.path
+                                                        error:&error];
+  if (!written) {
+    [self presentModelError:error title:@"Cannot generate class files"];
+    return;
+  }
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Class files generated";
+  alert.informativeText = [NSString stringWithFormat:@"Wrote %lu files to %@.",
+      (unsigned long)written.count, panel.URL.path];
+  [alert runModal];
+}
+
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
   SEL action = item.action;
+  if (action == @selector(createManagedObjectSubclass:))
+    return self.model.entities.count > 0;
   if (action == @selector(makeCurrentVersion:))
     return ![self.modelDocument.editedVersionName
         isEqualToString:self.modelDocument.currentVersionName];

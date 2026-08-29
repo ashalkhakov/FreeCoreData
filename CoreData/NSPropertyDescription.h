@@ -13,6 +13,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSEntityDescription *_entity;
     NSString *_propertyName;
     NSString *_versionHashModifier;
+    NSString *_renamingIdentifier;
     BOOL _optional;
     BOOL _transient;
     NSDictionary *_userInfo;
@@ -32,6 +33,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSData *)versionHash;
 - (NSString *)versionHashModifier;
 - (void)setVersionHashModifier:(NSString *)value;
+
+/* Apple semantics: returns the name when never explicitly set. */
+- (NSString *)renamingIdentifier;
+- (void)setRenamingIdentifier:(NSString *)value;
 
 - (void)setName:(NSString *)value;
 - (void)setOptional:(BOOL)value;

@@ -19,6 +19,8 @@ MB_SOURCES = \
 	../../Tools/momc/CDModelCompiler.m \
 	../../Tools/momc/CDModelSerializer.m \
 	../../Tools/momc/CDModelMutator.m \
+	../../Tools/momc/CDCodeGenerator.m \
+	../../ModelBuilder/MBStepperTextField.m \
 	../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.m \
 	../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.m \
 	../../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorBaseView.m \

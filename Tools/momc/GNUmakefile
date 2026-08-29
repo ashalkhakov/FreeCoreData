@@ -6,7 +6,7 @@ GS_WITH_ARC = 1
 
 include $(GNUSTEP_MAKEFILES)/common.make
 
-momc_OBJC_FILES = momc.m CDModelCompiler.m CDModelSerializer.m
+momc_OBJC_FILES = momc.m CDModelCompiler.m CDModelSerializer.m CDCodeGenerator.m
 
 momc_INCLUDE_DIRS = -I../.. -I../../CoreData
 

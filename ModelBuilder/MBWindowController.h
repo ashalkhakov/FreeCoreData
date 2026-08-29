@@ -26,6 +26,7 @@
    Released under the MIT license. */
 #pragma once
 #import <AppKit/AppKit.h>
+#import "MBStepperTextField.h"
 
 @class JUInspectorView, JUInspectorViewContainer, DMTabBar;
 
@@ -84,8 +85,8 @@
 @property (nonatomic, strong) IBOutlet NSTextField *fetchNameField;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *fetchInspectorEntityPopup;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *fetchResultTypePopup;
-@property (nonatomic, strong) IBOutlet NSTextField *fetchLimitField;
-@property (nonatomic, strong) IBOutlet NSTextField *fetchBatchField;
+@property (nonatomic, strong) IBOutlet MBStepperTextField *fetchLimitField;
+@property (nonatomic, strong) IBOutlet MBStepperTextField *fetchBatchField;
 @property (nonatomic, strong) IBOutlet NSButton *fetchPropertyValuesCheckbox;
 @property (nonatomic, strong) IBOutlet NSButton *fetchFaultsCheckbox;
 @property (nonatomic, strong) IBOutlet NSButton *fetchPendingChangesCheckbox;
@@ -100,14 +101,14 @@
 @property (nonatomic, strong) IBOutlet NSButton *derivedCheckbox;
 @property (nonatomic, strong) IBOutlet NSTabView *attributeDetailTabView;
 @property (nonatomic, strong) IBOutlet NSTextField *undefinedClassField;
-@property (nonatomic, strong) IBOutlet NSTextField *numberDefaultField;
+@property (nonatomic, strong) IBOutlet MBStepperTextField *numberDefaultField;
 @property (nonatomic, strong) IBOutlet NSButton *numberScalarCheckbox;
-@property (nonatomic, strong) IBOutlet NSTextField *numberMinField;
-@property (nonatomic, strong) IBOutlet NSTextField *numberMaxField;
+@property (nonatomic, strong) IBOutlet MBStepperTextField *numberMinField;
+@property (nonatomic, strong) IBOutlet MBStepperTextField *numberMaxField;
 @property (nonatomic, strong) IBOutlet NSButton *stringDefaultCheckbox;
 @property (nonatomic, strong) IBOutlet NSTextField *stringDefaultField;
-@property (nonatomic, strong) IBOutlet NSTextField *stringMinField;
-@property (nonatomic, strong) IBOutlet NSTextField *stringMaxField;
+@property (nonatomic, strong) IBOutlet MBStepperTextField *stringMinField;
+@property (nonatomic, strong) IBOutlet MBStepperTextField *stringMaxField;
 @property (nonatomic, strong) IBOutlet NSTextField *stringRegexField;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *boolDefaultPopup;
 @property (nonatomic, strong) IBOutlet NSButton *boolScalarCheckbox;
@@ -138,8 +139,8 @@
 @property (nonatomic, strong) IBOutlet NSPopUpButton *deleteRulePopup;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *relationshipTypePopup;
 @property (nonatomic, strong) IBOutlet NSButton *orderedCheckbox;
-@property (nonatomic, strong) IBOutlet NSTextField *minCountField;
-@property (nonatomic, strong) IBOutlet NSTextField *maxCountField;
+@property (nonatomic, strong) IBOutlet MBStepperTextField *minCountField;
+@property (nonatomic, strong) IBOutlet MBStepperTextField *maxCountField;
 @property (nonatomic, strong) IBOutlet NSTableView *relationshipUserInfoTable;
 @property (nonatomic, strong) IBOutlet NSSegmentedControl *relationshipUserInfoSegmentedControl;
 @property (nonatomic, strong) IBOutlet NSTextField *relationshipHashModifierField;
@@ -172,5 +173,9 @@
 - (IBAction)makeCurrentVersion:(id)sender;
 - (IBAction)validateModel:(id)sender;
 - (IBAction)compileModel:(id)sender;
+/* Xcode's Editor > Create NSManagedObject Subclass... (also on the
+   source list's context menu); wire an Editor-menu item to it in
+   MainMenu.xib when convenient. */
+- (IBAction)createManagedObjectSubclass:(id)sender;
 
 @end

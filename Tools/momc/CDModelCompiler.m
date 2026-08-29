@@ -12,6 +12,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #import "CDModelCompiler.h"
 #import <CoreData/CoreData.h>
+#import <objc/runtime.h>
 
 NSString * const CDModelCompilerErrorDomain=@"CDModelCompilerErrorDomain";
 
@@ -222,6 +223,11 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
      [entity setAbstract:YES];
     if(attr(entityElement,@"versionHashModifier")!=nil)
      [entity setVersionHashModifier:attr(entityElement,@"versionHashModifier")];
+    if(attr(entityElement,@"elementID")!=nil)
+     [entity setRenamingIdentifier:attr(entityElement,@"elementID")];
+    if(attr(entityElement,@"codeGenerationType")!=nil)
+     [CDModelCompiler setEntity:entity
+             codeGenerationType:attr(entityElement,@"codeGenerationType")];
 
     NSString *parent=attr(entityElement,@"parentEntity");
 
@@ -287,6 +293,51 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
       [attribute setDefaultValue:defaultValue];
      if(userInfoFromElement(attributeElement)!=nil)
       [attribute setUserInfo:userInfoFromElement(attributeElement)];
+     if(attr(attributeElement,@"renamingIdentifier")!=nil)
+      [attribute setRenamingIdentifier:attr(attributeElement,@"renamingIdentifier")];
+     [CDModelCompiler setAttribute:attribute
+               usesScalarValueType:boolAttr(attributeElement,@"usesScalarValueType")];
+
+     /* Validation: Xcode spells numeric and string-length bounds as
+        minValueString/maxValueString (lengths for strings), regexes as
+        regularExpressionString, and date bounds as min/maxDateTimeInterval. */
+     {
+      NSMutableDictionary *validation=[NSMutableDictionary dictionary];
+
+      switch(type){
+       case NSInteger16AttributeType:
+       case NSInteger32AttributeType:
+       case NSInteger64AttributeType:
+       case NSDecimalAttributeType:
+       case NSDoubleAttributeType:
+       case NSFloatAttributeType:
+        if(attr(attributeElement,@"minValueString")!=nil)
+         [validation setObject:attr(attributeElement,@"minValueString") forKey:@"min"];
+        if(attr(attributeElement,@"maxValueString")!=nil)
+         [validation setObject:attr(attributeElement,@"maxValueString") forKey:@"max"];
+        break;
+       case NSStringAttributeType:
+        if(attr(attributeElement,@"minValueString")!=nil)
+         [validation setObject:attr(attributeElement,@"minValueString") forKey:@"minLength"];
+        if(attr(attributeElement,@"maxValueString")!=nil)
+         [validation setObject:attr(attributeElement,@"maxValueString") forKey:@"maxLength"];
+        if(attr(attributeElement,@"regularExpressionString")!=nil)
+         [validation setObject:attr(attributeElement,@"regularExpressionString") forKey:@"regex"];
+        break;
+       case NSDateAttributeType:
+        if(attr(attributeElement,@"minDateTimeInterval")!=nil)
+         [validation setObject:[NSDate dateWithTimeIntervalSinceReferenceDate:
+             [attr(attributeElement,@"minDateTimeInterval") doubleValue]] forKey:@"minDate"];
+        if(attr(attributeElement,@"maxDateTimeInterval")!=nil)
+         [validation setObject:[NSDate dateWithTimeIntervalSinceReferenceDate:
+             [attr(attributeElement,@"maxDateTimeInterval") doubleValue]] forKey:@"maxDate"];
+        break;
+       default:
+        break;
+      }
+      if([validation count]>0)
+       [CDModelCompiler applyValidationInfo:validation toAttribute:attribute];
+     }
 
      [properties addObject:attribute];
     }
@@ -302,6 +353,8 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
       [relationship setTransient:YES];
      if(attr(relationshipElement,@"versionHashModifier")!=nil)
       [relationship setVersionHashModifier:attr(relationshipElement,@"versionHashModifier")];
+     if(attr(relationshipElement,@"renamingIdentifier")!=nil)
+      [relationship setRenamingIdentifier:attr(relationshipElement,@"renamingIdentifier")];
 
      if(boolAttr(relationshipElement,@"toMany")){
       [relationship setMinCount:[attr(relationshipElement,@"minCount") intValue]];
@@ -441,6 +494,22 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
          [NSPredicate predicateWithFormat:attr(fetchElement,@"predicateString")]];
     if(attr(fetchElement,@"fetchLimit")!=nil)
      [fetchRequest setFetchLimit:[attr(fetchElement,@"fetchLimit") intValue]];
+    if(attr(fetchElement,@"fetchBatchSize")!=nil)
+     [fetchRequest setFetchBatchSize:[attr(fetchElement,@"fetchBatchSize") intValue]];
+    /* Xcode's integer spelling: 0 objects, 1 object IDs, 2 dictionaries. */
+    switch([attr(fetchElement,@"resultType") intValue]){
+     case 1: [fetchRequest setResultType:NSManagedObjectIDResultType]; break;
+     case 2: [fetchRequest setResultType:NSDictionaryResultType]; break;
+     default: [fetchRequest setResultType:NSManagedObjectResultType]; break;
+    }
+    /* The template flags are explicit: like Apple's momc, an absent
+       attribute compiles as NO (the NSFetchRequest runtime defaults do
+       not apply to templates).  Note Xcode's inconsistent spellings. */
+    [fetchRequest setIncludesSubentities:boolAttr(fetchElement,@"includeSubentities")];
+    [fetchRequest setIncludesPropertyValues:boolAttr(fetchElement,@"includePropertyValues")];
+    [fetchRequest setReturnsObjectsAsFaults:boolAttr(fetchElement,@"returnObjectsAsFaults")];
+    [fetchRequest setIncludesPendingChanges:boolAttr(fetchElement,@"includesPendingChanges")];
+    [fetchRequest setReturnsDistinctResults:boolAttr(fetchElement,@"returnDistinctResults")];
     [model setFetchRequestTemplate:fetchRequest forName:templateName];
    }
 
@@ -675,6 +744,145 @@ static NSError *errorFromException(NSException *exception){
     if(attributeTypeFromString(name,@"nameForAttributeType:")==type)
      return name;
    return nil;
+}
+
+static char CDUsesScalarValueTypeKey;
+
++ (BOOL)attributeUsesScalarValueType:(NSAttributeDescription *)attribute {
+   return [objc_getAssociatedObject(attribute,&CDUsesScalarValueTypeKey) boolValue];
+}
+
++ (void)setAttribute:(NSAttributeDescription *)attribute
+ usesScalarValueType:(BOOL)flag {
+   objc_setAssociatedObject(attribute,&CDUsesScalarValueTypeKey,
+       flag?@YES:nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static char CDCodeGenerationTypeKey;
+
++ (NSString *)entityCodeGenerationType:(NSEntityDescription *)entity {
+   return objc_getAssociatedObject(entity,&CDCodeGenerationTypeKey);
+}
+
++ (void)setEntity:(NSEntityDescription *)entity
+ codeGenerationType:(NSString *)type {
+   objc_setAssociatedObject(entity,&CDCodeGenerationTypeKey,
+       [type length]>0?type:nil,OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+/* The canonical validation predicate shapes.  Each is paired with its
+   standard warning code, which doubles as the recognizer: the shapes
+   must survive a predicateFormat round trip (the GNUstep port archives
+   validation predicates as format strings). */
+static NSPredicate *comparison(NSString *keyPath,NSPredicateOperatorType op,id constant){
+   NSExpression *left=(keyPath==nil)?[NSExpression expressionForEvaluatedObject]
+                                    :[NSExpression expressionForKeyPath:keyPath];
+   return [NSComparisonPredicate predicateWithLeftExpression:left
+       rightExpression:[NSExpression expressionForConstantValue:constant]
+       modifier:NSDirectPredicateModifier
+       type:op
+       options:0];
+}
+
+static NSNumber *numberFromString(NSString *string,NSAttributeType type){
+   switch(type){
+    case NSInteger16AttributeType:
+    case NSInteger32AttributeType:
+    case NSInteger64AttributeType:
+     return [NSNumber numberWithLongLong:[string longLongValue]];
+    case NSDecimalAttributeType:
+     return [NSDecimalNumber decimalNumberWithString:string];
+    default:
+     return [NSNumber numberWithDouble:[string doubleValue]];
+   }
+}
+
++ (void)applyValidationInfo:(NSDictionary *)info
+                toAttribute:(NSAttributeDescription *)attribute {
+   NSMutableArray *predicates=[NSMutableArray array];
+   NSMutableArray *warnings=[NSMutableArray array];
+   NSAttributeType type=[attribute attributeType];
+
+   if([info objectForKey:@"min"]!=nil){
+    [predicates addObject:comparison(nil,NSGreaterThanOrEqualToPredicateOperatorType,
+        numberFromString([info objectForKey:@"min"],type))];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationNumberTooSmallError]];
+   }
+   if([info objectForKey:@"max"]!=nil){
+    [predicates addObject:comparison(nil,NSLessThanOrEqualToPredicateOperatorType,
+        numberFromString([info objectForKey:@"max"],type))];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationNumberTooLargeError]];
+   }
+   if([info objectForKey:@"minLength"]!=nil){
+    [predicates addObject:comparison(@"length",NSGreaterThanOrEqualToPredicateOperatorType,
+        [NSNumber numberWithLongLong:[[info objectForKey:@"minLength"] longLongValue]])];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationStringTooShortError]];
+   }
+   if([info objectForKey:@"maxLength"]!=nil){
+    [predicates addObject:comparison(@"length",NSLessThanOrEqualToPredicateOperatorType,
+        [NSNumber numberWithLongLong:[[info objectForKey:@"maxLength"] longLongValue]])];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationStringTooLongError]];
+   }
+   if([info objectForKey:@"regex"]!=nil){
+    [predicates addObject:comparison(nil,NSMatchesPredicateOperatorType,
+        [info objectForKey:@"regex"])];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationStringPatternMatchingError]];
+   }
+   if([info objectForKey:@"minDate"]!=nil){
+    [predicates addObject:comparison(@"timeIntervalSinceReferenceDate",
+        NSGreaterThanOrEqualToPredicateOperatorType,
+        [NSNumber numberWithDouble:
+            [[info objectForKey:@"minDate"] timeIntervalSinceReferenceDate]])];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationDateTooSoonError]];
+   }
+   if([info objectForKey:@"maxDate"]!=nil){
+    [predicates addObject:comparison(@"timeIntervalSinceReferenceDate",
+        NSLessThanOrEqualToPredicateOperatorType,
+        [NSNumber numberWithDouble:
+            [[info objectForKey:@"maxDate"] timeIntervalSinceReferenceDate]])];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationDateTooLateError]];
+   }
+
+   [attribute setValidationPredicates:predicates withValidationWarnings:warnings];
+}
+
+static id constantOfComparison(NSPredicate *predicate){
+   if(![predicate isKindOfClass:[NSComparisonPredicate class]])
+    return nil;
+   return [[(NSComparisonPredicate *)predicate rightExpression] constantValue];
+}
+
++ (NSDictionary *)validationInfoForAttribute:(NSAttributeDescription *)attribute {
+   NSMutableDictionary *info=[NSMutableDictionary dictionary];
+   NSArray *predicates=[attribute validationPredicates];
+   NSArray *warnings=[attribute validationWarnings];
+   NSUInteger i,count=MIN([predicates count],[warnings count]);
+
+   for(i=0;i<count;i++){
+    id constant=constantOfComparison([predicates objectAtIndex:i]);
+    if(constant==nil)
+     continue;
+    switch([[warnings objectAtIndex:i] integerValue]){
+     case NSValidationNumberTooSmallError:
+      [info setObject:[constant description] forKey:@"min"]; break;
+     case NSValidationNumberTooLargeError:
+      [info setObject:[constant description] forKey:@"max"]; break;
+     case NSValidationStringTooShortError:
+      [info setObject:[constant description] forKey:@"minLength"]; break;
+     case NSValidationStringTooLongError:
+      [info setObject:[constant description] forKey:@"maxLength"]; break;
+     case NSValidationStringPatternMatchingError:
+      [info setObject:[constant description] forKey:@"regex"]; break;
+     case NSValidationDateTooSoonError:
+      [info setObject:[NSDate dateWithTimeIntervalSinceReferenceDate:
+          [constant doubleValue]] forKey:@"minDate"]; break;
+     case NSValidationDateTooLateError:
+      [info setObject:[NSDate dateWithTimeIntervalSinceReferenceDate:
+          [constant doubleValue]] forKey:@"maxDate"]; break;
+     default: break;
+    }
+   }
+   return info;
 }
 
 + (NSArray *)deleteRuleNames {

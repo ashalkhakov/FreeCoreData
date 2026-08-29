@@ -124,6 +124,29 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   [self noteEdited];
 }
 
+- (NSString *)renamingIdentifier { return [self.entity renamingIdentifier] ?: @""; }
+
+/* Setting the identifier to the current name (or nothing) resets to
+   the defaulted state, mirroring Apple's fallback-to-name getter. */
+- (void)setRenamingIdentifier:(NSString *)value
+{
+  NSString *wanted = value ?: @"";
+  BOOL defaulted = !wanted.length || [wanted isEqualToString:self.entity.name];
+  [self.entity setRenamingIdentifier:defaulted ? nil : wanted];
+  [self noteEdited];
+}
+
+- (NSString *)codegenType
+{
+  return [CDModelCompiler entityCodeGenerationType:self.entity] ?: @"";
+}
+
+- (void)setCodegenType:(NSString *)value
+{
+  [CDModelCompiler setEntity:self.entity codeGenerationType:value];
+  [self noteEdited];
+}
+
 - (NSDictionary *)userInfo { return self.entity.userInfo; }
 
 - (void)setUserInfo:(NSDictionary *)userInfo
@@ -280,6 +303,58 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   [self.attribute setVersionHashModifier:hashModifier.length ? hashModifier : nil];
   [self noteEdited];
 }
+
+- (NSString *)renamingIdentifier { return [self.attribute renamingIdentifier] ?: @""; }
+
+- (void)setRenamingIdentifier:(NSString *)value
+{
+  NSString *wanted = value ?: @"";
+  BOOL defaulted = !wanted.length || [wanted isEqualToString:_name];
+  [self.attribute setRenamingIdentifier:defaulted ? nil : wanted];
+  [self noteEdited];
+}
+
+- (BOOL)scalarType
+{
+  return [CDModelCompiler attributeUsesScalarValueType:self.attribute];
+}
+
+- (void)setScalarType:(BOOL)scalarType
+{
+  [CDModelCompiler setAttribute:self.attribute usesScalarValueType:scalarType];
+  [self noteEdited];
+}
+
+/* Validation plumbing: read the canonical info dictionary, mutate one
+   key, and reapply - CDModelCompiler owns the predicate shapes. */
+- (NSDictionary *)validationInfo
+{
+  return [CDModelCompiler validationInfoForAttribute:self.attribute];
+}
+
+- (void)setValidationValue:(id)value forKey:(NSString *)key
+{
+  NSMutableDictionary *info = [[self validationInfo] mutableCopy];
+  if (value) info[key] = value;
+  else [info removeObjectForKey:key];
+  [CDModelCompiler applyValidationInfo:info toAttribute:self.attribute];
+  [self noteEdited];
+}
+
+- (NSString *)validationMin { return [self validationInfo][@"min"] ?: @""; }
+- (void)setValidationMin:(NSString *)v { [self setValidationValue:v.length ? v : nil forKey:@"min"]; }
+- (NSString *)validationMax { return [self validationInfo][@"max"] ?: @""; }
+- (void)setValidationMax:(NSString *)v { [self setValidationValue:v.length ? v : nil forKey:@"max"]; }
+- (NSString *)minLengthString { return [self validationInfo][@"minLength"] ?: @""; }
+- (void)setMinLengthString:(NSString *)v { [self setValidationValue:v.length ? v : nil forKey:@"minLength"]; }
+- (NSString *)maxLengthString { return [self validationInfo][@"maxLength"] ?: @""; }
+- (void)setMaxLengthString:(NSString *)v { [self setValidationValue:v.length ? v : nil forKey:@"maxLength"]; }
+- (NSString *)regexString { return [self validationInfo][@"regex"] ?: @""; }
+- (void)setRegexString:(NSString *)v { [self setValidationValue:v.length ? v : nil forKey:@"regex"]; }
+- (NSDate *)validationMinDate { return [self validationInfo][@"minDate"]; }
+- (void)setValidationMinDate:(NSDate *)date { [self setValidationValue:date forKey:@"minDate"]; }
+- (NSDate *)validationMaxDate { return [self validationInfo][@"maxDate"]; }
+- (void)setValidationMaxDate:(NSDate *)date { [self setValidationValue:date forKey:@"maxDate"]; }
 
 - (NSDictionary *)userInfo { return self.attribute.userInfo; }
 
@@ -587,6 +662,16 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   [self noteEdited];
 }
 
+- (NSString *)renamingIdentifier { return [self.relationship renamingIdentifier] ?: @""; }
+
+- (void)setRenamingIdentifier:(NSString *)value
+{
+  NSString *wanted = value ?: @"";
+  BOOL defaulted = !wanted.length || [wanted isEqualToString:_name];
+  [self.relationship setRenamingIdentifier:defaulted ? nil : wanted];
+  [self noteEdited];
+}
+
 - (NSDictionary *)userInfo { return self.relationship.userInfo; }
 
 - (void)setUserInfo:(NSDictionary *)userInfo
@@ -643,6 +728,33 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   [self.request setFetchLimit:fetchLimit];
   [self noteEdited];
 }
+
+- (NSFetchRequestResultType)resultType { return [self.request resultType]; }
+
+- (void)setResultType:(NSFetchRequestResultType)resultType
+{
+  [self.request setResultType:resultType];
+  [self noteEdited];
+}
+
+- (NSUInteger)fetchBatchSize { return [self.request fetchBatchSize]; }
+
+- (void)setFetchBatchSize:(NSUInteger)size
+{
+  [self.request setFetchBatchSize:size];
+  [self noteEdited];
+}
+
+#define MB_FETCH_FLAG(Getter, Setter) \
+- (BOOL)Getter { return [self.request Getter]; } \
+- (void)Setter:(BOOL)value { [self.request Setter:value]; [self noteEdited]; }
+
+MB_FETCH_FLAG(includesSubentities, setIncludesSubentities)
+MB_FETCH_FLAG(includesPropertyValues, setIncludesPropertyValues)
+MB_FETCH_FLAG(returnsObjectsAsFaults, setReturnsObjectsAsFaults)
+MB_FETCH_FLAG(includesPendingChanges, setIncludesPendingChanges)
+MB_FETCH_FLAG(returnsDistinctResults, setReturnsDistinctResults)
+#undef MB_FETCH_FLAG
 
 - (NSPredicate *)predicate { return self.request.predicate; }
 

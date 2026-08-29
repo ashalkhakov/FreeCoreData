@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		CE39E2D33042F6F60075866A /* MBEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D23042F6F60075866A /* MBEditors.m */; };
 		CE39E2D63042FBC30075866A /* CDModelMutator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D53042FBC30075866A /* CDModelMutator.m */; };
+		CE39E2DE304326510075866A /* CDCodeGenerator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2DD304326510075866A /* CDCodeGenerator.m */; };
+		CE39E3253043344B0075866A /* MBStepperTextField.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E3243043344B0075866A /* MBStepperTextField.m */; };
 		CE80DED2303EB3BF0028CAFF /* MBDocumentWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = CE80DED1303EB3BF0028CAFF /* MBDocumentWindow.xib */; };
 		CE80DEDD303EE4280028CAFF /* JUInspectorViewHeader.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEDC303EE4280028CAFF /* JUInspectorViewHeader.m */; };
 		CE80DEDE303EE4280028CAFF /* JUInspectorView.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DED8303EE4280028CAFF /* JUInspectorView.m */; };
@@ -30,6 +32,10 @@
 		CE39E2D23042F6F60075866A /* MBEditors.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBEditors.m; sourceTree = "<group>"; };
 		CE39E2D43042FBC30075866A /* CDModelMutator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelMutator.h; path = ../Tools/momc/CDModelMutator.h; sourceTree = SOURCE_ROOT; };
 		CE39E2D53042FBC30075866A /* CDModelMutator.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelMutator.m; path = ../Tools/momc/CDModelMutator.m; sourceTree = SOURCE_ROOT; };
+		CE39E2DC304326510075866A /* CDCodeGenerator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDCodeGenerator.h; path = ../Tools/momc/CDCodeGenerator.h; sourceTree = SOURCE_ROOT; };
+		CE39E2DD304326510075866A /* CDCodeGenerator.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDCodeGenerator.m; path = ../Tools/momc/CDCodeGenerator.m; sourceTree = SOURCE_ROOT; };
+		CE39E3233043344B0075866A /* MBStepperTextField.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBStepperTextField.h; sourceTree = "<group>"; };
+		CE39E3243043344B0075866A /* MBStepperTextField.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBStepperTextField.m; sourceTree = "<group>"; };
 		CE80DED1303EB3BF0028CAFF /* MBDocumentWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBDocumentWindow.xib; sourceTree = "<group>"; };
 		CE80DED5303EE4280028CAFF /* JUInspectorBaseView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = JUInspectorBaseView.h; path = ThirdParty/JUInspectorView/Source/JUInspectorBaseView.h; sourceTree = "<group>"; };
 		CE80DED6303EE4280028CAFF /* JUInspectorBaseView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = JUInspectorBaseView.m; path = ThirdParty/JUInspectorView/Source/JUInspectorBaseView.m; sourceTree = "<group>"; };
@@ -73,6 +79,8 @@
 		MB0000000000000000000301 = {
 			isa = PBXGroup;
 			children = (
+				CE39E3233043344B0075866A /* MBStepperTextField.h */,
+				CE39E3243043344B0075866A /* MBStepperTextField.m */,
 				CE39E2D43042FBC30075866A /* CDModelMutator.h */,
 				CE39E2D53042FBC30075866A /* CDModelMutator.m */,
 				CE80DEE2304161360028CAFF /* DMTabBar.h */,
@@ -91,6 +99,8 @@
 				MB0000000000000000000002 /* CDModelCompiler.m */,
 				MB0000000000000000000015 /* CDModelSerializer.h */,
 				MB0000000000000000000012 /* CDModelSerializer.m */,
+				CE39E2DC304326510075866A /* CDCodeGenerator.h */,
+				CE39E2DD304326510075866A /* CDCodeGenerator.m */,
 				CE39E2D13042F6F60075866A /* MBEditors.h */,
 				CE39E2D23042F6F60075866A /* MBEditors.m */,
 				MB0000000000000000000006 /* MBDocument.h */,
@@ -192,11 +202,13 @@
 				MB0000000000000000000103 /* MBDocument.m in Sources */,
 				CE80DEDD303EE4280028CAFF /* JUInspectorViewHeader.m in Sources */,
 				CE80DEE6304161360028CAFF /* DMTabBar.m in Sources */,
+				CE39E3253043344B0075866A /* MBStepperTextField.m in Sources */,
 				CE80DEE7304161360028CAFF /* DMTabBarItem.m in Sources */,
 				CE80DEDE303EE4280028CAFF /* JUInspectorView.m in Sources */,
 				CE80DEDF303EE4280028CAFF /* JUInspectorBaseView.m in Sources */,
 				CE80DEE0303EE4280028CAFF /* JUInspectorViewContainer.m in Sources */,
 				MB0000000000000000000104 /* MBWindowController.m in Sources */,
+				CE39E2DE304326510075866A /* CDCodeGenerator.m in Sources */,
 				CE39E2D33042F6F60075866A /* MBEditors.m in Sources */,
 				CE39E2D63042FBC30075866A /* CDModelMutator.m in Sources */,
 			);

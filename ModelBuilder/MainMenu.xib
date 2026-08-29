@@ -131,10 +131,16 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="S3"/>
-                            <menuItem title="Add Model Version" id="PPh-mD-m37">
+                            <menuItem title="Create NSManagedObject Subclass..." id="PPh-mD-m37">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
-                                    <action selector="addModelVersion:" target="-1" id="pkg-Lu-btl"/>
+                                    <action selector="createManagedObjectSubclass:" target="-1" id="SKQ-kg-PuB"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Add Model Version" id="PBp-kR-45r">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="addModelVersion:" target="-1" id="uGF-gQ-Cjt"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="Make Current Version" id="1vm-zk-0nD">

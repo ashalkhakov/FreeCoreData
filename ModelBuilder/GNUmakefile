@@ -15,6 +15,8 @@ APP_NAME = ModelBuilder
 ModelBuilder_OBJC_FILES = main.m MBDocument.m MBEditors.m MBWindowController.m \
 	../Tools/momc/CDModelCompiler.m ../Tools/momc/CDModelSerializer.m \
 	../Tools/momc/CDModelMutator.m \
+	../Tools/momc/CDCodeGenerator.m \
+	MBStepperTextField.m \
 	ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.m \
 	ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.m \
 	ThirdParty/JUInspectorView/Source/JUInspectorBaseView.m \

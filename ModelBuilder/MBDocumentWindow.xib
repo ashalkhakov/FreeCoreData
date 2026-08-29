@@ -917,7 +917,7 @@
                                                                                                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                                                                     </textFieldCell>
                                                                                                 </textField>
-                                                                                                <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="dqF-o5-RI1">
+                                                                                                <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="dqF-o5-RI1">
                                                                                                     <rect key="frame" x="79" y="33" width="154" height="19"/>
                                                                                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                                                                     <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="CwB-ls-4In">
@@ -941,7 +941,7 @@
                                                                                                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                                                                     </textFieldCell>
                                                                                                 </textField>
-                                                                                                <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="3my-tl-bit">
+                                                                                                <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="3my-tl-bit">
                                                                                                     <rect key="frame" x="79" y="9" width="154" height="19"/>
                                                                                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                                                                     <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="WQ0-xD-ljj">
@@ -956,22 +956,6 @@
                                                                                                         <action selector="inspectorChanged:" target="-2" id="ubN-90-NcN"/>
                                                                                                     </connections>
                                                                                                 </textField>
-                                                                                                <stepper horizontalHuggingPriority="750" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="MHl-Np-zGF">
-                                                                                                    <rect key="frame" x="238" y="29" width="19" height="28"/>
-                                                                                                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                                                                                    <stepperCell key="cell" continuous="YES" alignment="left" maxValue="100" id="CNd-kM-DsY"/>
-                                                                                                    <connections>
-                                                                                                        <action selector="inspectorChanged:" target="-2" id="k7L-zD-oet"/>
-                                                                                                    </connections>
-                                                                                                </stepper>
-                                                                                                <stepper horizontalHuggingPriority="750" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="qLJ-WO-UaA">
-                                                                                                    <rect key="frame" x="238" y="4" width="19" height="28"/>
-                                                                                                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                                                                                    <stepperCell key="cell" continuous="YES" alignment="left" maxValue="100" id="bZN-np-BQh"/>
-                                                                                                    <connections>
-                                                                                                        <action selector="inspectorChanged:" target="-2" id="p0Y-JW-F9H"/>
-                                                                                                    </connections>
-                                                                                                </stepper>
                                                                                                 <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="aRg-iY-1wx">
                                                                                                     <rect key="frame" x="0.0" y="-2" width="283" height="5"/>
                                                                                                     <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
@@ -1224,7 +1208,7 @@
                                                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                                                                                         </textFieldCell>
                                                                                                                     </textField>
-                                                                                                                    <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="u6P-g3-28Q">
+                                                                                                                    <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="u6P-g3-28Q">
                                                                                                                         <rect key="frame" x="85" y="119" width="165" height="19"/>
                                                                                                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                                                                                         <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" drawsBackground="YES" id="AhZ-cn-xhd">
@@ -1237,14 +1221,6 @@
                                                                                                                             <action selector="inspectorChanged:" target="-2" id="l2f-QK-ADr"/>
                                                                                                                         </connections>
                                                                                                                     </textField>
-                                                                                                                    <stepper horizontalHuggingPriority="750" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="b9z-Em-qxV">
-                                                                                                                        <rect key="frame" x="252" y="116" width="15" height="22"/>
-                                                                                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                                                                                                        <stepperCell key="cell" controlSize="small" continuous="YES" alignment="left" maxValue="100" id="5Pc-Dd-5Bf"/>
-                                                                                                                        <connections>
-                                                                                                                            <action selector="inspectorChanged:" target="-2" id="6ar-ZW-zlL"/>
-                                                                                                                        </connections>
-                                                                                                                    </stepper>
                                                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="TCz-y0-KQk">
                                                                                                                         <rect key="frame" x="84" y="100" width="106" height="16"/>
                                                                                                                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
@@ -1269,7 +1245,7 @@
                                                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                                                                                         </textFieldCell>
                                                                                                                     </textField>
-                                                                                                                    <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="fGc-30-kN1">
+                                                                                                                    <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="fGc-30-kN1">
                                                                                                                         <rect key="frame" x="85" y="67" width="75" height="19"/>
                                                                                                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                                                                                         <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="No Value" drawsBackground="YES" id="CJn-0b-sjF">
@@ -1282,7 +1258,7 @@
                                                                                                                             <action selector="inspectorChanged:" target="-2" id="3ua-Ht-SIe"/>
                                                                                                                         </connections>
                                                                                                                     </textField>
-                                                                                                                    <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="blU-zc-5mc">
+                                                                                                                    <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="blU-zc-5mc">
                                                                                                                         <rect key="frame" x="179" y="67" width="75" height="19"/>
                                                                                                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                                                                                         <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="No Value" drawsBackground="YES" id="IY9-kE-dAc">
@@ -1295,22 +1271,6 @@
                                                                                                                             <action selector="inspectorChanged:" target="-2" id="7aG-H1-p2z"/>
                                                                                                                         </connections>
                                                                                                                     </textField>
-                                                                                                                    <stepper horizontalHuggingPriority="750" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="rQJ-bL-M8j">
-                                                                                                                        <rect key="frame" x="159" y="64" width="15" height="22"/>
-                                                                                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                                                                                                        <stepperCell key="cell" controlSize="small" continuous="YES" alignment="left" maxValue="100" id="Qsl-zY-3q3"/>
-                                                                                                                        <connections>
-                                                                                                                            <action selector="inspectorChanged:" target="-2" id="EKB-Nr-n6p"/>
-                                                                                                                        </connections>
-                                                                                                                    </stepper>
-                                                                                                                    <stepper horizontalHuggingPriority="750" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SsI-e8-BxR">
-                                                                                                                        <rect key="frame" x="252" y="63" width="15" height="22"/>
-                                                                                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                                                                                                        <stepperCell key="cell" controlSize="small" continuous="YES" alignment="left" maxValue="100" id="ygH-ZB-GVM"/>
-                                                                                                                        <connections>
-                                                                                                                            <action selector="inspectorChanged:" target="-2" id="7UA-0A-OPH"/>
-                                                                                                                        </connections>
-                                                                                                                    </stepper>
                                                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Ov4-DY-Vvg">
                                                                                                                         <rect key="frame" x="85" y="50" width="89" height="14"/>
                                                                                                                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
@@ -1373,7 +1333,7 @@
                                                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                                                                                         </textFieldCell>
                                                                                                                     </textField>
-                                                                                                                    <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="nrs-al-EAw">
+                                                                                                                    <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="nrs-al-EAw">
                                                                                                                         <rect key="frame" x="90" y="57" width="66" height="19"/>
                                                                                                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                                                                                         <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="No Value" drawsBackground="YES" id="brg-do-aQw">
@@ -1386,15 +1346,7 @@
                                                                                                                             <action selector="inspectorChanged:" target="-2" id="pHo-Gn-bVP"/>
                                                                                                                         </connections>
                                                                                                                     </textField>
-                                                                                                                    <stepper horizontalHuggingPriority="750" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="mMG-zR-QLg">
-                                                                                                                        <rect key="frame" x="159" y="53" width="15" height="22"/>
-                                                                                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                                                                                                        <stepperCell key="cell" controlSize="small" continuous="YES" alignment="left" maxValue="100" id="oPy-fx-BJT"/>
-                                                                                                                        <connections>
-                                                                                                                            <action selector="inspectorChanged:" target="-2" id="oGG-BE-cPN"/>
-                                                                                                                        </connections>
-                                                                                                                    </stepper>
-                                                                                                                    <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="pYd-Si-69C">
+                                                                                                                    <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="pYd-Si-69C">
                                                                                                                         <rect key="frame" x="179" y="57" width="66" height="19"/>
                                                                                                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                                                                                         <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" placeholderString="No Value" drawsBackground="YES" id="dkh-Ky-y0O">
@@ -1407,14 +1359,6 @@
                                                                                                                             <action selector="inspectorChanged:" target="-2" id="4tG-w2-9zB"/>
                                                                                                                         </connections>
                                                                                                                     </textField>
-                                                                                                                    <stepper horizontalHuggingPriority="750" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="TlC-np-LHe">
-                                                                                                                        <rect key="frame" x="252" y="53" width="15" height="22"/>
-                                                                                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                                                                                                        <stepperCell key="cell" controlSize="small" continuous="YES" alignment="left" maxValue="100" id="503-Lc-p3L"/>
-                                                                                                                        <connections>
-                                                                                                                            <action selector="inspectorChanged:" target="-2" id="zeW-aP-M99"/>
-                                                                                                                        </connections>
-                                                                                                                    </stepper>
                                                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="hZd-bO-i1s">
                                                                                                                         <rect key="frame" x="88" y="41" width="86" height="14"/>
                                                                                                                         <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
@@ -2199,7 +2143,7 @@
                                                                                                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                                                                     </textFieldCell>
                                                                                                 </textField>
-                                                                                                <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Zdz-SI-9fh">
+                                                                                                <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Zdz-SI-9fh">
                                                                                                     <rect key="frame" x="88" y="25" width="74" height="19"/>
                                                                                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                                                                     <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" drawsBackground="YES" id="QoT-Hh-w5F">
@@ -2212,7 +2156,7 @@
                                                                                                         <action selector="inspectorChanged:" target="-2" id="XMg-Ki-Cta"/>
                                                                                                     </connections>
                                                                                                 </textField>
-                                                                                                <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="4Bx-W8-Btz">
+                                                                                                <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="4Bx-W8-Btz">
                                                                                                     <rect key="frame" x="175" y="25" width="76" height="19"/>
                                                                                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                                                                     <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" drawsBackground="YES" id="C1b-qv-bcv">
@@ -2243,22 +2187,6 @@
                                                                                                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                                                                     </textFieldCell>
                                                                                                 </textField>
-                                                                                                <stepper horizontalHuggingPriority="750" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="fTd-dT-mjE">
-                                                                                                    <rect key="frame" x="161" y="21" width="15" height="22"/>
-                                                                                                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                                                                                    <stepperCell key="cell" controlSize="small" continuous="YES" alignment="left" maxValue="100" id="7n4-SB-GMW"/>
-                                                                                                    <connections>
-                                                                                                        <action selector="inspectorChanged:" target="-2" id="uxV-a3-WaX"/>
-                                                                                                    </connections>
-                                                                                                </stepper>
-                                                                                                <stepper horizontalHuggingPriority="750" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="VuW-LL-cFm">
-                                                                                                    <rect key="frame" x="250" y="21" width="15" height="22"/>
-                                                                                                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                                                                                                    <stepperCell key="cell" controlSize="small" continuous="YES" alignment="left" maxValue="100" id="XPv-bL-gCT"/>
-                                                                                                    <connections>
-                                                                                                        <action selector="inspectorChanged:" target="-2" id="fm6-Af-SuS"/>
-                                                                                                    </connections>
-                                                                                                </stepper>
                                                                                                 <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="MZn-b1-iEA">
                                                                                                     <rect key="frame" x="7" y="-2" width="256" height="5"/>
                                                                                                     <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
