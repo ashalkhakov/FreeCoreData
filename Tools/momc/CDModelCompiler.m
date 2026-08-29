@@ -12,6 +12,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #import "CDModelCompiler.h"
 #import <CoreData/CoreData.h>
+#import <objc/runtime.h>
 
 NSString * const CDModelCompilerErrorDomain=@"CDModelCompilerErrorDomain";
 
@@ -133,6 +134,13 @@ static NSExpression *derivationExpressionFromString(NSString *string,NSString *c
     NSString *argument=[trimmed substringWithRange:
         NSMakeRange(open.location+2,[trimmed length]-open.location-3)];
 
+#if defined(__APPLE__)
+    /* Apple registers the derivation helpers under their colon-suffixed
+       names (canonical:, uppercase:, ...); gnustep-base registers the
+       colon-less spellings. */
+    function=[function stringByAppendingString:@":"];
+#endif
+
     return [NSExpression expressionForFunction:function
                                      arguments:[NSArray arrayWithObject:
         [NSExpression expressionForKeyPath:argument]]];
@@ -166,15 +174,23 @@ static BOOL boolAttr(NSXMLElement *element,NSString *name){
    return [attr(element,name) isEqualToString:@"YES"];
 }
 
+static NSDictionary *userInfoFromElement(NSXMLElement *element){
+   NSXMLElement *wrapper=childNamed(element,@"userInfo");
+
+   if(wrapper==nil)
+    return nil;
+
+   NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+   for(NSXMLElement *entry in [wrapper elementsForName:@"entry"])
+    if(attr(entry,@"key")!=nil)
+     [userInfo setObject:attr(entry,@"value")?:@"" forKey:attr(entry,@"key")];
+   return [userInfo count]>0?userInfo:nil;
+}
+
 /* --- model compilation ---------------------------------------------- */
 
-static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
-   NSString *contentsPath=[xcdatamodelPath stringByAppendingPathComponent:@"contents"];
-   NSData   *data=[NSData dataWithContentsOfFile:contentsPath];
-
-   if(data==nil)
-    failf(@"cannot read %@",contentsPath);
-
+static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPath){
    NSError       *xmlError=nil;
    NSXMLDocument *document=[[NSXMLDocument alloc] initWithData:data options:0 error:&xmlError];
 
@@ -207,6 +223,11 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
      [entity setAbstract:YES];
     if(attr(entityElement,@"versionHashModifier")!=nil)
      [entity setVersionHashModifier:attr(entityElement,@"versionHashModifier")];
+    if(attr(entityElement,@"elementID")!=nil)
+     [entity setRenamingIdentifier:attr(entityElement,@"elementID")];
+    if(attr(entityElement,@"codeGenerationType")!=nil)
+     [CDModelCompiler setEntity:entity
+             codeGenerationType:attr(entityElement,@"codeGenerationType")];
 
     NSString *parent=attr(entityElement,@"parentEntity");
 
@@ -259,6 +280,8 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
      [attribute setOptional:boolAttr(attributeElement,@"optional")];
      if(boolAttr(attributeElement,@"transient"))
       [attribute setTransient:YES];
+     if(attr(attributeElement,@"versionHashModifier")!=nil)
+      [attribute setVersionHashModifier:attr(attributeElement,@"versionHashModifier")];
      if(attr(attributeElement,@"valueTransformerName")!=nil)
       [attribute setValueTransformerName:attr(attributeElement,@"valueTransformerName")];
      if(attr(attributeElement,@"customClassName")!=nil)
@@ -268,6 +291,53 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
 
      if(defaultValue!=nil)
       [attribute setDefaultValue:defaultValue];
+     if(userInfoFromElement(attributeElement)!=nil)
+      [attribute setUserInfo:userInfoFromElement(attributeElement)];
+     if(attr(attributeElement,@"renamingIdentifier")!=nil)
+      [attribute setRenamingIdentifier:attr(attributeElement,@"renamingIdentifier")];
+     [CDModelCompiler setAttribute:attribute
+               usesScalarValueType:boolAttr(attributeElement,@"usesScalarValueType")];
+
+     /* Validation: Xcode spells numeric and string-length bounds as
+        minValueString/maxValueString (lengths for strings), regexes as
+        regularExpressionString, and date bounds as min/maxDateTimeInterval. */
+     {
+      NSMutableDictionary *validation=[NSMutableDictionary dictionary];
+
+      switch(type){
+       case NSInteger16AttributeType:
+       case NSInteger32AttributeType:
+       case NSInteger64AttributeType:
+       case NSDecimalAttributeType:
+       case NSDoubleAttributeType:
+       case NSFloatAttributeType:
+        if(attr(attributeElement,@"minValueString")!=nil)
+         [validation setObject:attr(attributeElement,@"minValueString") forKey:@"min"];
+        if(attr(attributeElement,@"maxValueString")!=nil)
+         [validation setObject:attr(attributeElement,@"maxValueString") forKey:@"max"];
+        break;
+       case NSStringAttributeType:
+        if(attr(attributeElement,@"minValueString")!=nil)
+         [validation setObject:attr(attributeElement,@"minValueString") forKey:@"minLength"];
+        if(attr(attributeElement,@"maxValueString")!=nil)
+         [validation setObject:attr(attributeElement,@"maxValueString") forKey:@"maxLength"];
+        if(attr(attributeElement,@"regularExpressionString")!=nil)
+         [validation setObject:attr(attributeElement,@"regularExpressionString") forKey:@"regex"];
+        break;
+       case NSDateAttributeType:
+        if(attr(attributeElement,@"minDateTimeInterval")!=nil)
+         [validation setObject:[NSDate dateWithTimeIntervalSinceReferenceDate:
+             [attr(attributeElement,@"minDateTimeInterval") doubleValue]] forKey:@"minDate"];
+        if(attr(attributeElement,@"maxDateTimeInterval")!=nil)
+         [validation setObject:[NSDate dateWithTimeIntervalSinceReferenceDate:
+             [attr(attributeElement,@"maxDateTimeInterval") doubleValue]] forKey:@"maxDate"];
+        break;
+       default:
+        break;
+      }
+      if([validation count]>0)
+       [CDModelCompiler applyValidationInfo:validation toAttribute:attribute];
+     }
 
      [properties addObject:attribute];
     }
@@ -281,6 +351,10 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
      [relationship setOptional:boolAttr(relationshipElement,@"optional")];
      if(boolAttr(relationshipElement,@"transient"))
       [relationship setTransient:YES];
+     if(attr(relationshipElement,@"versionHashModifier")!=nil)
+      [relationship setVersionHashModifier:attr(relationshipElement,@"versionHashModifier")];
+     if(attr(relationshipElement,@"renamingIdentifier")!=nil)
+      [relationship setRenamingIdentifier:attr(relationshipElement,@"renamingIdentifier")];
 
      if(boolAttr(relationshipElement,@"toMany")){
       [relationship setMinCount:[attr(relationshipElement,@"minCount") intValue]];
@@ -313,6 +387,8 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
      if(destination==nil)
       failf(@"%@: unknown destination entity '%@'",context,destinationName);
      [relationship setDestinationEntity:destination];
+     if(userInfoFromElement(relationshipElement)!=nil)
+      [relationship setUserInfo:userInfoFromElement(relationshipElement)];
 
      [properties addObject:relationship];
     }
@@ -363,17 +439,10 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
       [entity setUniquenessConstraints:constraints];
     }
 
-    NSXMLElement *userInfoElement=childNamed(entityElement,@"userInfo");
+    NSDictionary *entityUserInfo=userInfoFromElement(entityElement);
 
-    if(userInfoElement!=nil){
-     NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
-
-     for(NSXMLElement *entry in [userInfoElement elementsForName:@"entry"])
-      if(attr(entry,@"key")!=nil)
-       [userInfo setObject:attr(entry,@"value")?:@"" forKey:attr(entry,@"key")];
-     if([userInfo count]>0)
-      [entity setUserInfo:userInfo];
-    }
+    if(entityUserInfo!=nil)
+     [entity setUserInfo:entityUserInfo];
    }
 
    /* Pass 4: subentity wiring. */
@@ -425,10 +494,36 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
          [NSPredicate predicateWithFormat:attr(fetchElement,@"predicateString")]];
     if(attr(fetchElement,@"fetchLimit")!=nil)
      [fetchRequest setFetchLimit:[attr(fetchElement,@"fetchLimit") intValue]];
+    if(attr(fetchElement,@"fetchBatchSize")!=nil)
+     [fetchRequest setFetchBatchSize:[attr(fetchElement,@"fetchBatchSize") intValue]];
+    /* Xcode's integer spelling: 0 objects, 1 object IDs, 2 dictionaries. */
+    switch([attr(fetchElement,@"resultType") intValue]){
+     case 1: [fetchRequest setResultType:NSManagedObjectIDResultType]; break;
+     case 2: [fetchRequest setResultType:NSDictionaryResultType]; break;
+     default: [fetchRequest setResultType:NSManagedObjectResultType]; break;
+    }
+    /* The template flags are explicit: like Apple's momc, an absent
+       attribute compiles as NO (the NSFetchRequest runtime defaults do
+       not apply to templates).  Note Xcode's inconsistent spellings. */
+    [fetchRequest setIncludesSubentities:boolAttr(fetchElement,@"includeSubentities")];
+    [fetchRequest setIncludesPropertyValues:boolAttr(fetchElement,@"includePropertyValues")];
+    [fetchRequest setReturnsObjectsAsFaults:boolAttr(fetchElement,@"returnObjectsAsFaults")];
+    [fetchRequest setIncludesPendingChanges:boolAttr(fetchElement,@"includesPendingChanges")];
+    [fetchRequest setReturnsDistinctResults:boolAttr(fetchElement,@"returnDistinctResults")];
     [model setFetchRequestTemplate:fetchRequest forName:templateName];
    }
 
    return model;
+}
+
+static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
+   NSString *contentsPath=[xcdatamodelPath stringByAppendingPathComponent:@"contents"];
+   NSData   *data=[NSData dataWithContentsOfFile:contentsPath];
+
+   if(data==nil)
+    failf(@"cannot read %@",contentsPath);
+
+   return compileModelData(data,contentsPath);
 }
 
 /* --- artifact writing ----------------------------------------------- */
@@ -605,6 +700,206 @@ static NSError *errorFromException(NSException *exception){
     if(error!=NULL)
      *error=errorFromException(exception);
     return NO;
+   }
+}
+
++ (NSManagedObjectModel *)compileModelContentsXML:(NSString *)xml
+                                            error:(NSError **)error {
+   @try {
+    NSData *data=[xml dataUsingEncoding:NSUTF8StringEncoding];
+
+    if(data==nil)
+     failf(@"model contents are not encodable as UTF-8");
+    return compileModelData(data,@"(in-memory contents)");
+   }
+   @catch(NSException *exception) {
+    if(![[exception name] isEqualToString:CDModelCompilerException])
+     @throw;
+    if(error!=NULL)
+     *error=errorFromException(exception);
+    return nil;
+   }
+}
+
++ (NSArray *)attributeTypeNames {
+   return [NSArray arrayWithObjects:
+       @"Undefined",@"Integer 16",@"Integer 32",@"Integer 64",
+       @"Decimal",@"Double",@"Float",@"String",@"Boolean",
+       @"Date",@"Binary",@"UUID",@"URI",@"Transformable",nil];
+}
+
++ (NSInteger)attributeTypeNamed:(NSString *)name {
+   @try {
+    return attributeTypeFromString(name,@"attributeTypeNamed:");
+   }
+   @catch(NSException *exception) {
+    if(![[exception name] isEqualToString:CDModelCompilerException])
+     @throw;
+    return -1;
+   }
+}
+
++ (NSString *)nameForAttributeType:(NSInteger)type {
+   for(NSString *name in [self attributeTypeNames])
+    if(attributeTypeFromString(name,@"nameForAttributeType:")==type)
+     return name;
+   return nil;
+}
+
+static char CDUsesScalarValueTypeKey;
+
++ (BOOL)attributeUsesScalarValueType:(NSAttributeDescription *)attribute {
+   return [objc_getAssociatedObject(attribute,&CDUsesScalarValueTypeKey) boolValue];
+}
+
++ (void)setAttribute:(NSAttributeDescription *)attribute
+ usesScalarValueType:(BOOL)flag {
+   objc_setAssociatedObject(attribute,&CDUsesScalarValueTypeKey,
+       flag?@YES:nil,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static char CDCodeGenerationTypeKey;
+
++ (NSString *)entityCodeGenerationType:(NSEntityDescription *)entity {
+   return objc_getAssociatedObject(entity,&CDCodeGenerationTypeKey);
+}
+
++ (void)setEntity:(NSEntityDescription *)entity
+ codeGenerationType:(NSString *)type {
+   objc_setAssociatedObject(entity,&CDCodeGenerationTypeKey,
+       [type length]>0?type:nil,OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+
+/* The canonical validation predicate shapes.  Each is paired with its
+   standard warning code, which doubles as the recognizer: the shapes
+   must survive a predicateFormat round trip (the GNUstep port archives
+   validation predicates as format strings). */
+static NSPredicate *comparison(NSString *keyPath,NSPredicateOperatorType op,id constant){
+   NSExpression *left=(keyPath==nil)?[NSExpression expressionForEvaluatedObject]
+                                    :[NSExpression expressionForKeyPath:keyPath];
+   return [NSComparisonPredicate predicateWithLeftExpression:left
+       rightExpression:[NSExpression expressionForConstantValue:constant]
+       modifier:NSDirectPredicateModifier
+       type:op
+       options:0];
+}
+
+static NSNumber *numberFromString(NSString *string,NSAttributeType type){
+   switch(type){
+    case NSInteger16AttributeType:
+    case NSInteger32AttributeType:
+    case NSInteger64AttributeType:
+     return [NSNumber numberWithLongLong:[string longLongValue]];
+    case NSDecimalAttributeType:
+     return [NSDecimalNumber decimalNumberWithString:string];
+    default:
+     return [NSNumber numberWithDouble:[string doubleValue]];
+   }
+}
+
++ (void)applyValidationInfo:(NSDictionary *)info
+                toAttribute:(NSAttributeDescription *)attribute {
+   NSMutableArray *predicates=[NSMutableArray array];
+   NSMutableArray *warnings=[NSMutableArray array];
+   NSAttributeType type=[attribute attributeType];
+
+   if([info objectForKey:@"min"]!=nil){
+    [predicates addObject:comparison(nil,NSGreaterThanOrEqualToPredicateOperatorType,
+        numberFromString([info objectForKey:@"min"],type))];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationNumberTooSmallError]];
+   }
+   if([info objectForKey:@"max"]!=nil){
+    [predicates addObject:comparison(nil,NSLessThanOrEqualToPredicateOperatorType,
+        numberFromString([info objectForKey:@"max"],type))];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationNumberTooLargeError]];
+   }
+   if([info objectForKey:@"minLength"]!=nil){
+    [predicates addObject:comparison(@"length",NSGreaterThanOrEqualToPredicateOperatorType,
+        [NSNumber numberWithLongLong:[[info objectForKey:@"minLength"] longLongValue]])];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationStringTooShortError]];
+   }
+   if([info objectForKey:@"maxLength"]!=nil){
+    [predicates addObject:comparison(@"length",NSLessThanOrEqualToPredicateOperatorType,
+        [NSNumber numberWithLongLong:[[info objectForKey:@"maxLength"] longLongValue]])];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationStringTooLongError]];
+   }
+   if([info objectForKey:@"regex"]!=nil){
+    [predicates addObject:comparison(nil,NSMatchesPredicateOperatorType,
+        [info objectForKey:@"regex"])];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationStringPatternMatchingError]];
+   }
+   if([info objectForKey:@"minDate"]!=nil){
+    [predicates addObject:comparison(@"timeIntervalSinceReferenceDate",
+        NSGreaterThanOrEqualToPredicateOperatorType,
+        [NSNumber numberWithDouble:
+            [[info objectForKey:@"minDate"] timeIntervalSinceReferenceDate]])];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationDateTooSoonError]];
+   }
+   if([info objectForKey:@"maxDate"]!=nil){
+    [predicates addObject:comparison(@"timeIntervalSinceReferenceDate",
+        NSLessThanOrEqualToPredicateOperatorType,
+        [NSNumber numberWithDouble:
+            [[info objectForKey:@"maxDate"] timeIntervalSinceReferenceDate]])];
+    [warnings addObject:[NSNumber numberWithInteger:NSValidationDateTooLateError]];
+   }
+
+   [attribute setValidationPredicates:predicates withValidationWarnings:warnings];
+}
+
+static id constantOfComparison(NSPredicate *predicate){
+   if(![predicate isKindOfClass:[NSComparisonPredicate class]])
+    return nil;
+   return [[(NSComparisonPredicate *)predicate rightExpression] constantValue];
+}
+
++ (NSDictionary *)validationInfoForAttribute:(NSAttributeDescription *)attribute {
+   NSMutableDictionary *info=[NSMutableDictionary dictionary];
+   NSArray *predicates=[attribute validationPredicates];
+   NSArray *warnings=[attribute validationWarnings];
+   NSUInteger i,count=MIN([predicates count],[warnings count]);
+
+   for(i=0;i<count;i++){
+    id constant=constantOfComparison([predicates objectAtIndex:i]);
+    if(constant==nil)
+     continue;
+    switch([[warnings objectAtIndex:i] integerValue]){
+     case NSValidationNumberTooSmallError:
+      [info setObject:[constant description] forKey:@"min"]; break;
+     case NSValidationNumberTooLargeError:
+      [info setObject:[constant description] forKey:@"max"]; break;
+     case NSValidationStringTooShortError:
+      [info setObject:[constant description] forKey:@"minLength"]; break;
+     case NSValidationStringTooLongError:
+      [info setObject:[constant description] forKey:@"maxLength"]; break;
+     case NSValidationStringPatternMatchingError:
+      [info setObject:[constant description] forKey:@"regex"]; break;
+     case NSValidationDateTooSoonError:
+      [info setObject:[NSDate dateWithTimeIntervalSinceReferenceDate:
+          [constant doubleValue]] forKey:@"minDate"]; break;
+     case NSValidationDateTooLateError:
+      [info setObject:[NSDate dateWithTimeIntervalSinceReferenceDate:
+          [constant doubleValue]] forKey:@"maxDate"]; break;
+     default: break;
+    }
+   }
+   return info;
+}
+
++ (NSArray *)deleteRuleNames {
+   return [NSArray arrayWithObjects:@"Nullify",@"Cascade",@"Deny",@"No Action",nil];
+}
+
++ (NSExpression *)derivationExpressionFromString:(NSString *)string
+                                           error:(NSError **)error {
+   @try {
+    return derivationExpressionFromString(string,@"derivation expression");
+   }
+   @catch(NSException *exception) {
+    if(![[exception name] isEqualToString:CDModelCompilerException])
+     @throw;
+    if(error!=NULL)
+     *error=errorFromException(exception);
+    return nil;
    }
 }
 

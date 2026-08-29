@@ -116,9 +116,7 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
     [NSException raise:NSInvalidArgumentException format: @"%@ can not initWithCoder:%@", [self class], [coder class]];
 
    _entities=[[coder decodeObjectForKey: @"NSEntities"] mutableCopy] ?: [[NSMutableDictionary alloc] init];
-   for(NSEntityDescription *entity in [_entities allValues])
-    [_entities setObject:entity forKey:[[entity name] uppercaseString]];
-    
+   
    _fetchRequestTemplates=[[coder decodeObjectForKey: @"NSFetchRequestTemplates"] mutableCopy] ?: [[NSMutableDictionary alloc] init];
    _configurations=[[coder decodeObjectForKey: @"NSConfigurations"] mutableCopy] ?: [[NSMutableDictionary alloc] init];
    _versionIdentifiers=[[coder decodeObjectForKey: @"NSVersionIdentifiers"] retain];
@@ -219,10 +217,11 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
 -(void)setEntities: (NSArray *)entities {
    [_entities removeAllObjects];
    
-   for(NSEntityDescription *entity in entities){
+   /* Exact names only: an uppercased alias key inherited from Cocotron
+      polluted -entities and -entitiesByName with duplicates, and nothing
+      ever looked entities up case-insensitively. */
+   for(NSEntityDescription *entity in entities)
     [_entities setObject:entity forKey:[entity name]];
-    [_entities setObject:entity forKey:[[entity name] uppercaseString]];
-   }
 }
 
 -(void)setLocalizationDictionary:(NSDictionary *)dictionary {
@@ -247,13 +246,21 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
    return [_fetchRequestTemplates objectForKey:name];
 }
 
+-(NSDictionary *)fetchRequestTemplatesByName {
+   return [[_fetchRequestTemplates copy] autorelease];
+}
+
 -(NSFetchRequest *)fetchRequestFromTemplateWithName:(NSString *)name substitutionVariables:(NSDictionary *)variables {
     NSUnimplementedMethod();
     return nil;
 }
 
 -(void)setFetchRequestTemplate: (NSFetchRequest *) fetchRequest forName: (NSString *) name {
-   [_fetchRequestTemplates setObject:fetchRequest forKey:name];
+   /* Apple removes the template when passed nil. */
+   if(fetchRequest==nil)
+    [_fetchRequestTemplates removeObjectForKey:name];
+   else
+    [_fetchRequestTemplates setObject:fetchRequest forKey:name];
 }
 
 -(NSSet *)versionIdentifiers {

@@ -28,13 +28,18 @@ CoreDataTests_OBJC_FILES = \
 	NSCountAndExistingObjectTests.m \
 	NSPendingChangesFetchTests.m \
 	MomcCompiledModelTests.m \
+	MomcSerializerTests.m \
+	CodeGeneratorTests.m \
+	../Tools/momc/CDModelCompiler.m \
+	../Tools/momc/CDModelSerializer.m \
+	../Tools/momc/CDCodeGenerator.m \
 	NSUUIDAndOrderedRelationshipTests.m \
 	NSManagedObjectContextUndoTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
 	StoreVersioningTests.m
 
-CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData
+CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData -I../Tools/momc
 
 # Link and run against the freshly built, uninstalled framework in the
 # source tree, not whatever CoreData is installed in the GNUstep domains.

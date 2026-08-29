@@ -18,6 +18,9 @@ Apple's `NSFetchedResultsController`.
 CoreData/                        - Framework source (headers + implementation)
 Tests/                           - Test suite (runs on GNUstep and macOS/Xcode)
 Examples/EmployeeDirectory/      - SQLite based example application
+ModelBuilder/                    - Document-based .xcdatamodeld editor (AppKit)
+Tools/momc/                      - Xcode model compiler (.xcdatamodeld → .momd)
+coredata-model.make              - gnustep-make fragment for XCDATAMODELD_FILES
 GNUmakefile                      - Build script for GNUstep (framework.make)
 Tests/GNUmakefile                - Build script for the XCTest bundle
 CoreDataTests.xcodeproj/         - Xcode project for macOS unit tests
@@ -69,6 +72,19 @@ and `NSFetchedResultsController` on top of the SQLite store, with one button per
 scenario.  It builds against this port on GNUstep and, via the bundled
 `EmployeeDirectory.xcodeproj`, against Apple's CoreData/AppKit in Xcode; see
 [Examples/EmployeeDirectory/README.md](Examples/EmployeeDirectory/README.md).
+
+## Model editor
+
+`ModelBuilder/` is a document-based AppKit editor for Xcode `.xcdatamodeld`
+packages (current version only). It lives at the repo root next to `Tools/momc`
+and `coredata-model.make`. Edit a model, then compile it:
+
+```sh
+make -C Tools/momc
+Tools/momc/obj/momc Examples/EmployeeDirectory/EmployeeDirectory.xcdatamodeld /tmp/EmployeeDirectory.momd
+```
+
+See [ModelBuilder/README.md](ModelBuilder/README.md).
 
 ## Porting notes
 

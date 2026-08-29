@@ -13,6 +13,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <Foundation/Foundation.h>
 
 @class NSManagedObjectModel;
+@class NSAttributeDescription;
+@class NSEntityDescription;
 
 extern NSString * const CDModelCompilerErrorDomain;
 
@@ -43,5 +45,59 @@ extern NSString * const CDModelCompilerErrorDomain;
 + (BOOL)compileModelSourceAtPath:(NSString *)sourcePath
                           toPath:(NSString *)destinationPath
                            error:(NSError **)error;
+
+/* One .xcdatamodel contents XML string -> the model it describes.
+   The editor's load path (documents arrive as file wrappers, not
+   always as paths). */
++ (NSManagedObjectModel *)compileModelContentsXML:(NSString *)xml
+                                            error:(NSError **)error;
+
+/* Schema vocabulary, for tooling that presents it (the ModelBuilder
+   editor): Xcode's attribute type spellings in menu order, and the
+   mapping to/from NSAttributeType.  attributeTypeNamed: returns
+   NSNotFound-like -1 for an unknown spelling. */
++ (NSArray *)attributeTypeNames;
++ (NSInteger)attributeTypeNamed:(NSString *)name;
++ (NSString *)nameForAttributeType:(NSInteger)type;
+
+/* Xcode's deletion rule spellings in menu order, and the mapping to
+   NSDeleteRule. */
++ (NSArray *)deleteRuleNames;
+
+/* Validation vocabulary for tooling.  Xcode's min/max/regex fields
+   compile to a small set of canonical predicate shapes; these two
+   methods are the single implementation shared by the compiler, the
+   serializer and the ModelBuilder inspector.  Info keys, all optional:
+     @"min", @"max"             numeric bounds (strings, parsed per type)
+     @"minLength", @"maxLength" string length bounds (strings)
+     @"regex"                   regularExpressionString
+     @"minDate", @"maxDate"     date bounds (NSDate)
+   applyValidationInfo: REPLACES the attribute's validation predicates
+   with the canonical shapes; validationInfoForAttribute: recognizes
+   them by their paired warning codes (foreign predicates are kept but
+   not reported). */
++ (NSDictionary *)validationInfoForAttribute:(NSAttributeDescription *)attribute;
++ (void)applyValidationInfo:(NSDictionary *)info
+                toAttribute:(NSAttributeDescription *)attribute;
+
+/* usesScalarValueType is codegen metadata with no Apple model API;
+   it rides on the attribute via associated storage so it survives
+   serialize/compile round trips identically on both platforms. */
++ (BOOL)attributeUsesScalarValueType:(NSAttributeDescription *)attribute;
++ (void)setAttribute:(NSAttributeDescription *)attribute
+ usesScalarValueType:(BOOL)flag;
+
+/* codeGenerationType is likewise codegen metadata (Xcode's Codegen
+   popup): @"class" (Class Definition), @"category" (Category/
+   Extension), or nil (Manual/None, absent from the XML).  Values other
+   than the two known spellings are preserved verbatim. */
++ (NSString *)entityCodeGenerationType:(NSEntityDescription *)entity;
++ (void)setEntity:(NSEntityDescription *)entity
+ codeGenerationType:(NSString *)type;
+
+/* Parses Xcode's derivationExpression spelling ("uppercase:(title)",
+   "now()", a bare key path) into the expression the runtime evaluates. */
++ (NSExpression *)derivationExpressionFromString:(NSString *)string
+                                           error:(NSError **)error;
 
 @end

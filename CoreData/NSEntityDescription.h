@@ -13,11 +13,20 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSString *_className;
     NSString *_name;
     NSManagedObjectModel *_model;
-    NSMutableDictionary *_properties;
+    /* Apple's -properties order is UNSPECIFIED - macOS returns
+       dictionary hash order, not setProperties: order (verified by
+       testPropertiesPreserveTheirOrder's arbitration run).  The port
+       picks insertion order as its deterministic instance of
+       "unspecified": the ordered array is the authoritative storage,
+       the dictionary a name index over it.  Order-sensitive tooling
+       (the code generator) must impose its own ordering either way. */
+    NSMutableArray *_properties;
+    NSMutableDictionary *_propertiesByName;
     NSMutableDictionary *_subentities;
     NSEntityDescription *_superentity;
     NSDictionary *_userInfo;
     id _versionHashModifier;
+    NSString *_renamingIdentifier;
     NSMutableDictionary *_selectorPropertyMap;
     NSArray *_uniquenessConstraints;
     NSArray *_compoundIndexes;
@@ -57,6 +66,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSData *)versionHash;
 - (NSString *)versionHashModifier;
 - (void)setVersionHashModifier:(NSString *)value;
+
+/* Apple semantics: returns the name when never explicitly set. */
+- (NSString *)renamingIdentifier;
+- (void)setRenamingIdentifier:(NSString *)value;
 
 /* An array of arrays; each inner array holds NSAttributeDescriptions or
    attribute-name strings whose combined value must be unique per

@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		66734DD13F7637A6E5676AC7 /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 45ADD5EBC55416FD28AF6941 /* CoreData.framework */; };
 		BD71BC21B0012B011F4B57D1 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE296390D1E4A2BFE0193C79 /* XCTest.framework */; };
+		CE39E2D9304325FD0075866A /* CDCodeGenerator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D8304325FD0075866A /* CDCodeGenerator.m */; };
+		CE39E2DB304326280075866A /* CodeGeneratorTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2DA304326280075866A /* CodeGeneratorTests.m */; };
 		CE9446BA30371F9600D23BA1 /* NSTransformableAttributeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */; };
 		CE9446BC30373B5C00D23BA1 /* NSDerivedAttributeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */; };
 		CE9446BE30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */; };
@@ -17,6 +19,9 @@
 		CE9446C6303B0C0000D23BA1 /* MomcFixture.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C3303B0C0000D23BA1 /* MomcFixture.xcdatamodeld */; };
 		CE9446C8303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C7303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m */; };
 		CE9446CA303C0D0000D23BA1 /* NSManagedObjectContextUndoTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C9303C0D0000D23BA1 /* NSManagedObjectContextUndoTests.m */; };
+		CE9446CC303C0D0000D23BA1 /* MomcSerializerTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446CB303C0D0000D23BA1 /* MomcSerializerTests.m */; };
+		CE9446CE303C0D0000D23BA1 /* CDModelCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446CD303C0D0000D23BA1 /* CDModelCompiler.m */; };
+		CE9446D0303C0D0000D23BA1 /* CDModelSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446CF303C0D0000D23BA1 /* CDModelSerializer.m */; };
 		CED0149F3032FF59009517DE /* NSPersistentStoreRequestTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014993032FF59009517DE /* NSPersistentStoreRequestTests.m */; };
 		CED014A03032FF59009517DE /* NSIncrementalStoreNodeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014933032FF59009517DE /* NSIncrementalStoreNodeTests.m */; };
 		CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014963032FF59009517DE /* NSManagedObjectModelTests.m */; };
@@ -42,6 +47,9 @@
 		45ADD5EBC55416FD28AF6941 /* CoreData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreData.framework; path = System/Library/Frameworks/CoreData.framework; sourceTree = SDKROOT; };
 		71CCD365E3A654DA84DBA191 /* CoreDataTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CoreDataTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE296390D1E4A2BFE0193C79 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/MacOSX.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
+		CE39E2D7304325FD0075866A /* CDCodeGenerator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDCodeGenerator.h; path = Tools/momc/CDCodeGenerator.h; sourceTree = "<group>"; };
+		CE39E2D8304325FD0075866A /* CDCodeGenerator.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDCodeGenerator.m; path = Tools/momc/CDCodeGenerator.m; sourceTree = "<group>"; };
+		CE39E2DA304326280075866A /* CodeGeneratorTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CodeGeneratorTests.m; path = Tests/CodeGeneratorTests.m; sourceTree = "<group>"; };
 		CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSTransformableAttributeTests.m; path = Tests/NSTransformableAttributeTests.m; sourceTree = "<group>"; };
 		CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSDerivedAttributeTests.m; path = Tests/NSDerivedAttributeTests.m; sourceTree = "<group>"; };
 		CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSCountAndExistingObjectTests.m; path = Tests/NSCountAndExistingObjectTests.m; sourceTree = "<group>"; };
@@ -51,6 +59,11 @@
 		CE9446C5303B0C0000D23BA1 /* MomcFixture 2.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "MomcFixture 2.xcdatamodel"; sourceTree = "<group>"; };
 		CE9446C7303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSUUIDAndOrderedRelationshipTests.m; path = Tests/NSUUIDAndOrderedRelationshipTests.m; sourceTree = "<group>"; };
 		CE9446C9303C0D0000D23BA1 /* NSManagedObjectContextUndoTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectContextUndoTests.m; path = Tests/NSManagedObjectContextUndoTests.m; sourceTree = "<group>"; };
+		CE9446CB303C0D0000D23BA1 /* MomcSerializerTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MomcSerializerTests.m; path = Tests/MomcSerializerTests.m; sourceTree = "<group>"; };
+		CE9446CD303C0D0000D23BA1 /* CDModelCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelCompiler.m; path = Tools/momc/CDModelCompiler.m; sourceTree = "<group>"; };
+		CE9446CF303C0D0000D23BA1 /* CDModelSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelSerializer.m; path = Tools/momc/CDModelSerializer.m; sourceTree = "<group>"; };
+		CEB4D298303E0B2600A2DCCB /* CDModelCompiler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelCompiler.h; path = Tools/momc/CDModelCompiler.h; sourceTree = "<group>"; };
+		CEB4D299303E0B2600A2DCCB /* CDModelSerializer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelSerializer.h; path = Tools/momc/CDModelSerializer.h; sourceTree = "<group>"; };
 		CED0148F3032FF59009517DE /* MappingModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MappingModelTests.m; path = Tests/MappingModelTests.m; sourceTree = "<group>"; };
 		CED014903032FF59009517DE /* MemoryIncrementalStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MemoryIncrementalStore.h; path = Tests/MemoryIncrementalStore.h; sourceTree = "<group>"; };
 		CED014913032FF59009517DE /* MemoryIncrementalStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MemoryIncrementalStore.m; path = Tests/MemoryIncrementalStore.m; sourceTree = "<group>"; };
@@ -105,6 +118,14 @@
 				CE9446C3303B0C0000D23BA1 /* MomcFixture.xcdatamodeld */,
 				CE9446C7303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m */,
 				CE9446C9303C0D0000D23BA1 /* NSManagedObjectContextUndoTests.m */,
+				CE9446CB303C0D0000D23BA1 /* MomcSerializerTests.m */,
+				CEB4D298303E0B2600A2DCCB /* CDModelCompiler.h */,
+				CE9446CD303C0D0000D23BA1 /* CDModelCompiler.m */,
+				CEB4D299303E0B2600A2DCCB /* CDModelSerializer.h */,
+				CE9446CF303C0D0000D23BA1 /* CDModelSerializer.m */,
+				CE39E2D7304325FD0075866A /* CDCodeGenerator.h */,
+				CE39E2D8304325FD0075866A /* CDCodeGenerator.m */,
+				CE39E2DA304326280075866A /* CodeGeneratorTests.m */,
 				CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */,
 				CED0148F3032FF59009517DE /* MappingModelTests.m */,
 				CED014903032FF59009517DE /* MemoryIncrementalStore.h */,
@@ -205,7 +226,9 @@
 				CED014A03032FF59009517DE /* NSIncrementalStoreNodeTests.m in Sources */,
 				CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */,
 				CED014A23032FF59009517DE /* MappingModelTests.m in Sources */,
+				CE39E2DB304326280075866A /* CodeGeneratorTests.m in Sources */,
 				CED014A33032FF59009517DE /* NSXMLPersistentStoreTests.m in Sources */,
+				CE39E2D9304325FD0075866A /* CDCodeGenerator.m in Sources */,
 				CED014A43032FF59009517DE /* NSPersistentStoreCoordinatorTests.m in Sources */,
 				CED014A53032FF59009517DE /* VersionHashTests.m in Sources */,
 				CED014A63032FF59009517DE /* NSPersistentStoreCoordinatorTypeMismatchTests.m in Sources */,
@@ -224,6 +247,9 @@
 				CE9446C6303B0C0000D23BA1 /* MomcFixture.xcdatamodeld in Sources */,
 				CE9446C8303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m in Sources */,
 				CE9446CA303C0D0000D23BA1 /* NSManagedObjectContextUndoTests.m in Sources */,
+				CE9446CC303C0D0000D23BA1 /* MomcSerializerTests.m in Sources */,
+				CE9446CE303C0D0000D23BA1 /* CDModelCompiler.m in Sources */,
+				CE9446D0303C0D0000D23BA1 /* CDModelSerializer.m in Sources */,
 				CED014C13032FF59009517DE /* NSManagedObjectValidationTests.m in Sources */,
 				CED014C33032FF59009517DE /* NSManagedObjectLifecycleTests.m in Sources */,
 				CE9446BA30371F9600D23BA1 /* NSTransformableAttributeTests.m in Sources */,
@@ -232,21 +258,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin XCVersionGroup section */
-		CE9446C3303B0C0000D23BA1 /* MomcFixture.xcdatamodeld */ = {
-			isa = XCVersionGroup;
-			children = (
-				CE9446C4303B0C0000D23BA1 /* MomcFixture.xcdatamodel */,
-				CE9446C5303B0C0000D23BA1 /* MomcFixture 2.xcdatamodel */,
-			);
-			currentVersion = CE9446C5303B0C0000D23BA1 /* MomcFixture 2.xcdatamodel */;
-			name = MomcFixture.xcdatamodeld;
-			path = Tests/MomcFixture.xcdatamodeld;
-			sourceTree = "<group>";
-			versionGroupType = wrapper.xcdatamodel;
-		};
-/* End XCVersionGroup section */
 
 /* Begin XCBuildConfiguration section */
 		47D53771281D97E3FA007F14 /* Release */ = {
@@ -325,6 +336,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCVersionGroup section */
+		CE9446C3303B0C0000D23BA1 /* MomcFixture.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				CE9446C4303B0C0000D23BA1 /* MomcFixture.xcdatamodel */,
+				CE9446C5303B0C0000D23BA1 /* MomcFixture 2.xcdatamodel */,
+			);
+			currentVersion = CE9446C5303B0C0000D23BA1 /* MomcFixture 2.xcdatamodel */;
+			name = MomcFixture.xcdatamodeld;
+			path = Tests/MomcFixture.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
 	};
 	rootObject = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
 }

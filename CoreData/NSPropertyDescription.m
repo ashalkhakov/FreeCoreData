@@ -61,6 +61,7 @@ static NSArray *predicatesFromArchivedObjects(NSArray *objects){
    _validationPredicates=[predicatesFromArchivedObjects([coder decodeObjectForKey: @"NSValidationPredicates"]) copy];
    _validationWarnings=[[coder decodeObjectForKey: @"NSValidationWarnings"] copy];
    _versionHashModifier=[[coder decodeObjectForKey: @"NSVersionHashModifier"] copy];
+   _renamingIdentifier=[[coder decodeObjectForKey: @"NSRenamingIdentifier"] copy];
    
    return self;
 }
@@ -94,6 +95,8 @@ static NSArray *predicatesFromArchivedObjects(NSArray *objects){
     [coder encodeObject:_validationWarnings forKey: @"NSValidationWarnings"];
    if(_versionHashModifier!=nil)
     [coder encodeObject:_versionHashModifier forKey: @"NSVersionHashModifier"];
+   if(_renamingIdentifier!=nil)
+    [coder encodeObject:_renamingIdentifier forKey: @"NSRenamingIdentifier"];
 }
 
 
@@ -184,6 +187,21 @@ static NSArray *predicatesFromArchivedObjects(NSArray *objects){
     value=[value copy];
     [_versionHashModifier release];
     _versionHashModifier=value;
+}
+
+
+/* Apple semantics: an unset renaming identifier reads as the name;
+   the raw value stays nil so serializers can tell "defaulted" from
+   "explicitly set".  Does not participate in the version hash. */
+- (NSString *) renamingIdentifier {
+    return (_renamingIdentifier!=nil)?_renamingIdentifier:_propertyName;
+}
+
+
+- (void) setRenamingIdentifier: (NSString *) value {
+    value=[value copy];
+    [_renamingIdentifier release];
+    _renamingIdentifier=value;
 }
 
 
