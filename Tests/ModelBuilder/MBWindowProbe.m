@@ -7,9 +7,8 @@
    BDD runner later; for now the binary IS the runner.  See README.md
    in this directory for the use-case catalogue and how to run.
 
-   Requires: gnustep-back built with --enable-server=headless
-   --enable-graphics=headless, and a libs-base carrying
-   patches/gnustep-base-nsxmlnode-detached-attribute-dict-strings.patch.
+   Requires: a gnustep-back -- the headless one (--enable-server=headless
+   --enable-graphics=headless), or cairo/X11 under xvfb-run as CI runs it.
 
    Copyright (c) 2026 the GNUstep CoreData port contributors.
    Released under the MIT license. */

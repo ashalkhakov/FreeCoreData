@@ -86,6 +86,12 @@ Tools/momc/obj/momc Examples/EmployeeDirectory/EmployeeDirectory.xcdatamodeld /t
 
 See [ModelBuilder/README.md](ModelBuilder/README.md).
 
+Tagged releases (`v*`) publish ModelBuilder for both platforms: a Linux
+AppImage with the GNUstep stack inside it, and a signed, notarized macOS app
+(universal, built on Cocoa and the system CoreData). Every CI run also uploads
+an unsigned build of each as a workflow artifact. See
+[.github/workflows/](.github/workflows/).
+
 ## Porting notes
 
 - **Framework sources** are compiled with `-fno-objc-arc` (manual reference counting, matching the original Cocotron style). The modern GNUstep runtime (libobjc2) is fully compatible with MRC.

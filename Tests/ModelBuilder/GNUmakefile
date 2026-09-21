@@ -1,6 +1,6 @@
 # ModelBuilder end-to-end tests (headless).  See README.md for the
-# scenario catalogue and requirements (headless gnustep-back, patched
-# libs-base, built CoreData framework in the tree).
+# scenario catalogue and requirements (a gnustep-back -- headless, or
+# cairo under xvfb-run -- and the built CoreData framework in the tree).
 ifeq ($(GNUSTEP_MAKEFILES),)
 $(error Set GNUSTEP_MAKEFILES (source GNUstep.sh).)
 endif

@@ -1,0 +1,257 @@
+name: Release
+
+# Ported from XFormsKit's release workflow. Tag a version to publish, or run it
+# by hand to get the artifacts without creating a release.
+#
+# Two outputs, one per platform ModelBuilder ships on: an AppImage for Linux
+# and a signed, notarized app for macOS.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ############################ Linux AppImage ############################
+  appimage:
+    name: Linux AppImage
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SRC_PATH: ${{ github.workspace }}/source
+      DEPS_PATH: ${{ github.workspace }}/dependencies
+      INSTALL_PATH: ${{ github.workspace }}/build
+      CC: clang
+      CXX: clang++
+      LIBRARY_COMBO: ng-gnu-gnu
+      RUNTIME_VERSION: gnustep-2.0
+      # See the note in ci.yml: the gnustep layout does not treat the prefix's
+      # plain lib/ as a library root, but libobjc2 and libdispatch live there.
+      LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
+    defaults:
+      run:
+        working-directory: ${{ env.SRC_PATH }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ env.SRC_PATH }}
+
+      - name: Version
+        run: |
+          if [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            echo "APP_VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
+          else
+            echo "APP_VERSION=0.0.0-build${{ github.run_number }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install packages
+        run: |
+          ./.github/scripts/apt-update.sh
+          sudo apt-get -q -y install \
+            pkg-config libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev \
+            libssl-dev libavahi-client-dev zlib1g-dev gnutls-bin libcurl4-gnutls-dev \
+            libgmp-dev libcairo2-dev libjpeg-dev libtiff-dev libpng-dev libicns-dev \
+            libpthread-workqueue-dev libsqlite3-dev \
+            libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
+            libfreetype-dev libfontconfig1-dev liblcms2-dev libxrender-dev \
+            fuse libfuse2 desktop-file-utils \
+            fonts-dejavu fonts-liberation
+          if [ -x /usr/bin/ld.gold ]; then
+            sudo update-alternatives --install /usr/bin/ld ld /usr/bin/ld.gold 10
+          else
+            sudo apt-get -q -y install lld
+            sudo update-alternatives --install /usr/bin/ld ld /usr/bin/ld.lld 10
+          fi
+
+      # The same stack, the same script and the same cache key as CI, so a
+      # release does not rebuild what a push already built. Restore only: this
+      # job installs the framework and the app INTO the prefix in order to
+      # package it, so it must never write that result back to the cache.
+      - name: Restore GNUstep
+        id: gnustep-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.INSTALL_PATH }}
+          key: gnustep-v1-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}
+
+      - name: Build GNUstep
+        if: steps.gnustep-cache.outputs.cache-hit != 'true'
+        run: ./.github/scripts/dependencies.sh
+
+      - name: Fetch linuxdeploy and the AppImage runtime
+        run: ./Scripts/install-linuxdeploy.sh
+
+      - name: Stamp the version
+        run: ./Scripts/stamp-version.sh "$APP_VERSION"
+
+      - name: Assemble AppDir
+        run: GNUSTEP_PREFIX="$INSTALL_PATH" ./Scripts/prepare-appdir.sh
+
+      - name: Package the AppImage
+        run: GNUSTEP_PREFIX="$INSTALL_PATH" ./Scripts/package-appimage.sh
+
+      # Proof it starts. The app is GUI-only, so it is launched against a
+      # virtual display, bare and with a model to open; a bundle that cannot
+      # find its framework, its backend or its nibs dies here rather than for
+      # whoever downloads it.
+      - name: Smoke-test the AppImage
+        run: |
+          sudo apt-get -q -y install xvfb
+          image=$(ls ModelBuilder-Linux-*.AppImage)
+          chmod +x "$image"
+          for doc in "" Tests/MomcFixture.xcdatamodeld; do
+            log="$RUNNER_TEMP/smoke.log"
+            timeout 90 xvfb-run -a ./"$image" $doc > "$log" 2>&1 &
+            pid=$!
+            sleep 25
+            if kill -0 $pid 2>/dev/null; then
+              echo "${doc:-no document}: up after 25s"
+              kill $pid 2>/dev/null || true
+              wait $pid 2>/dev/null || true
+            else
+              wait $pid; status=$?
+              cat "$log"
+              echo "::error::ModelBuilder (${doc:-no document}) exited on its own with status $status"
+              exit 1
+            fi
+            # Staying up is not enough: an app whose nib failed to load stays
+            # up too, as an icon with no menu and no window. GNUstep reports
+            # that on stderr, so it is read back from there.
+            if grep -E "Failed to load Xib|could not load nib|failed to load MainMenu" "$log"; then
+              echo "::error::ModelBuilder (${doc:-no document}) started without its interface"
+              exit 1
+            fi
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ModelBuilder-Linux-${{ env.APP_VERSION }}
+          path: ${{ env.SRC_PATH }}/ModelBuilder-Linux-*.AppImage
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.SRC_PATH }}/ModelBuilder-Linux-*.AppImage
+
+  ############################ macOS ############################
+  macos:
+    name: macOS (signed)
+    runs-on: macos-15
+    timeout-minutes: 45
+    # The signing and notarisation secrets live in this environment, and an
+    # environment's secrets are only readable by a job that names it: without
+    # this line every one of them resolves to the empty string and the job
+    # ships an unsigned build, saying so and passing.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        run: |
+          if [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            echo "APP_VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
+          else
+            echo "APP_VERSION=0.0.0-build${{ github.run_number }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Stamp the version
+        run: ./Scripts/stamp-version.sh "$APP_VERSION"
+
+      # A generic destination builds every architecture the target lists --
+      # arm64 and x86_64 -- where 'platform=macOS' would build only the
+      # runner's own, and the runners are Apple silicon: Intel Macs would get
+      # an app that does not launch.
+      #
+      # ModelBuilder links Cocoa and the system CoreData and embeds nothing,
+      # so the bundle is self-contained as built.
+      - name: Build
+        run: |
+          xcodebuild -project ModelBuilder/ModelBuilder.xcodeproj -scheme ModelBuilder \
+            -destination 'generic/platform=macOS' -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" build
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Release/ModelBuilder.app"
+          lipo -info "$app/Contents/MacOS/ModelBuilder"
+          echo "APP=$app" >> "$GITHUB_ENV"
+
+      # Signing is skipped, loudly, when the certificate secrets are absent, so
+      # a fork or a dry run still produces artifacts -- unsigned, and named so.
+      - name: Sign
+        id: sign
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          if [ -z "$CERTIFICATE" ] || [ -z "$IDENTITY" ]; then
+            echo "::warning::MACOS_CERTIFICATE or MACOS_SIGN_IDENTITY not set; shipping unsigned"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          keychain=$RUNNER_TEMP/signing.keychain-db
+          password=$(uuidgen)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$password" "$keychain" > /dev/null
+          security list-keychain -d user -s "$keychain" login.keychain-db
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          # --options runtime (the hardened runtime) and a secure timestamp
+          # are what notarization requires. Xcode signed the bundle ad hoc;
+          # --force replaces that. There is nothing nested to sign first --
+          # the vendored DMTabBar and JUInspectorView are compiled into the
+          # executable, not embedded as frameworks.
+          codesign --force --timestamp --options runtime \
+                   --sign "$IDENTITY" "$APP"
+          codesign --verify --strict --verbose=2 "$APP"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Notarize
+        if: steps.sign.outputs.signed == 'true'
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          # Checked here rather than in `if:`, where a step's own env block is
+          # not reliably visible to its own condition -- the step would be
+          # skipped whatever the secrets said, and a signed-but-unnotarized app
+          # that Gatekeeper still refuses would ship from a green run.
+          if [ -z "$NOTARY_APPLE_ID" ] || [ -z "$NOTARY_TEAM_ID" ] || [ -z "$NOTARY_PASSWORD" ]; then
+            echo "::warning::NOTARY_* secrets not set; signed but not notarized"
+            exit 0
+          fi
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/ModelBuilder-notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/ModelBuilder-notarize.zip" \
+            --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" \
+            --password "$NOTARY_PASSWORD" --wait
+          # Stapling fails unless the submission was accepted, so a rejected
+          # one stops the job here rather than shipping.
+          xcrun stapler staple "$APP"
+          # What a user's Mac will ask: would Gatekeeper open this?
+          spctl --assess --type execute --verbose=2 "$APP"
+
+      - name: Package
+        run: |
+          suffix=""
+          [ "${{ steps.sign.outputs.signed }}" = "true" ] || suffix="-unsigned"
+          ditto -c -k --keepParent "$APP" "ModelBuilder-macOS-${APP_VERSION}${suffix}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ModelBuilder-macOS-${{ env.APP_VERSION }}
+          path: ModelBuilder-macOS-*.zip
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ModelBuilder-macOS-*.zip

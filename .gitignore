@@ -28,3 +28,7 @@ Examples/*/*.sqlite
 *~
 *.swp
 *.bundle/
+
+# AppImage packaging (Scripts/prepare-appdir.sh, Scripts/package-appimage.sh)
+AppDir/
+*.AppImage

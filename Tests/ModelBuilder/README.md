@@ -44,12 +44,12 @@ dispatch, cell-based table edits).
 
 ## Requirements
 
-- gnustep-back built with `--enable-server=headless
-  --enable-graphics=headless` (no display or X11 needed).
-- libs-base carrying
-  `patches/gnustep-base-nsxmlnode-detached-attribute-dict-strings.patch`
-  (repo root `patches/`) — without it, the structural-surgery
-  scenarios crash in NSXML.
+- A gnustep-back: the headless one (`--enable-server=headless
+  --enable-graphics=headless`, no display needed), or the cairo/X11 one
+  under a virtual display (`xvfb-run -a make check`), which is how CI
+  runs it.
+- A current libs-base: the NSXML detached-attribute fix the
+  structural-surgery scenarios depend on has been merged upstream.
 - The built CoreData framework in the source tree (`make` at the repo
   root first).
 

@@ -3,6 +3,7 @@
   ApplicationDescription = "Core Data model editor for .xcdatamodeld";
   ApplicationRelease = "1.0";
   NSExecutable = "ModelBuilder";
+  NSIcon = "ModelBuilder.png";
   NSRole = "Editor";
   NSPrincipalClass = NSApplication;
   NSMainNibFile = "MainMenu";

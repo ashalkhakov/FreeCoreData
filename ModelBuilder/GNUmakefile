@@ -23,9 +23,10 @@ ModelBuilder_OBJC_FILES = main.m MBDocument.m MBEditors.m MBWindowController.m \
 	ThirdParty/JUInspectorView/Source/JUInspectorView.m \
 	ThirdParty/JUInspectorView/Source/JUInspectorViewContainer.m \
 	ThirdParty/JUInspectorView/Source/JUInspectorViewHeader.m
-ModelBuilder_RESOURCE_FILES = MainMenu.xib MBDocumentWindow.xib Info-gnustep.plist
+ModelBuilder_RESOURCE_FILES = MainMenu.xib MBDocumentWindow.xib Info-gnustep.plist \
+	ModelBuilder.png
 ModelBuilder_MAIN_MODEL_FILE = MainMenu.xib
-ModelBuilder_APPLICATION_ICON =
+ModelBuilder_APPLICATION_ICON = ModelBuilder.png
 
 # Repo-root layout: headers/framework sit one directory up.
 ModelBuilder_INCLUDE_DIRS = -I.. -I../Tools/momc \

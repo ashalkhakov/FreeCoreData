@@ -1,0 +1,107 @@
+#!/bin/sh
+# Ported from XFormsKit's Scripts/appimage/AppRun (by way of RDLKit and
+# UDQuakeTools). The difference is the end: this image carries one app, so
+# there is no launcher to dispatch between several.
+set -eu
+
+HERE="$(dirname "$(readlink -f "$0")")"
+
+# Write runtime GNUstep config to a private temp file. The paths are not known
+# until the image is mounted, which is why they cannot be baked in.
+export GNUSTEP_CONFIG_FILE="/tmp/GNUstep-ModelBuilder-$$.conf"
+cat << IN_EOF > "$GNUSTEP_CONFIG_FILE"
+GNUSTEP_USER_CONFIG_FILE=.GNUstep.conf
+GNUSTEP_USER_DEFAULTS_DIR=GNUstep/Defaults
+GNUSTEP_SYSTEM_USERS_DIR=/home
+GNUSTEP_NETWORK_USERS_DIR=/home
+GNUSTEP_LOCAL_USERS_DIR=/home
+GNUSTEP_SYSTEM_ROOT=$HERE/usr/System
+GNUSTEP_SYSTEM_LIBRARIES=$HERE/usr/System/Library
+GNUSTEP_SYSTEM_LIBRARY=$HERE/usr/System/Library
+GNUSTEP_SYSTEM_TOOLS=$HERE/usr/System/Tools
+GNUSTEP_SYSTEM_APPS=$HERE/usr/System/Applications
+GNUSTEP_LOCAL_ROOT=$HERE/usr/Local
+GNUSTEP_LOCAL_LIBRARY=$HERE/usr/Local/Library
+GNUSTEP_LOCAL_TOOLS=$HERE/usr/Local/Tools
+GNUSTEP_LOCAL_APPS=$HERE/usr/Local/Applications
+IN_EOF
+chmod 600 "$GNUSTEP_CONFIG_FILE"
+
+export GNUSTEP_SYSTEM_ROOT="$HERE/usr/System"
+export GNUSTEP_SYSTEM_LIBRARY="$HERE/usr/System/Library"
+export GNUSTEP_SYSTEM_TOOLS="$HERE/usr/System/Tools"
+export GNUSTEP_SYSTEM_APPS="$HERE/usr/System/Applications"
+
+export GNUSTEP_LOCAL_ROOT="$HERE/usr/Local"
+export GNUSTEP_LOCAL_LIBRARY="$HERE/usr/Local/Library"
+export GNUSTEP_LOCAL_TOOLS="$HERE/usr/Local/Tools"
+export GNUSTEP_LOCAL_APPS="$HERE/usr/Local/Applications"
+
+# Saved before they are pointed at the image, for MB_GDB below: gdb has to run
+# against the host's libraries, not the ones this image carries.
+MB_HOST_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+MB_HOST_PATH="$PATH"
+
+export LD_LIBRARY_PATH="$HERE/usr/lib:${LD_LIBRARY_PATH:-}"
+export PATH="$HERE/usr/local/bin:$HERE/usr/bin:$PATH"
+
+export FONTCONFIG_FILE="$HERE/usr/etc/fonts/fonts.conf"
+export XDG_CACHE_HOME="/tmp/fc-cache-modelbuilder-$$"
+mkdir -p "$XDG_CACHE_HOME"
+
+trap 'rm -rf "$XDG_CACHE_HOME" "$GNUSTEP_CONFIG_FILE"' EXIT
+
+# Written under the application name and under the bundle identifier, because
+# which of the two NSUserDefaults answers to depends on what the bundle's
+# Info.plist carries.
+DEFAULTS_TOOL=$(find "$HERE" -name defaults -type f -perm -111 | head -n 1)
+if [ -n "$DEFAULTS_TOOL" ]; then
+    for domain in ModelBuilder org.gnustep.ModelBuilder; do
+        "$DEFAULTS_TOOL" write "$domain" GSTheme Eau
+        "$DEFAULTS_TOOL" write "$domain" NSFont LiberationSans
+        "$DEFAULTS_TOOL" write "$domain" NSBoldFont LiberationSans-Bold
+        "$DEFAULTS_TOOL" write "$domain" NSUserFont LiberationSans
+        "$DEFAULTS_TOOL" write "$domain" NSUserFixedPitchFont LiberationMono
+
+        # Ctrl, not Alt. GNUstep's default modifier map is NeXT's -- Alt_L is
+        # COMMAND and both Control keys are CONTROL -- so on a Linux desktop
+        # the app would answer Alt+S where every other window answers Ctrl+S.
+        # The keys are X keysym names, read once at startup, and documented
+        # in gnustep-gui's KeyboardSetup. NoSymbol disables one.
+        #
+        # The left Control becomes COMMAND, which is what a menu key equivalent
+        # fires on, and stops being CONTROL as well: one key acting as both
+        # fires a menu item and a text-view binding from the same press, which
+        # the same document warns about. The right Control stays a real
+        # CONTROL, so the emacs-style text bindings are still reachable, and
+        # Alt -- freed from being COMMAND -- goes back to being ALTERNATE.
+        "$DEFAULTS_TOOL" write "$domain" GSFirstCommandKey Control_L
+        "$DEFAULTS_TOOL" write "$domain" GSFirstControlKey NoSymbol
+        "$DEFAULTS_TOOL" write "$domain" GSSecondControlKey Control_R
+        "$DEFAULTS_TOOL" write "$domain" GSFirstAlternateKey Alt_L
+        "$DEFAULTS_TOOL" write "$domain" GSSecondAlternateKey Alt_R
+    done
+fi
+
+# The executable INSIDE the app wrapper, never the copy linuxdeploy leaves in
+# usr/bin: NSBundle finds the main bundle from where the executable sits, and
+# started from usr/bin the app has no Resources -- MainMenu.xib does not load
+# and it comes up as an icon with no menu and no window.
+REAL_BIN=$(find "$HERE/usr" -path '*/ModelBuilder.app/*' -type f -name ModelBuilder -perm -111 \
+             -exec file {} \; 2>/dev/null | awk -F: '/ELF/{print $1; exit}')
+if [ -z "$REAL_BIN" ]; then
+    REAL_BIN="$HERE/usr/System/Applications/ModelBuilder.app/ModelBuilder"
+fi
+
+# MB_GDB=1: the app under gdb. gdb itself must run against the host's
+# libraries -- started inside this environment it loads the image's and dies
+# before the prompt -- so it gets the host's paths back and applies the
+# image's to the program alone, through its exec wrapper. Then: `run`,
+# reproduce, `bt`.
+if [ -n "${MB_GDB:-}" ]; then
+    exec env LD_LIBRARY_PATH="$MB_HOST_LD_LIBRARY_PATH" PATH="$MB_HOST_PATH" \
+        gdb -iex "set exec-wrapper env LD_LIBRARY_PATH=$LD_LIBRARY_PATH PATH=$PATH" \
+            --args "$REAL_BIN" "$@"
+fi
+
+exec "$REAL_BIN" "$@"
