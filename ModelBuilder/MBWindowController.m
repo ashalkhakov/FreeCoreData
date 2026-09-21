@@ -104,6 +104,34 @@ static NSImage *MBFirstImageNamed(NSArray *names)
   return nil;
 }
 
+/* Segment images named in the xib (NSAddTemplate, NSRemoveTemplate) are
+   Apple system images.  Where the name resolves to nothing, GSXib5 hands
+   the segment the bare name string instead of nil, and the first draw
+   sends it -size.  Swap any such segment to a text label. */
+static void MBRepairSegmentImages(NSView *view)
+{
+  if ([view isKindOfClass:[NSSegmentedControl class]]) {
+    NSSegmentedControl *control = (NSSegmentedControl *)view;
+    for (NSInteger i = 0; i < control.segmentCount; i++) {
+      id image = [control imageForSegment:i];
+      if (image == nil || [image isKindOfClass:[NSImage class]]) continue;
+      NSString *name = [image description];
+      NSString *label = name;
+      if ([name rangeOfString:@"Add"].location != NSNotFound) label = @"+";
+      else if ([name rangeOfString:@"Remove"].location != NSNotFound) label = @"−";
+      [control setImage:nil forSegment:i];
+      [control setLabel:label forSegment:i];
+    }
+  }
+  for (NSView *subview in view.subviews)
+    MBRepairSegmentImages(subview);
+  /* A tab view's subviews hold only the selected page. */
+  if ([view isKindOfClass:[NSTabView class]])
+    for (NSTabViewItem *item in [(NSTabView *)view tabViewItems])
+      if (item.view.superview == nil)
+        MBRepairSegmentImages(item.view);
+}
+
 @implementation MBWindowController {
   MBInspectKind _kind;
   BOOL _updating;
@@ -134,6 +162,15 @@ static NSImage *MBFirstImageNamed(NSArray *names)
 - (void)windowDidLoad
 {
   [super windowDidLoad];
+
+  MBRepairSegmentImages(self.window.contentView);
+#if !defined(__APPLE__)
+  /* These tables take AppKit's private _sourceListBackgroundColor from
+     the xib; GNUstep has no such color and they draw black. */
+  for (NSTableView *table in @[ self.attributeTable, self.relationshipTable,
+                                self.memberTable ])
+    table.backgroundColor = [NSColor controlBackgroundColor];
+#endif
 
   /* The section names and stacking indexes are IB runtime attributes
      on the JUInspectorViews.  GNUstep's GSXib5 does not (yet) apply
@@ -220,8 +257,15 @@ static NSImage *MBFirstImageNamed(NSArray *names)
   self.sourceList.menu = addMenu;
 
   /* Default to the textual predicate editor off-Apple: GNUstep's
-     NSPredicateEditor is a stub. */
-#if !defined(__APPLE__)
+     NSPredicateEditor is a stub.  Its action is wired here rather than
+     in the xib for the same reason: GNUstep's NSRuleEditor is backed by
+     a plain NSCell, whose -setTarget: raises, and a raise while the xib
+     loader establishes connections abandons the load before any object
+     is sent -awakeFromNib. */
+#if defined(__APPLE__)
+  self.fetchPredicateEditor.target = self;
+  self.fetchPredicateEditor.action = @selector(inspectorChanged:);
+#else
   [self.predicateTabView selectTabViewItemAtIndex:MBPredicatePageSource];
   [self.predicateSourceSegmentedControl setSelectedSegment:MBPredicatePageSource];
 #endif
@@ -1484,7 +1528,9 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
 - (NSInteger)outlineView:(NSOutlineView *)outline numberOfChildrenOfItem:(id)item
 {
   (void)outline;
-  if (item == nil) return 3;
+  /* The nib connects the data source -- and GNUstep reloads on that --
+     before -rebuildSourceItems has made the groups. */
+  if (item == nil) return _entitiesGroup ? 3 : 0;
   if (item == _entitiesGroup) return (NSInteger)_entityItems.count;
   if (item == _fetchesGroup) return (NSInteger)_fetchItems.count;
   if (item == _configurationsGroup) return (NSInteger)_configurationItems.count;
