@@ -52,24 +52,15 @@
     [self.departmentPopUp removeAllItems];
     [self.departmentPopUp addItemsWithTitles:SBDepartments()];
 
-    /* Selection-dependent enabling and live filtering are driven from
-     * delegate callbacks rather than bindings: canRemove/enabled is not
-     * observable on GNUstep's controller layer, and its search field
-     * does not send its action per keystroke. */
+    /* Edit/Delete enabling is the canRemove binding in the XIB (that
+     * needs the carried gnustep-gui selection-KVO patch - see
+     * patches/gnustep/).  Live filtering is the one remaining delegate
+     * job: GNUstep's search field does not send its action per
+     * keystroke. */
     [self.searchField setDelegate:(id)self];
-    [self tableViewSelectionDidChange:nil];
 
     [self reloadEmployees];
     [self reloadChart];
-}
-
-- (void)tableViewSelectionDidChange:(NSNotification *)note
-{
-    (void)note;
-    BOOL any = ([self selectedEmployee] != nil);
-
-    [self.editButton setEnabled:any];
-    [self.deleteButton setEnabled:any];
 }
 
 - (void)controlTextDidChange:(NSNotification *)note

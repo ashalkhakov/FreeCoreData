@@ -13,7 +13,8 @@
                 <outlet property="nameField" destination="SBe-nm-001" id="SBe-cn-001"/>
                 <outlet property="departmentBox" destination="SBe-dp-001" id="SBe-cn-002"/>
                 <outlet property="salaryField" destination="SBe-sl-001" id="SBe-cn-003"/>
-                <outlet property="hireDateField" destination="SBe-hd-001" id="SBe-cn-004"/>
+                <outlet property="hireDatePicker" destination="SBe-hd-001" id="SBe-cn-004"/>
+                <outlet property="reviewDatePicker" destination="SBe-rd-001" id="SBe-cn-013"/>
                 <outlet property="reviewsTable" destination="SBe-tb-001" id="SBe-cn-005"/>
                 <outlet property="addReviewButton" destination="SBe-bt-arv" id="SBe-cn-006"/>
                 <outlet property="removeReviewButton" destination="SBe-bt-rrv" id="SBe-cn-007"/>
@@ -118,18 +119,19 @@
                             <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
                         </textFieldCell>
                     </textField>
-                    <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SBe-hd-001">
-                        <rect key="frame" x="122" y="366" width="140" height="22"/>
+                    <datePicker verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SBe-hd-001">
+                        <rect key="frame" x="122" y="364" width="200" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
-                        <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" alignment="left" placeholderString="yyyy-mm-dd" bezelStyle="round" id="SBe-hd-002">
+                        <datePickerCell key="cell" borderStyle="bezel" alignment="left" useCurrentDate="YES" id="SBe-hd-002">
                             <font key="font" metaFont="system"/>
+                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
                             <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                        </textFieldCell>
+                            <datePickerElements key="datePickerElements" year="YES" month="YES" day="YES"/>
+                        </datePickerCell>
                         <connections>
-                            <binding destination="SBe-oc-001" name="value" keyPath="selection.hireDate" id="SBe-hd-003"/>
+                            <binding destination="SBe-oc-001" name="value" keyPath="selection.hireDate" id="SBe-hd-005"/>
                         </connections>
-                    </textField>
+                    </datePicker>
                     <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SBe-lb-009">
                         <rect key="frame" x="20" y="332" width="480" height="17"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
@@ -153,12 +155,12 @@
                                     <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
                                     <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
                                     <tableColumns>
-                                        <tableColumn identifier="date" editable="YES" width="90" minWidth="60" maxWidth="1000" id="SBe-tc-001">
+                                        <tableColumn identifier="date" editable="NO" width="90" minWidth="60" maxWidth="1000" id="SBe-tc-001">
                                             <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Date">
                                                 <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                                 <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
                                             </tableHeaderCell>
-                                            <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" alignment="left" title="Text Cell" id="SBe-tc-1c">
+                                            <textFieldCell key="dataCell" lineBreakMode="truncatingTail" alignment="left" title="Text Cell" id="SBe-tc-1c">
                                                 <font key="font" metaFont="system"/>
                                                 <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
                                                 <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
@@ -200,7 +202,6 @@
                                         </tableColumn>
                                     </tableColumns>
                                     <connections>
-                                        <outlet property="delegate" destination="-2" id="SBe-tb-004"/>
                                         <binding destination="SBe-ac-001" name="content" keyPath="arrangedObjects" id="SBe-tb-002"/>
                                         <binding destination="SBe-ac-001" name="selectionIndexes" keyPath="selectionIndexes" previousBinding="SBe-tb-002" id="SBe-tb-003"/>
                                     </connections>
@@ -240,8 +241,33 @@
                         </buttonCell>
                         <connections>
                             <action selector="removeReview:" target="-2" id="SBe-bt-rr3"/>
+                            <binding destination="SBe-ac-001" name="enabled" keyPath="canRemove" id="SBe-bt-rr4"/>
                         </connections>
                     </button>
+                    <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SBe-rd-lbl">
+                        <rect key="frame" x="258" y="61" width="55" height="17"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="right" title="Dated:" id="SBe-rd-lb2">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <datePicker verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SBe-rd-001">
+                        <rect key="frame" x="318" y="58" width="182" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
+                        <datePickerCell key="cell" borderStyle="bezel" alignment="left" useCurrentDate="YES" id="SBe-rd-002">
+                            <font key="font" metaFont="system"/>
+                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <datePickerElements key="datePickerElements" year="YES" month="YES" day="YES"/>
+                        </datePickerCell>
+                        <connections>
+                            <action selector="reviewDateChanged:" target="-2" id="SBe-rd-003"/>
+                            <binding destination="SBe-ac-001" name="value" keyPath="selection.date" id="SBe-rd-004"/>
+                            <binding destination="SBe-ac-001" name="enabled" keyPath="canRemove" previousBinding="SBe-rd-004" id="SBe-rd-005"/>
+                        </connections>
+                    </datePicker>
                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SBe-bt-cnl">
                         <rect key="frame" x="298" y="13" width="100" height="32"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMaxY="YES"/>

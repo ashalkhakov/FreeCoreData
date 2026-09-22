@@ -25,7 +25,18 @@
 @property (nonatomic, strong) IBOutlet NSTextField *nameField;
 @property (nonatomic, strong) IBOutlet NSComboBox *departmentBox;
 @property (nonatomic, strong) IBOutlet NSTextField *salaryField;
-@property (nonatomic, strong) IBOutlet NSTextField *hireDateField;
+
+/* Dates are edited with NSDatePickers - GNUstep's text-cell date
+ * editing is not dependable, its picker is.  Both pickers are BOUND:
+ * the hire date through the object controller's selection.hireDate,
+ * the review date through the reviews array controller's
+ * selection.date, following the table selection.  On GNUstep the
+ * array-controller half (and the canRemove enabled bindings) needs
+ * the carried selection-KVO patch - see
+ * patches/gnustep/gnustep-gui-arraycontroller-selection-kvo.patch and
+ * the repro beside it. */
+@property (nonatomic, strong) IBOutlet NSDatePicker *hireDatePicker;
+@property (nonatomic, strong) IBOutlet NSDatePicker *reviewDatePicker;
 @property (nonatomic, strong) IBOutlet NSTableView *reviewsTable;
 @property (nonatomic, strong) IBOutlet NSButton *addReviewButton;
 @property (nonatomic, strong) IBOutlet NSButton *removeReviewButton;
@@ -42,6 +53,7 @@
 
 - (IBAction)addReview:(id)sender;
 - (IBAction)removeReview:(id)sender;
+- (IBAction)reviewDateChanged:(id)sender;
 - (IBAction)save:(id)sender;
 - (IBAction)cancel:(id)sender;
 

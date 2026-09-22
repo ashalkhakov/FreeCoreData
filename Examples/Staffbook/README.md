@@ -29,6 +29,12 @@ repository's root `make install`):
 `MOMC=/path/to/momc make` points the model compiler somewhere else, for
 example at a freshly built, uninstalled `Tools/momc/obj/momc`.
 
+The selection-dependent bindings (Edit/Delete/Remove enabling, the
+review-date picker) need the gnustep-gui carried in this repository's
+CI stack: stock gnustep-gui is missing the selection-KVO fix in
+`patches/gnustep/gnustep-gui-arraycontroller-selection-kvo.patch`
+(a repro sits beside it).
+
 On macOS, open `Staffbook.xcodeproj` and run the **Staffbook** scheme,
 or build it from the command line:
 

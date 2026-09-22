@@ -20,7 +20,7 @@
 # XCTest, so tools-xctest is; and the packaged app ships with the Eau theme,
 # which has to be built against the same gui it will be loaded into.
 #
-# Three fixes are carried as patches in patches/gnustep/, applied below; they
+# Four fixes are carried as patches in patches/gnustep/, applied below; they
 # are written for upstream and held here until they can be sent. See
 # patches/gnustep/README.md. Everything else is built from master as it
 # stands.
@@ -139,6 +139,10 @@ install_libs_gui() {
     # xib came up with no fields and a bogus date. ModelBuilder's Date
     # attribute pages use three.
     patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-gui-xib-date-picker.patch"
+    # NSArrayController's selection changed without a word to observers, so
+    # every selection-dependent binding (canRemove enabling, selection.<key>
+    # values) froze at its initial state; see the repro beside the patch.
+    patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-gui-arraycontroller-selection-kvo.patch"
     ./configure --prefix="$INSTALL_PATH" || cat config.log
     make install
     echo "::endgroup::"

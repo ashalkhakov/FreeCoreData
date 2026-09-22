@@ -64,7 +64,6 @@
     NSDateFormatter *day = [[NSDateFormatter alloc] init];
     [day setFormatterBehavior:NSDateFormatterBehavior10_4];
     [day setDateFormat:@"yyyy-MM-dd"];
-    [self.hireDateField setFormatter:day];
     [[[self.reviewsTable tableColumnWithIdentifier:@"date"] dataCell] setFormatter:day];
 
     [self.departmentBox removeAllItems];
@@ -75,16 +74,19 @@
 
     [self.employeeController setContent:_employee];
 
-    /* Enabling is driven from the selection delegate, not a canRemove
-     * binding - see SBEmployeeWindowController. */
-    [self tableViewSelectionDidChange:nil];
+    /* Everything else - the hire-date picker, the review-date picker
+     * following the table selection, and Remove/picker enabling - is
+     * bindings in the XIB; see the header. */
 }
 
-- (void)tableViewSelectionDidChange:(NSNotification *)note
+/* The picker's value binding has already written the new date into
+ * the selected review by the time the action fires (NSControl
+ * reverse-pushes the value binding in sendAction:); what is left is
+ * keeping the list in date order. */
+- (IBAction)reviewDateChanged:(id)sender
 {
-    (void)note;
-    [self.removeReviewButton setEnabled:
-        ([[self.reviewsController selectedObjects] count] > 0)];
+    [self.reviewsController rearrangeObjects];
+    [self.reviewsTable setNeedsDisplay:YES];
 }
 
 - (BOOL)runModal
@@ -105,7 +107,6 @@
     review.summary = @"";
     [[_employee mutableSetValueForKey:@"reviews"] addObject:review];
     [self.reviewsController rearrangeObjects];
-    [self tableViewSelectionDidChange:nil];
 }
 
 - (IBAction)removeReview:(id)sender
@@ -115,7 +116,6 @@
         [_childContext deleteObject:review];
     }
     [self.reviewsController rearrangeObjects];
-    [self tableViewSelectionDidChange:nil];
 }
 
 - (IBAction)save:(id)sender
