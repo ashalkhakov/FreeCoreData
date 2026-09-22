@@ -169,6 +169,22 @@ jobs:
           path: ${{ env.INSTALL_PATH }}
           key: gnustep-v1-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh', 'source/patches/gnustep/*.patch') }}
 
+      # CoreData's queue-confined contexts sit on libdispatch, which
+      # dependencies.sh builds (with its private headers) before
+      # gnustep-base.  Base's configure then finds the _4CF main-queue
+      # hooks and builds NSRunLoop to drain the main dispatch queue --
+      # without that, a main-queue context's performBlock: never runs in
+      # a run-loop app, and nothing else fails loudly.  So check it here,
+      # on a cached stack as much as a fresh one.
+      - name: gnustep-base drains the main dispatch queue
+        run: |
+          base=$(ls "$INSTALL_PATH"/*/Library/Libraries/libgnustep-base.so.* | head -1)
+          for hook in _dispatch_main_queue_callback_4CF _dispatch_get_main_queue_handle_4CF; do
+            nm -D "$base" | grep -q " $hook\$" \
+              || { echo "::error::$base does not use $hook: gnustep-base was built without libdispatch main-queue support"; exit 1; }
+          done
+          echo "$base uses libdispatch's main-queue hooks"
+
       # Built first and on its own, so a compile error in the framework is
       # reported as that rather than as a test failure.
       - name: Build CoreData
