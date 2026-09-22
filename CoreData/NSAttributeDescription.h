@@ -11,9 +11,17 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSPredicateEditorRowTemplate.h (GNUstep itself has no CoreData).  When
    that header has already been included, reuse its definition instead of
    redefining the enumerators.  Import AppKit before CoreData in programs
-   that use both. */
+   that use both.
+
+   Either way the type is an NSUInteger, as it is on Apple
+   (NS_ENUM(NSUInteger, NSAttributeType)) and in AppKit's copy.  A plain
+   enum would be an int: the framework, which is built without AppKit,
+   would then return a 4-byte -attributeType to callers that import AppKit
+   and expect 8, and GNUstep's runtime reports the mismatched signature on
+   every call. */
 #if !defined(_GNUstep_H_NSPredicateEditorRowTemplate)
-typedef enum {
+typedef NSUInteger NSAttributeType;
+enum {
     NSUndefinedAttributeType = 0,
     NSInteger16AttributeType = 100,
     NSInteger32AttributeType = 200,
@@ -28,7 +36,14 @@ typedef enum {
     NSUUIDAttributeType = 1100,
     NSURIAttributeType = 1200,
     NSTransformableAttributeType = 1800
-} NSAttributeType;
+};
+#else
+/* AppKit's copy of the enum predates the UUID and URI attribute types;
+   supply the two enumerators it lacks. */
+enum {
+    NSUUIDAttributeType = 1100,
+    NSURIAttributeType = 1200
+};
 #endif
 
 @interface NSAttributeDescription : NSPropertyDescription {

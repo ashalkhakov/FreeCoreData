@@ -7,10 +7,16 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSPropertyDescription.h>
+#import <CoreData/NSEntityDescription.h>
 #import "CoreDataUtilities.h"
 #import "CoreDataVersioning-Private.h"
 #import <Foundation/NSCoder.h>
 #import <Foundation/Foundation.h>
+
+/* NSEntityDescription.m: keeps the entity's by-name table in step. */
+@interface NSEntityDescription (PropertyRenaming)
+- (void) _property: (NSPropertyDescription *) property didChangeNameFrom: (NSString *) oldName;
+@end
 
 @implementation NSPropertyDescription
 
@@ -61,6 +67,7 @@ static NSArray *predicatesFromArchivedObjects(NSArray *objects){
    _validationPredicates=[predicatesFromArchivedObjects([coder decodeObjectForKey: @"NSValidationPredicates"]) copy];
    _validationWarnings=[[coder decodeObjectForKey: @"NSValidationWarnings"] copy];
    _versionHashModifier=[[coder decodeObjectForKey: @"NSVersionHashModifier"] copy];
+   _renamingIdentifier=[[coder decodeObjectForKey: @"NSRenamingIdentifier"] copy];
    
    return self;
 }
@@ -94,6 +101,8 @@ static NSArray *predicatesFromArchivedObjects(NSArray *objects){
     [coder encodeObject:_validationWarnings forKey: @"NSValidationWarnings"];
    if(_versionHashModifier!=nil)
     [coder encodeObject:_versionHashModifier forKey: @"NSVersionHashModifier"];
+   if(_renamingIdentifier!=nil)
+    [coder encodeObject:_renamingIdentifier forKey: @"NSRenamingIdentifier"];
 }
 
 
@@ -187,10 +196,33 @@ static NSArray *predicatesFromArchivedObjects(NSArray *objects){
 }
 
 
+/* Apple semantics: an unset renaming identifier reads as the name;
+   the raw value stays nil so serializers can tell "defaulted" from
+   "explicitly set".  Does not participate in the version hash. */
+- (NSString *) renamingIdentifier {
+    return (_renamingIdentifier!=nil)?_renamingIdentifier:_propertyName;
+}
+
+
+- (void) setRenamingIdentifier: (NSString *) value {
+    value=[value copy];
+    [_renamingIdentifier release];
+    _renamingIdentifier=value;
+}
+
+
 - (void) setName: (NSString *) value {
+    NSString *old=[_propertyName retain];
+
     value=[value copy];
     [_propertyName release];
     _propertyName=value;
+    /* The entity looks its properties up by name, and on Apple a renamed
+       property is found under its new name -- so the entity has to hear of
+       it, or -propertiesByName goes on answering to the old one. */
+    if(_entity!=nil && ![old isEqualToString:value])
+     [_entity _property:self didChangeNameFrom:old];
+    [old release];
 }
 
 

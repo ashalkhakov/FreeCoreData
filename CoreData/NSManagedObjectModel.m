@@ -13,6 +13,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <Foundation/Foundation.h>
 #import "CoreDataUtilities.h"
 
+
+/* NSEntityDescription.m: an entity knows the model it belongs to. */
+@interface NSEntityDescription (ModelMembership)
+-(void)_setManagedObjectModel:(NSManagedObjectModel *)model;
+@end
+
 @implementation NSManagedObjectModel
 
 +(NSManagedObjectModel *)modelByMergingModels:(NSArray *)models {
@@ -116,9 +122,7 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
     [NSException raise:NSInvalidArgumentException format: @"%@ can not initWithCoder:%@", [self class], [coder class]];
 
    _entities=[[coder decodeObjectForKey: @"NSEntities"] mutableCopy] ?: [[NSMutableDictionary alloc] init];
-   for(NSEntityDescription *entity in [_entities allValues])
-    [_entities setObject:entity forKey:[[entity name] uppercaseString]];
-    
+   
    _fetchRequestTemplates=[[coder decodeObjectForKey: @"NSFetchRequestTemplates"] mutableCopy] ?: [[NSMutableDictionary alloc] init];
    _configurations=[[coder decodeObjectForKey: @"NSConfigurations"] mutableCopy] ?: [[NSMutableDictionary alloc] init];
    _versionIdentifiers=[[coder decodeObjectForKey: @"NSVersionIdentifiers"] retain];
@@ -219,10 +223,22 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
 -(void)setEntities: (NSArray *)entities {
    [_entities removeAllObjects];
    
+   /* Exact names only: an uppercased alias key inherited from Cocotron
+      polluted -entities and -entitiesByName with duplicates, and nothing
+      ever looked entities up case-insensitively. */
    for(NSEntityDescription *entity in entities){
     [_entities setObject:entity forKey:[entity name]];
-    [_entities setObject:entity forKey:[[entity name] uppercaseString]];
+    [entity _setManagedObjectModel:self];
    }
+}
+
+/* Sent by -[NSEntityDescription setName:] for an entity of this model: on
+   Apple a renamed entity is found under its new name. */
+-(void)_entity:(NSEntityDescription *)entity didChangeNameFrom:(NSString *)oldName {
+   if(oldName!=nil && [_entities objectForKey:oldName]==entity)
+    [_entities removeObjectForKey:oldName];
+   if([entity name]!=nil)
+    [_entities setObject:entity forKey:[entity name]];
 }
 
 -(void)setLocalizationDictionary:(NSDictionary *)dictionary {
@@ -247,13 +263,21 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
    return [_fetchRequestTemplates objectForKey:name];
 }
 
+-(NSDictionary *)fetchRequestTemplatesByName {
+   return [[_fetchRequestTemplates copy] autorelease];
+}
+
 -(NSFetchRequest *)fetchRequestFromTemplateWithName:(NSString *)name substitutionVariables:(NSDictionary *)variables {
     NSUnimplementedMethod();
     return nil;
 }
 
 -(void)setFetchRequestTemplate: (NSFetchRequest *) fetchRequest forName: (NSString *) name {
-   [_fetchRequestTemplates setObject:fetchRequest forKey:name];
+   /* Apple removes the template when passed nil. */
+   if(fetchRequest==nil)
+    [_fetchRequestTemplates removeObjectForKey:name];
+   else
+    [_fetchRequestTemplates setObject:fetchRequest forKey:name];
 }
 
 -(NSSet *)versionIdentifiers {

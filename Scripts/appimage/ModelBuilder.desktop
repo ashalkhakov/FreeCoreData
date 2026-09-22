@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ModelBuilder
+GenericName=Core Data Model Editor
+Comment=Create and edit Core Data models (.xcdatamodeld)
+Exec=AppRun %f
+Icon=modelbuilder
+Terminal=false
+Categories=Development;

@@ -37,6 +37,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)setEntities:(NSArray *)entities forConfiguration:(NSString *)configuration;
 
 - (NSFetchRequest *)fetchRequestTemplateForName:(NSString *)name;
+- (NSDictionary *)fetchRequestTemplatesByName;
 - (NSFetchRequest *)fetchRequestFromTemplateWithName:(NSString *)name substitutionVariables:(NSDictionary *)variables;
 
 - (void)setFetchRequestTemplate:(NSFetchRequest *)fetchRequest forName:(NSString *)name;

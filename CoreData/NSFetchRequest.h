@@ -25,7 +25,10 @@ enum {
 };
 typedef NSUInteger NSFetchRequestResultType;
 
-@interface NSFetchRequest : NSPersistentStoreRequest <NSCoding, NSCopying> {
+/* Lightweight generic parameter for Apple parity: Xcode-style
+   generated code declares +fetchRequest as
+   NSFetchRequest<ClassName *> *.  Compile-time only, no ABI effect. */
+@interface NSFetchRequest<__covariant ResultType> : NSPersistentStoreRequest <NSCoding, NSCopying> {
     NSFetchRequestResultType _resultType;
     NSEntityDescription *_entity;
     NSString *_entityName;

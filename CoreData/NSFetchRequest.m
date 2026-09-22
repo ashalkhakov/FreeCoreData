@@ -226,6 +226,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -(void)setResultType:(NSFetchRequestResultType)type {
    _resultType=type;
+   /* Apple: includesPendingChanges YES "is not supported" with
+      NSDictionaryResultType - a dictionary request on macOS reads the
+      flag as NO no matter what was set (verified by the serializer
+      round-trip tests).  Mirror that in both setters so the outcome
+      does not depend on the order they are called in. */
+   if(type==NSDictionaryResultType)
+    _includesPendingChanges=NO;
 }
 
 -(void)setEntity:(NSEntityDescription *)value {
@@ -259,6 +266,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(void)setIncludesPendingChanges:(BOOL)value {
+   /* see setResultType: - unsupported with dictionary results */
+   if(value && _resultType==NSDictionaryResultType)
+    value=NO;
    _includesPendingChanges=value;
 }
 

@@ -26,6 +26,129 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertNotNil([model entities]);
 }
 
+/* Article.author <-> Author.articles, with the given names for the Author
+   entity and its to-many relationship. */
+static NSManagedObjectModel *MBTAuthorArticleModel(NSString *authorName,
+                                                   NSString *articlesName,
+                                                   NSEntityDescription **authorOut,
+                                                   NSRelationshipDescription **articlesOut)
+{
+    NSEntityDescription *author = [[NSEntityDescription alloc] init];
+    author.name = authorName;
+    NSEntityDescription *article = [[NSEntityDescription alloc] init];
+    article.name = @"Article";
+    NSRelationshipDescription *articles = [[NSRelationshipDescription alloc] init];
+    articles.name = articlesName;
+    articles.destinationEntity = article;
+    articles.maxCount = 0;
+    NSRelationshipDescription *writer = [[NSRelationshipDescription alloc] init];
+    writer.name = @"author";
+    writer.destinationEntity = author;
+    writer.maxCount = 1;
+    articles.inverseRelationship = writer;
+    writer.inverseRelationship = articles;
+    author.properties = @[ articles ];
+    article.properties = @[ writer ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ author, article ];
+    if (authorOut) *authorOut = author;
+    if (articlesOut) *articlesOut = articles;
+    return model;
+}
+
+/* Renaming a relationship's destination entity or its inverse leaves the
+   relationship describing the new names: the version hashes are those of
+   a model built with the new names, and an archive round trip resolves to
+   them.  (The port cached the names, unretained, when the links were set:
+   stale after a rename, and read after the old string was freed.) */
+- (void)testRenamingRelatedEntityAndInverseKeepsRelationshipsCurrent
+{
+    NSEntityDescription *author = nil;
+    NSRelationshipDescription *articles = nil;
+    NSManagedObjectModel *model = MBTAuthorArticleModel(@"Author", @"articles",
+                                                        &author, &articles);
+    (void)[model entityVersionHashesByName];
+
+    author.name = @"Writer";
+    articles.name = @"writings";
+
+    NSManagedObjectModel *expected = MBTAuthorArticleModel(@"Writer", @"writings", NULL, NULL);
+    XCTAssertEqualObjects([model entityVersionHashesByName],
+                          [expected entityVersionHashesByName]);
+
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:model];
+    NSManagedObjectModel *copy = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+    NSEntityDescription *article2 = copy.entitiesByName[@"Article"];
+    NSRelationshipDescription *author2 = article2.relationshipsByName[@"author"];
+    XCTAssertEqualObjects(author2.destinationEntity.name, @"Writer");
+    XCTAssertEqualObjects(author2.inverseRelationship.name, @"writings");
+}
+
+/* An entity knows its model, and one renamed after it joined the model is
+   found under the new name -- Apple re-keys the model. */
+- (void)testRenamingEntityRekeysModel
+{
+    NSEntityDescription *author = [[NSEntityDescription alloc] init];
+    author.name = @"Author";
+    NSEntityDescription *article = [[NSEntityDescription alloc] init];
+    article.name = @"Article";
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ author, article ];
+    (void)model.entitiesByName;
+    XCTAssertEqual(author.managedObjectModel, model);
+
+    author.name = @"Writer";
+
+    XCTAssertEqual(model.entitiesByName[@"Writer"], author);
+    XCTAssertNil(model.entitiesByName[@"Author"]);
+    XCTAssertEqual(model.entitiesByName[@"Article"], article);
+    XCTAssertEqual(model.entitiesByName.count, (NSUInteger)2);
+}
+
+/* A new entity answers with empty collections, as on Apple, so a property
+   appended to a fresh entity's properties is kept. */
+- (void)testNewEntityHasEmptyCollections
+{
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    XCTAssertNotNil(entity.properties);
+    XCTAssertEqual(entity.properties.count, (NSUInteger)0);
+    XCTAssertNotNil(entity.propertiesByName);
+    XCTAssertNotNil(entity.subentities);
+    XCTAssertNotNil(entity.userInfo);
+    XCTAssertNotNil(entity.uniquenessConstraints);
+
+    NSAttributeDescription *attribute = [[NSAttributeDescription alloc] init];
+    attribute.name = @"attribute";
+    attribute.attributeType = NSStringAttributeType;
+    entity.properties = [entity.properties arrayByAddingObject:attribute];
+    XCTAssertEqual(entity.properties.count, (NSUInteger)1);
+    XCTAssertEqual(entity.propertiesByName[@"attribute"], attribute);
+}
+
+/* A property renamed after it joined its entity is found under the new
+   name, and no longer under the old one -- Apple re-keys the entity. */
+- (void)testRenamingPropertyRekeysEntity
+{
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    entity.name = @"Thing";
+    NSAttributeDescription *first = [[NSAttributeDescription alloc] init];
+    first.name = @"attribute";
+    first.attributeType = NSStringAttributeType;
+    NSAttributeDescription *second = [[NSAttributeDescription alloc] init];
+    second.name = @"attribute2";
+    second.attributeType = NSStringAttributeType;
+    entity.properties = @[ first, second ];
+    (void)entity.propertiesByName;
+
+    second.name = @"attribute3";
+
+    XCTAssertEqual(entity.propertiesByName[@"attribute3"], second);
+    XCTAssertEqual(entity.attributesByName[@"attribute3"], second);
+    XCTAssertNil(entity.propertiesByName[@"attribute2"]);
+    XCTAssertEqual(entity.propertiesByName[@"attribute"], first);
+    XCTAssertEqual(entity.propertiesByName.count, (NSUInteger)2);
+}
+
 - (void)testModelMergeEmpty
 {
     NSManagedObjectModel *model =
@@ -250,6 +373,82 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [self verifyDecodedModel:loaded];
 
     [fileManager removeItemAtPath:momdPath error:NULL];
+}
+
+/* What Apple actually guarantees about -properties order: NOTHING.
+   The arbitration run on macOS returned dictionary hash order (input
+   zeta/alpha/middle/beta came back alpha/zeta/middle/beta), not
+   setProperties: order - Apple stores a dictionary internally, and
+   Xcode's own generator preserves editing order only because it works
+   from its editor document, not from NSEntityDescription.  So the
+   shared assertions here are the invariants both platforms hold: the
+   set of properties, hash invariance under reordering, and order
+   stability across an archive round trip.  The port additionally
+   promises insertion order (its deterministic instance of
+   "unspecified", carried through archives by GSPropertyOrder) - those
+   assertions are port-only. */
+- (void)testPropertiesPreserveTheirOrder
+{
+    /* deliberately non-alphabetical */
+    NSArray *names = [NSArray arrayWithObjects:
+        @"zeta", @"alpha", @"middle", @"beta", nil];
+    NSMutableArray *properties = [NSMutableArray array];
+    for (NSString *name in names) {
+        NSAttributeDescription *attribute = [[NSAttributeDescription alloc] init];
+        [attribute setName:name];
+        [attribute setAttributeType:NSStringAttributeType];
+        [attribute setOptional:YES];
+        [properties addObject:attribute];
+    }
+
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    [entity setName:@"Ordered"];
+    [entity setManagedObjectClassName:@"NSManagedObject"];
+    [entity setProperties:properties];
+
+    XCTAssertEqualObjects(
+        [NSSet setWithArray:[[entity properties] valueForKey:@"name"]],
+        [NSSet setWithArray:names],
+        @"every property is present, whatever the order");
+#if !defined(__APPLE__)
+    XCTAssertEqualObjects([[entity properties] valueForKey:@"name"], names,
+                          @"port guarantee: -properties returns setProperties: order");
+#endif
+
+    /* reordering must not disturb the version hash (macOS-verified) */
+    NSData *hashBefore = [entity versionHash];
+    NSMutableArray *reversed = [NSMutableArray array];
+    for (NSPropertyDescription *property in
+             [[entity properties] reverseObjectEnumerator])
+        [reversed addObject:property];
+    [entity setProperties:reversed];
+    XCTAssertEqualObjects([entity versionHash], hashBefore,
+                          @"property order is not part of the version hash");
+    [entity setProperties:properties];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObject:entity]];
+
+    NSMutableData *data = [NSMutableData data];
+    NSKeyedArchiver *archiver =
+        [[NSKeyedArchiver alloc] initForWritingWithMutableData:data];
+    [archiver encodeObject:model forKey:@"root"];
+    [archiver finishEncoding];
+
+    NSKeyedUnarchiver *unarchiver =
+        [[NSKeyedUnarchiver alloc] initForReadingWithData:data];
+    NSManagedObjectModel *decoded = [unarchiver decodeObjectForKey:@"root"];
+    NSEntityDescription *decodedEntity =
+        [[decoded entitiesByName] objectForKey:@"Ordered"];
+
+    XCTAssertEqualObjects([[decodedEntity properties] valueForKey:@"name"],
+                          [[entity properties] valueForKey:@"name"],
+                          @"whatever the order is, an archive round trip keeps it");
+#if !defined(__APPLE__)
+    XCTAssertEqualObjects([[decodedEntity properties] valueForKey:@"name"], names,
+                          @"port guarantee: insertion order survives the archive "
+                          @"(GSPropertyOrder)");
+#endif
 }
 
 - (void)testUniquenessConstraintsStorageAndVersionHash
