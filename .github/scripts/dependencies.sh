@@ -20,7 +20,7 @@
 # XCTest, so tools-xctest is; and the packaged app ships with the Eau theme,
 # which has to be built against the same gui it will be loaded into.
 #
-# Two fixes are carried as patches in patches/gnustep/, applied below; they
+# Three fixes are carried as patches in patches/gnustep/, applied below; they
 # are written for upstream and held here until they can be sent. See
 # patches/gnustep/README.md. Everything else is built from master as it
 # stands.
@@ -135,6 +135,10 @@ install_libs_gui() {
     # nib never follows its scroll view's width: ModelBuilder's tables kept
     # their nib width inside a wider window, or overflowed a narrower one.
     patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-gui-tableview-column-autoresizing-style.patch"
+    # The xib loader has no date picker support: every NSDatePicker from a
+    # xib came up with no fields and a bogus date. ModelBuilder's Date
+    # attribute pages use three.
+    patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-gui-xib-date-picker.patch"
     ./configure --prefix="$INSTALL_PATH" || cat config.log
     make install
     echo "::endgroup::"

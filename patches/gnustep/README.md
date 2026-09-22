@@ -1,6 +1,6 @@
 # GNUstep patches carried by this project
 
-Two fixes, written for upstream and applied by
+Three fixes, written for upstream and applied by
 `.github/scripts/dependencies.sh` when CI and the release build the GNUstep
 stack. They are held here while upstream is in code freeze; send them once
 it lifts, and delete each one (and its `patch` line in the script) when it
@@ -23,6 +23,19 @@ columns to the visible width the way the style says — first column only,
 last column only, uniformly, sequentially from the last, or from the
 first — within each autoresizing column's minimum and maximum. Tables built
 in code default to no style, so they keep the resizing they have today.
+
+## gnustep-gui-xib-date-picker.patch (libs-gui)
+
+The recent date picker work made NSDatePicker usable, but the xib loader
+(`GSXib5KeyedUnarchiver`) still knew nothing about it: a xib describes a
+date picker with attributes on its cell (`datePickerStyle`,
+`datePickerMode`, `useCurrentDate`), a `<datePickerElements>` element and
+`<date>` elements carrying `timeIntervalSinceReferenceDate`, and none of
+those reach the archive keys `NSDatePickerCell` reads. Every date picker
+from a xib came up with no fields (elements `0`) and a date two seconds
+into 2001. The patch adds decoders for `NSDatePickerElements`,
+`NSDatePickerType`, `NSDatePickerMode`, `NSDateValue` (the current date
+when the xib says `useCurrentDate`), `NSMinDate` and `NSMaxDate`.
 
 ## eau-theme-keep-nib-textfield-bezel.patch (gershwin-eau-theme)
 

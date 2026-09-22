@@ -123,6 +123,28 @@ int main(void)
     /* Rows are sorted: aString(0) bInt(1) cDate(2) dBool(3). */
     CHECK([wc.attributeTable numberOfRows] == 4, "4 attribute rows");
 
+    SCENARIO("Date pickers load their fields and date from the nib");
+    /* GIVEN the Date attribute page's three NSDatePickers, each set in
+            the xib to show date and time and to use the current date
+       WHEN the window loads from MBDocumentWindow.xib (checked before
+            any attribute is selected: filling the Date page replaces
+            the pickers' dates with the model's)
+       THEN each picker has its date-and-time fields and today's date,
+            not an empty field and a date in 2001 -- which is what a xib
+            date picker got before the loader decoded them */
+    for (NSDatePicker *picker in @[ wc.dateDefaultPicker, wc.dateMinPicker,
+                                    wc.dateMaxPicker ]) {
+      CHECK(picker.datePickerElements ==
+                (NSYearMonthDayDatePickerElementFlag |
+                 NSHourMinuteSecondDatePickerElementFlag),
+            "date picker shows date and time fields");
+      CHECK(fabs([picker.dateValue timeIntervalSinceNow]) < 24 * 3600,
+            "date picker starts on the current date");
+      CHECK(picker.datePickerStyle == NSTextFieldAndStepperDatePickerStyle &&
+                picker.datePickerMode == NSSingleDateMode,
+            "date picker style and mode as in the nib");
+    }
+
     SCENARIO("Selecting attributes shows the matching per-type detail page");
     /* GIVEN Thing with String, Integer 32, Date and Boolean attributes
        WHEN each row of the attributes table is selected

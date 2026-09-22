@@ -40,6 +40,7 @@ dispatch, cell-based table edits).
 | The xib's delete-rule items match momc's vocabulary | IB-authored items pinned against `CDModelCompiler` |
 | Renaming, scalar, validation and fetch-template controls are live | inspector enablement + fill/apply for the newly round-tripped features |
 | The Codegen popup is live and round-trips codeGenerationType | codegen metadata: popup ↔ compiler carry ↔ serialized XML |
+| Date pickers load their fields and date from the nib | xib date picker decoding: elements, current date, style/mode (patches/gnustep) |
 | Stepper text fields own and drive their steppers | MBStepperTextField: self-created stepper, apply through the field's action, enablement mirroring |
 
 ## Requirements

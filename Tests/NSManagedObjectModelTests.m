@@ -26,6 +26,50 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertNotNil([model entities]);
 }
 
+/* A new entity answers with empty collections, as on Apple, so a property
+   appended to a fresh entity's properties is kept. */
+- (void)testNewEntityHasEmptyCollections
+{
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    XCTAssertNotNil(entity.properties);
+    XCTAssertEqual(entity.properties.count, (NSUInteger)0);
+    XCTAssertNotNil(entity.propertiesByName);
+    XCTAssertNotNil(entity.subentities);
+    XCTAssertNotNil(entity.userInfo);
+    XCTAssertNotNil(entity.uniquenessConstraints);
+
+    NSAttributeDescription *attribute = [[NSAttributeDescription alloc] init];
+    attribute.name = @"attribute";
+    attribute.attributeType = NSStringAttributeType;
+    entity.properties = [entity.properties arrayByAddingObject:attribute];
+    XCTAssertEqual(entity.properties.count, (NSUInteger)1);
+    XCTAssertEqual(entity.propertiesByName[@"attribute"], attribute);
+}
+
+/* A property renamed after it joined its entity is found under the new
+   name, and no longer under the old one -- Apple re-keys the entity. */
+- (void)testRenamingPropertyRekeysEntity
+{
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    entity.name = @"Thing";
+    NSAttributeDescription *first = [[NSAttributeDescription alloc] init];
+    first.name = @"attribute";
+    first.attributeType = NSStringAttributeType;
+    NSAttributeDescription *second = [[NSAttributeDescription alloc] init];
+    second.name = @"attribute2";
+    second.attributeType = NSStringAttributeType;
+    entity.properties = @[ first, second ];
+    (void)entity.propertiesByName;
+
+    second.name = @"attribute3";
+
+    XCTAssertEqual(entity.propertiesByName[@"attribute3"], second);
+    XCTAssertEqual(entity.attributesByName[@"attribute3"], second);
+    XCTAssertNil(entity.propertiesByName[@"attribute2"]);
+    XCTAssertEqual(entity.propertiesByName[@"attribute"], first);
+    XCTAssertEqual(entity.propertiesByName.count, (NSUInteger)2);
+}
+
 - (void)testModelMergeEmpty
 {
     NSManagedObjectModel *model =

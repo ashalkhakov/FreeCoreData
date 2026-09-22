@@ -172,6 +172,19 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     *selectorp=selector;
 }
 
+/* A new entity has empty collections, not missing ones: that is what
+   Apple answers, and what code building a model in memory counts on --
+   `entity.properties = [entity.properties arrayByAddingObject:p]` on a
+   fresh entity added nothing when -properties was nil. */
+-init {
+   if((self=[super init])!=nil){
+    _properties=[[NSMutableArray alloc] init];
+    _propertiesByName=[[NSMutableDictionary alloc] init];
+    _subentities=[[NSMutableDictionary alloc] init];
+   }
+   return self;
+}
+
 -initWithCoder:(NSCoder *)coder {
     if(![coder allowsKeyedCoding]) {
         [NSException raise: NSInvalidArgumentException format: @"%@ can not initWithCoder:%@", [self class], [coder class]];
@@ -479,7 +492,7 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
 
 
 -(NSDictionary *)userInfo {
-   return _userInfo;
+   return (_userInfo!=nil)?_userInfo:[NSDictionary dictionary];
 }
 
 
@@ -536,6 +549,15 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
    _properties=properties;
    [_propertiesByName release];
    _propertiesByName=byName;
+}
+
+
+/* Sent by -[NSPropertyDescription setName:] for a property of this entity. */
+- (void) _property: (NSPropertyDescription *) property didChangeNameFrom: (NSString *) oldName {
+   if(oldName!=nil && [_propertiesByName objectForKey:oldName]==property)
+    [_propertiesByName removeObjectForKey:oldName];
+   if([property name]!=nil)
+    [_propertiesByName setObject:property forKey:[property name]];
 }
 
 

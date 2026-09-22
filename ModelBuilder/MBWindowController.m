@@ -1008,6 +1008,20 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
     [table selectRowIndexes:[NSIndexSet indexSetWithIndex:idx] byExtendingSelection:NO];
 }
 
+/* Rebuild a property table after an edit and keep the edited property
+   selected by NAME.  The rows are sorted by name, so a rename moves the
+   row; leaving the selection at its old index selected a different
+   property, and the next inspector edit went to that one. */
+- (void)reloadPropertyTable:(NSTableView *)table selecting:(NSString *)name
+{
+  [self rebuildPropertyRows];
+  [table reloadData];
+  NSArray *names = table == self.attributeTable ? _attributeNames : _relationshipNames;
+  NSUInteger row = name ? [names indexOfObject:name] : NSNotFound;
+  if (row != NSNotFound && (NSInteger)row != table.selectedRow)
+    [table selectRowIndexes:[NSIndexSet indexSetWithIndex:row] byExtendingSelection:NO];
+}
+
 - (IBAction)addAttribute:(id)sender
 {
   (void)sender;
@@ -1309,16 +1323,14 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   if (typeChanged) {
     /* the default-value UI belongs to the old type: switch the detail
        page and refill instead of applying stale controls */
-    [self rebuildPropertyRows];
-    [self.attributeTable reloadData];
+    [self reloadPropertyTable:self.attributeTable selecting:editor.name];
     _updating = YES;
     [self fillAttributeInspector:editor.attribute];
     _updating = NO;
     return;
   }
   [self applyDefaultFromUIToEditor:editor];
-  [self rebuildPropertyRows];
-  [self.attributeTable reloadData];
+  [self reloadPropertyTable:self.attributeTable selecting:editor.name];
 }
 
 - (void)applyRelationshipInspector
@@ -1341,8 +1353,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   editor.inverseName = self.inversePopup.titleOfSelectedItem;
   editor.deleteRuleName = self.deleteRulePopup.titleOfSelectedItem;
 
-  [self rebuildPropertyRows];
-  [self.relationshipTable reloadData];
+  [self reloadPropertyTable:self.relationshipTable selecting:editor.name];
   _updating = YES;
   [self fillRelationshipInspector:editor.relationship];
   _updating = NO;
@@ -1874,8 +1885,7 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
                        document:self.modelDocument];
     if ([ident isEqualToString:@"name"]) editor.name = [value description];
     else if ([ident isEqualToString:@"type"]) editor.typeName = [value description];
-    [self rebuildPropertyRows];
-    [self.attributeTable reloadData];
+    [self reloadPropertyTable:self.attributeTable selecting:editor.name];
     [self fillInspector];
     return;
   }
@@ -1887,8 +1897,7 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
     if ([ident isEqualToString:@"name"]) editor.name = [value description];
     else if ([ident isEqualToString:@"destination"]) editor.destinationName = [value description];
     else if ([ident isEqualToString:@"inverse"]) editor.inverseName = [value description];
-    [self rebuildPropertyRows];
-    [self.relationshipTable reloadData];
+    [self reloadPropertyTable:self.relationshipTable selecting:editor.name];
     [self fillInspector];
     return;
   }
