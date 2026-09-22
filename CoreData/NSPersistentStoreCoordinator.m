@@ -30,6 +30,7 @@ NSString * const NSXMLStoreType=@"NSXMLStoreType";
 NSString * const NSSQLiteStoreType=@"SQLite";
 NSString * const NSInMemoryStoreType=@"NSInMemoryStoreType";
 NSString * const NSMigratePersistentStoresAutomaticallyOption=@"NSMigratePersistentStoresAutomaticallyOption";
+NSString * const NSReadOnlyPersistentStoreOption=@"NSReadOnlyPersistentStoreOption";
 NSString * const NSInferMappingModelAutomaticallyOption=@"NSInferMappingModelAutomaticallyOption";
 NSString * const NSIgnorePersistentStoreVersioningOption=@"NSIgnorePersistentStoreVersioningOption";
 

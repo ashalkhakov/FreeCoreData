@@ -22,6 +22,7 @@ COREDATA_EXPORT NSString *const NSXMLStoreType;
 COREDATA_EXPORT NSString *const NSSQLiteStoreType;
 COREDATA_EXPORT NSString *const NSInMemoryStoreType;
 COREDATA_EXPORT NSString *const NSMigratePersistentStoresAutomaticallyOption;
+COREDATA_EXPORT NSString *const NSReadOnlyPersistentStoreOption;
 COREDATA_EXPORT NSString *const NSInferMappingModelAutomaticallyOption;
 COREDATA_EXPORT NSString *const NSIgnorePersistentStoreVersioningOption;
 

@@ -43,6 +43,7 @@
 		CED014E13032FF59009517DE /* NSFetchedResultsControllerTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014E03032FF59009517DE /* NSFetchedResultsControllerTests.m */; };
 		CEFAB81D3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB81C3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m */; };
 		CEFAB81F3062C8DA00CDADDD /* NSManagedObjectContextParentingTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB81E3062C8DA00CDADDD /* NSManagedObjectContextParentingTests.m */; };
+		CEFAB8213062CC1800CDADDD /* NSPersistentContainerTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB8203062CC1800CDADDD /* NSPersistentContainerTests.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -89,6 +90,7 @@
 		CED014E03032FF59009517DE /* NSFetchedResultsControllerTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSFetchedResultsControllerTests.m; path = Tests/NSFetchedResultsControllerTests.m; sourceTree = "<group>"; };
 		CEFAB81C3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectContextConcurrencyTests.m; path = Tests/NSManagedObjectContextConcurrencyTests.m; sourceTree = "<group>"; };
 		CEFAB81E3062C8DA00CDADDD /* NSManagedObjectContextParentingTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectContextParentingTests.m; path = Tests/NSManagedObjectContextParentingTests.m; sourceTree = "<group>"; };
+		CEFAB8203062CC1800CDADDD /* NSPersistentContainerTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPersistentContainerTests.m; path = Tests/NSPersistentContainerTests.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -115,6 +117,7 @@
 		24DFAD7E3B56719996E6F208 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				CEFAB8203062CC1800CDADDD /* NSPersistentContainerTests.m */,
 				CEFAB81E3062C8DA00CDADDD /* NSManagedObjectContextParentingTests.m */,
 				CEFAB81C3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m */,
 				CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */,
@@ -255,6 +258,7 @@
 				CE9446C8303C0D0000D23BA1 /* NSUUIDAndOrderedRelationshipTests.m in Sources */,
 				CE9446CA303C0D0000D23BA1 /* NSManagedObjectContextUndoTests.m in Sources */,
 				CE9446CC303C0D0000D23BA1 /* MomcSerializerTests.m in Sources */,
+				CEFAB8213062CC1800CDADDD /* NSPersistentContainerTests.m in Sources */,
 				CE9446CE303C0D0000D23BA1 /* CDModelCompiler.m in Sources */,
 				CE9446D0303C0D0000D23BA1 /* CDModelSerializer.m in Sources */,
 				CED014C13032FF59009517DE /* NSManagedObjectValidationTests.m in Sources */,

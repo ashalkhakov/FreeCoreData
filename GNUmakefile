@@ -22,6 +22,8 @@ CoreData_OBJC_FILES = \
 	CoreData/NSManagedObjectMutableSet.m \
 	CoreData/NSManagedObjectSetEnumerator.m \
 	CoreData/NSPersistentStoreCoordinator.m \
+	CoreData/NSPersistentStoreDescription.m \
+	CoreData/NSPersistentContainer.m \
 	CoreData/NSPersistentStore.m \
 	CoreData/NSAtomicStore.m \
 	CoreData/NSIncrementalStore.m \
@@ -64,6 +66,8 @@ CoreData_HEADER_FILES = \
 	NSManagedObjectModel.h \
 	NSPersistentStore.h \
 	NSPersistentStoreCoordinator.h \
+	NSPersistentStoreDescription.h \
+	NSPersistentContainer.h \
 	NSPropertyDescription.h \
 	NSRelationshipDescription.h \
 	NSSQLitePersistentStore.h \
