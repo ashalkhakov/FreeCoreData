@@ -35,6 +35,7 @@ CoreDataTests_OBJC_FILES = \
 	../Tools/momc/CDCodeGenerator.m \
 	NSUUIDAndOrderedRelationshipTests.m \
 	NSManagedObjectContextUndoTests.m \
+	NSManagedObjectContextConcurrencyTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
 	StoreVersioningTests.m

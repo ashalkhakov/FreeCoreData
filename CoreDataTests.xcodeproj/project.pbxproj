@@ -41,6 +41,7 @@
 		CED014C33032FF59009517DE /* NSManagedObjectLifecycleTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014C43032FF59009517DE /* NSManagedObjectLifecycleTests.m */; };
 		CED014C53032FF59009517DE /* NSMergePolicyTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014C63032FF59009517DE /* NSMergePolicyTests.m */; };
 		CED014E13032FF59009517DE /* NSFetchedResultsControllerTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014E03032FF59009517DE /* NSFetchedResultsControllerTests.m */; };
+		CEFAB81D3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB81C3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -85,6 +86,7 @@
 		CED014C43032FF59009517DE /* NSManagedObjectLifecycleTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectLifecycleTests.m; path = Tests/NSManagedObjectLifecycleTests.m; sourceTree = "<group>"; };
 		CED014C63032FF59009517DE /* NSMergePolicyTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSMergePolicyTests.m; path = Tests/NSMergePolicyTests.m; sourceTree = "<group>"; };
 		CED014E03032FF59009517DE /* NSFetchedResultsControllerTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSFetchedResultsControllerTests.m; path = Tests/NSFetchedResultsControllerTests.m; sourceTree = "<group>"; };
+		CEFAB81C3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectContextConcurrencyTests.m; path = Tests/NSManagedObjectContextConcurrencyTests.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -111,6 +113,7 @@
 		24DFAD7E3B56719996E6F208 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				CEFAB81C3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m */,
 				CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */,
 				CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */,
 				CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */,
@@ -251,6 +254,7 @@
 				CE9446CE303C0D0000D23BA1 /* CDModelCompiler.m in Sources */,
 				CE9446D0303C0D0000D23BA1 /* CDModelSerializer.m in Sources */,
 				CED014C13032FF59009517DE /* NSManagedObjectValidationTests.m in Sources */,
+				CEFAB81D3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m in Sources */,
 				CED014C33032FF59009517DE /* NSManagedObjectLifecycleTests.m in Sources */,
 				CE9446BA30371F9600D23BA1 /* NSTransformableAttributeTests.m in Sources */,
 				CED014C53032FF59009517DE /* NSMergePolicyTests.m in Sources */,

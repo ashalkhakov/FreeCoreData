@@ -78,7 +78,10 @@ CoreData_HEADER_FILES = \
 
 CoreData_OBJCFLAGS = -fno-objc-arc
 
-CoreData_LIBRARIES_DEPEND_UPON += -lsqlite3
+CoreData_LIBRARIES_DEPEND_UPON += -lsqlite3 -ldispatch
+
+ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include
+ADDITIONAL_LIB_DIRS += -L/usr/local/lib
 
 CoreData_INCLUDE_DIRS = -I.
 

@@ -60,7 +60,7 @@ static NSMutableDictionary *_storeTypes=nil;
 }
 
 -initWithManagedObjectModel:(NSManagedObjectModel *)model {
-   _lock=[[NSLock alloc] init];
+   _lock=[[NSRecursiveLock alloc] init];
    _model=[model retain];
    _stores=[[NSMutableArray alloc] init];
 

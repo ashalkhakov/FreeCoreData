@@ -31,7 +31,12 @@ COREDATA_EXPORT NSString *const NSRemovedPersistentStoresKey;
 COREDATA_EXPORT NSString *const NSUUIDChangedPersistentStoresKey;
 
 @interface NSPersistentStoreCoordinator : NSObject <NSLocking> {
-    NSLock *_lock;
+    /* Recursive, so the serialization brackets around store access can
+       nest (a fetch that fires a fault re-enters through the object's
+       store round trip).  One coordinator serves many queue-confined
+       contexts on different threads; all store traffic is serialized
+       through this lock. */
+    NSRecursiveLock *_lock;
     NSManagedObjectModel *_model;
     NSMutableArray *_stores;
 }

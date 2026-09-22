@@ -281,7 +281,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -(NSDictionary *)_committedValuesFromIncrementalStore:(NSIncrementalStore *)store {
    NSError                *nodeError=nil;
-   NSIncrementalStoreNode *node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
+   NSIncrementalStoreNode *node;
+
+   /* Store round trips are serialized through the coordinator's
+      recursive lock (contexts on different queues share the stores). */
+   [[_context persistentStoreCoordinator] lock];
+   node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
+   [[_context persistentStoreCoordinator] unlock];
    NSMutableDictionary    *storedValues=[[NSMutableDictionary alloc] init];
 
    /* propertiesByName includes inherited properties, [entity properties]
@@ -675,10 +681,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 -(id)_resolveRelationshipFault:(CDRelationshipFault *)fault forKey:(NSString *)key {
    NSPersistentStore *store=[[self objectID] persistentStore];
    NSError           *relationshipError=nil;
-   id                 value=[(NSIncrementalStore *)store newValueForRelationship:[fault relationship]
-                                                                 forObjectWithID:[self objectID]
-                                                                     withContext:_context
-                                                                           error:&relationshipError];
+   id                 value;
+
+   [[_context persistentStoreCoordinator] lock];
+   value=[(NSIncrementalStore *)store newValueForRelationship:[fault relationship]
+                                              forObjectWithID:[self objectID]
+                                                  withContext:_context
+                                                        error:&relationshipError];
+   [[_context persistentStoreCoordinator] unlock];
 
    [value autorelease];
 

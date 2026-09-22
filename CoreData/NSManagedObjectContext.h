@@ -30,6 +30,17 @@ COREDATA_EXPORT NSString *const NSRefreshedObjectsKey;
 COREDATA_EXPORT NSString *const NSInvalidatedObjectsKey;
 COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
 
+/* Queue association, as on Apple: a context created with a queue type
+   owns a serial execution context that all access must go through
+   (performBlock: / performBlockAndWait:).  A context created with
+   plain -init is a legacy thread-confined context. */
+enum {
+    NSConfinementConcurrencyType = 0x00,
+    NSPrivateQueueConcurrencyType = 0x01,
+    NSMainQueueConcurrencyType = 0x02
+};
+typedef NSUInteger NSManagedObjectContextConcurrencyType;
+
 @interface NSManagedObjectContext : NSObject <NSLocking> {
     NSLock *_lock;
     NSPersistentStoreCoordinator *_storeCoordinator;
@@ -38,6 +49,12 @@ COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
     BOOL _propagatesDeletesAtEndOfEvent;
     NSTimeInterval _stalenessInterval;
     id _mergePolicy;
+
+    NSManagedObjectContextConcurrencyType _concurrencyType;
+    void *_workQueue;       /* dispatch_queue_t: owned serial queue for
+                               private contexts, the main queue for
+                               main-queue contexts */
+    NSString *_contextName;
 
     NSMutableSet *_registeredObjects;
 
@@ -70,6 +87,24 @@ COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
 - (BOOL)propagatesDeletesAtEndOfEvent;
 - (NSTimeInterval)stalenessInterval;
 - (id)mergePolicy;
+
+/* The designated initializer on Apple since 10.7; plain -init remains
+   the legacy thread-confined context. */
+- (instancetype)initWithConcurrencyType:(NSManagedObjectContextConcurrencyType)concurrencyType;
+- (NSManagedObjectContextConcurrencyType)concurrencyType;
+
+/* Queue access.  performBlock: runs asynchronously on the context's
+   queue, wrapped in an autorelease pool and followed by
+   processPendingChanges (a "user event", as Apple documents);
+   performBlockAndWait: runs synchronously with neither wrapper, and is
+   reentrant - called from the context's own queue it executes
+   immediately.  Both raise on a confinement context. */
+- (void)performBlock:(void (^)(void))block;
+- (void)performBlockAndWait:(void (^)(void))block;
+
+/* Debug label, as on Apple. */
+- (NSString *)name;
+- (void)setName:(NSString *)value;
 
 - (void)setPersistentStoreCoordinator:(NSPersistentStoreCoordinator *)value;
 - (void)setUndoManager:(NSUndoManager *)value;

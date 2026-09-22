@@ -7,6 +7,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSManagedObjectContext.h>
+#include <dispatch/dispatch.h>
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSFetchRequest.h>
 #import "NSFetchRequest-Private.h"
@@ -102,6 +103,27 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
 @end
 
+/* --- Queue confinement via libdispatch -----------------------------
+
+   Queue-confined contexts sit directly on libdispatch, matching Apple:
+   a private-queue context owns a serial dispatch queue, a main-queue
+   context targets the main dispatch queue.  (On GNUstep this makes
+   swift-corelibs-libdispatch a dependency of the framework, and
+   gnustep-base must be built with its run-loop integration so the
+   main queue drains from NSRunLoop - see docs/GNUSTEP-SETUP.md.)
+
+   Reentrancy detection for performBlockAndWait: each private queue
+   carries its context as a queue-specific value under one global key,
+   so "am I already on this context's queue?" is one
+   dispatch_get_specific away.  Main-queue contexts are bound to the
+   main thread itself, so the check there is -isMainThread.
+
+   Blocks submitted through performBlock: capture and thereby retain
+   the context, matching Apple's guarantee that a context stays alive
+   until its pending blocks have run. */
+
+static char CDContextQueueSpecificKey;
+
 @implementation NSManagedObjectContext
 
 -init {
@@ -126,9 +148,92 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    
    _objectIdToObject=NSCreateMapTable(NSObjectMapKeyCallBacks,NSObjectMapValueCallBacks,0);
    _requestedProcessPendingChanges = NO;
+   _concurrencyType=NSConfinementConcurrencyType;
+   _workQueue=NULL;
+   _contextName=nil;
    [NSMergePolicy self]; // ensure the merge policy globals are initialized
    _mergePolicy=[NSErrorMergePolicy retain];
    return self;
+}
+
+-(instancetype)initWithConcurrencyType:(NSManagedObjectContextConcurrencyType)concurrencyType {
+   self=[self init];
+   if(self!=nil){
+    _concurrencyType=concurrencyType;
+    if(concurrencyType==NSPrivateQueueConcurrencyType){
+     dispatch_queue_t queue=dispatch_queue_create("NSManagedObjectContext",DISPATCH_QUEUE_SERIAL);
+
+     /* the queue knows its context; performBlockAndWait's reentrancy
+        check reads it back with dispatch_get_specific */
+     dispatch_queue_set_specific(queue,&CDContextQueueSpecificKey,self,NULL);
+     _workQueue=queue;
+    }
+    else if(concurrencyType==NSMainQueueConcurrencyType)
+     _workQueue=dispatch_get_main_queue();
+   }
+   return self;
+}
+
+-(NSManagedObjectContextConcurrencyType)concurrencyType {
+   return _concurrencyType;
+}
+
+-(NSString *)name {
+   return _contextName;
+}
+
+-(void)setName:(NSString *)value {
+   value=[value copy];
+   [_contextName release];
+   _contextName=value;
+}
+
+/* A "user event", per Apple's performBlock: contract: the block runs
+   inside an autorelease pool and pending changes are processed when it
+   finishes. */
+-(void)_runQueuedEventBlock:(void (^)(void))block {
+   NSAutoreleasePool *pool=[[NSAutoreleasePool alloc] init];
+   block();
+   [self processPendingChanges];
+   [pool release];
+}
+
+-(void)_raiseIfConfinement:(SEL)selector {
+   if(_concurrencyType==NSConfinementConcurrencyType)
+    [NSException raise:NSInvalidArgumentException
+                format:@"%@ can only be used on an NSManagedObjectContext that was created with a queue (NSMainQueueConcurrencyType or NSPrivateQueueConcurrencyType).",
+                       NSStringFromSelector(selector)];
+}
+
+-(BOOL)_isOnOwnQueue {
+   if(_concurrencyType==NSMainQueueConcurrencyType)
+    return [NSThread isMainThread];
+   return dispatch_get_specific(&CDContextQueueSpecificKey)==(void *)self;
+}
+
+-(void)performBlock:(void (^)(void))block {
+   [self _raiseIfConfinement:_cmd];
+
+   /* asynchronous even from the context's own queue, like
+      dispatch_async; on a main-queue context the main queue drains
+      through the run loop (gnustep-base's libdispatch integration) */
+   dispatch_async((dispatch_queue_t)_workQueue,^{
+     [self _runQueuedEventBlock:block];
+    });
+}
+
+-(void)performBlockAndWait:(void (^)(void))block {
+   [self _raiseIfConfinement:_cmd];
+
+   /* No autorelease pool and no processPendingChanges - Apple documents
+      performBlockAndWait: as providing neither.  Reentrant: on the
+      context's own queue the block runs immediately (dispatch_sync
+      would deadlock). */
+   if([self _isOnOwnQueue]){
+    block();
+    return;
+   }
+   dispatch_sync((dispatch_queue_t)_workQueue,block);
 }
 
 -(void)dealloc {
@@ -152,6 +257,11 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    /* Undo operations target this context; leaving them behind would let
       the undo manager message a deallocated object. */
    [_undoManager removeAllActionsWithTarget:self];
+
+   /* only private queues are owned; the main queue is global */
+   if(_concurrencyType==NSPrivateQueueConcurrencyType && _workQueue!=NULL)
+    dispatch_release((dispatch_queue_t)_workQueue);
+   [_contextName release];
 
    [_storeCoordinator release];
    [_undoManager release];
@@ -380,6 +490,14 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(NSAtomicStoreCacheNode *)_cacheNodeForObjectID:(NSManagedObjectID *)objectID {
+   NSAtomicStoreCacheNode *result=nil;
+   [_storeCoordinator lock];
+   result=[self _coordinatorLocked_cacheNodeForObjectID:objectID];
+   [_storeCoordinator unlock];
+   return result;
+}
+
+-(NSAtomicStoreCacheNode *)_coordinatorLocked_cacheNodeForObjectID:(NSManagedObjectID *)objectID {
    NSAtomicStore *store=(NSAtomicStore *)[_storeCoordinator _persistentStoreForObjectID:objectID];
 
    return [store cacheNodeForObjectID:objectID];
@@ -718,7 +836,26 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    }
 }
 
+/* Store access from every context funnels through the coordinator's
+   recursive lock, serializing queue-confined contexts running on
+   different threads (Apple's coordinator serializes internally the
+   same way).  The wrappers bracket the whole operation; the lock is
+   recursive so nested store round trips (fault fires, internal
+   re-fetches) are free. */
 -(NSArray *)executeFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error {
+   NSArray *result=nil;
+   [_storeCoordinator lock];
+   NS_DURING
+    result=[self _coordinatorLocked_executeFetchRequest:fetchRequest error:error];
+   NS_HANDLER
+    [_storeCoordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [_storeCoordinator unlock];
+   return result;
+}
+
+-(NSArray *)_coordinatorLocked_executeFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error {
    /* A request created with an entity name resolves it against the
       coordinator's model at execution time, matching Apple.  (The
       private accessor avoids the NSObjectInaccessibleException that
@@ -1039,6 +1176,19 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 }
 
 -(NSManagedObject *)existingObjectWithID:(NSManagedObjectID *)objectID error:(NSError **)error {
+   NSManagedObject *result=nil;
+   [_storeCoordinator lock];
+   NS_DURING
+    result=[self _coordinatorLocked_existingObjectWithID:objectID error:error];
+   NS_HANDLER
+    [_storeCoordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [_storeCoordinator unlock];
+   return result;
+}
+
+-(NSManagedObject *)_coordinatorLocked_existingObjectWithID:(NSManagedObjectID *)objectID error:(NSError **)error {
    /* Matching Apple: an object the context recognizes is returned
       directly; otherwise a fully realized object is fetched from the
       persistent store - this method never returns a fault.  When the
@@ -1163,6 +1313,14 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 }
 
 -(void)_requestProcessPendingChanges {
+    /* Private-queue contexts have no run loop: pending changes are
+       processed when the current performBlock: "user event" ends (or
+       at the next explicit processPendingChanges / save).  Scheduling
+       on the MAIN run loop from a worker thread would both race and
+       process on the wrong thread. */
+    if(_concurrencyType==NSPrivateQueueConcurrencyType)
+     return;
+
     if(!_requestedProcessPendingChanges){
 
 	NSRunLoop *runLoop = [NSRunLoop mainRunLoop];
@@ -1467,6 +1625,19 @@ static id CDUndoRestoredValue(id value){
 }
 
 -(BOOL)obtainPermanentIDsForObjects:(NSArray *)objects error:(NSError **)error {
+   BOOL result=NO;
+   [_storeCoordinator lock];
+   NS_DURING
+    result=[self _coordinatorLocked_obtainPermanentIDsForObjects:objects error:error];
+   NS_HANDLER
+    [_storeCoordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [_storeCoordinator unlock];
+   return result;
+}
+
+-(BOOL)_coordinatorLocked_obtainPermanentIDsForObjects:(NSArray *)objects error:(NSError **)error {
 
    for(NSManagedObject *check in objects){
     NSManagedObjectID *checkID=[check objectID];
@@ -1762,6 +1933,19 @@ static id CDUndoRestoredValue(id value){
 }
 
 -(BOOL)save:(NSError **)errorp {
+   BOOL result=NO;
+   [_storeCoordinator lock];
+   NS_DURING
+    result=[self _coordinatorLocked_save:errorp];
+   NS_HANDLER
+    [_storeCoordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [_storeCoordinator unlock];
+   return result;
+}
+
+-(BOOL)_coordinatorLocked_save:(NSError **)errorp {
    NSMutableArray *errors=[NSMutableArray array];
    NSMutableArray *errorStores=[NSMutableArray array];
    NSError        *idError=nil;
@@ -1984,8 +2168,17 @@ static id CDUndoRestoredValue(id value){
    NSDictionary *userInfo=[notification userInfo];
 
    for(NSManagedObject *inserted in [userInfo objectForKey:NSInsertedObjectsKey]){
-    /* Registers a fault for the newly saved object in the receiver. */
-    [self objectWithID:[inserted objectID]];
+    /* Registers a fault for the newly saved object in the receiver and
+       surfaces it through the receiver's objects-did-change
+       notification - fetched-results-style observers learn about
+       merged inserts exactly this way on Apple.  (Nothing retains the
+       fault beyond that unless retainsRegisteredObjects is set.) */
+    NSManagedObject *local=[self objectWithID:[inserted objectID]];
+
+    if(local!=nil){
+     [_pendingInsertedObjects addObject:local];
+     [self _requestProcessPendingChanges];
+    }
    }
 
    for(NSManagedObject *updated in [userInfo objectForKey:NSUpdatedObjectsKey]){
@@ -2007,6 +2200,11 @@ static id CDUndoRestoredValue(id value){
      [_insertedObjects removeObject:local];
      [_updatedObjects removeObject:local];
      [_deletedObjects addObject:local];
+
+     [_pendingDeletedObjects addObject:local];
+     [_pendingInsertedObjects removeObject:local];
+     [_pendingUpdatedObjects removeObject:local];
+     [self _requestProcessPendingChanges];
     }
    }
 }

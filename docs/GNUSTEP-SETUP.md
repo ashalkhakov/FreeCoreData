@@ -48,6 +48,32 @@ sudo ninja -C libobjc2/build install
 sudo ldconfig
 ```
 
+## 3b. libdispatch (swift-corelibs-libdispatch)
+
+CoreData's queue-confined contexts (`NSPrivateQueueConcurrencyType` /
+`NSMainQueueConcurrencyType`, `performBlock:`) sit directly on
+libdispatch, exactly as on Apple.  Ubuntu does not package a usable
+libdispatch, so build Swift's:
+
+```sh
+git clone --depth 1 https://github.com/swiftlang/swift-corelibs-libdispatch.git libdispatch
+cmake -S libdispatch -B libdispatch/build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DBUILD_SHARED_LIBS=ON -DINSTALL_PRIVATE_HEADERS=YES
+ninja -C libdispatch/build
+sudo ninja -C libdispatch/build install
+sudo ldconfig
+```
+
+`INSTALL_PRIVATE_HEADERS=YES` matters: gnustep-base's configure probes
+for the private `_dispatch_main_queue_callback_4CF` /
+`_dispatch_get_main_queue_handle_4CF` hooks and, when it finds them,
+builds NSRunLoop with **main-queue draining** - that is what makes a
+main-queue context's `performBlock:` fire in run-loop applications.
+Build libdispatch BEFORE configuring gnustep-base (step 5); if base was
+already built, re-run its configure + make + install afterwards and
+check `config.log` for `ac_cv_func__dispatch_main_queue_callback_4CF=yes`.
+
 ## 4. gnustep-make, configured for the ng runtime
 
 ```sh
@@ -104,3 +130,13 @@ make run-tests            # builds CoreDataTests.bundle and runs it with xctest
   directory if you are unsure where `GNUstep.sh` lives.
 - All builds must use clang (`CC=clang CXX=clang++`); GCC cannot compile
   for the gnustep-2.x ABI.
+- If GCC's Objective-C runtime is installed (package `libobjc-13-dev`
+  or similar), its dev symlink
+  `/usr/lib/gcc/x86_64-linux-gnu/*/libobjc.so` sits EARLIER in clang's
+  library search path than libobjc2 and shadows it - tools-make's
+  configure then fails with "compiler supports blocks, but the symbols
+  required for blocks support are found neither in libobjc nor in
+  libBlocksRuntime".  Rename or remove that symlink (and the `.a`
+  beside it) so `-lobjc` resolves to libobjc2.
+- The framework links `-ldispatch` and CoreData's include/lib paths
+  assume the `/usr/local` prefix used above.
