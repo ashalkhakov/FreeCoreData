@@ -1184,7 +1184,10 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   MBAttributeEditor *editor = [self attributeEditor];
   if (!editor) { [self fillInspector]; return; }
 
-  BOOL wantDerived = ([sender state] == NSOnState);
+  /* Typed: sent to an id, -state resolves to AppKit's NSUInteger
+     declaration (NSSwitch's) rather than NSButton's NSInteger one, and
+     the runtime reports the mismatch on every -state call afterwards. */
+  BOOL wantDerived = ([(NSButton *)sender state] == NSOnState);
   if (wantDerived == editor.isDerived) return;
 
   NSString *string = @"";
