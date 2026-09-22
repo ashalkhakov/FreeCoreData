@@ -25,4 +25,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)_object:(NSManagedObject *)object willChangeValueForKey:(NSString *)key;
 - (void)_disableUndoRegistration;
 - (void)_enableUndoRegistration;
+
+/* performBlockAndWait that tolerates legacy thread-confined contexts
+   (runs inline there); used for parent-directed chain hops. */
+- (void)_performAsChainMemberAndWait:(void (^)(void))block;
 @end

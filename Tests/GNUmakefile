@@ -36,6 +36,7 @@ CoreDataTests_OBJC_FILES = \
 	NSUUIDAndOrderedRelationshipTests.m \
 	NSManagedObjectContextUndoTests.m \
 	NSManagedObjectContextConcurrencyTests.m \
+	NSManagedObjectContextParentingTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
 	StoreVersioningTests.m

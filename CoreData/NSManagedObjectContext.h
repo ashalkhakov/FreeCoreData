@@ -56,6 +56,12 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
                                main-queue contexts */
     NSString *_contextName;
 
+    /* Nested contexts: a child saves into its parent instead of the
+       store, and fetches through it. */
+    NSManagedObjectContext *_parentContext;
+    BOOL _automaticallyMergesChangesFromParent;
+    id _parentMergeObserver;
+
     NSMutableSet *_registeredObjects;
 
     NSMutableSet *_insertedObjects;
@@ -105,6 +111,23 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
 /* Debug label, as on Apple. */
 - (NSString *)name;
 - (void)setName:(NSString *)value;
+
+/* Nested contexts.  A child context uses its parent as its "store":
+   fetches are answered from the parent's current state (including the
+   parent's unsaved changes), and -save: pushes the child's changes
+   into the parent without touching any persistent store - only the
+   root of the chain writes to disk.  Object IDs are shared down the
+   chain, so IDs stay temporary until the root context saves.
+   persistentStoreCoordinator walks up the chain when unset locally.
+   Setting a parent on a confinement context raises, as on Apple. */
+- (NSManagedObjectContext *)parentContext;
+- (void)setParentContext:(NSManagedObjectContext *)parent;
+
+/* When set, saves by the parent (for a child context) or by sibling
+   contexts of the same coordinator (for a coordinator-backed context)
+   are merged into this context automatically, on its queue. */
+- (BOOL)automaticallyMergesChangesFromParent;
+- (void)setAutomaticallyMergesChangesFromParent:(BOOL)value;
 
 - (void)setPersistentStoreCoordinator:(NSPersistentStoreCoordinator *)value;
 - (void)setUndoManager:(NSUndoManager *)value;
