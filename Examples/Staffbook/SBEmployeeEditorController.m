@@ -52,12 +52,17 @@
      * every keystroke edits the transaction, never the viewContext, and
      * the reviews array controller follows through its contentSet
      * binding to selection.reviews. */
+    /* 10.4 formatter behavior explicitly - a no-op on macOS, but
+     * GNUstep still defaults to the OLD behavior, where an ICU pattern
+     * like yyyy-MM-dd is literal text. */
     NSNumberFormatter *money = [[NSNumberFormatter alloc] init];
+    [money setFormatterBehavior:NSNumberFormatterBehavior10_4];
     [money setNumberStyle:NSNumberFormatterDecimalStyle];
     [money setMaximumFractionDigits:0];
     [self.salaryField setFormatter:money];
 
     NSDateFormatter *day = [[NSDateFormatter alloc] init];
+    [day setFormatterBehavior:NSDateFormatterBehavior10_4];
     [day setDateFormat:@"yyyy-MM-dd"];
     [self.hireDateField setFormatter:day];
     [[[self.reviewsTable tableColumnWithIdentifier:@"date"] dataCell] setFormatter:day];
@@ -69,6 +74,17 @@
         @[[NSSortDescriptor sortDescriptorWithKey:@"date" ascending:NO]]];
 
     [self.employeeController setContent:_employee];
+
+    /* Enabling is driven from the selection delegate, not a canRemove
+     * binding - see SBEmployeeWindowController. */
+    [self tableViewSelectionDidChange:nil];
+}
+
+- (void)tableViewSelectionDidChange:(NSNotification *)note
+{
+    (void)note;
+    [self.removeReviewButton setEnabled:
+        ([[self.reviewsController selectedObjects] count] > 0)];
 }
 
 - (BOOL)runModal
@@ -89,6 +105,7 @@
     review.summary = @"";
     [[_employee mutableSetValueForKey:@"reviews"] addObject:review];
     [self.reviewsController rearrangeObjects];
+    [self tableViewSelectionDidChange:nil];
 }
 
 - (IBAction)removeReview:(id)sender
@@ -98,6 +115,7 @@
         [_childContext deleteObject:review];
     }
     [self.reviewsController rearrangeObjects];
+    [self tableViewSelectionDidChange:nil];
 }
 
 - (IBAction)save:(id)sender

@@ -32,24 +32,50 @@
 
     /* The bindings all live in EmployeeWindow.xib; what remains here is
      * what a XIB does not carry well: the initial sort, and the cell
-     * formatters. */
+     * formatters.  The formatters get the 10.4 behavior explicitly - a
+     * no-op on macOS, but GNUstep still defaults to the OLD formatter
+     * behavior, where an ICU pattern like yyyy-MM-dd is literal text. */
     [self.employees setSortDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES
                                                                         selector:@selector(caseInsensitiveCompare:)]]];
 
     NSNumberFormatter *money = [[NSNumberFormatter alloc] init];
+    [money setFormatterBehavior:NSNumberFormatterBehavior10_4];
     [money setNumberStyle:NSNumberFormatterDecimalStyle];
     [money setMaximumFractionDigits:0];
     [[[self.tableView tableColumnWithIdentifier:@"salary"] dataCell] setFormatter:money];
 
     NSDateFormatter *day = [[NSDateFormatter alloc] init];
+    [day setFormatterBehavior:NSDateFormatterBehavior10_4];
     [day setDateFormat:@"yyyy-MM-dd"];
     [[[self.tableView tableColumnWithIdentifier:@"hireDate"] dataCell] setFormatter:day];
 
     [self.departmentPopUp removeAllItems];
     [self.departmentPopUp addItemsWithTitles:SBDepartments()];
 
+    /* Selection-dependent enabling and live filtering are driven from
+     * delegate callbacks rather than bindings: canRemove/enabled is not
+     * observable on GNUstep's controller layer, and its search field
+     * does not send its action per keystroke. */
+    [self.searchField setDelegate:(id)self];
+    [self tableViewSelectionDidChange:nil];
+
     [self reloadEmployees];
     [self reloadChart];
+}
+
+- (void)tableViewSelectionDidChange:(NSNotification *)note
+{
+    (void)note;
+    BOOL any = ([self selectedEmployee] != nil);
+
+    [self.editButton setEnabled:any];
+    [self.deleteButton setEnabled:any];
+}
+
+- (void)controlTextDidChange:(NSNotification *)note
+{
+    if ([note object] == self.searchField)
+        [self filterChanged:self.searchField];
 }
 
 - (void)reloadEmployees
@@ -78,6 +104,10 @@
         [self.employees setFilterPredicate:
             [NSPredicate predicateWithFormat:@"name CONTAINS[cd] %@ OR department CONTAINS[cd] %@",
                                              needle, needle]];
+
+    /* Explicit on purpose: a new filter predicate rearranges by itself
+     * on macOS, but not on every GNUstep controller layer. */
+    [self.employees rearrangeObjects];
 }
 
 /* What the batch requests act on: exactly what the table shows. */

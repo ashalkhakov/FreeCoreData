@@ -200,6 +200,7 @@
                                         </tableColumn>
                                     </tableColumns>
                                     <connections>
+                                        <outlet property="delegate" destination="-2" id="SBe-tb-004"/>
                                         <binding destination="SBe-ac-001" name="content" keyPath="arrangedObjects" id="SBe-tb-002"/>
                                         <binding destination="SBe-ac-001" name="selectionIndexes" keyPath="selectionIndexes" previousBinding="SBe-tb-002" id="SBe-tb-003"/>
                                     </connections>
@@ -239,7 +240,6 @@
                         </buttonCell>
                         <connections>
                             <action selector="removeReview:" target="-2" id="SBe-bt-rr3"/>
-                            <binding destination="SBe-ac-001" name="enabled" keyPath="canRemove" id="SBe-bt-rr4"/>
                         </connections>
                     </button>
                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="SBe-bt-cnl">
