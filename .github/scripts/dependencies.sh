@@ -20,7 +20,7 @@
 # XCTest, so tools-xctest is; and the packaged app ships with the Eau theme,
 # which has to be built against the same gui it will be loaded into.
 #
-# Four fixes are carried as patches in patches/gnustep/, applied below; they
+# Five fixes are carried as patches in patches/gnustep/, applied below; they
 # are written for upstream and held here until they can be sent. See
 # patches/gnustep/README.md. Everything else is built from master as it
 # stands.
@@ -106,6 +106,10 @@ install_libs_base() {
     . "$GNUSTEP_SH"
     git clone -q -b ${LIBS_BASE_BRANCH:-master} https://github.com/gnustep/libs-base.git
     cd libs-base
+    # NSDateFormatter's NSFormatter entry points (what every NSCell calls)
+    # ignored the 10.4 behavior: dates in cells rendered as the literal ICU
+    # pattern and would not parse; see the repro beside the patch.
+    patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-base-dateformatter-cell-behavior.patch"
     # The reference recipe names $PREFIX/etc/GNUstep.conf here. This
     # gnustep-make writes it to $PREFIX/etc/GNUstep/GNUstep.conf instead, and
     # when the named file does not exist libs-base falls back to the built-in

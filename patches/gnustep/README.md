@@ -1,6 +1,6 @@
 # GNUstep patches carried by this project
 
-Four fixes, written for upstream and applied by
+Five fixes, written for upstream and applied by
 `.github/scripts/dependencies.sh` when CI and the release build the GNUstep
 stack. They are held here while upstream is in code freeze; send them once
 it lifts, and delete each one (and its `patch` line in the script) when it
@@ -74,3 +74,24 @@ selection-dependent key paths, changes the selection, and reports which
 of them heard about it - exit 0 patched, 1 unpatched. Build and run
 instructions are in its header; send it upstream together with the
 patch.
+
+## gnustep-base-dateformatter-cell-behavior.patch (libs-base)
+
+`-[NSDateFormatter stringForObjectValue:]` - the NSFormatter entry
+point every NSCell calls, so the way a date reaches the screen from a
+text field or a bound table column - always formatted with the 10.0
+calendar-format code, even when the formatter was explicitly set to
+`NSDateFormatterBehavior10_4`; the modern ICU machinery lives only in
+`-stringFromDate:`. An ICU pattern such as `yyyy-MM-dd` has no
+%-escapes, so every date column in Staffbook showed the literal
+pattern instead of the date. `-getObjectValue:forString:...`
+mis-parsed for the same reason.
+
+The patch makes both entry points delegate to the modern
+`-stringFromDate:` / `-dateFromString:` when the instance's behavior
+is `NSDateFormatterBehavior10_4`, and leaves the 10.0 path untouched
+for everyone who has not asked for the modern behavior.
+
+`repro-nsdateformatter-cell-behavior.m` beside this file demonstrates
+the gap and proves the fix (exit 0 patched, 1 unpatched); send it
+upstream together with the patch.
