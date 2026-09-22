@@ -26,6 +26,10 @@
 @interface MBEditor : NSObject
 @property (nonatomic, strong, readonly) MBDocument *document;
 @property (nonatomic, strong, readonly) NSError *lastError;
+/* The editor for a description object (an entity, attribute,
+   relationship or fetch request of the document's model), as it is now.
+   Undo replays an edit on it: its setters record the redo. */
++ (MBEditor *)editorForSubject:(id)subject document:(MBDocument *)document;
 @end
 
 /* ---------------------------------------------------------------- */

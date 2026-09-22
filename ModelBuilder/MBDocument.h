@@ -27,6 +27,24 @@
 - (NSArray *)sortedEntities;    /* model entities sorted by name */
 - (void)noteModelChanged;
 
+/* Undo.  An edit is everything between -beginEdit: and the matching
+   -endEdit (they nest; the outermost pair is one undo step, named by the
+   first name given).  Inside it, each change records its inverse:
+   editors through -registerInverseValue:forKey:ofSubject: -- the previous
+   value of an editor key, replayed on the description object's editor --
+   and structural changes through the property operations below, which
+   record their own.  An edit that records nothing leaves no undo step. */
+- (void)beginEdit:(NSString *)actionName;
+- (void)endEdit;
+- (void)setUndoActionName:(NSString *)name;   /* names the next edit */
+- (void)registerInverseValue:(id)value forKey:(NSString *)key ofSubject:(id)subject;
+- (void)insertProperty:(NSPropertyDescription *)property
+              intoEntity:(NSEntityDescription *)entity
+                 atIndex:(NSUInteger)index;
+- (void)removeProperty:(NSPropertyDescription *)property;
+- (void)replaceProperty:(NSPropertyDescription *)current
+           withProperty:(NSPropertyDescription *)replacement;
+
 /* Xcode's Editor menu: Add Model Version duplicates the edited version
    under a fresh name (and starts editing it); Set Current Version moves
    the .xccurrentversion pointer. */

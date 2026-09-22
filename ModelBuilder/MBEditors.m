@@ -19,18 +19,6 @@ static NSString *MBUniquePropertyName(NSString *base, NSEntityDescription *entit
   return candidate;
 }
 
-static void MBReplaceProperty(NSEntityDescription *entity,
-                              NSPropertyDescription *old,
-                              NSPropertyDescription *replacement)
-{
-  NSMutableArray *properties = [entity.properties mutableCopy];
-  NSUInteger idx = [properties indexOfObjectIdenticalTo:old];
-  if (idx == NSNotFound) return;
-  if (replacement) [properties replaceObjectAtIndex:idx withObject:replacement];
-  else [properties removeObjectAtIndex:idx];
-  entity.properties = properties;
-}
-
 @interface MBEditor () {
  @protected
   MBDocument *_document;
@@ -38,7 +26,14 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 }
 - (void)noteEdited;
 - (void)failWith:(NSString *)message;
+- (id)undoSubject;
+- (void)didChange:(NSString *)key from:(id)old;
 @end
+
+static BOOL MBValuesEqual(id a, id b)
+{
+  return a == b || [a isEqual:b];
+}
 
 @implementation MBEditor
 
@@ -48,6 +43,42 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 - (void)noteEdited
 {
   [_document noteModelChanged];
+}
+
+/* The description object this editor edits: what an undo is recorded
+   against, since it outlives a rename. */
+- (id)undoSubject { return nil; }
+
+/* After a setter has applied (or refused) a change: if `key` now reads
+   differently from `old`, record the inverse and note the edit.  A
+   refusal or a no-op records nothing. */
+- (void)didChange:(NSString *)key from:(id)old
+{
+  id now = [self valueForKey:key];
+  if (MBValuesEqual(old, now)) return;
+  [_document registerInverseValue:old forKey:key ofSubject:[self undoSubject]];
+  [self noteEdited];
+}
+
++ (MBEditor *)editorForSubject:(id)subject document:(MBDocument *)document
+{
+  if ([subject isKindOfClass:[NSEntityDescription class]])
+    return [MBEntityEditor editorForEntityNamed:[subject name] document:document];
+  if ([subject isKindOfClass:[NSAttributeDescription class]])
+    return [MBAttributeEditor editorForAttributeNamed:[subject name]
+                                               entity:[subject entity]
+                                             document:document];
+  if ([subject isKindOfClass:[NSRelationshipDescription class]])
+    return [MBRelationshipEditor editorForRelationshipNamed:[subject name]
+                                                     entity:[subject entity]
+                                                   document:document];
+  if ([subject isKindOfClass:[NSFetchRequest class]]) {
+    NSDictionary *templates = [document.model fetchRequestTemplatesByName];
+    for (NSString *name in templates)
+      if (templates[name] == subject)
+        return [MBFetchEditor editorForFetchRequestNamed:name document:document];
+  }
+  return nil;
 }
 
 - (void)failWith:(NSString *)message
@@ -78,6 +109,8 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   return _document.model.entitiesByName[_name];
 }
 
+- (id)undoSubject { return self.entity; }
+
 - (NSString *)name { return _name; }
 
 - (void)setName:(NSString *)name
@@ -90,16 +123,18 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 
 - (void)setClassName:(NSString *)className
 {
+  id old = self.className;
   self.entity.managedObjectClassName = className.length ? className : @"NSManagedObject";
-  [self noteEdited];
+  [self didChange:@"className" from:old];
 }
 
 - (BOOL)isAbstract { return self.entity.isAbstract; }
 
 - (void)setAbstract:(BOOL)abstract
 {
+  id old = [self valueForKey:@"abstract"];
   self.entity.abstract = abstract;
-  [self noteEdited];
+  [self didChange:@"abstract" from:old];
 }
 
 - (NSString *)parentName { return self.entity.superentity.name ?: @""; }
@@ -120,8 +155,9 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 
 - (void)setHashModifier:(NSString *)hashModifier
 {
+  id old = self.hashModifier;
   [self.entity setVersionHashModifier:hashModifier.length ? hashModifier : nil];
-  [self noteEdited];
+  [self didChange:@"hashModifier" from:old];
 }
 
 - (NSString *)renamingIdentifier { return [self.entity renamingIdentifier] ?: @""; }
@@ -132,8 +168,9 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 {
   NSString *wanted = value ?: @"";
   BOOL defaulted = !wanted.length || [wanted isEqualToString:self.entity.name];
+  id old = self.renamingIdentifier;
   [self.entity setRenamingIdentifier:defaulted ? nil : wanted];
-  [self noteEdited];
+  [self didChange:@"renamingIdentifier" from:old];
 }
 
 - (NSString *)codegenType
@@ -143,16 +180,18 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 
 - (void)setCodegenType:(NSString *)value
 {
+  id old = self.codegenType;
   [CDModelCompiler setEntity:self.entity codeGenerationType:value];
-  [self noteEdited];
+  [self didChange:@"codegenType" from:old];
 }
 
 - (NSDictionary *)userInfo { return self.entity.userInfo; }
 
 - (void)setUserInfo:(NSDictionary *)userInfo
 {
+  id old = self.userInfo;
   self.entity.userInfo = userInfo.count ? userInfo : nil;
-  [self noteEdited];
+  [self didChange:@"userInfo" from:old];
 }
 
 - (NSArray *)constraintRows
@@ -170,6 +209,7 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 
 - (void)setConstraintRows:(NSArray *)rows
 {
+  id old = self.constraintRows;
   NSMutableArray *constraints = [NSMutableArray array];
   for (NSString *row in rows) {
     NSMutableArray *names = [NSMutableArray array];
@@ -181,7 +221,7 @@ static void MBReplaceProperty(NSEntityDescription *entity,
     if (names.count) [constraints addObject:names];
   }
   [self.entity setUniquenessConstraints:constraints.count ? constraints : nil];
-  [self noteEdited];
+  [self didChange:@"constraintRows" from:old];
 }
 
 - (NSString *)addAttribute
@@ -192,8 +232,7 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   attribute.name = name;
   attribute.attributeType = NSStringAttributeType;
   attribute.optional = YES;
-  entity.properties = [entity.properties arrayByAddingObject:attribute];
-  [self noteEdited];
+  [_document insertProperty:attribute intoEntity:entity atIndex:entity.properties.count];
   return name;
 }
 
@@ -202,8 +241,7 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   NSEntityDescription *entity = self.entity;
   NSAttributeDescription *attribute = entity.attributesByName[name];
   if (!attribute) return;
-  MBReplaceProperty(entity, attribute, nil);
-  [self noteEdited];
+  [_document removeProperty:attribute];
 }
 
 - (NSString *)addRelationship
@@ -220,8 +258,7 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   for (NSEntityDescription *other in [_document sortedEntities])
     if (other != entity) { destination = other; break; }
   relationship.destinationEntity = destination;
-  entity.properties = [entity.properties arrayByAddingObject:relationship];
-  [self noteEdited];
+  [_document insertProperty:relationship intoEntity:entity atIndex:entity.properties.count];
   return name;
 }
 
@@ -230,11 +267,7 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   NSEntityDescription *entity = self.entity;
   NSRelationshipDescription *relationship = entity.relationshipsByName[name];
   if (!relationship) return;
-  NSRelationshipDescription *inverse = relationship.inverseRelationship;
-  if (inverse.inverseRelationship == relationship)
-    inverse.inverseRelationship = nil;
-  MBReplaceProperty(entity, relationship, nil);
-  [self noteEdited];
+  [_document removeProperty:relationship];   /* unwires the inverse's pointer back */
 }
 
 @end
@@ -263,15 +296,18 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   return _entity.attributesByName[_name];
 }
 
+- (id)undoSubject { return self.attribute; }
+
 - (NSString *)name { return _name; }
 
 - (void)setName:(NSString *)name
 {
   if (!name.length || [name isEqualToString:_name]) return;
   if (_entity.propertiesByName[name]) return;   /* duplicate */
+  NSString *old = _name;
   self.attribute.name = name;
   _name = [name copy];
-  [self noteEdited];
+  [self didChange:@"name" from:old];
 }
 
 - (NSString *)typeName
@@ -284,24 +320,51 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   NSInteger type = [CDModelCompiler attributeTypeNamed:typeName];
   NSAttributeDescription *attribute = self.attribute;
   if (type < 0 || (NSAttributeType)type == attribute.attributeType) return;
+  id oldType = self.typeName, oldDefault = self.defaultValueObject;
+  [_document beginEdit:nil];   /* two inverses, one step */
   attribute.attributeType = (NSAttributeType)type;
   attribute.defaultValue = nil;   /* the old default belongs to the old type */
   /* Transformer fields are left alone: Apple CoreData throws on nil,
      and the serializer ignores them for non-Transformable types. */
-  [self noteEdited];
+  /* The default's inverse first: undo runs them in reverse, so the type
+     is back before the default it belongs to. */
+  [self didChange:@"defaultValueObject" from:oldDefault];
+  [self didChange:@"typeName" from:oldType];
+  [_document endEdit];
 }
 
 - (BOOL)isOptional { return self.attribute.isOptional; }
-- (void)setOptional:(BOOL)optional { self.attribute.optional = optional; [self noteEdited]; }
+- (void)setOptional:(BOOL)optional
+{
+  id old = [self valueForKey:@"optional"];
+  self.attribute.optional = optional;
+  [self didChange:@"optional" from:old];
+}
 - (BOOL)isTransient { return self.attribute.isTransient; }
-- (void)setTransient:(BOOL)transient { self.attribute.transient = transient; [self noteEdited]; }
+- (void)setTransient:(BOOL)transient
+{
+  id old = [self valueForKey:@"transient"];
+  self.attribute.transient = transient;
+  [self didChange:@"transient" from:old];
+}
+
+/* The default value as stored, for undo: lossless where -defaultString
+   is a rendering of it. */
+- (id)defaultValueObject { return self.attribute.defaultValue; }
+- (void)setDefaultValueObject:(id)value
+{
+  id old = self.defaultValueObject;
+  self.attribute.defaultValue = value;
+  [self didChange:@"defaultValueObject" from:old];
+}
 
 - (NSString *)hashModifier { return [self.attribute versionHashModifier] ?: @""; }
 
 - (void)setHashModifier:(NSString *)hashModifier
 {
+  id old = self.hashModifier;
   [self.attribute setVersionHashModifier:hashModifier.length ? hashModifier : nil];
-  [self noteEdited];
+  [self didChange:@"hashModifier" from:old];
 }
 
 - (NSString *)renamingIdentifier { return [self.attribute renamingIdentifier] ?: @""; }
@@ -310,8 +373,9 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 {
   NSString *wanted = value ?: @"";
   BOOL defaulted = !wanted.length || [wanted isEqualToString:_name];
+  id old = self.renamingIdentifier;
   [self.attribute setRenamingIdentifier:defaulted ? nil : wanted];
-  [self noteEdited];
+  [self didChange:@"renamingIdentifier" from:old];
 }
 
 - (BOOL)scalarType
@@ -321,8 +385,9 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 
 - (void)setScalarType:(BOOL)scalarType
 {
+  id old = [self valueForKey:@"scalarType"];
   [CDModelCompiler setAttribute:self.attribute usesScalarValueType:scalarType];
-  [self noteEdited];
+  [self didChange:@"scalarType" from:old];
 }
 
 /* Validation plumbing: read the canonical info dictionary, mutate one
@@ -337,8 +402,15 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   NSMutableDictionary *info = [[self validationInfo] mutableCopy];
   if (value) info[key] = value;
   else [info removeObjectForKey:key];
-  [CDModelCompiler applyValidationInfo:info toAttribute:self.attribute];
-  [self noteEdited];
+  [self setValidationInfo:info];
+}
+
+/* The whole validation dictionary: what undo restores, one key or many. */
+- (void)setValidationInfo:(NSDictionary *)info
+{
+  id old = [self validationInfo];
+  [CDModelCompiler applyValidationInfo:info ?: @{} toAttribute:self.attribute];
+  [self didChange:@"validationInfo" from:old];
 }
 
 - (NSString *)validationMin { return [self validationInfo][@"min"] ?: @""; }
@@ -360,8 +432,9 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 
 - (void)setUserInfo:(NSDictionary *)userInfo
 {
+  id old = self.userInfo;
   self.attribute.userInfo = userInfo.count ? userInfo : nil;
-  [self noteEdited];
+  [self didChange:@"userInfo" from:old];
 }
 
 - (NSString *)defaultString
@@ -380,9 +453,10 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 - (void)setDefaultString:(NSString *)string
 {
   NSAttributeDescription *attribute = self.attribute;
+  id old = self.defaultValueObject;
   if (!string.length) {
     attribute.defaultValue = nil;
-    [self noteEdited];
+    [self didChange:@"defaultValueObject" from:old];
     return;
   }
   switch (attribute.attributeType) {
@@ -405,7 +479,7 @@ static void MBReplaceProperty(NSEntityDescription *entity,
       attribute.defaultValue = [NSURL URLWithString:string]; break;
     default: return;   /* dates use defaultDate; binary/transformable have none */
   }
-  [self noteEdited];
+  [self didChange:@"defaultValueObject" from:old];
 }
 
 - (NSDate *)defaultDate
@@ -418,24 +492,27 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 {
   NSAttributeDescription *attribute = self.attribute;
   if (attribute.attributeType != NSDateAttributeType) return;
+  id old = self.defaultValueObject;
   attribute.defaultValue = date;
-  [self noteEdited];
+  [self didChange:@"defaultValueObject" from:old];
 }
 
 - (NSString *)transformerName { return [self.attribute valueTransformerName] ?: @""; }
 
 - (void)setTransformerName:(NSString *)name
 {
+  id old = self.transformerName;
   [self.attribute setValueTransformerName:name ?: @""];   /* never nil: Apple throws */
-  [self noteEdited];
+  [self didChange:@"transformerName" from:old];
 }
 
 - (NSString *)customClassName { return [self.attribute attributeValueClassName] ?: @""; }
 
 - (void)setCustomClassName:(NSString *)name
 {
+  id old = self.customClassName;
   [self.attribute setAttributeValueClassName:name ?: @""];
-  [self noteEdited];
+  [self didChange:@"customClassName" from:old];
 }
 
 - (BOOL)isDerived
@@ -479,8 +556,7 @@ static void MBReplaceProperty(NSEntityDescription *entity,
     plain.transient = attribute.isTransient;
     plain.defaultValue = attribute.defaultValue;
     plain.userInfo = attribute.userInfo;
-    MBReplaceProperty(_entity, attribute, plain);
-    [self noteEdited];
+    [_document replaceProperty:attribute withProperty:plain];   /* undo puts this one back */
     return;
   }
   NSError *error = nil;
@@ -491,8 +567,9 @@ static void MBReplaceProperty(NSEntityDescription *entity,
     return;
   }
   if (derived) {
+    id old = self.derivationString;
     [(NSDerivedAttributeDescription *)attribute setDerivationExpression:expression];
-    [self noteEdited];
+    [self didChange:@"derivationString" from:old];
     return;
   }
   NSDerivedAttributeDescription *replacement = [[NSDerivedAttributeDescription alloc] init];
@@ -502,8 +579,7 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   replacement.transient = attribute.isTransient;
   replacement.userInfo = attribute.userInfo;
   replacement.derivationExpression = expression;
-  MBReplaceProperty(_entity, attribute, replacement);
-  [self noteEdited];
+  [_document replaceProperty:attribute withProperty:replacement];
 }
 
 @end
@@ -532,15 +608,18 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   return _entity.relationshipsByName[_name];
 }
 
+- (id)undoSubject { return self.relationship; }
+
 - (NSString *)name { return _name; }
 
 - (void)setName:(NSString *)name
 {
   if (!name.length || [name isEqualToString:_name]) return;
   if (_entity.propertiesByName[name]) return;   /* duplicate */
+  NSString *old = _name;
   self.relationship.name = name;
   _name = [name copy];
-  [self noteEdited];
+  [self didChange:@"name" from:old];
 }
 
 - (NSString *)destinationName { return self.relationship.destinationEntity.name ?: @""; }
@@ -551,12 +630,18 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   NSEntityDescription *destination = name.length
       ? _document.model.entitiesByName[name] : nil;
   if (destination == relationship.destinationEntity) return;
+  id oldDestination = self.destinationName, oldInverse = self.inverseName;
+  [_document beginEdit:nil];   /* two inverses, one step */
   NSRelationshipDescription *previousInverse = relationship.inverseRelationship;
   if (previousInverse.inverseRelationship == relationship)
     previousInverse.inverseRelationship = nil;
   relationship.inverseRelationship = nil;   /* the old inverse points elsewhere */
   relationship.destinationEntity = destination;
-  [self noteEdited];
+  /* The inverse's first: undo sets the destination back, then wires the
+     inverse on it again. */
+  [self didChange:@"inverseName" from:oldInverse];
+  [self didChange:@"destinationName" from:oldDestination];
+  [_document endEdit];
 }
 
 - (NSString *)inverseName { return self.relationship.inverseRelationship.name ?: @""; }
@@ -565,11 +650,12 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 {
   NSRelationshipDescription *relationship = self.relationship;
   NSRelationshipDescription *previousInverse = relationship.inverseRelationship;
+  id old = self.inverseName;
   if (!name.length || [name isEqualToString:@"(none)"]) {
     if (previousInverse.inverseRelationship == relationship)
       previousInverse.inverseRelationship = nil;
     relationship.inverseRelationship = nil;
-    [self noteEdited];
+    [self didChange:@"inverseName" from:old];
     return;
   }
   NSRelationshipDescription *inverse =
@@ -579,7 +665,7 @@ static void MBReplaceProperty(NSEntityDescription *entity,
     previousInverse.inverseRelationship = nil;
   relationship.inverseRelationship = inverse;
   inverse.inverseRelationship = relationship;
-  [self noteEdited];
+  [self didChange:@"inverseName" from:old];
 }
 
 - (BOOL)isToMany { return self.relationship.isToMany; }
@@ -588,6 +674,9 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 {
   NSRelationshipDescription *relationship = self.relationship;
   if (toMany == relationship.isToMany) return;
+  id oldToMany = [self valueForKey:@"toMany"];
+  id oldMin = self.storedMinCount, oldMax = self.storedMaxCount, oldOrdered = self.storedOrdered;
+  [_document beginEdit:nil];   /* several inverses, one step */
   if (toMany) {
     relationship.maxCount = 0;
   } else {
@@ -595,7 +684,37 @@ static void MBReplaceProperty(NSEntityDescription *entity,
     relationship.maxCount = 1;
     relationship.ordered = NO;
   }
-  [self noteEdited];
+  /* The counts' inverses first: undo turns to-many back, then restores
+     them exactly as they were. */
+  [self didChange:@"storedMinCount" from:oldMin];
+  [self didChange:@"storedMaxCount" from:oldMax];
+  [self didChange:@"storedOrdered" from:oldOrdered];
+  [self didChange:@"toMany" from:oldToMany];
+  [_document endEdit];
+}
+
+/* The counts and ordering as stored, whatever the relationship's shape:
+   what undo restores when turning to-one resets them. */
+- (NSNumber *)storedMinCount { return @(self.relationship.minCount); }
+- (void)setStoredMinCount:(NSNumber *)value
+{
+  id old = self.storedMinCount;
+  self.relationship.minCount = value.intValue;
+  [self didChange:@"storedMinCount" from:old];
+}
+- (NSNumber *)storedMaxCount { return @(self.relationship.maxCount); }
+- (void)setStoredMaxCount:(NSNumber *)value
+{
+  id old = self.storedMaxCount;
+  self.relationship.maxCount = value.intValue;
+  [self didChange:@"storedMaxCount" from:old];
+}
+- (NSNumber *)storedOrdered { return @(self.relationship.isOrdered); }
+- (void)setStoredOrdered:(NSNumber *)value
+{
+  id old = self.storedOrdered;
+  self.relationship.ordered = value.boolValue;
+  [self didChange:@"storedOrdered" from:old];
 }
 
 - (BOOL)isOrdered { return self.relationship.isToMany && self.relationship.isOrdered; }
@@ -603,8 +722,9 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 - (void)setOrdered:(BOOL)ordered
 {
   if (!self.relationship.isToMany) return;
+  id old = [self valueForKey:@"ordered"];
   self.relationship.ordered = ordered;
-  [self noteEdited];
+  [self didChange:@"ordered" from:old];
 }
 
 - (NSInteger)minCount { return self.relationship.isToMany ? self.relationship.minCount : 0; }
@@ -612,8 +732,9 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 - (void)setMinCount:(NSInteger)minCount
 {
   if (!self.relationship.isToMany) return;
+  id old = [self valueForKey:@"minCount"];
   self.relationship.minCount = MAX(0, minCount);
-  [self noteEdited];
+  [self didChange:@"minCount" from:old];
 }
 
 - (NSInteger)maxCount { return self.relationship.isToMany ? self.relationship.maxCount : 0; }
@@ -622,8 +743,9 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 {
   NSRelationshipDescription *relationship = self.relationship;
   if (!relationship.isToMany) return;
+  id old = [self valueForKey:@"maxCount"];
   relationship.maxCount = (maxCount == 1) ? 0 : MAX(0, maxCount);
-  [self noteEdited];
+  [self didChange:@"maxCount" from:old];
 }
 
 - (NSString *)deleteRuleName
@@ -640,26 +762,38 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 - (void)setDeleteRuleName:(NSString *)name
 {
   NSUInteger idx = [[CDModelCompiler deleteRuleNames] indexOfObject:name];
+  id old = self.deleteRuleName;
   switch (idx) {
     case 1: self.relationship.deleteRule = NSCascadeDeleteRule; break;
     case 2: self.relationship.deleteRule = NSDenyDeleteRule; break;
     case 3: self.relationship.deleteRule = NSNoActionDeleteRule; break;
     default: self.relationship.deleteRule = NSNullifyDeleteRule; break;
   }
-  [self noteEdited];
+  [self didChange:@"deleteRuleName" from:old];
 }
 
 - (BOOL)isOptional { return self.relationship.isOptional; }
-- (void)setOptional:(BOOL)optional { self.relationship.optional = optional; [self noteEdited]; }
+- (void)setOptional:(BOOL)optional
+{
+  id old = [self valueForKey:@"optional"];
+  self.relationship.optional = optional;
+  [self didChange:@"optional" from:old];
+}
 - (BOOL)isTransient { return self.relationship.isTransient; }
-- (void)setTransient:(BOOL)transient { self.relationship.transient = transient; [self noteEdited]; }
+- (void)setTransient:(BOOL)transient
+{
+  id old = [self valueForKey:@"transient"];
+  self.relationship.transient = transient;
+  [self didChange:@"transient" from:old];
+}
 
 - (NSString *)hashModifier { return [self.relationship versionHashModifier] ?: @""; }
 
 - (void)setHashModifier:(NSString *)hashModifier
 {
+  id old = self.hashModifier;
   [self.relationship setVersionHashModifier:hashModifier.length ? hashModifier : nil];
-  [self noteEdited];
+  [self didChange:@"hashModifier" from:old];
 }
 
 - (NSString *)renamingIdentifier { return [self.relationship renamingIdentifier] ?: @""; }
@@ -668,16 +802,18 @@ static void MBReplaceProperty(NSEntityDescription *entity,
 {
   NSString *wanted = value ?: @"";
   BOOL defaulted = !wanted.length || [wanted isEqualToString:_name];
+  id old = self.renamingIdentifier;
   [self.relationship setRenamingIdentifier:defaulted ? nil : wanted];
-  [self noteEdited];
+  [self didChange:@"renamingIdentifier" from:old];
 }
 
 - (NSDictionary *)userInfo { return self.relationship.userInfo; }
 
 - (void)setUserInfo:(NSDictionary *)userInfo
 {
+  id old = self.userInfo;
   self.relationship.userInfo = userInfo.count ? userInfo : nil;
-  [self noteEdited];
+  [self didChange:@"userInfo" from:old];
 }
 
 @end
@@ -702,6 +838,8 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   return [_document.model fetchRequestTemplateForName:_name];
 }
 
+- (id)undoSubject { return self.request; }
+
 - (NSString *)name { return _name; }
 
 - (void)setName:(NSString *)name
@@ -717,37 +855,46 @@ static void MBReplaceProperty(NSEntityDescription *entity,
   NSEntityDescription *entity = name.length
       ? _document.model.entitiesByName[name] : nil;
   if (!entity || entity == self.request.entity) return;
+  id old = self.entityName;
   self.request.entity = entity;
-  [self noteEdited];
+  [self didChange:@"entityName" from:old];
 }
 
 - (NSUInteger)fetchLimit { return [self.request fetchLimit]; }
 
 - (void)setFetchLimit:(NSUInteger)fetchLimit
 {
+  id old = [self valueForKey:@"fetchLimit"];
   [self.request setFetchLimit:fetchLimit];
-  [self noteEdited];
+  [self didChange:@"fetchLimit" from:old];
 }
 
 - (NSFetchRequestResultType)resultType { return [self.request resultType]; }
 
 - (void)setResultType:(NSFetchRequestResultType)resultType
 {
+  id old = [self valueForKey:@"resultType"];
   [self.request setResultType:resultType];
-  [self noteEdited];
+  [self didChange:@"resultType" from:old];
 }
 
 - (NSUInteger)fetchBatchSize { return [self.request fetchBatchSize]; }
 
 - (void)setFetchBatchSize:(NSUInteger)size
 {
+  id old = [self valueForKey:@"fetchBatchSize"];
   [self.request setFetchBatchSize:size];
-  [self noteEdited];
+  [self didChange:@"fetchBatchSize" from:old];
 }
 
 #define MB_FETCH_FLAG(Getter, Setter) \
 - (BOOL)Getter { return [self.request Getter]; } \
-- (void)Setter:(BOOL)value { [self.request Setter:value]; [self noteEdited]; }
+- (void)Setter:(BOOL)value \
+{ \
+  id old = [self valueForKey:@#Getter]; \
+  [self.request Setter:value]; \
+  [self didChange:@#Getter from:old]; \
+}
 
 MB_FETCH_FLAG(includesSubentities, setIncludesSubentities)
 MB_FETCH_FLAG(includesPropertyValues, setIncludesPropertyValues)
@@ -760,8 +907,9 @@ MB_FETCH_FLAG(returnsDistinctResults, setReturnsDistinctResults)
 
 - (void)setPredicate:(NSPredicate *)predicate
 {
+  id old = self.predicate;
   self.request.predicate = predicate;
-  [self noteEdited];
+  [self didChange:@"predicate" from:old];
 }
 
 - (NSString *)predicateFormat
@@ -772,13 +920,11 @@ MB_FETCH_FLAG(returnsDistinctResults, setReturnsDistinctResults)
 - (void)setPredicateFormat:(NSString *)format
 {
   if (!format.length) {
-    self.request.predicate = nil;
-    [self noteEdited];
+    self.predicate = nil;
     return;
   }
   @try {
-    self.request.predicate = [NSPredicate predicateWithFormat:format];
-    [self noteEdited];
+    self.predicate = [NSPredicate predicateWithFormat:format];
   } @catch (NSException *exception) {
     [self failWith:[NSString stringWithFormat:@"Invalid predicate: %@", format]];
   }

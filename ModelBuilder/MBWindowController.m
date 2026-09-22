@@ -39,6 +39,49 @@ typedef NS_ENUM(NSInteger, MBSourceKind) {
 - (BOOL)isFlipped { return YES; }
 @end
 
+/* The field editor's undo manager.  Typing is recorded here, never in the
+   document's (which groups explicitly, and refuses AppKit's ungrouped
+   typing registrations -- taking the keystroke with it).  Once a field's
+   edit is committed its typing is cleared, and with nothing of its own
+   this manager passes Ctrl+Z on to the document's.  It is the only one the
+   field editor ever sees: GNUstep's text view clears ALL actions of its
+   undo manager when it resigns, which on the document's would wipe the
+   whole history. */
+@interface MBTypingUndoManager : NSUndoManager
+@property (nonatomic, weak) NSUndoManager *fallback;
+@end
+
+@implementation MBTypingUndoManager
+- (BOOL)canUndo { return [super canUndo] || [self.fallback canUndo]; }
+- (BOOL)canRedo { return [super canRedo] || [self.fallback canRedo]; }
+- (void)undo
+{
+  if ([super canUndo]) [super undo];
+  else [self.fallback undo];
+}
+- (void)redo
+{
+  if ([super canRedo]) [super redo];
+  else [self.fallback redo];
+}
+- (NSString *)undoMenuItemTitle
+{
+  return [super canUndo] ? [super undoMenuItemTitle] : [self.fallback undoMenuItemTitle];
+}
+- (NSString *)redoMenuItemTitle
+{
+  return [super canRedo] ? [super redoMenuItemTitle] : [self.fallback redoMenuItemTitle];
+}
+- (NSString *)undoActionName
+{
+  return [super canUndo] ? [super undoActionName] : [self.fallback undoActionName];
+}
+- (NSString *)redoActionName
+{
+  return [super canRedo] ? [super redoActionName] : [self.fallback redoActionName];
+}
+@end
+
 @interface MBSourceItem : NSObject
 @property (nonatomic, assign) MBSourceKind kind;
 @property (nonatomic, copy) NSString *name;
@@ -148,6 +191,29 @@ static void MBRepairSegmentImages(NSView *view)
         MBRepairSegmentImages(item.view);
 }
 
+/* Typing undo for every editable text cell -- fields and table columns,
+   on every tab page.  The field editor takes the setting from the cell it
+   edits; Cocoa's text cells default to on, GNUstep's to off (and a xib
+   does not say), so Ctrl+Z while typing did nothing there. */
+static void MBEnableTypingUndoIn(NSView *view)
+{
+  if ([view isKindOfClass:[NSTextField class]]) {
+    [[(NSTextField *)view cell] setAllowsUndo:YES];
+    return;
+  }
+  if ([view isKindOfClass:[NSTableView class]]) {
+    for (NSTableColumn *column in [(NSTableView *)view tableColumns])
+      if ([column.dataCell isKindOfClass:[NSTextFieldCell class]])
+        [(NSCell *)column.dataCell setAllowsUndo:YES];
+  }
+  for (NSView *subview in view.subviews)
+    MBEnableTypingUndoIn(subview);
+  if ([view isKindOfClass:[NSTabView class]])
+    for (NSTabViewItem *item in [(NSTabView *)view tabViewItems])
+      if (item.view.superview == nil)
+        MBEnableTypingUndoIn(item.view);
+}
+
 /* The first split view among a view's immediate subviews. */
 static NSSplitView *MBFirstSplitViewIn(NSView *view)
 {
@@ -171,6 +237,9 @@ static const CGFloat MBInspectorMinimum = 260.0;
      (source list | center pane).  -splitView:shouldAdjustSizeOfSubview:
      holds the three side panes at their size. */
   NSSplitView *_outerSplit, *_barSplit, *_sourceSplit;
+
+  MBTypingUndoManager *_typingUndoManager;   /* for the field editor (see Undo) */
+  NSDictionary *_replaySelection;      /* selection across an undo or redo */
 
   MBSourceItem *_entitiesGroup, *_fetchesGroup, *_configurationsGroup;
   NSArray *_entityItems, *_fetchItems, *_configurationItems;
@@ -200,6 +269,12 @@ static const CGFloat MBInspectorMinimum = 260.0;
   [super windowDidLoad];
 
   MBRepairSegmentImages(self.window.contentView);
+  MBEnableTypingUndoIn(self.window.contentView);
+  NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+  [center addObserver:self selector:@selector(fieldDidEndEditing:)
+                 name:NSControlTextDidEndEditingNotification object:nil];
+  /* The window asks its delegate for an undo manager (see Undo). */
+  if (!self.window.delegate) self.window.delegate = (id<NSWindowDelegate>)self;
 
   /* Resizing: only the innermost split had a delegate in the xib. */
   _outerSplit = MBFirstSplitViewIn(self.window.contentView);
@@ -323,10 +398,120 @@ static const CGFloat MBInspectorMinimum = 260.0;
 
 - (void)setDocument:(NSDocument *)document
 {
+  NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+  NSUndoManager *previous = [self.document undoManager];
+  if (previous) {
+    [center removeObserver:self name:NSUndoManagerWillUndoChangeNotification object:previous];
+    [center removeObserver:self name:NSUndoManagerWillRedoChangeNotification object:previous];
+    [center removeObserver:self name:NSUndoManagerDidUndoChangeNotification object:previous];
+    [center removeObserver:self name:NSUndoManagerDidRedoChangeNotification object:previous];
+  }
   [super setDocument:document];
   if (!document) return;
+  NSUndoManager *undo = [document undoManager];
+  [center addObserver:self selector:@selector(undoManagerWillReplay:)
+                 name:NSUndoManagerWillUndoChangeNotification object:undo];
+  [center addObserver:self selector:@selector(undoManagerWillReplay:)
+                 name:NSUndoManagerWillRedoChangeNotification object:undo];
+  [center addObserver:self selector:@selector(undoManagerDidReplay:)
+                 name:NSUndoManagerDidUndoChangeNotification object:undo];
+  [center addObserver:self selector:@selector(undoManagerDidReplay:)
+                 name:NSUndoManagerDidRedoChangeNotification object:undo];
   if ([self isWindowLoaded])
     [self populateFromDocument];
+}
+
+- (void)dealloc
+{
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+#pragma mark - Undo
+
+/* Typing in a field has its own undo manager, never the document's: the
+   field editor registers typing without opening a group of its own, which
+   the document's (grouping explicitly) refuses -- and the refusal takes
+   the keystroke with it.  A committed field arrives as one edit. */
+- (NSUndoManager *)windowWillReturnUndoManager:(NSWindow *)window
+{
+  NSUndoManager *document = [(NSDocument *)self.document undoManager];
+  NSResponder *responder = window.firstResponder;
+  if ([responder isKindOfClass:[NSText class]] && [(NSText *)responder isFieldEditor]) {
+    if (!_typingUndoManager) _typingUndoManager = [[MBTypingUndoManager alloc] init];
+    _typingUndoManager.fallback = document;
+    return _typingUndoManager;
+  }
+  return document;
+}
+
+/* Typing undo lasts until the field's edit is committed, as on Cocoa:
+   after Return (or leaving the field) Ctrl+Z is the document's again,
+   though the field editor keeps the focus on GNUstep -- its typing would
+   otherwise undo text the model no longer agrees with. */
+- (void)fieldDidEndEditing:(NSNotification *)notification
+{
+  if ([notification.object window] != self.window) return;
+  [_typingUndoManager removeAllActions];
+}
+
+/* An undo or redo changes the model under the window: note what is
+   selected -- as objects, which outlive a rename -- and put the selection
+   back once it has run. */
+- (void)undoManagerWillReplay:(NSNotification *)notification
+{
+  (void)notification;
+  MBSourceItem *source = [self selectedSourceItem];
+  NSMutableDictionary *selection = [NSMutableDictionary dictionary];
+  selection[@"kind"] = @(source ? source.kind : MBSourceEntity);
+  if (source.name) selection[@"name"] = source.name;
+  if (source.implicitDefault) selection[@"default"] = @YES;
+  id entity = [self selectedEntity], attribute = [self selectedAttribute],
+     relationship = [self selectedRelationship];
+  if (entity) selection[@"entity"] = entity;
+  if (attribute) selection[@"attribute"] = attribute;
+  if (relationship) selection[@"relationship"] = relationship;
+  NSFetchRequest *fetch = [self selectedTemplate];
+  if (fetch) selection[@"fetch"] = fetch;
+  _replaySelection = selection;
+}
+
+- (void)undoManagerDidReplay:(NSNotification *)notification
+{
+  (void)notification;
+  NSDictionary *selection = _replaySelection;
+  _replaySelection = nil;
+  MBSourceKind kind = (MBSourceKind)[selection[@"kind"] integerValue];
+  NSEntityDescription *entity = selection[@"entity"];
+  NSPropertyDescription *attribute = selection[@"attribute"];
+  NSPropertyDescription *relationship = selection[@"relationship"];
+
+  [self reloadEverything];
+
+  /* The source item: by the selected object's current name where it
+     still belongs to the model, else by the name it had. */
+  NSString *name = selection[@"name"];
+  if (kind == MBSourceEntity && entity && self.model.entitiesByName[entity.name] == entity)
+    name = entity.name;
+  if (kind == MBSourceFetch && selection[@"fetch"]) {
+    NSDictionary *templates = [self.model fetchRequestTemplatesByName];
+    for (NSString *key in templates)
+      if (templates[key] == selection[@"fetch"]) name = key;
+  }
+  if (name) [self selectSourceKind:kind name:name];
+  if (![self selectedSourceItem] && _entityItems.count)
+    [self selectSourceItem:_entityItems.firstObject];
+
+  if (kind == MBSourceConfiguration && entity) {
+    NSUInteger row = [_memberEntityNames indexOfObject:entity.name];
+    if (row != NSNotFound)
+      [self.memberTable selectRowIndexes:[NSIndexSet indexSetWithIndex:row]
+                    byExtendingSelection:NO];
+  } else if (attribute && attribute.entity == [self selectedEntity]) {
+    [self reloadPropertyTable:self.attributeTable selecting:attribute.name];
+  } else if (relationship && relationship.entity == [self selectedEntity]) {
+    [self reloadPropertyTable:self.relationshipTable selecting:relationship.name];
+  }
+  [self refreshSelectionUI];
 }
 
 - (void)populateFromDocument
@@ -1462,14 +1647,21 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
 - (IBAction)inspectorChanged:(id)sender
 {
   if (_updating) return;
+  /* An apply sets every field of the page; the ones that changed are one
+     undo step. */
+  MBDocument *document = self.modelDocument;
   switch (_kind) {
-    case MBInspectEntity:       [self applyEntityInspector]; break;
-    case MBInspectAttribute:    [self applyAttributeInspector]; break;
-    case MBInspectRelationship: [self applyRelationshipInspector]; break;
-    case MBInspectFetch:        [self applyFetchInspector:sender]; break;
+    case MBInspectEntity:
+      [document beginEdit:@"Edit Entity"]; [self applyEntityInspector]; break;
+    case MBInspectAttribute:
+      [document beginEdit:@"Edit Attribute"]; [self applyAttributeInspector]; break;
+    case MBInspectRelationship:
+      [document beginEdit:@"Edit Relationship"]; [self applyRelationshipInspector]; break;
+    case MBInspectFetch:
+      [document beginEdit:@"Edit Fetch Request"]; [self applyFetchInspector:sender]; break;
     default: return;
   }
-  [self.modelDocument noteModelChanged];
+  [document endEdit];
 }
 
 - (void)controlTextDidEndEditing:(NSNotification *)notification
@@ -1684,6 +1876,13 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
 
 - (void)outlineView:(NSOutlineView *)outline setObjectValue:(id)value forTableColumn:(NSTableColumn *)column byItem:(id)item
 {
+  [self.modelDocument beginEdit:@"Rename"];
+  [self applySourceListValue:value forTableColumn:column item:item outline:outline];
+  [self.modelDocument endEdit];
+}
+
+- (void)applySourceListValue:(id)value forTableColumn:(NSTableColumn *)column item:(id)item outline:(NSOutlineView *)outline
+{
   (void)outline;
   if (column && ![column.identifier isEqualToString:@"item"] &&
       column != outline.outlineTableColumn)
@@ -1895,6 +2094,13 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
 }
 
 - (void)tableView:(NSTableView *)table setObjectValue:(id)value forTableColumn:(NSTableColumn *)column row:(NSInteger)row
+{
+  [self.modelDocument beginEdit:@"Edit"];
+  [self applyTableValue:value table:table forTableColumn:column row:row];
+  [self.modelDocument endEdit];
+}
+
+- (void)applyTableValue:(id)value table:(NSTableView *)table forTableColumn:(NSTableColumn *)column row:(NSInteger)row
 {
   NSString *ident = column.identifier;
   NSEntityDescription *entity = [self selectedEntity];

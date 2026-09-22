@@ -8,6 +8,7 @@
 #import <AppKit/AppKit.h>
 #import <CoreData/CoreData.h>
 #import "MBDocument.h"
+#import "MBEditors.h"
 #import "CDModelCompiler.h"
 #import "CDModelSerializer.h"
 
@@ -288,6 +289,154 @@ int main(void)
     CHECK(momdPath != nil &&
           [[NSFileManager defaultManager] fileExistsAtPath:momdPath],
           "momd exists");
+
+    {
+    SCENARIO("Undo takes back each edit, and redo does it again");
+    /* GIVEN a freshly opened document (Person: name, age = 7, pets <->
+            Pet.owner)
+       WHEN edits of every kind are made -- values, a type change that
+            drops a default, several fields at once, properties added and
+            removed, relationships retargeted, entities added, renamed and
+            deleted, fetch requests, configurations, versions
+       THEN each undoes as one step back to exactly what it was -- the
+            same objects, wired as they were -- redo does it again, an edit
+            that changes nothing leaves nothing to undo, and undoing every
+            edit leaves the document unedited */
+    MBDocument *u = [[MBDocument alloc] init];
+    CHECK([u readFromURL:[NSURL fileURLWithPath:path] ofType:@"xcdatamodeld" error:NULL],
+          "open a fresh copy");
+    NSUndoManager *um = u.undoManager;
+    CHECK(!um.canUndo && !u.isDocumentEdited, "nothing to undo after opening");
+    NSEntityDescription *person = u.model.entitiesByName[@"Person"];
+    NSEntityDescription *pet = u.model.entitiesByName[@"Pet"];
+    NSAttributeDescription *age = person.attributesByName[@"age"];
+    MBAttributeEditor *ae = [MBAttributeEditor editorForAttributeNamed:@"age"
+                                                                entity:person document:u];
+
+    ae.name = @"years";
+    CHECK(person.attributesByName[@"years"] == age && um.canUndo && u.isDocumentEdited,
+          "a rename is recorded and marks the document edited");
+    [um undo];
+    CHECK(person.attributesByName[@"age"] == age && !person.attributesByName[@"years"],
+          "undo renames back, the same attribute");
+    CHECK(!u.isDocumentEdited, "undone back to the saved state, the document is unedited");
+    [um redo];
+    CHECK(person.attributesByName[@"years"] == age, "redo renames again");
+    [um undo];
+
+    id sevenDefault = age.defaultValue;
+    ae = [MBAttributeEditor editorForAttributeNamed:@"age" entity:person document:u];
+    ae.typeName = @"String";
+    CHECK(age.attributeType == NSStringAttributeType && age.defaultValue == nil,
+          "a type change drops the default");
+    [um undo];
+    CHECK(age.attributeType == NSInteger32AttributeType && [age.defaultValue isEqual:sevenDefault],
+          "undo restores the type and its default");
+
+    [u beginEdit:@"Edit Attribute"];
+    ae.optional = NO;
+    ae.transient = YES;
+    ae.hashModifier = @"v2";
+    [u endEdit];
+    CHECK([[um undoActionName] isEqualToString:@"Edit Attribute"], "the edit carries its name");
+    [um undo];
+    CHECK(age.isOptional && !age.isTransient && age.versionHashModifier == nil,
+          "several fields in one edit undo as one step");
+
+    MBEntityEditor *ee = [MBEntityEditor editorForEntityNamed:@"Person" document:u];
+    NSString *added = [ee addAttribute];
+    CHECK(person.attributesByName[added] != nil, "attribute added");
+    [um undo];
+    CHECK(person.attributesByName[added] == nil, "undo removes the added attribute");
+    [um redo];
+    CHECK(person.attributesByName[added] != nil, "redo adds it again");
+    [um undo];
+
+    NSRelationshipDescription *pets = person.relationshipsByName[@"pets"];
+    NSRelationshipDescription *owner = pet.relationshipsByName[@"owner"];
+    NSUInteger petsIndex = [person.properties indexOfObjectIdenticalTo:pets];
+    [ee removeRelationshipNamed:@"pets"];
+    CHECK(!person.relationshipsByName[@"pets"] && owner.inverseRelationship == nil,
+          "removing a relationship unwires its inverse");
+    [um undo];
+    CHECK(person.relationshipsByName[@"pets"] == pets &&
+              [person.properties indexOfObjectIdenticalTo:pets] == petsIndex &&
+              owner.inverseRelationship == pets && pets.inverseRelationship == owner,
+          "undo puts the same relationship back where it was, wired both ways");
+
+    MBRelationshipEditor *re = [MBRelationshipEditor editorForRelationshipNamed:@"pets"
+                                                                         entity:person document:u];
+    re.destinationName = @"Person";
+    CHECK(pets.destinationEntity == person && pets.inverseRelationship == nil,
+          "retargeting drops the inverse");
+    [um undo];
+    CHECK(pets.destinationEntity == pet && pets.inverseRelationship == owner &&
+              owner.inverseRelationship == pets,
+          "undo retargets back and rewires the inverse");
+    re.toMany = NO;
+    CHECK(!pets.isToMany, "made to-one");
+    [um undo];
+    CHECK(pets.isToMany && pets.maxCount == 0, "undo makes it to-many again, counts as they were");
+
+    NSManagedObjectModel *modelBefore = u.model;
+    CHECK([u removeEntityNamed:@"Pet" error:NULL] && !u.model.entitiesByName[@"Pet"],
+          "entity deleted");
+    [um undo];
+    CHECK(u.model == modelBefore && u.model.entitiesByName[@"Pet"] == pet,
+          "undo of a deletion puts the same model back");
+    [um redo];
+    CHECK(!u.model.entitiesByName[@"Pet"], "redo deletes it again");
+    [um undo];
+
+    NSString *newEntity = [u addEntity];
+    CHECK(u.model.entitiesByName[newEntity] != nil, "entity added");
+    [um undo];
+    CHECK(u.model.entitiesByName[newEntity] == nil, "undo removes the added entity");
+    [u renameEntityNamed:@"Pet" to:@"Animal"];
+    [um undo];
+    CHECK(u.model.entitiesByName[@"Pet"] == pet && !u.model.entitiesByName[@"Animal"],
+          "undo renames the entity back");
+
+    NSString *fetch = [u addFetchRequestForEntityNamed:@"Person"];
+    NSFetchRequest *request = [u.model fetchRequestTemplateForName:fetch];
+    [u renameFetchRequestNamed:fetch to:@"Everyone"];
+    [um undo];
+    CHECK([u.model fetchRequestTemplateForName:fetch] == request &&
+              ![u.model fetchRequestTemplateForName:@"Everyone"],
+          "undo renames the fetch request back");
+    [um undo];
+    CHECK(![u.model fetchRequestTemplateForName:fetch], "undo removes the added fetch request");
+
+    NSString *configuration = [u addConfiguration];
+    CHECK([[u configurationNames] containsObject:configuration], "configuration added");
+    [um undo];
+    CHECK(![[u configurationNames] containsObject:configuration], "undo removes the configuration");
+
+    NSString *editedVersion = u.editedVersionName;
+    NSString *version = [u addModelVersion];
+    CHECK([[u versionNames] containsObject:version], "version added");
+    [um undo];
+    CHECK(![[u versionNames] containsObject:version] &&
+              [u.editedVersionName isEqualToString:editedVersion],
+          "undo removes the version and edits the old one again");
+
+    while (um.canUndo) [um undo];
+    CHECK(!u.isDocumentEdited, "undoing every edit leaves the document unedited");
+
+    MBDocument *quiet = [[MBDocument alloc] init];
+    [quiet readFromURL:[NSURL fileURLWithPath:path] ofType:@"xcdatamodeld" error:NULL];
+    NSEntityDescription *quietPerson = quiet.model.entitiesByName[@"Person"];
+    MBAttributeEditor *qe = [MBAttributeEditor editorForAttributeNamed:@"name"
+                                                                entity:quietPerson document:quiet];
+    [quiet beginEdit:@"Edit Attribute"];
+    qe.optional = qe.isOptional;
+    qe.name = @"name";
+    qe.typeName = qe.typeName;
+    [quiet endEdit];
+    CHECK(!quiet.undoManager.canUndo && !quiet.isDocumentEdited,
+          "an edit that changes nothing leaves nothing to undo");
+
+    }
 
     printf("---\n%d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;

@@ -8,6 +8,7 @@
 #import "CDModelCompiler.h"
 #import "CDModelSerializer.h"
 #import "CDModelMutator.h"
+#import "MBEditors.h"
 
 static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
 
@@ -16,6 +17,16 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
      refreshed from the live model on save/switch; other versions ride
      along verbatim. */
   NSMutableDictionary *_versionXML;
+
+  /* Undo bookkeeping (see "Undo" below): how deep -beginEdit: calls are
+     nested, whether the outermost one has opened its undo group yet, the
+     action name it will carry, and which subject/key pairs already have
+     an inverse in it. */
+  NSInteger _editDepth;
+  BOOL _groupOpen;
+  NSString *_pendingActionName;
+  NSString *_nextActionName;   /* for the next edit (-setUndoActionName:) */
+  NSMutableSet *_inversesThisGroup;
 }
 
 + (BOOL)autosavesInPlace
@@ -37,6 +48,12 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
 {
   self = [super init];
   if (!self) return nil;
+  /* Grouping by event is off: every edit opens its own group (see "Undo"),
+     so one user action is one undo step however the run loop turns, and
+     edits made without a running run loop (the tests) group the same. */
+  NSUndoManager *undo = [[NSUndoManager alloc] init];
+  [undo setGroupsByEvent:NO];
+  [self setUndoManager:undo];
   _versionXML = [NSMutableDictionary dictionary];
   self.entityLayouts = [NSMutableDictionary dictionary];
 
@@ -63,7 +80,210 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
 
 - (void)noteModelChanged
 {
-  [self updateChangeCount:NSChangeDone];
+  /* The change count follows the undo manager: NSDocument counts a change
+     when an undo group closes and takes it back when it is undone, so the
+     edited mark clears again once everything is undone.  Every edit
+     registers an inverse (see "Undo"); nothing to count here. */
+}
+
+#pragma mark - Undo
+
+/* Undo is granular.  Each edit records its own inverse -- the same
+   setter with the previous value, or the operation that takes a
+   structural change back -- against the description object it changed,
+   not its name, so an undo finds it after a rename.  When the inverse
+   runs it records the redo the same way.  Operations that already rebuild
+   the model (entity removal and reparenting, configurations) keep the
+   previous model object and put it back: a pointer swap, no copying. */
+
+/* Names the next undo step, for operations that open no group of their
+   own before recording (the mutator-backed ones). */
+- (void)setUndoActionName:(NSString *)name
+{
+  if (_editDepth > 0) {
+    if (!_pendingActionName.length) _pendingActionName = [name copy];
+  } else {
+    _nextActionName = [name copy];
+  }
+}
+
+- (MBDocument *)undoProxy
+{
+  /* -prepareWithInvocationTarget: is typed id; type the proxy so the
+     selectors resolve against this class. */
+  return (MBDocument *)[[self undoManager] prepareWithInvocationTarget:self];
+}
+
+- (void)beginEdit:(NSString *)actionName
+{
+  if (_editDepth++ == 0) {
+    _pendingActionName = [(actionName.length ? actionName : _nextActionName) copy];
+    _nextActionName = nil;
+    _inversesThisGroup = [NSMutableSet set];
+  } else if (!_pendingActionName.length && actionName.length) {
+    _pendingActionName = [actionName copy];
+  }
+}
+
+- (void)endEdit
+{
+  if (_editDepth == 0) return;
+  if (--_editDepth > 0) return;
+  if (_groupOpen) {
+    _groupOpen = NO;
+    [[self undoManager] endUndoGrouping];
+  }
+  _pendingActionName = nil;
+  _inversesThisGroup = nil;
+}
+
+/* The proxy to record an inverse on, opening the edit's undo group the
+   first time one is recorded -- so an edit that changes nothing leaves no
+   empty step behind, and does not mark the document edited.  While an
+   undo or redo runs, the undo manager has its own group open for the
+   redo and no other is opened. */
+- (MBDocument *)inverse
+{
+  NSUndoManager *undo = [self undoManager];
+  if (!undo.isUndoing && !undo.isRedoing && !_groupOpen && _editDepth > 0) {
+    [undo beginUndoGrouping];
+    _groupOpen = YES;
+    if (_pendingActionName.length) [undo setActionName:_pendingActionName];
+  }
+  return [self undoProxy];
+}
+
+- (void)registerInverseValue:(id)value forKey:(NSString *)key ofSubject:(id)subject
+{
+  if (!subject || ![[self undoManager] isUndoRegistrationEnabled]) return;
+  [self beginEdit:nil];
+  /* The first inverse per subject and key in a group wins: a stepper held
+     down, or an inspector applying the same field twice, is one step back
+     to where it started. */
+  NSString *token = [NSString stringWithFormat:@"%p|%@", subject, key];
+  if (![_inversesThisGroup containsObject:token]) {
+    [_inversesThisGroup addObject:token];
+    [[self inverse] applyValue:value ?: [NSNull null] forKey:key ofSubject:subject];
+  }
+  [self endEdit];
+}
+
+/* Inverse of a value edit: the editor for the subject, as it is now, set
+   back through the same setter -- which records the redo. */
+- (void)applyValue:(id)value forKey:(NSString *)key ofSubject:(id)subject
+{
+  MBEditor *editor = [MBEditor editorForSubject:subject document:self];
+  [editor setValue:(value == [NSNull null] ? nil : value) forKey:key];
+}
+
+- (void)insertProperty:(NSPropertyDescription *)property
+              intoEntity:(NSEntityDescription *)entity
+                 atIndex:(NSUInteger)index
+{
+  [self beginEdit:nil];
+  NSMutableArray *properties = [entity.properties mutableCopy];
+  [properties insertObject:property atIndex:MIN(index, properties.count)];
+  entity.properties = properties;
+  /* A removed relationship kept its own inverse; its partner's pointer
+     back was cut on removal, and is restored with it. */
+  if ([property isKindOfClass:[NSRelationshipDescription class]]) {
+    NSRelationshipDescription *inverse = [(NSRelationshipDescription *)property inverseRelationship];
+    if (inverse && inverse.inverseRelationship == nil)
+      inverse.inverseRelationship = (NSRelationshipDescription *)property;
+  }
+  [[self inverse] removeProperty:property];
+  [self noteModelChanged];
+  [self endEdit];
+}
+
+- (void)removeProperty:(NSPropertyDescription *)property
+{
+  NSEntityDescription *entity = property.entity;
+  NSUInteger index = [entity.properties indexOfObjectIdenticalTo:property];
+  if (!entity || index == NSNotFound) return;
+  [self beginEdit:nil];
+  if ([property isKindOfClass:[NSRelationshipDescription class]]) {
+    NSRelationshipDescription *inverse = [(NSRelationshipDescription *)property inverseRelationship];
+    if (inverse.inverseRelationship == (NSRelationshipDescription *)property)
+      inverse.inverseRelationship = nil;
+  }
+  NSMutableArray *properties = [entity.properties mutableCopy];
+  [properties removeObjectAtIndex:index];
+  entity.properties = properties;
+  [[self inverse] insertProperty:property intoEntity:entity atIndex:index];
+  [self noteModelChanged];
+  [self endEdit];
+}
+
+/* One description object standing in for another at the same place --
+   an attribute becoming derived, or plain again. */
+- (void)replaceProperty:(NSPropertyDescription *)current
+           withProperty:(NSPropertyDescription *)replacement
+{
+  NSEntityDescription *entity = current.entity;
+  NSUInteger index = [entity.properties indexOfObjectIdenticalTo:current];
+  if (!entity || index == NSNotFound) return;
+  [self beginEdit:nil];
+  NSMutableArray *properties = [entity.properties mutableCopy];
+  [properties replaceObjectAtIndex:index withObject:replacement];
+  entity.properties = properties;
+  [[self inverse] replaceProperty:replacement withProperty:current];
+  [self noteModelChanged];
+  [self endEdit];
+}
+
+- (void)setEntities:(NSArray *)entities layouts:(NSDictionary *)layouts
+{
+  [self beginEdit:nil];
+  [[self inverse] setEntities:self.model.entities layouts:[self.entityLayouts copy]];
+  self.model.entities = entities;
+  self.entityLayouts = [layouts mutableCopy];
+  [self noteModelChanged];
+  [self endEdit];
+}
+
+- (void)adoptModel:(NSManagedObjectModel *)model layouts:(NSDictionary *)layouts
+{
+  [self beginEdit:nil];
+  [[self inverse] adoptModel:self.model layouts:[self.entityLayouts copy]];
+  self.model = model;
+  self.entityLayouts = [layouts mutableCopy];
+  [self noteModelChanged];
+  [self endEdit];
+}
+
+- (void)setFetchRequest:(NSFetchRequest *)request forName:(NSString *)name
+{
+  [self beginEdit:nil];
+  NSFetchRequest *previous = [self.model fetchRequestTemplateForName:name];
+  [[self inverse] setFetchRequest:previous forName:name];
+  [self.model setFetchRequestTemplate:request forName:name];
+  [self noteModelChanged];
+  [self endEdit];
+}
+
+/* Versions: the version XML dictionary holds immutable strings, so its
+   copy is cheap and carries the others through; the edited version is
+   the live model. */
+- (void)restoreVersions:(NSDictionary *)versions
+                 edited:(NSString *)edited
+                current:(NSString *)current
+                  model:(NSManagedObjectModel *)model
+                layouts:(NSDictionary *)layouts
+{
+  [self beginEdit:nil];
+  [[self inverse] restoreVersions:[_versionXML copy]
+                           edited:self.editedVersionName
+                          current:self.currentVersionName
+                            model:self.model
+                          layouts:[self.entityLayouts copy]];
+  [_versionXML setDictionary:versions];
+  self.editedVersionName = edited;
+  self.currentVersionName = current;
+  self.model = model;
+  self.entityLayouts = [layouts mutableCopy];
+  [self noteModelChanged];
+  [self endEdit];
 }
 
 - (NSString *)defaultDraftName
@@ -158,10 +378,11 @@ static NSMutableDictionary *layoutsFromContentsXML(NSString *xml)
    from the mutated XML. */
 - (BOOL)adoptMutation:(CDModelMutationResult *)result
 {
-  if (!result) return NO;
-  self.model = result.model;
-  self.entityLayouts = layoutsFromContentsXML(result.contentsXML);
-  [self noteModelChanged];
+  if (!result) {
+    _nextActionName = nil;   /* nothing happened to name */
+    return NO;
+  }
+  [self adoptModel:result.model layouts:layoutsFromContentsXML(result.contentsXML)];
   return YES;
 }
 
@@ -186,8 +407,10 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
   NSEntityDescription *entity = [[NSEntityDescription alloc] init];
   entity.name = name;
   entity.managedObjectClassName = @"NSManagedObject";
-  self.model.entities = [self.model.entities arrayByAddingObject:entity];
-  [self noteModelChanged];
+  [self beginEdit:@"Add Entity"];
+  [self setEntities:[self.model.entities arrayByAddingObject:entity]
+            layouts:self.entityLayouts];
+  [self endEdit];
   return name;
 }
 
@@ -197,12 +420,15 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
   if (!entity || !newName.length) return NO;
   if ([name isEqualToString:newName]) return YES;
   if (self.model.entitiesByName[newName]) return NO;
+  [self beginEdit:@"Rename Entity"];
   if (self.entityLayouts[name]) {
     self.entityLayouts[newName] = self.entityLayouts[name];
     [self.entityLayouts removeObjectForKey:name];
   }
   entity.name = newName;
+  [[self inverse] renameEntityNamed:newName to:name];
   [self noteModelChanged];
+  [self endEdit];
   return YES;
 }
 
@@ -211,6 +437,7 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
    API.  Both are CDModelMutator surgery, renormalized by momc. */
 - (BOOL)removeEntityNamed:(NSString *)name error:(NSError **)error
 {
+  [self setUndoActionName:@"Delete Entity"];
   return [self adoptMutation:[CDModelMutator model:self.model
                                      entityLayouts:self.entityLayouts
                                removingEntityNamed:name
@@ -221,6 +448,7 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
                             to:(NSString *)parentName
                          error:(NSError **)error
 {
+  [self setUndoActionName:@"Change Parent Entity"];
   return [self adoptMutation:[CDModelMutator model:self.model
                                      entityLayouts:self.entityLayouts
                         settingParentOfEntityNamed:entityName
@@ -240,15 +468,18 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
       [[self.model fetchRequestTemplatesByName] allKeys]);
   NSFetchRequest *request = [[NSFetchRequest alloc] init];
   request.entity = entity;
-  [self.model setFetchRequestTemplate:request forName:name];
-  [self noteModelChanged];
+  [self beginEdit:@"Add Fetch Request"];
+  [self setFetchRequest:request forName:name];
+  [self endEdit];
   return name;
 }
 
 - (void)removeFetchRequestNamed:(NSString *)name
 {
-  [self.model setFetchRequestTemplate:nil forName:name];
-  [self noteModelChanged];
+  if (![self.model fetchRequestTemplateForName:name]) return;
+  [self beginEdit:@"Delete Fetch Request"];
+  [self setFetchRequest:nil forName:name];
+  [self endEdit];
 }
 
 - (BOOL)renameFetchRequestNamed:(NSString *)name to:(NSString *)newName
@@ -256,9 +487,10 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
   if (!newName.length || [name isEqualToString:newName]) return NO;
   NSFetchRequest *request = [self.model fetchRequestTemplateForName:name];
   if (!request || [self.model fetchRequestTemplateForName:newName]) return NO;
-  [self.model setFetchRequestTemplate:nil forName:name];
-  [self.model setFetchRequestTemplate:request forName:newName];
-  [self noteModelChanged];
+  [self beginEdit:@"Rename Fetch Request"];
+  [self setFetchRequest:nil forName:name];
+  [self setFetchRequest:request forName:newName];
+  [self endEdit];
   return YES;
 }
 
@@ -278,6 +510,7 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
     counter++;
     candidate = [NSString stringWithFormat:@"Configuration %lu", (unsigned long)counter];
   }
+  [self setUndoActionName:@"Add Configuration"];
   if (![self adoptMutation:[CDModelMutator model:self.model
                                    entityLayouts:self.entityLayouts
                         addingConfigurationNamed:candidate
@@ -288,6 +521,7 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
 
 - (BOOL)removeConfigurationNamed:(NSString *)name error:(NSError **)error
 {
+  [self setUndoActionName:@"Delete Configuration"];
   return [self adoptMutation:[CDModelMutator model:self.model
                                      entityLayouts:self.entityLayouts
                         removingConfigurationNamed:name
@@ -298,6 +532,7 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
 {
   if (!newName.length || [name isEqualToString:newName]) return YES;
   if ([[self configurationNames] containsObject:newName]) return YES;
+  [self setUndoActionName:@"Rename Configuration"];
   return [self adoptMutation:[CDModelMutator model:self.model
                                      entityLayouts:self.entityLayouts
                         renamingConfigurationNamed:name
@@ -310,6 +545,7 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
                 member:(BOOL)member
                  error:(NSError **)error
 {
+  [self setUndoActionName:member ? @"Add to Configuration" : @"Remove from Configuration"];
   return [self adoptMutation:[CDModelMutator model:self.model
                                      entityLayouts:self.entityLayouts
                                 settingEntityNamed:entityName
@@ -322,6 +558,10 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
 
 - (NSString *)addModelVersion
 {
+  NSDictionary *versions = [_versionXML copy];
+  NSString *edited = self.editedVersionName, *current = self.currentVersionName;
+  NSManagedObjectModel *model = self.model;
+  NSDictionary *layouts = [self.entityLayouts copy];
   if (![self snapshotEditedVersion:NULL]) return nil;
 
   NSString *base = [self.editedVersionName stringByDeletingPathExtension];
@@ -340,7 +580,11 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
 
   _versionXML[candidate] = _versionXML[self.editedVersionName];
   [self loadVersionNamed:candidate error:NULL];
+  [self beginEdit:@"Add Model Version"];
+  [[self inverse] restoreVersions:versions edited:edited current:current
+                            model:model layouts:layouts];
   [self noteModelChanged];
+  [self endEdit];
   return candidate;
 }
 
@@ -348,14 +592,21 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
 {
   if ([name isEqualToString:self.editedVersionName]) return YES;
   if (![self snapshotEditedVersion:error]) return NO;
-  return [self loadVersionNamed:name error:error];
+  if (![self loadVersionNamed:name error:error]) return NO;
+  /* Switching the version being edited is not an edit; what was recorded
+     against the other version's objects cannot be replayed on these. */
+  [[self undoManager] removeAllActions];
+  return YES;
 }
 
 - (void)makeEditedVersionCurrent
 {
   if ([self.currentVersionName isEqualToString:self.editedVersionName]) return;
+  [self beginEdit:@"Set Current Version"];
+  [[self inverse] setCurrentVersionName:self.currentVersionName];
   self.currentVersionName = self.editedVersionName;
   [self noteModelChanged];
+  [self endEdit];
 }
 
 #pragma mark - Validation / compilation
@@ -427,7 +678,9 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
   if (!current.length || _versionXML[current] == nil)
     current = [self versionNames].firstObject;
   self.currentVersionName = current;
-  return [self loadVersionNamed:current error:error];
+  if (![self loadVersionNamed:current error:error]) return NO;
+  [[self undoManager] removeAllActions];
+  return YES;
 }
 
 - (BOOL)readFromURL:(NSURL *)url ofType:(NSString *)typeName error:(NSError **)error
