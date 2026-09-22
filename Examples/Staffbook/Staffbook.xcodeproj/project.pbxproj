@@ -1,0 +1,322 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		SB0000000000000000000115 /* SBAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = SB0000000000000000000100 /* SBAppDelegate.m */; };
+		SB0000000000000000000116 /* SBChartView.m in Sources */ = {isa = PBXBuildFile; fileRef = SB0000000000000000000101 /* SBChartView.m */; };
+		SB0000000000000000000117 /* SBEmployeeEditorController.m in Sources */ = {isa = PBXBuildFile; fileRef = SB0000000000000000000102 /* SBEmployeeEditorController.m */; };
+		SB0000000000000000000118 /* SBEmployeeWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = SB0000000000000000000103 /* SBEmployeeWindowController.m */; };
+		SB0000000000000000000119 /* SBManagedObjects.m in Sources */ = {isa = PBXBuildFile; fileRef = SB0000000000000000000104 /* SBManagedObjects.m */; };
+		SB000000000000000000011A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = SB0000000000000000000105 /* main.m */; };
+		SB000000000000000000011E /* Staffbook.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = SB0000000000000000000121 /* Staffbook.xcdatamodeld */; };
+		SB000000000000000000011B /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = SB000000000000000000010C /* MainMenu.xib */; };
+		SB000000000000000000011C /* EmployeeWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = SB000000000000000000010D /* EmployeeWindow.xib */; };
+		SB000000000000000000011D /* EmployeeEditor.xib in Resources */ = {isa = PBXBuildFile; fileRef = SB000000000000000000010E /* EmployeeEditor.xib */; };
+		SB000000000000000000011F /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = SB0000000000000000000111 /* Cocoa.framework */; };
+		SB0000000000000000000120 /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = SB0000000000000000000112 /* CoreData.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		SB0000000000000000000100 /* SBAppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SBAppDelegate.m; sourceTree = "<group>"; };
+		SB0000000000000000000101 /* SBChartView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SBChartView.m; sourceTree = "<group>"; };
+		SB0000000000000000000102 /* SBEmployeeEditorController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SBEmployeeEditorController.m; sourceTree = "<group>"; };
+		SB0000000000000000000103 /* SBEmployeeWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SBEmployeeWindowController.m; sourceTree = "<group>"; };
+		SB0000000000000000000104 /* SBManagedObjects.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SBManagedObjects.m; sourceTree = "<group>"; };
+		SB0000000000000000000105 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		SB0000000000000000000106 /* SBAppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SBAppDelegate.h; sourceTree = "<group>"; };
+		SB0000000000000000000107 /* SBChartView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SBChartView.h; sourceTree = "<group>"; };
+		SB0000000000000000000108 /* SBEmployeeEditorController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SBEmployeeEditorController.h; sourceTree = "<group>"; };
+		SB0000000000000000000109 /* SBEmployeeWindowController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SBEmployeeWindowController.h; sourceTree = "<group>"; };
+		SB000000000000000000010A /* SBManagedObjects.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SBManagedObjects.h; sourceTree = "<group>"; };
+		SB000000000000000000010B /* SBGNUstepCompat.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SBGNUstepCompat.h; sourceTree = "<group>"; };
+		SB000000000000000000010C /* MainMenu.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MainMenu.xib; sourceTree = "<group>"; };
+		SB000000000000000000010D /* EmployeeWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = EmployeeWindow.xib; sourceTree = "<group>"; };
+		SB000000000000000000010E /* EmployeeEditor.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = EmployeeEditor.xib; sourceTree = "<group>"; };
+		SB000000000000000000010F /* Staffbook-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Staffbook-Info.plist"; sourceTree = "<group>"; };
+		SB0000000000000000000110 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		SB0000000000000000000111 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		SB0000000000000000000112 /* CoreData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreData.framework; path = System/Library/Frameworks/CoreData.framework; sourceTree = SDKROOT; };
+		SB0000000000000000000113 /* Staffbook.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Staffbook.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		SB0000000000000000000114 /* Staffbook.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Staffbook.xcdatamodel; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		SB0000000000000000000128 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				SB000000000000000000011F /* Cocoa.framework in Frameworks */,
+				SB0000000000000000000120 /* CoreData.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		SB0000000000000000000122 = {
+			isa = PBXGroup;
+			children = (
+				SB0000000000000000000123 /* Sources */,
+				SB0000000000000000000124 /* Resources */,
+				SB0000000000000000000121 /* Staffbook.xcdatamodeld */,
+				SB000000000000000000010F /* Staffbook-Info.plist */,
+				SB0000000000000000000110 /* README.md */,
+				SB0000000000000000000125 /* Frameworks */,
+				SB0000000000000000000126 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		SB0000000000000000000123 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				SB0000000000000000000106 /* SBAppDelegate.h */,
+				SB0000000000000000000100 /* SBAppDelegate.m */,
+				SB0000000000000000000109 /* SBEmployeeWindowController.h */,
+				SB0000000000000000000103 /* SBEmployeeWindowController.m */,
+				SB0000000000000000000108 /* SBEmployeeEditorController.h */,
+				SB0000000000000000000102 /* SBEmployeeEditorController.m */,
+				SB0000000000000000000107 /* SBChartView.h */,
+				SB0000000000000000000101 /* SBChartView.m */,
+				SB000000000000000000010A /* SBManagedObjects.h */,
+				SB0000000000000000000104 /* SBManagedObjects.m */,
+				SB000000000000000000010B /* SBGNUstepCompat.h */,
+				SB0000000000000000000105 /* main.m */,
+			);
+			name = Sources;
+			sourceTree = "<group>";
+		};
+		SB0000000000000000000124 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				SB000000000000000000010C /* MainMenu.xib */,
+				SB000000000000000000010D /* EmployeeWindow.xib */,
+				SB000000000000000000010E /* EmployeeEditor.xib */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		SB0000000000000000000125 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				SB0000000000000000000111 /* Cocoa.framework */,
+				SB0000000000000000000112 /* CoreData.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		SB0000000000000000000126 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				SB0000000000000000000113 /* Staffbook.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		SB000000000000000000012A /* Staffbook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = SB000000000000000000012C /* Build configuration list for PBXNativeTarget "Staffbook" */;
+			buildPhases = (
+				SB0000000000000000000127 /* Sources */,
+				SB0000000000000000000128 /* Frameworks */,
+				SB0000000000000000000129 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Staffbook;
+			productName = Staffbook;
+			productReference = SB0000000000000000000113 /* Staffbook.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		SB000000000000000000012B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = SB000000000000000000012D /* Build configuration list for PBXProject "Staffbook" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = SB0000000000000000000122;
+			productRefGroup = SB0000000000000000000126 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				SB000000000000000000012A /* Staffbook */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		SB0000000000000000000129 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				SB000000000000000000011B /* MainMenu.xib in Resources */,
+				SB000000000000000000011C /* EmployeeWindow.xib in Resources */,
+				SB000000000000000000011D /* EmployeeEditor.xib in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		SB0000000000000000000127 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				SB0000000000000000000115 /* SBAppDelegate.m in Sources */,
+				SB0000000000000000000116 /* SBChartView.m in Sources */,
+				SB0000000000000000000117 /* SBEmployeeEditorController.m in Sources */,
+				SB0000000000000000000118 /* SBEmployeeWindowController.m in Sources */,
+				SB0000000000000000000119 /* SBManagedObjects.m in Sources */,
+				SB000000000000000000011A /* main.m in Sources */,
+				SB000000000000000000011E /* Staffbook.xcdatamodeld in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		SB000000000000000000012E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				ONLY_ACTIVE_ARCH = YES;
+			};
+			name = Debug;
+		};
+		SB000000000000000000012F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+			};
+			name = Release;
+		};
+		SB0000000000000000000130 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Staffbook-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.examples.Staffbook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		SB0000000000000000000131 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Staffbook-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.examples.Staffbook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		SB000000000000000000012C /* Build configuration list for PBXNativeTarget "Staffbook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				SB0000000000000000000130 /* Debug */,
+				SB0000000000000000000131 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		SB000000000000000000012D /* Build configuration list for PBXProject "Staffbook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				SB000000000000000000012E /* Debug */,
+				SB000000000000000000012F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCVersionGroup section */
+		SB0000000000000000000121 /* Staffbook.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				SB0000000000000000000114 /* Staffbook.xcdatamodel */,
+			);
+			currentVersion = SB0000000000000000000114 /* Staffbook.xcdatamodel */;
+			path = Staffbook.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
+	};
+	rootObject = SB000000000000000000012B /* Project object */;
+}

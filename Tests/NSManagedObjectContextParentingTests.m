@@ -436,4 +436,111 @@ static BOOL CDPWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
     [[NSNotificationCenter defaultCenter] removeObserver:observer];
 }
 
+/* Regression: a child-context transaction that inserts RELATED objects
+   (owner + member of a to-many with an inverse) must survive the child
+   save, the root save, and a fetch from the store, with the
+   relationship intact in both directions.  (The parent-side absorb
+   path once stored resolved objects where the internal representation
+   keeps object IDs, and the root save crashed writing the inverse.) */
+- (void)testChildSaveCarriesRelationshipsToTheStore
+{
+    /* A two-entity model of its own: the shared fixture has none. */
+    NSAttributeDescription *title = [[NSAttributeDescription alloc] init];
+    [title setName:@"title"];
+    [title setAttributeType:NSStringAttributeType];
+    [title setOptional:YES];
+
+    NSAttributeDescription *itemText = [[NSAttributeDescription alloc] init];
+    [itemText setName:@"text"];
+    [itemText setAttributeType:NSStringAttributeType];
+    [itemText setOptional:YES];
+
+    NSEntityDescription *folder = [[NSEntityDescription alloc] init];
+    [folder setName:@"Folder"];
+    [folder setManagedObjectClassName:@"NSManagedObject"];
+
+    NSEntityDescription *item = [[NSEntityDescription alloc] init];
+    [item setName:@"Item"];
+    [item setManagedObjectClassName:@"NSManagedObject"];
+
+    NSRelationshipDescription *items = [[NSRelationshipDescription alloc] init];
+    [items setName:@"items"];
+    [items setDestinationEntity:item];
+    [items setMaxCount:0];
+    [items setOptional:YES];
+    [items setDeleteRule:NSCascadeDeleteRule];
+
+    NSRelationshipDescription *owner = [[NSRelationshipDescription alloc] init];
+    [owner setName:@"folder"];
+    [owner setDestinationEntity:folder];
+    [owner setMaxCount:1];
+    [owner setOptional:YES];
+    [owner setDeleteRule:NSNullifyDeleteRule];
+
+    [items setInverseRelationship:owner];
+    [owner setInverseRelationship:items];
+    [folder setProperties:[NSArray arrayWithObjects:title, items, nil]];
+    [item setProperties:[NSArray arrayWithObjects:itemText, owner, nil]];
+
+    NSManagedObjectModel *relModel = [[NSManagedObjectModel alloc] init];
+    [relModel setEntities:[NSArray arrayWithObjects:folder, item, nil]];
+
+    NSPersistentStoreCoordinator *relPsc = [[NSPersistentStoreCoordinator alloc]
+        initWithManagedObjectModel:relModel];
+    NSString *relStorePath = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"parenting-rel-%@.sqlite",
+         [[NSProcessInfo processInfo] globallyUniqueString]]];
+    NSError *err = nil;
+    XCTAssertNotNil([relPsc addPersistentStoreWithType:NSSQLiteStoreType
+                                         configuration:nil
+                                                   URL:[NSURL fileURLWithPath:relStorePath]
+                                               options:nil
+                                                 error:&err], @"add store: %@", err);
+
+    NSManagedObjectContext *root = [[NSManagedObjectContext alloc]
+        initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [root setPersistentStoreCoordinator:relPsc];
+
+    NSManagedObjectContext *child = [[NSManagedObjectContext alloc]
+        initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [child setParentContext:root];
+
+    NSManagedObject *newFolder = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Folder" inManagedObjectContext:child];
+    [newFolder setValue:@"inbox" forKey:@"title"];
+    NSManagedObject *newItem = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Item" inManagedObjectContext:child];
+    [newItem setValue:@"hello" forKey:@"text"];
+    [[newFolder mutableSetValueForKey:@"items"] addObject:newItem];
+
+    XCTAssertTrue([child save:&err], @"child save: %@", err);
+    XCTAssertTrue([root save:&err], @"root save: %@", err);
+
+    /* A fresh context reads it back from the store, both directions. */
+    NSManagedObjectContext *reader = [[NSManagedObjectContext alloc]
+        initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [reader setPersistentStoreCoordinator:relPsc];
+
+    NSArray *folders = [reader executeFetchRequest:
+        [NSFetchRequest fetchRequestWithEntityName:@"Folder"] error:&err];
+    XCTAssertEqual([folders count], (NSUInteger)1, @"%@", err);
+
+    NSManagedObject *fetchedFolder = [folders objectAtIndex:0];
+    NSSet *fetchedItems = [fetchedFolder valueForKey:@"items"];
+    XCTAssertEqual([fetchedItems count], (NSUInteger)1);
+
+    NSManagedObject *fetchedItem = [fetchedItems anyObject];
+    XCTAssertEqualObjects([fetchedItem valueForKey:@"text"], @"hello");
+    XCTAssertEqualObjects([[fetchedItem valueForKey:@"folder"] objectID],
+                          [fetchedFolder objectID],
+        @"the inverse survives the trip through the chain and the store");
+
+    for (NSPersistentStore *store in [[relPsc persistentStores] copy])
+        [relPsc removePersistentStore:store error:NULL];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm removeItemAtPath:relStorePath error:NULL];
+    [fm removeItemAtPath:[relStorePath stringByAppendingString:@"-wal"] error:NULL];
+    [fm removeItemAtPath:[relStorePath stringByAppendingString:@"-shm"] error:NULL];
+}
+
 @end

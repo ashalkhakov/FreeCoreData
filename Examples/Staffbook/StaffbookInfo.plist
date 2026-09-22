@@ -1,0 +1,16 @@
+{
+    ApplicationDescription = "The FreeCoreData example application";
+    ApplicationName = Staffbook;
+    ApplicationRelease = "0.1";
+    Authors = (
+	"The GNUstep CoreData port contributors"
+    );
+    Copyright = "Copyright (c) 2026 the GNUstep CoreData port contributors";
+    CopyrightDescription = "Released under the MIT license";
+    FullVersionID = "0.1";
+    NSExecutable = Staffbook;
+    NSMainNibFile = "MainMenu.xib";
+    NSPrincipalClass = NSApplication;
+    NSRole = Application;
+    URL = "https://github.com/ashalkhakov/FreeCoreData";
+}

@@ -1,0 +1,3 @@
+# Staffbook is ARC throughout.  SBGNUstepCompat.h is force-included so that
+# sources written against current AppKit names compile unchanged.
+ADDITIONAL_OBJCFLAGS += -fobjc-arc -Wall -include SBGNUstepCompat.h

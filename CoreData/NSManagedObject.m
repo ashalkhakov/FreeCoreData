@@ -542,7 +542,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 /* Parent-side injection of a child's saved values: straight into the
-   changed-values storage, resolving IDs in this object's own context.
+   changed-values storage, in the internal representation - to-one
+   values and to-many members stay NSManagedObjectIDs, exactly as
+   -setValue:forKey: would store them (valueForKey: resolves IDs on
+   the way out; storing resolved objects here instead put objects
+   where every reader expects IDs and broke the root save).
    No KVO, no undo capture, no inverse maintenance - the child already
    maintained inverses and pushes every affected object explicitly. */
 -(void)_absorbChangedValuesFromSnapshot:(NSDictionary *)snapshot {
@@ -563,12 +567,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
      NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
 
      if(![relationship isToMany])
-      [_changedValues setObject:[_context objectWithID:value] forKey:name];
+      [_changedValues setObject:value forKey:name];
      else {
       id members=[relationship isOrdered]?(id)[NSMutableArray array]:(id)[NSMutableSet set];
 
       for(NSManagedObjectID *memberID in value)
-       [members addObject:[_context objectWithID:memberID]];
+       [members addObject:memberID];
       [_changedValues setObject:members forKey:name];
      }
      continue;
