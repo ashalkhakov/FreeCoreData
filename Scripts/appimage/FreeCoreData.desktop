@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=FreeCoreData
+GenericName=Core Data for GNUstep
+Comment=Model Builder and the sample apps, from one launcher
+Exec=AppRun %f
+Icon=freecoredata
+Terminal=false
+Categories=Development;

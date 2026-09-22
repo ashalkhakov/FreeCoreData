@@ -9,14 +9,14 @@ appdir=${2:-AppDir}
 mkdir -p "$appdir/usr/share/applications" "$appdir/usr/share/icons/hicolor/256x256/apps"
 
 install -m 0755 "$workspace_dir/Scripts/appimage/AppRun" "$appdir/AppRun"
-install -m 0644 "$workspace_dir/Scripts/appimage/ModelBuilder.desktop" \
-        "$appdir/modelbuilder.desktop"
-install -m 0644 "$workspace_dir/Scripts/appimage/ModelBuilder.desktop" \
-        "$appdir/usr/share/applications/modelbuilder.desktop"
+install -m 0644 "$workspace_dir/Scripts/appimage/FreeCoreData.desktop" \
+        "$appdir/freecoredata.desktop"
+install -m 0644 "$workspace_dir/Scripts/appimage/FreeCoreData.desktop" \
+        "$appdir/usr/share/applications/freecoredata.desktop"
 
-# The same picture the GNUstep bundle carries as its application icon, so the
-# About panel, the app's windows and the desktop launcher cannot drift apart.
+# The same picture ModelBuilder's GNUstep bundle carries as its application
+# icon, doing suite duty until the launcher has one of its own.
 install -m 0644 "$workspace_dir/ModelBuilder/ModelBuilder.png" \
-        "$appdir/modelbuilder.png"
+        "$appdir/freecoredata.png"
 install -m 0644 "$workspace_dir/ModelBuilder/ModelBuilder.png" \
-        "$appdir/usr/share/icons/hicolor/256x256/apps/modelbuilder.png"
+        "$appdir/usr/share/icons/hicolor/256x256/apps/freecoredata.png"

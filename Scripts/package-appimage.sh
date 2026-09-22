@@ -15,7 +15,7 @@ LINUXDEPLOY="${LINUXDEPLOY:-/usr/local/lib/linuxdeploy/AppRun}"
 # 2. Gather executable inputs for linuxdeploy.
 mapfile -t ELF_BINS < <("${WORKSPACE_DIR}/Scripts/appimage/collect-elf-binaries.sh" "AppDir")
 if [ "${#ELF_BINS[@]}" -eq 0 ]; then
-    echo "no ModelBuilder executable in AppDir" >&2
+    echo "no launchable executable in AppDir" >&2
     exit 1
 fi
 ELF_ARGS=()
@@ -24,7 +24,9 @@ for bin in "${ELF_BINS[@]}"; do
 done
 
 # 3. Run the linuxdeploy process.
-export OUTPUT="ModelBuilder-Linux-${APP_VERSION:-dev}-$(uname -m).AppImage"
+# The suite, not one app: it carries the launcher, Model Builder and the
+# samples, so the image is named after the project.
+export OUTPUT="FreeCoreData-Linux-${APP_VERSION:-dev}-$(uname -m).AppImage"
 export APPIMAGE_EXTRACT_AND_RUN=1
 export NO_VALIDATE=1
 # Keep the symbol tables: Objective-C methods are named only in .symtab, which
