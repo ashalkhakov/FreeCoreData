@@ -18,6 +18,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @class NSSet, NSMutableSet, NSNotification, NSUndoManager, NSMapTable;
 @class NSManagedObject, NSManagedObjectID, NSFetchRequest, NSPersistentStore, NSPersistentStoreCoordinator;
+@class NSPersistentStoreRequest, NSPersistentStoreResult;
 
 COREDATA_EXPORT NSString *const NSManagedObjectContextWillSaveNotification;
 COREDATA_EXPORT NSString *const NSManagedObjectContextDidSaveNotification;
@@ -164,6 +165,12 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
 
 - (NSArray *)executeFetchRequest:(NSFetchRequest *)request error:(NSError **)error;
 - (NSUInteger)countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error;
+
+/* General request execution.  An NSAsynchronousFetchRequest returns
+   its NSAsynchronousFetchResult immediately; the wrapped fetch then
+   runs as its own event on the context's queue and the request's
+   completion block is called there with the populated result. */
+- (__kindof NSPersistentStoreResult *)executeRequest:(NSPersistentStoreRequest *)request error:(NSError **)error;
 
 - (void)insertObject:(NSManagedObject *)object;
 - (void)deleteObject:(NSManagedObject *)object;

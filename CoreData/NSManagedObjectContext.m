@@ -21,7 +21,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSIncrementalStore.h>
 #import <CoreData/NSIncrementalStoreNode.h>
 #import <CoreData/NSSaveChangesRequest.h>
+#import <CoreData/NSAsynchronousFetchRequest.h>
+#import <CoreData/NSPersistentStoreResult.h>
+#import "NSPersistentStoreResult-Private.h"
 #import <CoreData/CoreDataErrors.h>
+#import <Foundation/NSProgress.h>
 #import <CoreData/NSMergePolicy.h>
 #import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
@@ -946,6 +950,58 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    NS_ENDHANDLER
    [lockedCoordinator unlock];
    return result;
+}
+
+/* An asynchronous fetch is its own "user event" on the context's
+   queue: executeRequest: returns the result handle immediately, the
+   wrapped fetch runs through the ordinary fetch path (so entity-name
+   resolution, parent-chain forwarding and coordinator locking all
+   apply), and the completion block is called on the queue with the
+   populated result.  Cancellation (result -cancel, or cancelling a
+   parent NSProgress) is checked before the fetch runs; a cancelled
+   request delivers an EMPTY finalResult with no operationError -
+   arbitrated on macOS, where an earlier version of this path reported
+   NSUserCancelledError and Apple instead delivered the completion
+   with an empty array and a nil error. */
+-(NSAsynchronousFetchResult *)_executeAsynchronousFetchRequest:(NSAsynchronousFetchRequest *)request error:(NSError **)error {
+   [self _raiseIfConfinement:@selector(executeRequest:error:)];
+
+   NSFetchRequest *fetch=[[request fetchRequest] copy];   /* execution is deferred; snapshot the fetch */
+   NSInteger estimate=[request estimatedResultCount];
+   NSProgress *progress=[NSProgress progressWithTotalUnitCount:(estimate>0)?estimate:1];
+   NSAsynchronousFetchResult *result=[[[NSAsynchronousFetchResult alloc]
+       _initWithManagedObjectContext:self
+                        fetchRequest:request
+                            progress:progress] autorelease];
+   NSPersistentStoreAsynchronousFetchResultCompletionBlock completion=[request completionBlock];
+
+   [self performBlock:^{
+     if([progress isCancelled])
+      [result _setFinalResult:[NSArray array]];
+     else {
+      NSError *fetchError=nil;
+      NSArray *rows=[self executeFetchRequest:fetch error:&fetchError];
+
+      if(rows!=nil)
+       [result _setFinalResult:rows];
+      else
+       [result _setOperationError:fetchError];
+     }
+     [progress setCompletedUnitCount:[progress totalUnitCount]];
+     if(completion!=NULL)
+      completion(result);
+    }];
+   [fetch release];
+   return result;
+}
+
+-(NSPersistentStoreResult *)executeRequest:(NSPersistentStoreRequest *)request error:(NSError **)error {
+   if([request isKindOfClass:[NSAsynchronousFetchRequest class]])
+    return [self _executeAsynchronousFetchRequest:(NSAsynchronousFetchRequest *)request error:error];
+
+   [NSException raise:NSInvalidArgumentException
+               format:@"executeRequest:error: does not support requests of class %@.",[request class]];
+   return nil;
 }
 
 -(NSArray *)_coordinatorLocked_executeFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error {

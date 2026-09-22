@@ -14,6 +14,8 @@ CoreData_OBJC_FILES = \
 	CoreData/NSFetchedPropertyDescription.m \
 	CoreData/NSPersistentStoreRequest.m \
 	CoreData/NSSaveChangesRequest.m \
+	CoreData/NSAsynchronousFetchRequest.m \
+	CoreData/NSPersistentStoreResult.m \
 	CoreData/NSFetchRequest.m \
 	CoreData/NSManagedObject.m \
 	CoreData/NSManagedObjectID.m \
@@ -55,6 +57,8 @@ CoreData_HEADER_FILES = \
 	NSEntityDescription.h \
 	NSPersistentStoreRequest.h \
 	NSSaveChangesRequest.h \
+	NSAsynchronousFetchRequest.h \
+	NSPersistentStoreResult.h \
 	NSFetchRequest.h \
 	NSFetchedPropertyDescription.h \
 	NSIncrementalStore.h \
