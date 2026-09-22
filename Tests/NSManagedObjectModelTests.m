@@ -26,6 +26,27 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertNotNil([model entities]);
 }
 
+/* An entity knows its model, and one renamed after it joined the model is
+   found under the new name -- Apple re-keys the model. */
+- (void)testRenamingEntityRekeysModel
+{
+    NSEntityDescription *author = [[NSEntityDescription alloc] init];
+    author.name = @"Author";
+    NSEntityDescription *article = [[NSEntityDescription alloc] init];
+    article.name = @"Article";
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ author, article ];
+    (void)model.entitiesByName;
+    XCTAssertEqual(author.managedObjectModel, model);
+
+    author.name = @"Writer";
+
+    XCTAssertEqual(model.entitiesByName[@"Writer"], author);
+    XCTAssertNil(model.entitiesByName[@"Author"]);
+    XCTAssertEqual(model.entitiesByName[@"Article"], article);
+    XCTAssertEqual(model.entitiesByName.count, (NSUInteger)2);
+}
+
 /* A new entity answers with empty collections, as on Apple, so a property
    appended to a fresh entity's properties is kept. */
 - (void)testNewEntityHasEmptyCollections

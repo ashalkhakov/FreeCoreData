@@ -450,6 +450,42 @@ int main(void)
     CHECK(!wc.minCountField.stepper.isEnabled, "stepper follows field enablement");
     wc.minCountField.enabled = YES;
 
+    SCENARIO("Configurations list the implicit Default and inspect their entities");
+    /* GIVEN a model that declares no configuration (Thing, ZOther)
+       WHEN the CONFIGURATIONS group is shown and Default is selected
+       THEN Default is listed, holds every entity, and can be neither
+            edited nor renamed -- it is not in the file
+       AND WHEN an entity row on its page is selected
+       THEN the inspector shows that entity */
+    NSInteger defaultRow = -1;
+    for (NSInteger r = 0; r < wc.sourceList.numberOfRows; r++) {
+      id item = [wc.sourceList itemAtRow:r];
+      if ([[item valueForKey:@"implicitDefault"] boolValue]) { defaultRow = r; break; }
+    }
+    CHECK(defaultRow >= 0, "Default configuration listed");
+    [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)defaultRow]
+               byExtendingSelection:NO];
+    NSTableColumn *memberColumn = [wc.memberTable tableColumnWithIdentifier:@"member"];
+    CHECK([wc.memberTable numberOfRows] == 2, "Default lists every entity");
+    BOOL allMembers = YES;
+    for (NSInteger r = 0; r < [wc.memberTable numberOfRows]; r++)
+      allMembers &= [[wc tableView:wc.memberTable objectValueForTableColumn:memberColumn
+                               row:r] boolValue];
+    CHECK(allMembers, "every entity is a member of Default");
+    NSCell *memberCell = [memberColumn dataCellForRow:0];
+    [wc tableView:wc.memberTable willDisplayCell:memberCell forTableColumn:memberColumn row:0];
+    CHECK(![memberCell isEnabled], "Default membership is not editable");
+    CHECK(![wc outlineView:wc.sourceList shouldEditTableColumn:nil
+                      item:[wc.sourceList itemAtRow:defaultRow]],
+          "Default cannot be renamed");
+    NSString *rowEntity = [wc tableView:wc.memberTable
+              objectValueForTableColumn:[wc.memberTable tableColumnWithIdentifier:@"entity"]
+                                    row:0];
+    [wc.memberTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0]
+                byExtendingSelection:NO];
+    CHECK(rowEntity.length && [wc.entityNameField.stringValue isEqualToString:rowEntity],
+          "selecting an entity row inspects that entity");
+
     printf("---\n%d passed, %d failed\n", passed, failed);
     exit(failed ? 1 : 0);   /* skip pool teardown */
   }

@@ -42,6 +42,9 @@ typedef NS_ENUM(NSInteger, MBSourceKind) {
 @interface MBSourceItem : NSObject
 @property (nonatomic, assign) MBSourceKind kind;
 @property (nonatomic, copy) NSString *name;
+/* The implicit Default configuration: every entity, not in the file, and
+   not editable -- what Xcode lists when a model declares none. */
+@property (nonatomic, assign) BOOL implicitDefault;
 + (instancetype)itemWithKind:(MBSourceKind)kind name:(NSString *)name;
 - (BOOL)isGroup;
 @end
@@ -366,7 +369,17 @@ static const CGFloat MBInspectorMinimum = 260.0;
   _fetchItems = fetches;
 
   NSMutableArray *configurations = [NSMutableArray array];
-  for (NSString *name in [self.modelDocument configurationNames])
+  NSArray *declared = [self.modelDocument configurationNames];
+  /* Every model has the Default configuration -- all its entities, which
+     is what a store added with no configuration name holds -- whether it
+     declares others or not.  Xcode lists it first; so do we, unless the
+     model declares a configuration of that name itself. */
+  if (![declared containsObject:@"Default"]) {
+    MBSourceItem *standard = [MBSourceItem itemWithKind:MBSourceConfiguration name:@"Default"];
+    standard.implicitDefault = YES;
+    [configurations addObject:standard];
+  }
+  for (NSString *name in declared)
     [configurations addObject:[MBSourceItem itemWithKind:MBSourceConfiguration name:name]];
   _configurationItems = configurations;
 }
@@ -404,6 +417,13 @@ static const CGFloat MBInspectorMinimum = 260.0;
 - (NSEntityDescription *)selectedEntity
 {
   MBSourceItem *item = [self selectedSourceItem];
+  if (item.kind == MBSourceConfiguration) {
+    /* A configuration's page lists entities; the one selected there is
+       the entity the inspector shows and edits. */
+    NSInteger row = self.memberTable.selectedRow;
+    if (row < 0 || (NSUInteger)row >= _memberEntityNames.count) return nil;
+    return self.model.entitiesByName[_memberEntityNames[(NSUInteger)row]];
+  }
   if (item.kind != MBSourceEntity) return nil;
   return self.model.entitiesByName[item.name];
 }
@@ -420,10 +440,18 @@ static const CGFloat MBInspectorMinimum = 260.0;
   return name ? [self.model fetchRequestTemplateForName:name] : nil;
 }
 
+/* A declared configuration's name; nil for the implicit Default, which
+   the file does not have. */
 - (NSString *)selectedConfigurationName
 {
   MBSourceItem *item = [self selectedSourceItem];
-  return item.kind == MBSourceConfiguration ? item.name : nil;
+  return (item.kind == MBSourceConfiguration && !item.implicitDefault) ? item.name : nil;
+}
+
+- (BOOL)selectedConfigurationIsImplicitDefault
+{
+  MBSourceItem *item = [self selectedSourceItem];
+  return item.kind == MBSourceConfiguration && item.implicitDefault;
 }
 
 - (NSAttributeDescription *)selectedAttribute
@@ -571,7 +599,7 @@ static const CGFloat MBInspectorMinimum = 260.0;
     _kind = MBInspectFetch;
   } else if (item.kind == MBSourceConfiguration) {
     [self.centerTabView selectTabViewItemAtIndex:MBCenterPageConfiguration];
-    _kind = MBInspectConfiguration;
+    _kind = self.memberTable.selectedRow >= 0 ? MBInspectEntity : MBInspectConfiguration;
   } else {
     [self.centerTabView selectTabViewItemAtIndex:MBCenterPageEntity];
     _kind = MBInspectNone;
@@ -950,6 +978,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
       [self reloadEverything];
       break;
     case MBSourceConfiguration: {
+      if (selected.implicitDefault) break;   /* not in the file to remove */
       NSError *error = nil;
       if (![self.modelDocument removeConfigurationNamed:selected.name error:&error])
         [self presentModelError:error title:@"Cannot remove configuration"];
@@ -1276,10 +1305,31 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   }
 }
 
+/* After an entity edit, select it again where it was being edited: in the
+   source list, or -- when it was picked on a configuration's page -- as
+   that configuration's row, found by its (perhaps new) name. */
+- (void)reselectEntityNamed:(NSString *)name inConfiguration:(MBSourceItem *)configuration
+{
+  if (!configuration) {
+    [self selectSourceKind:MBSourceEntity name:name];
+    return;
+  }
+  [self selectSourceKind:MBSourceConfiguration name:configuration.name];
+  _memberEntityNames = [[self.model.entitiesByName allKeys]
+      sortedArrayUsingSelector:@selector(compare:)];
+  [self.memberTable reloadData];
+  NSUInteger row = [_memberEntityNames indexOfObject:name];
+  if (row != NSNotFound)
+    [self.memberTable selectRowIndexes:[NSIndexSet indexSetWithIndex:row]
+                  byExtendingSelection:NO];
+}
+
 - (void)applyEntityInspector
 {
   MBEntityEditor *editor = [self entityEditor];
   if (!editor) return;
+  MBSourceItem *source = [self selectedSourceItem];
+  MBSourceItem *configuration = source.kind == MBSourceConfiguration ? source : nil;
   editor.name = self.entityNameField.stringValue;   /* validated; keeps old on clash */
   editor.className = self.classField.stringValue;
   editor.abstract = (self.abstractCheckbox.state == NSOnState);
@@ -1299,12 +1349,12 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
     [self presentModelError:editor.lastError title:@"Cannot change parent entity"];
   if (reparent) {
     [self reloadEverything];
-    [self selectSourceKind:MBSourceEntity name:editor.name];
+    [self reselectEntityNamed:editor.name inConfiguration:configuration];
     return;
   }
   [self rebuildSourceItems];
   [self.sourceList reloadData];
-  [self selectSourceKind:MBSourceEntity name:editor.name];
+  [self reselectEntityNamed:editor.name inConfiguration:configuration];
 }
 
 - (void)applyAttributeInspector
@@ -1638,7 +1688,8 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   if (column && ![column.identifier isEqualToString:@"item"] &&
       column != outline.outlineTableColumn)
     return;
-  if (![item isKindOfClass:[MBSourceItem class]] || [item isGroup]) return;
+  if (![item isKindOfClass:[MBSourceItem class]] || [item isGroup] ||
+      [(MBSourceItem *)item implicitDefault]) return;
   NSString *text = [value description];
   if (!text.length) return;
   MBSourceItem *source = item;
@@ -1664,7 +1715,8 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   if (column && ![column.identifier isEqualToString:@"item"] &&
       column != outline.outlineTableColumn)
     return NO;
-  return [item isKindOfClass:[MBSourceItem class]] && ![item isGroup];
+  return [item isKindOfClass:[MBSourceItem class]] && ![item isGroup] &&
+         ![(MBSourceItem *)item implicitDefault];
 }
 
 - (void)outlineView:(NSOutlineView *)outline willDisplayCell:(id)cell forTableColumn:(NSTableColumn *)column item:(id)item
@@ -1684,6 +1736,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   if (notification.object != self.sourceList) return;
   [self.attributeTable deselectAll:nil];
   [self.relationshipTable deselectAll:nil];
+  [self.memberTable deselectAll:nil];
   [self rebuildPropertyRows];
   [self.attributeTable reloadData];
   [self.relationshipTable reloadData];
@@ -1826,6 +1879,7 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
     NSString *name = _memberEntityNames[(NSUInteger)row];
     NSEntityDescription *rowEntity = self.model.entitiesByName[name];
     if ([ident isEqualToString:@"member"]) {
+      if ([self selectedConfigurationIsImplicitDefault]) return @YES;
       NSString *configuration = [self selectedConfigurationName];
       if (!configuration) return @NO;
       NSArray *members = [self.model entitiesForConfiguration:configuration];
@@ -1947,6 +2001,11 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
 
 - (void)tableView:(NSTableView *)table willDisplayCell:(id)cell forTableColumn:(NSTableColumn *)column row:(NSInteger)row
 {
+  if (table == self.memberTable && [column.identifier isEqualToString:@"member"]) {
+    /* Default is every entity; there is nothing to tick or untick. */
+    [cell setEnabled:![self selectedConfigurationIsImplicitDefault]];
+    return;
+  }
   if (![cell isKindOfClass:[NSPopUpButtonCell class]]) return;
   NSArray *choices = [self mbChoicesForTable:table column:column.identifier row:row];
   if (!choices) return;
@@ -1965,8 +2024,8 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
   } else if (table == self.relationshipTable) {
     if (self.relationshipTable.selectedRow >= 0)
       [self.attributeTable deselectAll:nil];
-  } else {
-    return;   /* userInfo / constraints / member selection is not an inspector change */
+  } else if (table != self.memberTable) {
+    return;   /* userInfo / constraints selection is not an inspector change */
   }
   [self refreshSelectionUI];
 }

@@ -27,6 +27,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)_setEntity:(NSEntityDescription *)entity;
 @end
 
+/* NSManagedObjectModel.m: keeps the model's by-name table in step. */
+@interface NSManagedObjectModel (EntityRenaming)
+-(void)_entity:(NSEntityDescription *)entity didChangeNameFrom:(NSString *)oldName;
+@end
+
 @implementation NSEntityDescription
 
 static id getValue(id self, SEL selector) {
@@ -497,14 +502,27 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
 
 
 -(void)setName:(NSString *)value {
+   NSString *old;
+
    if(_hasBeenInstantiated) {
     NSLog(@"Attempt to modify entity after instantiating it.");
     return;
    }
    
+   old=[_name retain];
    value=[value copy];
    [_name release];
    _name=value;
+   /* The model looks its entities up by name; keep it in step. */
+   if(_model!=nil && ![old isEqualToString:value])
+    [_model _entity:self didChangeNameFrom:old];
+   [old release];
+}
+
+/* Sent by -[NSManagedObjectModel setEntities:].  Not retained: the model
+   owns its entities. */
+-(void)_setManagedObjectModel:(NSManagedObjectModel *)model {
+   _model=model;
 }
 
 
