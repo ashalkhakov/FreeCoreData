@@ -187,6 +187,12 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
 - (BOOL)save:(NSError **)error;
 - (void)mergeChangesFromContextDidSaveNotification:(NSNotification *)notification;
 
+/* Tells contexts about changes made behind their backs (batch
+   requests): a dictionary of NSManagedObjectID arrays keyed by
+   NSInsertedObjectsKey / NSUpdatedObjectsKey / NSDeletedObjectsKey,
+   applied to each context on its own queue. */
++ (void)mergeChangesFromRemoteContextSave:(NSDictionary *)changeNotificationData intoContexts:(NSArray *)contexts;
+
 - (BOOL)commitEditing;
 - (void)commitEditingWithDelegate:(id)delegate didCommitSelector:(SEL)didCommitSelector contextInfo:(void *)contextInfo;
 - (void)discardEditing;

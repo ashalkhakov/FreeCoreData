@@ -22,6 +22,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSIncrementalStoreNode.h>
 #import <CoreData/NSSaveChangesRequest.h>
 #import <CoreData/NSAsynchronousFetchRequest.h>
+#import <CoreData/NSBatchInsertRequest.h>
+#import <CoreData/NSBatchUpdateRequest.h>
+#import <CoreData/NSBatchDeleteRequest.h>
 #import <CoreData/NSPersistentStoreResult.h>
 #import "NSPersistentStoreResult-Private.h"
 #import <CoreData/CoreDataErrors.h>
@@ -995,9 +998,65 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    return result;
 }
 
+/* Batch requests go straight to a store through the coordinator (its
+   lock serializes them against ordinary fetch/save traffic); contexts
+   are bypassed entirely, so registered objects stay stale until
+   refreshed or told via mergeChangesFromRemoteContextSave:. */
+-(NSPersistentStoreResult *)_executeBatchRequest:(NSPersistentStoreRequest *)request error:(NSError **)error {
+   NSPersistentStoreCoordinator *coordinator=[self persistentStoreCoordinator];
+
+   /* A delete request built around an entity-name-only fetch request
+      resolves the name here, like executeFetchRequest: does. */
+   if([request isKindOfClass:[NSBatchDeleteRequest class]]){
+    NSFetchRequest *fetch=[(NSBatchDeleteRequest *)request fetchRequest];
+
+    if(fetch!=nil && [fetch _entityIfResolved]==nil && [fetch entityName]!=nil){
+     NSEntityDescription *named=[[[coordinator managedObjectModel] entitiesByName] objectForKey:[fetch entityName]];
+
+     if(named==nil)
+      [NSException raise:NSInvalidArgumentException
+                  format:@"executeRequest:error: could not locate an entity named '%@' in this model.",[fetch entityName]];
+
+     [fetch setEntity:named];
+    }
+   }
+
+   NSArray *stores=[request affectedStores];
+
+   if([stores count]==0)
+    stores=[coordinator persistentStores];
+
+   NSPersistentStore *store=([stores count]>0)?[stores objectAtIndex:0]:nil;
+
+   if(![store isKindOfClass:[NSIncrementalStore class]]){
+    if(error!=NULL)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain
+                                code:NSPersistentStoreUnsupportedRequestTypeError
+                            userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"%@ does not support batch requests.",[store class]] forKey:NSLocalizedDescriptionKey]];
+    return nil;
+   }
+
+   id result=nil;
+
+   [coordinator lock];
+   NS_DURING
+    result=[(NSIncrementalStore *)store executeRequest:request withContext:self error:error];
+   NS_HANDLER
+    [coordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [coordinator unlock];
+   return result;
+}
+
 -(NSPersistentStoreResult *)executeRequest:(NSPersistentStoreRequest *)request error:(NSError **)error {
    if([request isKindOfClass:[NSAsynchronousFetchRequest class]])
     return [self _executeAsynchronousFetchRequest:(NSAsynchronousFetchRequest *)request error:error];
+
+   NSPersistentStoreRequestType type=[request requestType];
+
+   if(type==NSBatchInsertRequestType || type==NSBatchUpdateRequestType || type==NSBatchDeleteRequestType)
+    return [self _executeBatchRequest:request error:error];
 
    [NSException raise:NSInvalidArgumentException
                format:@"executeRequest:error: does not support requests of class %@.",[request class]];
@@ -2615,6 +2674,16 @@ static id CDUndoRestoredValue(id value){
      [object _invalidateCommittedValues];
     }
 
+    /* Re-realize the committed snapshot NOW rather than lazily on the
+       next read (the round trip also picks up store-computed derived
+       values).  Apple keeps saved objects materialized, so rows later
+       changed behind the context's back - batch requests, other
+       processes - leave these objects STALE until they are refreshed
+       or merged; a lazy re-read would instead make them accidentally
+       see such changes. */
+    for(NSManagedObject *object in saved)
+     [object _committedValues];
+
     for(NSManagedObject *object in saved)
      [object didSave];
     for(NSManagedObject *object in notifyDeleted)
@@ -2641,6 +2710,52 @@ static id CDUndoRestoredValue(id value){
     *errorp=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreIncompleteSaveError userInfo:userInfo];
   
    return NO;
+}
+
+/* The batch-request companion to mergeChangesFromContextDidSaveNotification:
+   the dictionary carries arrays of NSManagedObjectIDs (as produced by
+   the batch results' ObjectIDs result types) under NSInsertedObjectsKey /
+   NSUpdatedObjectsKey / NSDeletedObjectsKey, and each context is told
+   on its own queue.  Inserts surface through objectsDidChange, updates
+   refresh any registered instance from the store, and deletes mark
+   registered instances deleted, mirroring the instance method. */
++(void)mergeChangesFromRemoteContextSave:(NSDictionary *)changeNotificationData intoContexts:(NSArray *)contexts {
+   for(NSManagedObjectContext *context in contexts){
+    [context _performAsChainMemberAndWait:^{
+      for(NSManagedObjectID *objectID in [changeNotificationData objectForKey:NSInsertedObjectsKey]){
+       NSManagedObject *local=[context objectWithID:objectID];
+
+       if(local!=nil){
+        [context->_pendingInsertedObjects addObject:local];
+        [context _requestProcessPendingChanges];
+       }
+      }
+
+      for(NSManagedObjectID *objectID in [changeNotificationData objectForKey:NSUpdatedObjectsKey]){
+       NSManagedObject *local=[context objectRegisteredForID:objectID];
+
+       if(local!=nil)
+        [context refreshObject:local mergeChanges:YES];
+      }
+
+      for(NSManagedObjectID *objectID in [changeNotificationData objectForKey:NSDeletedObjectsKey]){
+       NSManagedObject *local=[context objectRegisteredForID:objectID];
+
+       if(local!=nil){
+        [local _discardChangedValues];
+
+        [context->_insertedObjects removeObject:local];
+        [context->_updatedObjects removeObject:local];
+        [context->_deletedObjects addObject:local];
+
+        [context->_pendingDeletedObjects addObject:local];
+        [context->_pendingInsertedObjects removeObject:local];
+        [context->_pendingUpdatedObjects removeObject:local];
+        [context _requestProcessPendingChanges];
+       }
+      }
+     }];
+   }
 }
 
 -(void)mergeChangesFromContextDidSaveNotification:(NSNotification *)notification {

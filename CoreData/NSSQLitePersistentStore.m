@@ -14,7 +14,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSPersistentStoreCoordinator.h>
 #import <CoreData/NSPersistentStoreRequest.h>
 #import <CoreData/NSSaveChangesRequest.h>
+#import <CoreData/NSBatchInsertRequest.h>
+#import <CoreData/NSBatchUpdateRequest.h>
+#import <CoreData/NSBatchDeleteRequest.h>
+#import "NSBatchDeleteRequest-Private.h"
+#import <CoreData/NSPersistentStoreResult.h>
+#import "NSPersistentStoreResult-Private.h"
 #import <CoreData/NSFetchRequest.h>
+#import "NSFetchRequest-Private.h"
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSManagedObjectContext.h>
 #import <CoreData/NSManagedObject.h>
@@ -1596,9 +1603,13 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
 }
 
 -(BOOL)_deleteRowForObject:(NSManagedObject *)object error:(NSError **)error {
-   NSEntityDescription *entity=[object entity];
-   NSDictionary        *properties=propertiesForEntityChain(entity);
-   long long            primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]]);
+   return [self _deleteRowWithEntity:[object entity]
+                          primaryKey:primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]])
+                               error:error];
+}
+
+-(BOOL)_deleteRowWithEntity:(NSEntityDescription *)entity primaryKey:(long long)primaryKey error:(NSError **)error {
+   NSDictionary *properties=propertiesForEntityChain(entity);
 
    /* Clean up any join-table rows referencing the deleted row.  Rows
       where the object is the relationship's owner are found through its
@@ -1695,12 +1706,374 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    return [NSArray array];
 }
 
+/* ------------------------------------------------------------------ */
+#pragma mark - Batch requests
+/* ------------------------------------------------------------------ */
+
+/* Batch requests execute directly against the database: no
+   NSManagedObjects are materialized, no validation or delete rules
+   run (beyond the store's own join-table/foreign-key cleanup), and
+   loaded contexts are not notified. */
+
+-(NSEntityDescription *)_batchEntityForName:(NSString *)name entity:(NSEntityDescription *)entity error:(NSError **)error {
+   if(entity!=nil)
+    return entity;
+
+   NSEntityDescription *named=[[[[self persistentStoreCoordinator] managedObjectModel] entitiesByName] objectForKey:name];
+
+   if(named==nil && error!=NULL)
+    *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"batch request: no entity named '%@' in this model",name] forKey:NSLocalizedDescriptionKey]];
+
+   return named;
+}
+
+/* The object IDs a batch update/delete targets.  The predicate is
+   pushed into SQL when it translates exactly; otherwise it is
+   evaluated in memory against each row's attribute snapshot. */
+-(NSArray *)_batchTargetObjectIDsForEntity:(NSEntityDescription *)entity predicate:(NSPredicate *)predicate includesSubentities:(BOOL)includesSubentities error:(NSError **)error {
+   NSMutableArray *bindings=[NSMutableArray array];
+   NSString       *whereSQL=nil;
+   BOOL            predicateInSQL=YES;
+
+   if(predicate!=nil){
+    whereSQL=[self _translatePredicate:predicate entity:entity bindings:bindings];
+    predicateInSQL=(whereSQL!=nil);
+
+    if(!predicateInSQL)
+     [bindings removeAllObjects];
+   }
+
+   NSArray *objectIDs=[self _fetchObjectIDsForEntity:entity includesSubentities:includesSubentities whereSQL:whereSQL bindings:bindings orderBySQL:nil fetchLimit:0 fetchOffset:0 error:error];
+
+   if(objectIDs==nil || predicateInSQL)
+    return objectIDs;
+
+   NSMutableArray *result=[NSMutableArray array];
+
+   for(NSManagedObjectID *objectID in objectIDs){
+    NSIncrementalStoreNode *node=[self newValuesForObjectWithID:objectID withContext:nil error:error];
+
+    if(node==nil)
+     return nil;
+
+    NSMutableDictionary *row=[NSMutableDictionary dictionary];
+    NSDictionary        *attributes=[[objectID entity] attributesByName];
+
+    for(NSString *name in attributes){
+     id value=[node valueForPropertyDescription:[attributes objectForKey:name]];
+
+     if(value!=nil && value!=[NSNull null])
+      [row setObject:value forKey:name];
+    }
+    [node release];
+
+    BOOL matches=NO;
+
+    NS_DURING
+     matches=[predicate evaluateWithObject:row];
+    NS_HANDLER
+     matches=NO;
+    NS_ENDHANDLER
+
+    if(matches)
+     [result addObject:objectID];
+   }
+
+   return result;
+}
+
+-(id)_executeBatchInsertRequest:(NSBatchInsertRequest *)request error:(NSError **)error {
+   NSEntityDescription *entity=[self _batchEntityForName:[request entityName] entity:[request entity] error:error];
+
+   if(entity==nil)
+    return nil;
+
+   NSMutableArray *rows=[NSMutableArray array];
+
+   if([request dictionaryHandler]!=NULL){
+    BOOL (^handler)(NSMutableDictionary *)=[request dictionaryHandler];
+
+    for(;;){
+     NSMutableDictionary *row=[NSMutableDictionary dictionary];
+
+     /* YES means "done"; the dictionary from that final call is not
+        inserted. */
+     if(handler(row))
+      break;
+
+     [rows addObject:row];
+    }
+   }
+   else if([request objectsToInsert]!=nil)
+    [rows addObjectsFromArray:[request objectsToInsert]];
+
+   NSDictionary *properties=propertiesForEntityChain(entity);
+
+   if(!executeSQL(DATABASE,@"BEGIN",error))
+    return nil;
+
+   NSMutableArray *insertedIDs=[NSMutableArray array];
+
+   for(NSDictionary *row in rows){
+    long long primaryKey=[self _nextPrimaryKeyForEntity:entity error:error];
+
+    if(primaryKey==0){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+
+    NSMutableArray *columns=[NSMutableArray arrayWithObjects:@"Z_PK",@"Z_ENT",@"Z_OPT",nil];
+    NSMutableArray *placeholders=[NSMutableArray arrayWithObjects:@"?",@"?",@"?",nil];
+    NSMutableArray *boundAttributes=[NSMutableArray array];
+    NSMutableArray *boundValues=[NSMutableArray array];
+
+    for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
+     NSPropertyDescription *property=[properties objectForKey:name];
+
+     if(![property isKindOfClass:[NSAttributeDescription class]])
+      continue;   /* relationships cannot be batch inserted */
+     if([property isKindOfClass:[NSDerivedAttributeDescription class]] && [(NSDerivedAttributeDescription *)property _generatedColumnSourceName]!=nil)
+      continue;   /* computed by SQLite */
+
+     id value=[row objectForKey:name];
+
+     if(value==nil)
+      value=[(NSAttributeDescription *)property defaultValue];
+     if(value==nil)
+      continue;
+
+     [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(name)]];
+     [placeholders addObject:@"?"];
+     [boundAttributes addObject:property];
+     [boundValues addObject:value];
+    }
+
+    NSString     *sql=[NSString stringWithFormat:@"INSERT INTO \"%@\" (%@) VALUES (%@)",tableNameForEntity(entity),[columns componentsJoinedByString:@", "],[placeholders componentsJoinedByString:@", "]];
+    sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
+
+    if(statement==NULL){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+
+    int index=1;
+
+    sqlite3_bind_int64(statement,index++,primaryKey);
+    sqlite3_bind_int64(statement,index++,[self _entityIDForEntity:entity]);
+    sqlite3_bind_int64(statement,index++,1);
+
+    NSUInteger i,count=[boundAttributes count];
+
+    for(i=0;i<count;i++){
+     id value=[boundValues objectAtIndex:i];
+
+     if(value==[NSNull null])
+      sqlite3_bind_null(statement,index++);
+     else
+      bindAttributeValue(statement,index++,[boundAttributes objectAtIndex:i],value);
+    }
+
+    BOOL ok=(sqlite3_step(statement)==SQLITE_DONE);
+
+    sqlite3_finalize(statement);
+
+    if(!ok){
+     if(error!=NULL)
+      *error=sqliteError(DATABASE,NSPersistentStoreSaveError,[NSString stringWithFormat:@"unable to batch insert into %@",[entity name]]);
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+
+    [insertedIDs addObject:[[self newObjectIDForEntity:entity referenceObject:referenceObjectForPrimaryKey(primaryKey)] autorelease]];
+   }
+
+   if(!writeMetadata(DATABASE,[self metadata],error) || !executeSQL(DATABASE,@"COMMIT",error)){
+    executeSQL(DATABASE,@"ROLLBACK",NULL);
+    return nil;
+   }
+
+   switch([request resultType]){
+    case NSBatchInsertRequestResultTypeObjectIDs:
+     return [[[NSBatchInsertResult alloc] _initWithResult:insertedIDs resultType:NSBatchInsertRequestResultTypeObjectIDs] autorelease];
+    case NSBatchInsertRequestResultTypeCount:
+     return [[[NSBatchInsertResult alloc] _initWithResult:[NSNumber numberWithUnsignedInteger:[insertedIDs count]] resultType:NSBatchInsertRequestResultTypeCount] autorelease];
+    default:
+     return [[[NSBatchInsertResult alloc] _initWithResult:[NSNumber numberWithBool:YES] resultType:NSBatchInsertRequestResultTypeStatusOnly] autorelease];
+   }
+}
+
+-(id)_executeBatchUpdateRequest:(NSBatchUpdateRequest *)request error:(NSError **)error {
+   NSEntityDescription *entity=[self _batchEntityForName:[request entityName] entity:[request entity] error:error];
+
+   if(entity==nil)
+    return nil;
+
+   NSArray *targetIDs=[self _batchTargetObjectIDsForEntity:entity predicate:[request predicate] includesSubentities:[request includesSubentities] error:error];
+
+   if(targetIDs==nil)
+    return nil;
+
+   NSDictionary   *properties=propertiesForEntityChain(entity);
+   NSMutableArray *assignments=[NSMutableArray arrayWithObject:@"Z_OPT = Z_OPT + 1"];
+   NSMutableArray *boundAttributes=[NSMutableArray array];
+   NSMutableArray *boundValues=[NSMutableArray array];
+   NSDictionary   *updates=[request propertiesToUpdate];
+
+   for(id key in updates){
+    NSString              *name=[key isKindOfClass:[NSPropertyDescription class]]?[(NSPropertyDescription *)key name]:(NSString *)key;
+    NSPropertyDescription *property=[properties objectForKey:name];
+
+    if(![property isKindOfClass:[NSAttributeDescription class]]){
+     if(error!=NULL)
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"batch update: '%@' is not an attribute of %@",name,[entity name]] forKey:NSLocalizedDescriptionKey]];
+     return nil;
+    }
+
+    id value=[updates objectForKey:key];
+
+    if([value isKindOfClass:[NSExpression class]])
+     value=[(NSExpression *)value expressionValueWithObject:nil context:nil];
+
+    [assignments addObject:[NSString stringWithFormat:@"\"%@\" = ?",columnNameForProperty(name)]];
+    [boundAttributes addObject:property];
+    [boundValues addObject:(value!=nil)?value:(id)[NSNull null]];
+   }
+
+   if(!executeSQL(DATABASE,@"BEGIN",error))
+    return nil;
+
+   NSUInteger chunkStart,total=[targetIDs count];
+
+   for(chunkStart=0;chunkStart<total;chunkStart+=500){
+    NSRange         range=NSMakeRange(chunkStart,MIN((NSUInteger)500,total-chunkStart));
+    NSMutableArray *pks=[NSMutableArray array];
+
+    for(NSManagedObjectID *objectID in [targetIDs subarrayWithRange:range])
+     [pks addObject:[NSString stringWithFormat:@"%lld",primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID])]];
+
+    NSString     *sql=[NSString stringWithFormat:@"UPDATE \"%@\" SET %@ WHERE Z_PK IN (%@)",tableNameForEntity(entity),[assignments componentsJoinedByString:@", "],[pks componentsJoinedByString:@", "]];
+    sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
+
+    if(statement==NULL){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+
+    int        index=1;
+    NSUInteger i,count=[boundAttributes count];
+
+    for(i=0;i<count;i++){
+     id value=[boundValues objectAtIndex:i];
+
+     if(value==[NSNull null])
+      sqlite3_bind_null(statement,index++);
+     else
+      bindAttributeValue(statement,index++,[boundAttributes objectAtIndex:i],value);
+    }
+
+    BOOL ok=(sqlite3_step(statement)==SQLITE_DONE);
+
+    sqlite3_finalize(statement);
+
+    if(!ok){
+     if(error!=NULL)
+      *error=sqliteError(DATABASE,NSPersistentStoreSaveError,[NSString stringWithFormat:@"unable to batch update %@",[entity name]]);
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+   }
+
+   if(!writeMetadata(DATABASE,[self metadata],error) || !executeSQL(DATABASE,@"COMMIT",error)){
+    executeSQL(DATABASE,@"ROLLBACK",NULL);
+    return nil;
+   }
+
+   switch([request resultType]){
+    case NSUpdatedObjectIDsResultType:
+     return [[[NSBatchUpdateResult alloc] _initWithResult:targetIDs resultType:NSUpdatedObjectIDsResultType] autorelease];
+    case NSUpdatedObjectsCountResultType:
+     return [[[NSBatchUpdateResult alloc] _initWithResult:[NSNumber numberWithUnsignedInteger:total] resultType:NSUpdatedObjectsCountResultType] autorelease];
+    default:
+     return [[[NSBatchUpdateResult alloc] _initWithResult:[NSNumber numberWithBool:YES] resultType:NSStatusOnlyResultType] autorelease];
+   }
+}
+
+-(id)_executeBatchDeleteRequest:(NSBatchDeleteRequest *)request error:(NSError **)error {
+   NSArray *explicitIDs=[request _objectIDsToDelete];
+   NSArray *targetIDs=nil;
+
+   if(explicitIDs!=nil){
+    /* Keep only IDs whose rows actually exist in this store. */
+    NSMutableArray *existing=[NSMutableArray array];
+
+    for(NSManagedObjectID *objectID in explicitIDs){
+     if([objectID isTemporaryID])
+      continue;
+
+     long long primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID]);
+
+     if([self _entityIDOfRowWithPrimaryKey:primaryKey inTable:tableNameForEntity([objectID entity])]!=0)
+      [existing addObject:objectID];
+    }
+
+    targetIDs=existing;
+   }
+   else {
+    NSFetchRequest      *fetch=[request fetchRequest];
+    NSEntityDescription *entity=[fetch _entityIfResolved];
+
+    if(entity==nil){
+     if(error!=NULL)
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:@"batch delete: the fetch request has no entity" forKey:NSLocalizedDescriptionKey]];
+     return nil;
+    }
+
+    targetIDs=[self _batchTargetObjectIDsForEntity:entity predicate:[fetch predicate] includesSubentities:[fetch includesSubentities] error:error];
+
+    if(targetIDs==nil)
+     return nil;
+   }
+
+   if(!executeSQL(DATABASE,@"BEGIN",error))
+    return nil;
+
+   for(NSManagedObjectID *objectID in targetIDs){
+    if(![self _deleteRowWithEntity:[objectID entity] primaryKey:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID]) error:error]){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+   }
+
+   if(!writeMetadata(DATABASE,[self metadata],error) || !executeSQL(DATABASE,@"COMMIT",error)){
+    executeSQL(DATABASE,@"ROLLBACK",NULL);
+    return nil;
+   }
+
+   switch([request resultType]){
+    case NSBatchDeleteResultTypeObjectIDs:
+     return [[[NSBatchDeleteResult alloc] _initWithResult:targetIDs resultType:NSBatchDeleteResultTypeObjectIDs] autorelease];
+    case NSBatchDeleteResultTypeCount:
+     return [[[NSBatchDeleteResult alloc] _initWithResult:[NSNumber numberWithUnsignedInteger:[targetIDs count]] resultType:NSBatchDeleteResultTypeCount] autorelease];
+    default:
+     return [[[NSBatchDeleteResult alloc] _initWithResult:[NSNumber numberWithBool:YES] resultType:NSBatchDeleteResultTypeStatusOnly] autorelease];
+   }
+}
+
 -(id)executeRequest:(NSPersistentStoreRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
    if([request requestType]==NSFetchRequestType)
     return [self _executeFetchRequest:(NSFetchRequest *)request withContext:context error:error];
 
    if([request requestType]==NSSaveRequestType)
     return [self _executeSaveRequest:(NSSaveChangesRequest *)request withContext:context error:error];
+
+   if([request requestType]==NSBatchInsertRequestType)
+    return [self _executeBatchInsertRequest:(NSBatchInsertRequest *)request error:error];
+
+   if([request requestType]==NSBatchUpdateRequestType)
+    return [self _executeBatchUpdateRequest:(NSBatchUpdateRequest *)request error:error];
+
+   if([request requestType]==NSBatchDeleteRequestType)
+    return [self _executeBatchDeleteRequest:(NSBatchDeleteRequest *)request error:error];
 
    if(error!=NULL)
     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:@"Unsupported request type" forKey:NSLocalizedDescriptionKey]];

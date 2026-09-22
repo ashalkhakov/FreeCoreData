@@ -9,29 +9,29 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
+#import <CoreData/NSPersistentStoreRequest.h>
 #import <CoreData/NSPersistentStoreResult.h>
 
-@interface NSAsynchronousFetchResult (CDPrivate)
+@class NSFetchRequest;
 
-- (instancetype)_initWithManagedObjectContext:(NSManagedObjectContext *)context
-                                 fetchRequest:(NSAsynchronousFetchRequest *)request
-                                     progress:(NSProgress *)progress;
+/* Deletes the rows matched by a fetch request (or an explicit list of
+   object IDs) directly in a persistent store, bypassing contexts: no
+   delete rules run beyond the store's own referential cleanup, no
+   validation, and loaded contexts keep their objects until
+   mergeChangesFromRemoteContextSave:intoContexts: (or a refresh)
+   tells them. */
+@interface NSBatchDeleteRequest : NSPersistentStoreRequest {
+    NSFetchRequest *_fetchRequest;
+    NSArray *_objectIDs;
+    NSBatchDeleteRequestResultType _resultType;
+}
 
-/* Called by the executing context, on its queue, before the completion
-   block runs. */
-- (void)_setFinalResult:(NSArray *)result;
-- (void)_setOperationError:(NSError *)error;
+- (instancetype)initWithFetchRequest:(NSFetchRequest *)fetch;
+- (instancetype)initWithObjectIDs:(NSArray *)objects;
 
-@end
+- (NSFetchRequest *)fetchRequest;
 
-@interface NSBatchInsertResult (CDPrivate)
-- (instancetype)_initWithResult:(id)result resultType:(NSBatchInsertRequestResultType)resultType;
-@end
+- (NSBatchDeleteRequestResultType)resultType;   /* default StatusOnly */
+- (void)setResultType:(NSBatchDeleteRequestResultType)resultType;
 
-@interface NSBatchUpdateResult (CDPrivate)
-- (instancetype)_initWithResult:(id)result resultType:(NSBatchUpdateRequestResultType)resultType;
-@end
-
-@interface NSBatchDeleteResult (CDPrivate)
-- (instancetype)_initWithResult:(id)result resultType:(NSBatchDeleteRequestResultType)resultType;
 @end

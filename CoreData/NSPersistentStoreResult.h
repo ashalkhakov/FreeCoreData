@@ -48,3 +48,58 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSArray *)finalResult;
 
 @end
+
+/* What a batch request's result carries: a bare success flag, the
+   object IDs of the affected rows, or their count. */
+enum {
+    NSBatchInsertRequestResultTypeStatusOnly = 0x0,
+    NSBatchInsertRequestResultTypeObjectIDs = 0x1,
+    NSBatchInsertRequestResultTypeCount = 0x2
+};
+typedef NSUInteger NSBatchInsertRequestResultType;
+
+enum {
+    NSStatusOnlyResultType = 0x0,
+    NSUpdatedObjectIDsResultType = 0x1,
+    NSUpdatedObjectsCountResultType = 0x2
+};
+typedef NSUInteger NSBatchUpdateRequestResultType;
+
+enum {
+    NSBatchDeleteResultTypeStatusOnly = 0x0,
+    NSBatchDeleteResultTypeObjectIDs = 0x1,
+    NSBatchDeleteResultTypeCount = 0x2
+};
+typedef NSUInteger NSBatchDeleteRequestResultType;
+
+/* result is an NSNumber (status or count) or an NSArray of
+   NSManagedObjectIDs, per the request's resultType. */
+@interface NSBatchInsertResult : NSPersistentStoreResult {
+    id _result;
+    NSBatchInsertRequestResultType _resultType;
+}
+
+- (id)result;
+- (NSBatchInsertRequestResultType)resultType;
+
+@end
+
+@interface NSBatchUpdateResult : NSPersistentStoreResult {
+    id _result;
+    NSBatchUpdateRequestResultType _resultType;
+}
+
+- (id)result;
+- (NSBatchUpdateRequestResultType)resultType;
+
+@end
+
+@interface NSBatchDeleteResult : NSPersistentStoreResult {
+    id _result;
+    NSBatchDeleteRequestResultType _resultType;
+}
+
+- (id)result;
+- (NSBatchDeleteRequestResultType)resultType;
+
+@end

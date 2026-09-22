@@ -88,3 +88,84 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 @end
+
+@implementation NSBatchInsertResult
+
+-(void)dealloc {
+   [_result release];
+   [super dealloc];
+}
+
+-(id)result {
+   return _result;
+}
+
+-(NSBatchInsertRequestResultType)resultType {
+   return _resultType;
+}
+
+@end
+
+@implementation NSBatchInsertResult (CDPrivate)
+
+-(instancetype)_initWithResult:(id)result resultType:(NSBatchInsertRequestResultType)resultType {
+   _result=[result retain];
+   _resultType=resultType;
+   return self;
+}
+
+@end
+
+@implementation NSBatchUpdateResult
+
+-(void)dealloc {
+   [_result release];
+   [super dealloc];
+}
+
+-(id)result {
+   return _result;
+}
+
+-(NSBatchUpdateRequestResultType)resultType {
+   return _resultType;
+}
+
+@end
+
+@implementation NSBatchUpdateResult (CDPrivate)
+
+-(instancetype)_initWithResult:(id)result resultType:(NSBatchUpdateRequestResultType)resultType {
+   _result=[result retain];
+   _resultType=resultType;
+   return self;
+}
+
+@end
+
+@implementation NSBatchDeleteResult
+
+-(void)dealloc {
+   [_result release];
+   [super dealloc];
+}
+
+-(id)result {
+   return _result;
+}
+
+-(NSBatchDeleteRequestResultType)resultType {
+   return _resultType;
+}
+
+@end
+
+@implementation NSBatchDeleteResult (CDPrivate)
+
+-(instancetype)_initWithResult:(id)result resultType:(NSBatchDeleteRequestResultType)resultType {
+   _result=[result retain];
+   _resultType=resultType;
+   return self;
+}
+
+@end
