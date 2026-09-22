@@ -28,6 +28,17 @@ typedef NS_ENUM(NSInteger, MBSourceKind) {
 };
 
 /* One row of the source list. */
+/* The inspector's document view.  Flipped, so its pages hang from the top
+   and it grows downwards: taller than the inspector and it scrolls from
+   the top, shorter and the space is left below it.  (NSTabView cannot be
+   flipped from a xib, hence a view to hold it.) */
+@interface MBFlippedView : NSView
+@end
+
+@implementation MBFlippedView
+- (BOOL)isFlipped { return YES; }
+@end
+
 @interface MBSourceItem : NSObject
 @property (nonatomic, assign) MBSourceKind kind;
 @property (nonatomic, copy) NSString *name;
@@ -96,7 +107,6 @@ static void MBDisableControlsOfClass(NSView *root, Class cls, NSString *tooltip)
 }
 
 static NSImage *MBBadgeImage(NSString *letters, CGFloat red, CGFloat green, CGFloat blue);
-static void MBFitTablesIn(NSView *view, id observer);
 
 static NSImage *MBFirstImageNamed(NSArray *names)
 {
@@ -135,32 +145,6 @@ static void MBRepairSegmentImages(NSView *view)
         MBRepairSegmentImages(item.view);
 }
 
-#if !defined(__APPLE__)
-/* The inspector's value fields are borderless, bezel-less editable text
-   fields sitting beside labels, centred on them in the xib.  GNUstep draws
-   such a field's text about 2 pt higher than a label's, so each one read
-   as floating above its label ("Name", "Renaming ID").  Lower them by
-   that much -- all of them, including the pages not showing. */
-static void MBAlignBorderlessFieldsIn(NSView *view)
-{
-  if ([view isKindOfClass:[NSTextField class]]) {
-    NSTextField *field = (NSTextField *)view;
-    if (field.isEditable && !field.isBezeled && !field.isBordered) {
-      NSRect frame = field.frame;
-      frame.origin.y -= (field.superview.isFlipped ? -2.0 : 2.0);
-      field.frame = frame;
-    }
-    return;
-  }
-  for (NSView *subview in view.subviews)
-    MBAlignBorderlessFieldsIn(subview);
-  if ([view isKindOfClass:[NSTabView class]])
-    for (NSTabViewItem *item in [(NSTabView *)view tabViewItems])
-      if (item.view.superview == nil)
-        MBAlignBorderlessFieldsIn(item.view);
-}
-#endif
-
 /* The first split view among a view's immediate subviews. */
 static NSSplitView *MBFirstSplitViewIn(NSView *view)
 {
@@ -184,11 +168,6 @@ static const CGFloat MBInspectorMinimum = 260.0;
      (source list | center pane).  -splitView:shouldAdjustSizeOfSubview:
      holds the three side panes at their size. */
   NSSplitView *_outerSplit, *_barSplit, *_sourceSplit;
-
-  /* The inspector pages' natural height (the xib's); the inspector's
-     document view is never made shorter, so a short window scrolls it
-     rather than squeezing its sections. */
-  CGFloat _inspectorContentHeight;
 
   MBSourceItem *_entitiesGroup, *_fetchesGroup, *_configurationsGroup;
   NSArray *_entityItems, *_fetchItems, *_configurationItems;
@@ -230,32 +209,6 @@ static const CGFloat MBInspectorMinimum = 260.0;
   self.window.minSize = NSMakeSize(MBSidePaneMinimum + MBCenterPaneMinimum +
                                        MBInspectorMinimum + 2.0,
                                    480.0);
-#if !defined(__APPLE__)
-  MBAlignBorderlessFieldsIn(self.inspectorTabView);
-#endif
-  NSClipView *inspectorClip = (NSClipView *)self.inspectorTabView.superview;
-  if ([inspectorClip isKindOfClass:[NSClipView class]]) {
-    _inspectorContentHeight = NSHeight(self.inspectorTabView.frame);
-    inspectorClip.postsFrameChangedNotifications = YES;
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(mbFitInspectorDocument)
-                                                 name:NSViewFrameDidChangeNotification
-                                               object:inspectorClip];
-    [self mbFitInspectorDocument];
-  }
-#if !defined(__APPLE__)
-  MBFitTablesIn(self.window.contentView, self);
-  /* and again once the window has had its first layout pass, which moves
-     the sections after this point */
-  [self performSelector:@selector(mbFitAllTables) withObject:nil afterDelay:0];
-#endif
-#if !defined(__APPLE__)
-  /* These tables take AppKit's private _sourceListBackgroundColor from
-     the xib; GNUstep has no such color and they draw black. */
-  for (NSTableView *table in @[ self.attributeTable, self.relationshipTable,
-                                self.memberTable ])
-    table.backgroundColor = [NSColor controlBackgroundColor];
-#endif
 
   /* The section names and stacking indexes are IB runtime attributes
      on the JUInspectorViews.  GNUstep's GSXib5 does not (yet) apply
@@ -2048,93 +2001,6 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
     return subview != panes.firstObject;
   }
   return YES;
-}
-
-/* Every table in the window is lastColumnOnly in the xib.  Cocoa widens
-   such a table with its clip view; GNUstep's xib loader drops the style,
-   so each table kept its nib width, with a grey strip beside it in a
-   wider window.  Each table is re-fitted
-   whenever its clip view changes size (the window, a divider, a section
-   opening or closing). */
-static void MBFitTable(NSTableView *table)
-{
-  NSArray *columns = table.tableColumns;
-  NSClipView *clip = table.enclosingScrollView.contentView;
-  if (columns.count == 0 || clip == nil) return;
-  /* Not by restoring the style: with it set, GNUstep answers a column
-     width change by redistributing against the table's current width,
-     which undoes the fit. */
-  /* GNUstep's table is exactly as wide as its columns: the intercell
-     spacing is inside them, not between them as on Cocoa. */
-  CGFloat used = 0;
-  for (NSTableColumn *column in columns)
-    if (column != columns.lastObject && !column.isHidden)
-      used += column.width;
-  NSTableColumn *last = columns.lastObject;
-  last.width = MAX(last.minWidth, NSWidth(clip.bounds) - used);
-  [table tile];
-}
-
-static void MBFitTablesIn(NSView *view, id observer)
-{
-  if ([view isKindOfClass:[NSTableView class]]) {
-    NSTableView *table = (NSTableView *)view;
-    NSClipView *clip = table.enclosingScrollView.contentView;
-    if (clip && observer) {
-      clip.postsFrameChangedNotifications = YES;
-      [[NSNotificationCenter defaultCenter] addObserver:observer
-                                               selector:@selector(mbTableClipFrameChanged:)
-                                                   name:NSViewFrameDidChangeNotification
-                                                 object:clip];
-    }
-    MBFitTable(table);
-    return;
-  }
-  for (NSView *subview in view.subviews)
-    MBFitTablesIn(subview, observer);
-  if ([view isKindOfClass:[NSTabView class]])
-    for (NSTabViewItem *item in [(NSTabView *)view tabViewItems])
-      if (item.view.superview == nil)
-        MBFitTablesIn(item.view, observer);
-}
-
-- (void)mbFitAllTables
-{
-  MBFitTablesIn(self.window.contentView, nil);
-  [self mbFitInspectorDocument];
-}
-
-/* The inspector's sections have fixed heights and hang from the top of
-   its document view.  That view spans the clip view's width, and is as
-   tall as the pages or the clip view, whichever is more: shorter, and the
-   sections would be cut off at the bottom with nothing to scroll to.
-   The view is unflipped, so the top is at its far end -- scroll there. */
-- (void)mbFitInspectorDocument
-{
-  NSView *document = self.inspectorTabView;
-  NSClipView *clip = (NSClipView *)document.superview;
-  if (![clip isKindOfClass:[NSClipView class]] || _inspectorContentHeight <= 0) return;
-  NSRect visible = clip.bounds;
-  CGFloat height = MAX(_inspectorContentHeight, NSHeight(visible));
-  NSRect frame = NSMakeRect(0, 0, NSWidth(visible), height);
-  if (!NSEqualRects(document.frame, frame))
-    document.frame = frame;
-  if (!document.isFlipped) {
-    [clip scrollToPoint:NSMakePoint(0, height - NSHeight(visible))];
-    [clip.enclosingScrollView reflectScrolledClipView:clip];
-  }
-}
-
-- (void)mbTableClipFrameChanged:(NSNotification *)notification
-{
-  NSClipView *clip = notification.object;
-  if ([clip.documentView isKindOfClass:[NSTableView class]])
-    MBFitTable((NSTableView *)clip.documentView);
-}
-
-- (void)dealloc
-{
-  [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 #if !defined(__APPLE__)

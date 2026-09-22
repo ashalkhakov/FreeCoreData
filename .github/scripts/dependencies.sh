@@ -20,11 +20,17 @@
 # XCTest, so tools-xctest is; and the packaged app ships with the Eau theme,
 # which has to be built against the same gui it will be loaded into.
 #
-# Every GNUstep fix this project used to carry as a patch has been merged
-# upstream, so each library is built from its master as it stands.
+# Two fixes are carried as patches in patches/gnustep/, applied below; they
+# are written for upstream and held here until they can be sent. See
+# patches/gnustep/README.md. Everything else is built from master as it
+# stands.
 #
 # Expects: CC, CXX, LIBRARY_COMBO, RUNTIME_VERSION, DEPS_PATH, INSTALL_PATH.
 set -ex
+
+# Captured before anything cds away: the patches are named relative to the
+# checkout.
+WORKSPACE_DIR=$(pwd)
 
 mkdir -p "$DEPS_PATH"
 
@@ -125,6 +131,10 @@ install_libs_gui() {
     . "$GNUSTEP_SH"
     git clone -q -b ${LIBS_GUI_BRANCH:-master} https://github.com/gnustep/libs-gui.git
     cd libs-gui
+    # -setColumnAutoresizingStyle: is an unimplemented stub, so a table in a
+    # nib never follows its scroll view's width: ModelBuilder's tables kept
+    # their nib width inside a wider window, or overflowed a narrower one.
+    patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-gui-tableview-column-autoresizing-style.patch"
     ./configure --prefix="$INSTALL_PATH" || cat config.log
     make install
     echo "::endgroup::"
@@ -166,6 +176,9 @@ install_eau_theme() {
     . "$GNUSTEP_SH"
     git clone -q --depth 1 https://github.com/gershwin-desktop/gershwin-eau-theme.git Eau
     cd Eau
+    # The theme makes every NSTextField unbezeled, nib-loaded ones included,
+    # so each input field in a nib drew flat, its text higher than its label.
+    patch -p1 < "$WORKSPACE_DIR/patches/gnustep/eau-theme-keep-nib-textfield-bezel.patch"
     # The theme uses blocks, and nothing in a theme bundle's link line pulls
     # the runtime in on its own. BlocksRuntime is only a separate library when
     # libdispatch built its own; ours is told to use libobjc's, so ask for it

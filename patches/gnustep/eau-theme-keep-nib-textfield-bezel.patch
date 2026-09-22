@@ -1,0 +1,23 @@
+diff --git a/NSTextFieldCell+Eau.m b/NSTextFieldCell+Eau.m
+index 0b66cd1..1e37ee1 100644
+--- a/NSTextFieldCell+Eau.m
++++ b/NSTextFieldCell+Eau.m
+@@ -262,12 +262,12 @@ titleRect.size.height += 2;
+ 
+ - (id)initEauWithCoder:(NSCoder *)aDecoder
+ {
+-  self = [self initEauWithCoder:aDecoder];
+-  if (self != nil)
+-    {
+-      [self setBezeled: NO];
+-    }
+-  return self;
++  /* A field from a nib already says whether it is bezeled -- an input
++     field in Interface Builder is -- so leave it as the nib has it.  The
++     unbezeled default is for fields made in code, where a label is the
++     common case; overriding the nib turned every input field in it into
++     a flat one, with its text drawn higher than its label. */
++  return [self initEauWithCoder:aDecoder];
+ }
+ 
+ @end
