@@ -75,6 +75,8 @@ scenario.  It builds against this port on GNUstep and, via the bundled
 
 ## Model editor
 
+![ModelBuilder on GNUstep/Linux with the Eau theme](Screenshots/ModelBuilder-Linux.png)
+
 `ModelBuilder/` is a document-based AppKit editor for Xcode `.xcdatamodeld`
 packages (current version only). It lives at the repo root next to `Tools/momc`
 and `coredata-model.make`. Edit a model, then compile it:

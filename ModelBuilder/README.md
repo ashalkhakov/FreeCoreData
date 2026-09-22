@@ -3,6 +3,8 @@
 Document-based AppKit editor for Xcode `.xcdatamodeld` packages — the
 GNUstep counterpart of Xcode's Core Data model editor.
 
+![ModelBuilder on GNUstep/Linux with the Eau theme](../Screenshots/ModelBuilder-Linux.png)
+
 The document **is** an `NSManagedObjectModel`. Opening a package runs
 the version XML through `CDModelCompiler` (momc's parser); saving runs
 the live model back through `CDModelSerializer` (its inverse). The

@@ -26,6 +26,64 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertNotNil([model entities]);
 }
 
+/* Article.author <-> Author.articles, with the given names for the Author
+   entity and its to-many relationship. */
+static NSManagedObjectModel *MBTAuthorArticleModel(NSString *authorName,
+                                                   NSString *articlesName,
+                                                   NSEntityDescription **authorOut,
+                                                   NSRelationshipDescription **articlesOut)
+{
+    NSEntityDescription *author = [[NSEntityDescription alloc] init];
+    author.name = authorName;
+    NSEntityDescription *article = [[NSEntityDescription alloc] init];
+    article.name = @"Article";
+    NSRelationshipDescription *articles = [[NSRelationshipDescription alloc] init];
+    articles.name = articlesName;
+    articles.destinationEntity = article;
+    articles.maxCount = 0;
+    NSRelationshipDescription *writer = [[NSRelationshipDescription alloc] init];
+    writer.name = @"author";
+    writer.destinationEntity = author;
+    writer.maxCount = 1;
+    articles.inverseRelationship = writer;
+    writer.inverseRelationship = articles;
+    author.properties = @[ articles ];
+    article.properties = @[ writer ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ author, article ];
+    if (authorOut) *authorOut = author;
+    if (articlesOut) *articlesOut = articles;
+    return model;
+}
+
+/* Renaming a relationship's destination entity or its inverse leaves the
+   relationship describing the new names: the version hashes are those of
+   a model built with the new names, and an archive round trip resolves to
+   them.  (The port cached the names, unretained, when the links were set:
+   stale after a rename, and read after the old string was freed.) */
+- (void)testRenamingRelatedEntityAndInverseKeepsRelationshipsCurrent
+{
+    NSEntityDescription *author = nil;
+    NSRelationshipDescription *articles = nil;
+    NSManagedObjectModel *model = MBTAuthorArticleModel(@"Author", @"articles",
+                                                        &author, &articles);
+    (void)[model entityVersionHashesByName];
+
+    author.name = @"Writer";
+    articles.name = @"writings";
+
+    NSManagedObjectModel *expected = MBTAuthorArticleModel(@"Writer", @"writings", NULL, NULL);
+    XCTAssertEqualObjects([model entityVersionHashesByName],
+                          [expected entityVersionHashesByName]);
+
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:model];
+    NSManagedObjectModel *copy = [NSKeyedUnarchiver unarchiveObjectWithData:data];
+    NSEntityDescription *article2 = copy.entitiesByName[@"Article"];
+    NSRelationshipDescription *author2 = article2.relationshipsByName[@"author"];
+    XCTAssertEqualObjects(author2.destinationEntity.name, @"Writer");
+    XCTAssertEqualObjects(author2.inverseRelationship.name, @"writings");
+}
+
 /* An entity knows its model, and one renamed after it joined the model is
    found under the new name -- Apple re-keys the model. */
 - (void)testRenamingEntityRekeysModel

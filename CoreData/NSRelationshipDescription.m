@@ -37,6 +37,24 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 
+/* The names of the destination entity and of the inverse.  The objects,
+   once linked, are the authority -- they may have been renamed since --
+   and the names decoded from an archive stand in only until they are. */
+- (NSString *) _destinationEntityName {
+   return (_destinationEntity!=nil)?[_destinationEntity name]:_destinationEntityName;
+}
+
+- (NSString *) _inverseRelationshipName {
+   return (_inverseRelationship!=nil)?[_inverseRelationship name]:_inverseRelationshipName;
+}
+
+- (void) dealloc {
+   [_destinationEntityName release];
+   [_inverseRelationshipName release];
+   [super dealloc];
+}
+
+
 - (void) encodeWithCoder: (NSCoder *) coder {
    [super encodeWithCoder:coder];
 
@@ -49,8 +67,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    [coder encodeInt:_maxCount forKey: @"NSMaxCount"];
    [coder encodeInt:_minCount forKey: @"NSMinCount"];
 
-   NSString *destinationEntityName=(_destinationEntityName!=nil)?_destinationEntityName:[_destinationEntity name];
-   NSString *inverseRelationshipName=(_inverseRelationshipName!=nil)?_inverseRelationshipName:[_inverseRelationship name];
+   NSString *destinationEntityName=[self _destinationEntityName];
+   NSString *inverseRelationshipName=[self _inverseRelationshipName];
 
    if(destinationEntityName!=nil)
     [coder encodeObject:destinationEntityName forKey: @"_NSDestinationEntityName"];
@@ -61,7 +79,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 - (NSString *) description {
     return [NSString stringWithFormat: @"<NSRelationshipDescription: %@->%@>",
-		     _propertyName, _destinationEntityName];
+		     _propertyName, [self _destinationEntityName]];
 }
 
 
@@ -150,7 +168,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     }
     
     _destinationEntity = value;
-    _destinationEntityName = [value name];
+    /* Not a copy of its name: that went stale -- and, unretained, dangling
+       -- the moment the entity was renamed. */
+    [_destinationEntityName release];
+    _destinationEntityName = nil;
 }
 
 
@@ -161,12 +182,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     }
     
     _inverseRelationship = value;
-    _inverseRelationshipName = [value name];
+    [_inverseRelationshipName release];
+    _inverseRelationshipName = nil;
 }
 
 
 - (void) _appendVersionHashComponents: (NSMutableArray *) components {
-    NSString *destinationName=(_destinationEntityName!=nil)?_destinationEntityName:[_destinationEntity name];
+    NSString *destinationName=[self _destinationEntityName];
 
     [super _appendVersionHashComponents:components];
     [components addObject:(destinationName!=nil)?destinationName:@""];
