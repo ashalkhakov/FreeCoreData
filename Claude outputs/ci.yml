@@ -1,0 +1,274 @@
+name: CI
+
+# Ported from XFormsKit's CI.
+#
+# pull_request fires for a PR against any branch, and uses the workflow file
+# from the PR's own head -- so a branch can run CI through a PR before this
+# file has ever existed on master.
+#
+# workflow_dispatch is the opposite: GitHub only offers the "Run workflow"
+# button for workflows present on the repository's DEFAULT branch. Until this
+# lands on master there is no button, however the file is written.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A run that lands while an earlier one is still going supersedes it; there is
+# no value in finishing CI for a commit nobody will look at again.
+#
+# The key is the branch NAME rather than the ref, so that a push and the pull
+# request for the same branch share one group: pushing to a branch with an
+# open PR would otherwise start two nearly identical runs, and on a private
+# repository the macOS half of each bills at 10x. github.head_ref is set only
+# for pull_request events, where it is the source branch; github.ref_name is
+# the branch for a push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  ########################### macOS / Cocoa ###########################
+  # On a Mac the framework under test is Apple's: CoreDataTests.xcodeproj
+  # links the system CoreData, so the same suite that checks this port on
+  # GNUstep is checked against the implementation it is a port OF. A test
+  # that is red here is wrong about Core Data, not a bug in the port.
+  #
+  # ModelBuilder builds on Cocoa and the system CoreData too, which is how
+  # Mac users get it -- see release.yml for the signed build.
+  #
+  # macOS minutes bill at 10x on a private repository. Adding
+  #   if: github.event_name != 'push' || github.ref == 'refs/heads/master'
+  # confines this job to pull requests and the default branch.
+  macos:
+    name: macOS
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      # Neither project shares its scheme; xcodebuild autocreates one per
+      # target, named for it, which is what -scheme picks up here.
+      - name: Build ModelBuilder
+        run: |
+          xcodebuild -project ModelBuilder/ModelBuilder.xcodeproj -scheme ModelBuilder \
+            -destination 'platform=macOS' -configuration Debug \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" build
+
+      - name: Unit tests (against Apple's CoreData)
+        run: |
+          xcodebuild -project CoreDataTests.xcodeproj -scheme CoreDataTests \
+            -destination 'platform=macOS' -configuration Debug \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/CoreDataTests.xcresult" test
+
+      # An unsigned build on every commit, so there is always something to
+      # hand someone. release.yml makes the signed, notarized one; this is
+      # named for the commit and expires. Gatekeeper refuses it on another
+      # Mac until it is right-clicked and opened, which is the point of the
+      # release build.
+      - name: Package the app
+        run: |
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Debug/ModelBuilder.app"
+          test -x "$app/Contents/MacOS/ModelBuilder" \
+            || { echo "::error::no ModelBuilder.app at $app"; exit 1; }
+          ditto -c -k --keepParent "$app" ModelBuilder-macOS-unsigned.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ModelBuilder-macOS-${{ github.sha }}
+          path: ModelBuilder-macOS-unsigned.zip
+          retention-days: 14
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: macos-test-results
+          path: ${{ runner.temp }}/*.xcresult
+          retention-days: 7
+
+  ########################### GNUstep / Linux ###########################
+  # The port itself: the framework, momc, the XCTest suite against the
+  # framework built in the tree, ModelBuilder and its end-to-end probes, and
+  # the AppImage Linux users run it from.
+  gnustep:
+    name: Ubuntu (GNUstep, clang, gnustep-2.0)
+    runs-on: ubuntu-latest
+    # The dependency build is the long pole; everything after it is minutes.
+    timeout-minutes: 90
+    env:
+      SRC_PATH: ${{ github.workspace }}/source
+      DEPS_PATH: ${{ github.workspace }}/dependencies
+      INSTALL_PATH: ${{ github.workspace }}/build
+      CC: clang
+      CXX: clang++
+      LIBRARY_COMBO: ng-gnu-gnu
+      RUNTIME_VERSION: gnustep-2.0
+      # libobjc2 and libdispatch land in the prefix's plain lib/, which the
+      # gnustep layout does not treat as a library root. GNUstep.sh prepends
+      # the roots it does know about to this.
+      LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/source
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Install packages
+        run: |
+          ./.github/scripts/apt-update.sh
+          sudo apt-get -q -y install \
+            pkg-config libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev \
+            libssl-dev libavahi-client-dev zlib1g-dev gnutls-bin libcurl4-gnutls-dev \
+            libgmp-dev libcairo2-dev libjpeg-dev libtiff-dev libpng-dev libicns-dev \
+            libpthread-workqueue-dev libsqlite3-dev \
+            libfreetype-dev libfontconfig1-dev libxrender-dev liblcms2-dev \
+            libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
+            xvfb
+          # libsqlite3-dev is the framework's own: NSSQLitePersistentStore
+          # links it. The rest is the GNUstep stack's, as XFormsKit builds it.
+          #
+          # The gnustep-2.0 runtime needs ld.gold or lld. ld.gold is gone from
+          # binutils on newer Ubuntu, so fall back to lld rather than failing
+          # on a missing alternative.
+          if [ -x /usr/bin/ld.gold ]; then
+            sudo update-alternatives --install /usr/bin/ld ld /usr/bin/ld.gold 10
+          else
+            sudo apt-get -q -y install lld
+            sudo update-alternatives --install /usr/bin/ld ld /usr/bin/ld.lld 10
+          fi
+          ld --version | head -1
+
+      # The whole GNUstep stack is built from source, which takes far longer
+      # than this project does. It only changes when the pinned dependency
+      # script changes, so it is cached against that. Restored and saved as two
+      # separate steps rather than with the combined action, so the save
+      # captures the stack before anything of ours is built against it.
+      - name: Restore GNUstep
+        id: gnustep-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.INSTALL_PATH }}
+          key: gnustep-v1-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh', 'source/patches/gnustep/*.patch') }}
+
+      - name: Build GNUstep
+        if: steps.gnustep-cache.outputs.cache-hit != 'true'
+        run: ./.github/scripts/dependencies.sh
+
+      - name: Save GNUstep
+        if: steps.gnustep-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.INSTALL_PATH }}
+          key: gnustep-v1-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh', 'source/patches/gnustep/*.patch') }}
+
+      # CoreData's queue-confined contexts sit on libdispatch, which
+      # dependencies.sh builds (with its private headers) before
+      # gnustep-base.  Base's configure then finds the _4CF main-queue
+      # hooks and builds NSRunLoop to drain the main dispatch queue --
+      # without that, a main-queue context's performBlock: never runs in
+      # a run-loop app, and nothing else fails loudly.  So check it here,
+      # on a cached stack as much as a fresh one.
+      - name: gnustep-base drains the main dispatch queue
+        run: |
+          base=$(ls "$INSTALL_PATH"/*/Library/Libraries/libgnustep-base.so.* | head -1)
+          for hook in _dispatch_main_queue_callback_4CF _dispatch_get_main_queue_handle_4CF; do
+            nm -D "$base" | grep -q " $hook\$" \
+              || { echo "::error::$base does not use $hook: gnustep-base was built without libdispatch main-queue support"; exit 1; }
+          done
+          echo "$base uses libdispatch's main-queue hooks"
+
+      # Built first and on its own, so a compile error in the framework is
+      # reported as that rather than as a test failure.
+      - name: Build CoreData
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make
+
+      # Links and runs against the framework just built in the tree
+      # (Tests/GNUmakefile points -L and LD_LIBRARY_PATH at
+      # ../CoreData.framework/Versions/Current), and builds momc on the way,
+      # since the fixture model is compiled with it.
+      - name: Unit tests
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C Tests run-tests
+
+      - name: Build ModelBuilder
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C ModelBuilder
+
+      # The document layer headless, then the real window loaded from its nib
+      # and driven control by control -- against a virtual display, since the
+      # backend is the cairo/X11 one the AppImage ships.
+      - name: ModelBuilder end-to-end
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C Tests/ModelBuilder
+          xvfb-run -a make -C Tests/ModelBuilder check
+
+      # Packaged on every commit, unstable ones included, so there is always
+      # a build to hand someone. Tagged releases are release.yml's job; these
+      # are named for the commit they came from and expire.
+      - name: Fetch linuxdeploy and the AppImage runtime
+        run: ./Scripts/install-linuxdeploy.sh
+
+      - name: Package the AppImage
+        env:
+          APP_VERSION: 0.0.0-${{ github.run_number }}-${{ github.sha }}
+        run: |
+          sudo apt-get -q -y install desktop-file-utils fonts-dejavu fonts-liberation
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          ./Scripts/stamp-version.sh "$APP_VERSION"
+          GNUSTEP_PREFIX="$INSTALL_PATH" ./Scripts/prepare-appdir.sh
+          GNUSTEP_PREFIX="$INSTALL_PATH" ./Scripts/package-appimage.sh
+
+      # The apps have to START, and Model Builder has to open a model. They
+      # are GUI-only, so each launch mode runs against a virtual display and
+      # is left for a moment: bare opens the launcher, a document path opens
+      # Model Builder, and each sample answers to its keyword. A bundle that
+      # cannot find its framework, the backend or its nibs -- or that dies
+      # reading a document -- does so here rather than for whoever downloads
+      # it.
+      - name: Smoke-test the AppImage
+        run: |
+          image=$(ls FreeCoreData-Linux-*.AppImage)
+          chmod +x "$image"
+          # "" is the no-argument case, which is what opening the image does.
+          for mode in "" Tests/MomcFixture.xcdatamodeld staffbook employeedirectory; do
+            log="$RUNNER_TEMP/smoke.log"
+            timeout 90 xvfb-run -a ./"$image" $mode > "$log" 2>&1 &
+            pid=$!
+            sleep 25
+            if kill -0 $pid 2>/dev/null; then
+              echo "${mode:-launcher}: up after 25s"
+              kill $pid 2>/dev/null || true
+              wait $pid 2>/dev/null || true
+            else
+              wait $pid; status=$?
+              cat "$log"
+              echo "::error::AppImage (${mode:-launcher}) exited on its own with status $status"
+              exit 1
+            fi
+            # Staying up is not enough: an app whose nib failed to load stays
+            # up too, as an icon with no menu and no window. GNUstep reports
+            # that on stderr, so it is read back from there.
+            if grep -E "Failed to load Xib|could not load nib|failed to load MainMenu" "$log"; then
+              echo "::error::AppImage (${mode:-launcher}) started without its interface"
+              exit 1
+            fi
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeCoreData-Linux-${{ github.sha }}
+          path: ${{ env.SRC_PATH }}/FreeCoreData-Linux-*.AppImage
+          retention-days: 14
