@@ -3,6 +3,9 @@
    Released under the MIT license. */
 #import <AppKit/AppKit.h>
 #import "MBDocument.h"
+#if !defined(__APPLE__)
+#import <AppKit/GSDisplayServer.h>
+#endif
 
 static BOOL MBLoadNib(NSString *name, id owner)
 {
@@ -78,6 +81,22 @@ int main(int argc, const char *argv[])
     [NSApplication sharedApplication];
 #ifdef __APPLE__
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+#else
+    /* The X11 backend reads its mouse settings on the first button press,
+       and doing so registers with the distributed notification center: a
+       synchronous round trip to gdnc, during which the run loop reads the
+       button RELEASE and queues it ahead of the press being processed.
+       The app then sees mouse-up before mouse-down, and a table's first
+       click waits in cell tracking for a mouse-up that already went by --
+       the next click is swallowed finishing it, which is how a click on
+       another attribute failed to update the inspector.  Settle it now,
+       while no click is in flight. */
+    {
+      id server = GSCurrentServer();
+      SEL initializeMouse = NSSelectorFromString(@"initializeMouse");
+      if ([server respondsToSelector:initializeMouse])
+        [server performSelector:initializeMouse];
+    }
 #endif
     (void)[NSDocumentController sharedDocumentController];
     if (!MBLoadNib(@"MainMenu", NSApp)) {

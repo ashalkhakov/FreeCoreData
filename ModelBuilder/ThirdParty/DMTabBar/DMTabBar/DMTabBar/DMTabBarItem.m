@@ -46,6 +46,11 @@ static CGFloat kDMTabBarItemGradientColor_Locations[] =     {0.0f, 0.5f, 1.0f};
         self.tabBarItemButton = [[NSButton alloc] initWithFrame:NSZeroRect];
         self.tabBarItemButton.cell = [[DMTabBarButtonCell alloc] init];
         self.tabBarItemButton.image = iconImage;
+        // ModelBuilder change (from RDLKit's copy): a tab shows its icon and
+        // nothing else. A button that is never given a title has none on
+        // Cocoa, but on GNUstep an NSButton starts out titled "Button".
+        self.tabBarItemButton.title = @"";
+        self.tabBarItemButton.imagePosition = NSImageOnly;
         self.tabBarItemButton.enabled = YES;
         self.tabBarItemButton.tag = itemTag;
         [self.tabBarItemButton sendActionOn:NSLeftMouseDownMask];

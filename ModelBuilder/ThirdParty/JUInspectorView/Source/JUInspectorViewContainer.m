@@ -96,10 +96,23 @@
     frame.size.width  = [self bounds].size.width;
     frame.size.height = height;
     
+    NSView *superview = [self superview];
     NSClipView *clipView = [[self enclosingScrollView] contentView];
-    if(clipView)
+    if(clipView && superview == clipView)
     {
         frame.size.width = [clipView documentRect].size.width;
+    }
+    else if(superview)
+    {
+        /* ModelBuilder change: placed inside another view (a tab page)
+           rather than as the scroll view's document view, the container
+           spans its superview less the margin it was placed at, and
+           keeps its TOP edge where it is -- in an unflipped superview
+           the origin is the bottom, and holding that pushed the sections
+           down whenever their height changed or the window grew. */
+        frame.size.width = MAX(0.0, NSWidth([superview bounds]) - 2.0 * frame.origin.x);
+        if(![superview isFlipped])
+            frame.origin.y = NSMaxY([self frame]) - height;
     }
     
     [super setFrame:frame];

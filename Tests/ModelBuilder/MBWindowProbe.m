@@ -228,26 +228,30 @@ int main(void)
           [xml rangeOfString:@"valueTransformerName"].location == NSNotFound,
           "no stale transformer in serialized XML");
 
-    SCENARIO("Center-pane combo columns list and apply their choices");
+    SCENARIO("Center-pane popup columns list and apply their choices");
     /* GIVEN the attribute table's Type column and the relationship
-            table's Destination/Inverse columns (NSComboBoxCells)
-       WHEN their drop-down lists are populated for a row and edits are
-            committed through the table's edit path
-       THEN the lists carry the momc type names / entities / the
-            destination's relationships plus (none), and each edit is
-            applied with its side effects (default dropped, stale
-            inverse unwired, both sides rewired) */
-    /* --- Center-pane combo columns (Type / Destination / Inverse). --- */
+            table's Destination/Inverse columns (NSPopUpButtonCells, as
+            in Xcode's model editor)
+       WHEN their menus are populated for a row and a choice is committed
+            through the table's edit path (as an item index, which is what
+            a popup cell hands back)
+       THEN the menus carry the momc type names / entities / the
+            destination's relationships plus (none), with the current
+            value selected, and each edit is applied with its side
+            effects (default dropped, stale inverse unwired, both sides
+            rewired) */
     NSTableColumn *typeColumn = [wc.attributeTable tableColumnWithIdentifier:@"type"];
-    NSComboBoxCell *typeCell = (NSComboBoxCell *)typeColumn.dataCell;
-    CHECK([typeCell isKindOfClass:[NSComboBoxCell class]], "Type column is a combo cell");
+    NSPopUpButtonCell *typeCell = (NSPopUpButtonCell *)typeColumn.dataCell;
+    CHECK([typeCell isKindOfClass:[NSPopUpButtonCell class]], "Type column is a popup cell");
     [wc tableView:wc.attributeTable willDisplayCell:typeCell forTableColumn:typeColumn row:1];
-    CHECK([typeCell numberOfItems] ==
-          (NSInteger)[[CDModelCompiler attributeTypeNames] count],
-          "Type combo list populated");
+    NSArray *typeNames = [CDModelCompiler attributeTypeNames];
+    CHECK([typeCell numberOfItems] == (NSInteger)typeNames.count, "Type popup populated");
 
     NSAttributeDescription *bInt = thing.attributesByName[@"bInt"];
-    [wc tableView:wc.attributeTable setObjectValue:@"String"
+    CHECK([[typeCell titleOfSelectedItem] isEqualToString:
+              [CDModelCompiler nameForAttributeType:bInt.attributeType]],
+          "Type popup selects the attribute's type");
+    [wc tableView:wc.attributeTable setObjectValue:@([typeNames indexOfObject:@"String"])
         forTableColumn:typeColumn row:1];
     CHECK(bInt.attributeType == NSStringAttributeType, "center Type edit changes type");
     selectAttributeRow(wc, 1);
@@ -256,19 +260,23 @@ int main(void)
     /* Relationships of Thing: rows sorted -> others(0). */
     CHECK([wc.relationshipTable numberOfRows] == 1, "1 relationship row");
     NSTableColumn *destColumn = [wc.relationshipTable tableColumnWithIdentifier:@"destination"];
-    NSComboBoxCell *destCell = (NSComboBoxCell *)destColumn.dataCell;
+    NSPopUpButtonCell *destCell = (NSPopUpButtonCell *)destColumn.dataCell;
+    CHECK([destCell isKindOfClass:[NSPopUpButtonCell class]], "Destination column is a popup cell");
     [wc tableView:wc.relationshipTable willDisplayCell:destCell
         forTableColumn:destColumn row:0];
-    CHECK([destCell numberOfItems] == 2, "Destination combo lists both entities");
+    CHECK([destCell numberOfItems] == 2, "Destination popup lists both entities");
     NSTableColumn *invColumn = [wc.relationshipTable tableColumnWithIdentifier:@"inverse"];
-    NSComboBoxCell *invCell = (NSComboBoxCell *)invColumn.dataCell;
+    NSPopUpButtonCell *invCell = (NSPopUpButtonCell *)invColumn.dataCell;
+    CHECK([invCell isKindOfClass:[NSPopUpButtonCell class]], "Inverse column is a popup cell");
     [wc tableView:wc.relationshipTable willDisplayCell:invCell
         forTableColumn:invColumn row:0];
-    CHECK([invCell numberOfItems] == 3, "Inverse combo lists (none)+destination rels");
+    CHECK([invCell numberOfItems] == 3, "Inverse popup lists (none)+destination rels");
+    CHECK([[invCell titleOfSelectedItem] isEqualToString:@"thing"],
+          "Inverse popup selects the current inverse");
 
     NSRelationshipDescription *others = thing.relationshipsByName[@"others"];
     NSEntityDescription *other = doc.model.entitiesByName[@"Other"];
-    [wc tableView:wc.relationshipTable setObjectValue:@"(none)"
+    [wc tableView:wc.relationshipTable setObjectValue:@0   /* (none) */
         forTableColumn:invColumn row:0];
     CHECK(others.inverseRelationship == nil, "center Inverse edit unwires");
     CHECK([other.relationshipsByName[@"thing"] inverseRelationship] == nil,

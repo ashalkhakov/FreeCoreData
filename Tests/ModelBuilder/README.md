@@ -36,7 +36,7 @@ dispatch, cell-based table edits).
 | Changing an attribute's type from the inspector popup | apply path, default dropping, page switch, xib action wiring |
 | Collapsible sections are adopted from the nib | vendored JUInspectorView `awakeFromNib` support, IB runtime attributes |
 | A type flip through Transformable leaves no transformer residue | the Apple `setValueTransformerName:nil` crash class |
-| Center-pane combo columns list and apply their choices | NSComboBoxCell columns: Type / Destination / Inverse |
+| Center-pane popup columns list and apply their choices | NSPopUpButtonCell columns: Type / Destination / Inverse (index in, name applied) |
 | The xib's delete-rule items match momc's vocabulary | IB-authored items pinned against `CDModelCompiler` |
 | Renaming, scalar, validation and fetch-template controls are live | inspector enablement + fill/apply for the newly round-tripped features |
 | The Codegen popup is live and round-trips codeGenerationType | codegen metadata: popup ↔ compiler carry ↔ serialized XML |

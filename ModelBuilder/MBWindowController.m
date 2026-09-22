@@ -95,6 +95,9 @@ static void MBDisableControlsOfClass(NSView *root, Class cls, NSString *tooltip)
   }
 }
 
+static NSImage *MBBadgeImage(NSString *letters, CGFloat red, CGFloat green, CGFloat blue);
+static void MBFitTablesIn(NSView *view, id observer);
+
 static NSImage *MBFirstImageNamed(NSArray *names)
 {
   for (NSString *name in names) {
@@ -132,9 +135,29 @@ static void MBRepairSegmentImages(NSView *view)
         MBRepairSegmentImages(item.view);
 }
 
+/* The first split view among a view's immediate subviews. */
+static NSSplitView *MBFirstSplitViewIn(NSView *view)
+{
+  for (NSView *subview in view.subviews)
+    if ([subview isKindOfClass:[NSSplitView class]]) return (NSSplitView *)subview;
+  return nil;
+}
+
+/* The narrowest the window may get: both side panes at their minimum
+   plus a usable center. */
+static const CGFloat MBSidePaneMinimum = 160.0;
+static const CGFloat MBCenterPaneMinimum = 320.0;
+static const CGFloat MBInspectorMinimum = 260.0;
+
 @implementation MBWindowController {
   MBInspectKind _kind;
   BOOL _updating;
+
+  /* The window's three split views: the outer one (main area | inspector),
+     the main area's (editor over the button bar), and the editor's
+     (source list | center pane).  -splitView:shouldAdjustSizeOfSubview:
+     holds the three side panes at their size. */
+  NSSplitView *_outerSplit, *_barSplit, *_sourceSplit;
 
   MBSourceItem *_entitiesGroup, *_fetchesGroup, *_configurationsGroup;
   NSArray *_entityItems, *_fetchItems, *_configurationItems;
@@ -164,6 +187,24 @@ static void MBRepairSegmentImages(NSView *view)
   [super windowDidLoad];
 
   MBRepairSegmentImages(self.window.contentView);
+
+  /* Resizing: only the innermost split had a delegate in the xib. */
+  _outerSplit = MBFirstSplitViewIn(self.window.contentView);
+  _barSplit = MBFirstSplitViewIn(_outerSplit.subviews.firstObject);
+  _sourceSplit = MBFirstSplitViewIn(_barSplit.subviews.firstObject);
+  for (NSSplitView *split in @[ _outerSplit ?: (id)[NSNull null],
+                                _barSplit ?: (id)[NSNull null],
+                                _sourceSplit ?: (id)[NSNull null] ])
+    if ([split isKindOfClass:[NSSplitView class]]) split.delegate = self;
+  self.window.minSize = NSMakeSize(MBSidePaneMinimum + MBCenterPaneMinimum +
+                                       MBInspectorMinimum + 2.0,
+                                   480.0);
+#if !defined(__APPLE__)
+  MBFitTablesIn(self.window.contentView, self);
+  /* and again once the window has had its first layout pass, which moves
+     the sections after this point */
+  [self performSelector:@selector(mbFitAllTables) withObject:nil afterDelay:0];
+#endif
 #if !defined(__APPLE__)
   /* These tables take AppKit's private _sourceListBackgroundColor from
      the xib; GNUstep has no such color and they draw black. */
@@ -190,18 +231,23 @@ static void MBRepairSegmentImages(NSView *view)
   }
 
   /* --- Inspector chrome: DMTabBar over the inspector tab view. --- */
+  /* Xcode's own icons on macOS; elsewhere drawn letter badges, as the
+     XForms and RDL designers' bars have.  (GNUstep ships images under
+     some of these names -- NSAdvanced is a gear -- so it is the platform,
+     not the lookup, that decides.) */
+  NSImage *identityIcon = nil, *dataModelIcon = nil;
+#if defined(__APPLE__)
+  identityIcon = MBFirstImageNamed(@[ @"NSInfo", @"NSTouchBarGetInfoTemplate" ]);
+  dataModelIcon = MBFirstImageNamed(@[ @"NSActionTemplate", @"NSSmartBadgeTemplate", @"NSAdvanced" ]);
+#endif
   DMTabBarItem *identityItem = [DMTabBarItem
-      tabBarItemWithIcon:MBFirstImageNamed(@[ @"NSInfo", @"NSTouchBarGetInfoTemplate" ])
+      tabBarItemWithIcon:identityIcon ?: MBBadgeImage(@"i", 0.47, 0.53, 0.64)
                      tag:MBInspectorPageIdentity];
   identityItem.toolTip = @"Identity and Type";
-  if (!identityItem.icon)
-    [identityItem.tabBarItemButton setTitle:@"i"];
   DMTabBarItem *dataModelItem = [DMTabBarItem
-      tabBarItemWithIcon:MBFirstImageNamed(@[ @"NSActionTemplate", @"NSSmartBadgeTemplate", @"NSAdvanced" ])
+      tabBarItemWithIcon:dataModelIcon ?: MBBadgeImage(@"D", 0.36, 0.49, 0.72)
                      tag:MBInspectorPageDataModel];
   dataModelItem.toolTip = @"Data Model Inspector";
-  if (!dataModelItem.icon)
-    [dataModelItem.tabBarItemButton setTitle:@"D"];
   self.inspectorTabBar.tabBarItems = @[ identityItem, dataModelItem ];
   [self.inspectorTabBar setTarget:self action:@selector(inspectorTabSelected:)];
   self.inspectorTabBar.selectedIndex = MBInspectorPageDataModel;
@@ -1739,14 +1785,19 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
       (NSUInteger)row < _attributeNames.count) {
     NSAttributeDescription *attr = entity.attributesByName[_attributeNames[(NSUInteger)row]];
     if ([ident isEqualToString:@"type"])
-      return [CDModelCompiler nameForAttributeType:attr.attributeType] ?: @"";
+      return [self mbIndexOf:[CDModelCompiler nameForAttributeType:attr.attributeType]
+                   inChoices:[self mbChoicesForTable:table column:ident row:row]];
     return attr.name ?: @"";
   }
   if (table == self.relationshipTable && entity && row >= 0 &&
       (NSUInteger)row < _relationshipNames.count) {
     NSRelationshipDescription *rel = entity.relationshipsByName[_relationshipNames[(NSUInteger)row]];
-    if ([ident isEqualToString:@"destination"]) return rel.destinationEntity.name ?: @"";
-    if ([ident isEqualToString:@"inverse"]) return rel.inverseRelationship.name ?: @"";
+    if ([ident isEqualToString:@"destination"] || [ident isEqualToString:@"inverse"]) {
+      NSString *current = [ident isEqualToString:@"destination"]
+          ? rel.destinationEntity.name : (rel.inverseRelationship.name ?: @"(none)");
+      return [self mbIndexOf:current
+                   inChoices:[self mbChoicesForTable:table column:ident row:row]];
+    }
     return rel.name ?: @"";
   }
   if (table == self.constraintsTable && row >= 0 &&
@@ -1782,6 +1833,14 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
 {
   NSString *ident = column.identifier;
   NSEntityDescription *entity = [self selectedEntity];
+
+  /* A popup column hands back the index of the item chosen. */
+  NSArray *choices = [self mbChoicesForTable:table column:ident row:row];
+  if (choices && [value isKindOfClass:[NSNumber class]]) {
+    NSInteger index = [value integerValue];
+    if (index < 0 || (NSUInteger)index >= choices.count) return;
+    value = choices[(NSUInteger)index];
+  }
 
   if (table == [self activeUserInfoTable] &&
       table != self.memberTable && table != self.constraintsTable) {
@@ -1847,23 +1906,17 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
   }
 }
 
-/* The Type / Destination / Inverse columns hold NSComboBoxCells; fill
-   their drop-down lists as rows are displayed (the Inverse list is
-   per-row: the destination entity's relationships). */
-- (void)tableView:(NSTableView *)table willDisplayCell:(id)cell forTableColumn:(NSTableColumn *)column row:(NSInteger)row
+/* The Type / Destination / Inverse columns are popups, as in Xcode's
+   model editor.  Their choices: the momc type names; every entity; and
+   (none) plus the relationships of that row's destination -- the one
+   list that differs by row. */
+- (NSArray *)mbChoicesForTable:(NSTableView *)table column:(NSString *)ident row:(NSInteger)row
 {
-  if (![cell isKindOfClass:[NSComboBoxCell class]]) return;
-  NSComboBoxCell *combo = cell;
-  NSString *ident = column.identifier ?: @"";
-  if ([combo usesDataSource])
-    [combo setUsesDataSource:NO];   /* the xib cells say YES; we use an item list */
-  [combo removeAllItems];
-  if (table == self.attributeTable && [ident isEqualToString:@"type"]) {
-    [combo addItemsWithObjectValues:[CDModelCompiler attributeTypeNames]];
-  } else if (table == self.relationshipTable && [ident isEqualToString:@"destination"]) {
-    [combo addItemsWithObjectValues:[[self.model.entitiesByName allKeys]
-        sortedArrayUsingSelector:@selector(compare:)]];
-  } else if (table == self.relationshipTable && [ident isEqualToString:@"inverse"]) {
+  if (table == self.attributeTable && [ident isEqualToString:@"type"])
+    return [CDModelCompiler attributeTypeNames];
+  if (table == self.relationshipTable && [ident isEqualToString:@"destination"])
+    return [[self.model.entitiesByName allKeys] sortedArrayUsingSelector:@selector(compare:)];
+  if (table == self.relationshipTable && [ident isEqualToString:@"inverse"]) {
     NSMutableArray *names = [NSMutableArray arrayWithObject:@"(none)"];
     NSEntityDescription *entity = [self selectedEntity];
     if (entity && row >= 0 && (NSUInteger)row < _relationshipNames.count) {
@@ -1872,9 +1925,26 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
       [names addObjectsFromArray:[[rel.destinationEntity.relationshipsByName allKeys]
           sortedArrayUsingSelector:@selector(compare:)]];
     }
-    [combo addItemsWithObjectValues:names];
+    return names;
   }
-  [combo setCompletes:YES];
+  return nil;
+}
+
+- (NSNumber *)mbIndexOf:(NSString *)name inChoices:(NSArray *)choices
+{
+  NSUInteger index = name ? [choices indexOfObject:name] : NSNotFound;
+  return @(index == NSNotFound ? -1 : (NSInteger)index);
+}
+
+- (void)tableView:(NSTableView *)table willDisplayCell:(id)cell forTableColumn:(NSTableColumn *)column row:(NSInteger)row
+{
+  if (![cell isKindOfClass:[NSPopUpButtonCell class]]) return;
+  NSArray *choices = [self mbChoicesForTable:table column:column.identifier row:row];
+  if (!choices) return;
+  NSPopUpButtonCell *popup = cell;
+  [popup removeAllItems];
+  [popup addItemsWithTitles:choices];
+  [popup selectItemAtIndex:[[self tableView:table objectValueForTableColumn:column row:row] integerValue]];
 }
 
 - (void)tableViewSelectionDidChange:(NSNotification *)notification
@@ -1896,8 +1966,158 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
 
 - (CGFloat)splitView:(NSSplitView *)splitView constrainMinCoordinate:(CGFloat)proposed ofSubviewAt:(NSInteger)dividerIndex
 {
-  (void)splitView; (void)dividerIndex;
-  return MAX(proposed, 120.0);
+  (void)dividerIndex;
+  if (splitView == _barSplit) return proposed;
+  return MAX(proposed, splitView == _outerSplit ? MBSidePaneMinimum + MBCenterPaneMinimum
+                                                : MBSidePaneMinimum);
 }
+
+- (CGFloat)splitView:(NSSplitView *)splitView constrainMaxCoordinate:(CGFloat)proposed ofSubviewAt:(NSInteger)dividerIndex
+{
+  (void)dividerIndex;
+  if (splitView == _outerSplit)
+    return MIN(proposed, NSWidth(splitView.bounds) - MBInspectorMinimum - splitView.dividerThickness);
+  if (splitView == _sourceSplit)
+    return MIN(proposed, NSWidth(splitView.bounds) - MBCenterPaneMinimum - splitView.dividerThickness);
+  return proposed;
+}
+
+/* A wider window is for a wider editor: the source list, the inspector and
+   the button bar keep the size they were dragged to, and the center takes
+   the difference -- as Xcode's model editor does, and the XForms and RDL
+   designers.  Once the window is narrower than all the minimums together,
+   holding the sides would squeeze the center to nothing, so everyone gives
+   way. */
+- (BOOL)splitView:(NSSplitView *)splitView shouldAdjustSizeOfSubview:(NSView *)subview
+{
+  NSArray *panes = splitView.subviews;
+  if (splitView == _barSplit) return subview != panes.lastObject;
+  if (splitView == _outerSplit) {
+    if (NSWidth(splitView.bounds) < self.window.minSize.width) return YES;
+    return subview != panes.lastObject;
+  }
+  if (splitView == _sourceSplit) {
+    if (NSWidth(splitView.bounds) < MBSidePaneMinimum + MBCenterPaneMinimum) return YES;
+    return subview != panes.firstObject;
+  }
+  return YES;
+}
+
+/* Every table in the window is lastColumnOnly in the xib.  Cocoa widens
+   such a table with its clip view; GNUstep's xib loader drops the style,
+   so each table kept its nib width, with a grey strip beside it in a
+   wider window.  Each table is re-fitted
+   whenever its clip view changes size (the window, a divider, a section
+   opening or closing). */
+static void MBFitTable(NSTableView *table)
+{
+  NSArray *columns = table.tableColumns;
+  NSClipView *clip = table.enclosingScrollView.contentView;
+  if (columns.count == 0 || clip == nil) return;
+  /* Not by restoring the style: with it set, GNUstep answers a column
+     width change by redistributing against the table's current width,
+     which undoes the fit. */
+  /* GNUstep's table is exactly as wide as its columns: the intercell
+     spacing is inside them, not between them as on Cocoa. */
+  CGFloat used = 0;
+  for (NSTableColumn *column in columns)
+    if (column != columns.lastObject && !column.isHidden)
+      used += column.width;
+  NSTableColumn *last = columns.lastObject;
+  last.width = MAX(last.minWidth, NSWidth(clip.bounds) - used);
+  [table tile];
+}
+
+static void MBFitTablesIn(NSView *view, id observer)
+{
+  if ([view isKindOfClass:[NSTableView class]]) {
+    NSTableView *table = (NSTableView *)view;
+    NSClipView *clip = table.enclosingScrollView.contentView;
+    if (clip && observer) {
+      clip.postsFrameChangedNotifications = YES;
+      [[NSNotificationCenter defaultCenter] addObserver:observer
+                                               selector:@selector(mbTableClipFrameChanged:)
+                                                   name:NSViewFrameDidChangeNotification
+                                                 object:clip];
+    }
+    MBFitTable(table);
+    return;
+  }
+  for (NSView *subview in view.subviews)
+    MBFitTablesIn(subview, observer);
+  if ([view isKindOfClass:[NSTabView class]])
+    for (NSTabViewItem *item in [(NSTabView *)view tabViewItems])
+      if (item.view.superview == nil)
+        MBFitTablesIn(item.view, observer);
+}
+
+- (void)mbFitAllTables
+{
+  MBFitTablesIn(self.window.contentView, nil);
+}
+
+- (void)mbTableClipFrameChanged:(NSNotification *)notification
+{
+  NSClipView *clip = notification.object;
+  if ([clip.documentView isKindOfClass:[NSTableView class]])
+    MBFitTable((NSTableView *)clip.documentView);
+}
+
+- (void)dealloc
+{
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+#if !defined(__APPLE__)
+/* Ported from RDL Designer.  GNUstep's -adjustSubviews always sizes the
+   last subview to whatever space is left and never asks
+   -splitView:shouldAdjustSizeOfSubview: about it, so a trailing pane (the
+   inspector, the button bar) cannot hold its size there.  Distribute by
+   hand to the rule above: the subviews that should not adjust keep their
+   span, and those that should share what is left in proportion to the
+   spans they had. */
+- (void)splitView:(NSSplitView *)splitView resizeSubviewsWithOldSize:(NSSize)oldSize
+{
+  (void)oldSize;
+  NSArray *subviews = splitView.subviews;
+  NSUInteger count = subviews.count;
+  if (count == 0) return;
+  BOOL vertical = splitView.isVertical;
+  NSRect bounds = splitView.bounds;
+  CGFloat divider = splitView.dividerThickness;
+  CGFloat total = (vertical ? NSWidth(bounds) : NSHeight(bounds)) - divider * (CGFloat)(count - 1);
+  CGFloat spans[count];
+  BOOL adjust[count];
+  CGFloat oldAdjustable = 0, fixed = 0;
+  NSUInteger adjustableCount = 0;
+  for (NSUInteger i = 0; i < count; i++) {
+    NSRect frame = [subviews[i] frame];
+    spans[i] = vertical ? NSWidth(frame) : NSHeight(frame);
+    adjust[i] = ![splitView isSubviewCollapsed:subviews[i]] &&
+                [self splitView:splitView shouldAdjustSizeOfSubview:subviews[i]];
+    if (adjust[i]) { oldAdjustable += spans[i]; adjustableCount++; }
+    else fixed += spans[i];
+  }
+  if (adjustableCount == 0) {
+    /* nothing may give: let the last pane take the difference */
+    adjust[count - 1] = YES;
+    oldAdjustable = spans[count - 1];
+    fixed -= spans[count - 1];
+    adjustableCount = 1;
+  }
+  CGFloat forAdjustable = MAX(0, total - fixed);
+  CGFloat running = 0;
+  for (NSUInteger i = 0; i < count; i++) {
+    CGFloat span = spans[i];
+    if (adjust[i])
+      span = oldAdjustable > 0.5 ? forAdjustable * (spans[i] / oldAdjustable)
+                                 : forAdjustable / (CGFloat)adjustableCount;
+    NSRect rect = vertical ? NSMakeRect(running, 0, span, NSHeight(bounds))
+                           : NSMakeRect(0, running, NSWidth(bounds), span);
+    [subviews[i] setFrame:[splitView centerScanRect:rect]];
+    running += span + divider;
+  }
+}
+#endif
 
 @end

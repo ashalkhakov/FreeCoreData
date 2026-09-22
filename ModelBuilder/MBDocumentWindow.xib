@@ -121,15 +121,15 @@
                         <subviews>
                             <customView fixedFrame="YES" id="UqJ-9N-3gm">
                                 <rect key="frame" x="0.0" y="0.0" width="710" height="700"/>
-                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                 <subviews>
                                     <splitView arrangesAllSubviews="NO" dividerStyle="thin" id="Xd9-n2-zIf">
-                                        <rect key="frame" x="0.0" y="0.0" width="700" height="700"/>
-                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                        <rect key="frame" x="0.0" y="0.0" width="710" height="700"/>
+                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                         <subviews>
                                             <customView fixedFrame="YES" id="cAy-eq-nsN">
-                                                <rect key="frame" x="0.0" y="0.0" width="700" height="599"/>
-                                                <autoresizingMask key="autoresizingMask"/>
+                                                <rect key="frame" x="0.0" y="0.0" width="710" height="599"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                                 <subviews>
                                                     <splitView fixedFrame="YES" arrangesAllSubviews="NO" dividerStyle="thin" vertical="YES" translatesAutoresizingMaskIntoConstraints="NO" id="E04-a3-Xvo">
                                                         <rect key="frame" x="0.0" y="0.0" width="700" height="599"/>
@@ -137,7 +137,7 @@
                                                         <subviews>
                                                             <customView fixedFrame="YES" id="GG5-Pl-XrN">
                                                                 <rect key="frame" x="0.0" y="0.0" width="201" height="599"/>
-                                                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                                                 <subviews>
                                                                     <scrollView fixedFrame="YES" horizontalLineScroll="24" horizontalPageScroll="10" verticalLineScroll="24" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="pj1-sT-ZDI">
                                                                         <rect key="frame" x="0.0" y="0.0" width="201" height="599"/>
@@ -198,7 +198,7 @@
                                                             </customView>
                                                             <customView fixedFrame="YES" id="YoP-xc-BoR">
                                                                 <rect key="frame" x="202" y="0.0" width="498" height="599"/>
-                                                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                                                 <subviews>
                                                                     <scrollView fixedFrame="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" usesPredominantAxisScrolling="NO" horizontalScrollElasticity="none" verticalScrollElasticity="none" translatesAutoresizingMaskIntoConstraints="NO" id="xCG-oL-LIa">
                                                                         <rect key="frame" x="0.0" y="0.0" width="498" height="599"/>
@@ -212,8 +212,8 @@
                                                                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                                                                     <subviews>
                                                                                         <tabView fixedFrame="YES" type="noTabsNoBorder" translatesAutoresizingMaskIntoConstraints="NO" id="FGx-yx-4MA">
-                                                                                            <rect key="frame" x="-27" y="-30" width="534" height="766"/>
-                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                                                                                            <rect key="frame" x="0.0" y="0.0" width="466" height="582"/>
+                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                                                                             <font key="font" metaFont="system"/>
                                                                                             <tabViewItems>
                                                                                                 <tabViewItem label="Entity" identifier="1" id="PP5-gu-VdN">
@@ -223,7 +223,7 @@
                                                                                                         <subviews>
                                                                                                             <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Cak-vL-Utb" customClass="JUInspectorViewContainer">
                                                                                                                 <rect key="frame" x="17" y="17" width="500" height="746"/>
-                                                                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                                                                                 <subviews>
                                                                                                                     <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="nqJ-rK-eK0" userLabel="Attribute Inspector" customClass="JUInspectorView">
                                                                                                                         <rect key="frame" x="0.0" y="0.0" width="300" height="120"/>
@@ -339,8 +339,8 @@
                                                 </subviews>
                                             </customView>
                                             <customView fixedFrame="YES" id="ja1-aF-xMv">
-                                                <rect key="frame" x="0.0" y="600" width="700" height="100"/>
-                                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                <rect key="frame" x="0.0" y="600" width="710" height="100"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                                 <subviews>
                                                     <segmentedControl verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="uBb-TQ-RNu">
                                                         <rect key="frame" x="14" y="30" width="133" height="40"/>
@@ -358,7 +358,7 @@
                                                     </segmentedControl>
                                                     <segmentedControl verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="FB7-9F-aSh">
                                                         <rect key="frame" x="526" y="30" width="160" height="40"/>
-                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                        <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
                                                         <segmentedCell key="cell" controlSize="large" borderStyle="border" alignment="left" style="rounded" trackingMode="momentary" id="M0z-QT-IRE">
                                                             <font key="font" metaFont="system"/>
                                                             <segments>
@@ -382,15 +382,15 @@
                             </customView>
                             <customView fixedFrame="YES" id="5Tw-ek-czW">
                                 <rect key="frame" x="711" y="0.0" width="289" height="700"/>
-                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                 <subviews>
                                     <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="PZA-8J-3bH" customClass="DMTabBar">
                                         <rect key="frame" x="0.0" y="678" width="289" height="22"/>
                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                                     </customView>
                                     <scrollView fixedFrame="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="xdQ-IG-4jG">
-                                        <rect key="frame" x="-1" y="-16" width="284" height="697"/>
-                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                        <rect key="frame" x="0.0" y="0.0" width="289" height="678"/>
+                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                         <clipView key="contentView" id="4jb-bP-h6M">
                                             <rect key="frame" x="1" y="1" width="267" height="680"/>
                                             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
@@ -2417,11 +2417,15 @@
                                             <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                             <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
                                         </tableHeaderCell>
-                                        <comboBoxCell key="dataCell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" buttonBordered="NO" completes="NO" numberOfVisibleItems="5" id="O7v-uf-IdK">
+                                        <popUpButtonCell key="dataCell" type="bevel" bezelStyle="regularSquare" alignment="left" lineBreakMode="truncatingTail" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="O7v-uf-IdK">
+                                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
                                             <font key="font" metaFont="system"/>
-                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                        </comboBoxCell>
+                                            <menu key="menu" id="MBt-yp-Mn1">
+                                                <items>
+                                                    <menuItem title="Item" id="MBt-yp-It1"/>
+                                                </items>
+                                            </menu>
+                                        </popUpButtonCell>
                                         <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
                                     </tableColumn>
                                 </tableColumns>
@@ -2513,11 +2517,15 @@
                                             <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                             <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
                                         </tableHeaderCell>
-                                        <comboBoxCell key="dataCell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" buttonBordered="NO" completes="NO" numberOfVisibleItems="5" id="soK-OB-LU6">
+                                        <popUpButtonCell key="dataCell" type="bevel" bezelStyle="regularSquare" alignment="left" lineBreakMode="truncatingTail" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="soK-OB-LU6">
+                                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
                                             <font key="font" metaFont="system"/>
-                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                        </comboBoxCell>
+                                            <menu key="menu" id="MBd-st-Mn1">
+                                                <items>
+                                                    <menuItem title="Item" id="MBd-st-It1"/>
+                                                </items>
+                                            </menu>
+                                        </popUpButtonCell>
                                         <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
                                     </tableColumn>
                                     <tableColumn identifier="inverse" width="78" minWidth="10" maxWidth="3.4028234663852886e+38" id="NDZ-eN-rhe">
@@ -2525,11 +2533,15 @@
                                             <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                             <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                                         </tableHeaderCell>
-                                        <comboBoxCell key="dataCell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" buttonBordered="NO" completes="NO" numberOfVisibleItems="5" id="wka-e2-bVb">
+                                        <popUpButtonCell key="dataCell" type="bevel" bezelStyle="regularSquare" alignment="left" lineBreakMode="truncatingTail" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="wka-e2-bVb">
+                                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
                                             <font key="font" metaFont="system"/>
-                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                        </comboBoxCell>
+                                            <menu key="menu" id="MBi-nv-Mn1">
+                                                <items>
+                                                    <menuItem title="Item" id="MBi-nv-It1"/>
+                                                </items>
+                                            </menu>
+                                        </popUpButtonCell>
                                         <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
                                     </tableColumn>
                                 </tableColumns>
