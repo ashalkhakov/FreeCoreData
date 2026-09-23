@@ -722,6 +722,14 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
       change the version hash */
    for(NSString *propertyName in [[_propertiesByName allKeys] sortedArrayUsingSelector:@selector(compare:)]){
     NSPropertyDescription *property=[_propertiesByName objectForKey:propertyName];
+
+    /* Transient properties are never persisted, so they play no part
+       in store compatibility: adding or removing one must not demand
+       a migration.  (Mac-arbitrated by
+       NSTransientRelationshipTests' compatibility test.) */
+    if([property isTransient])
+     continue;
+
     NSData                *hash=[property versionHash];
     NSMutableString       *hex=[NSMutableString string];
     const uint8_t         *bytes=[hash bytes];

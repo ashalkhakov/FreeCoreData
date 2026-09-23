@@ -46,6 +46,7 @@
 		CEFAB8213062CC1800CDADDD /* NSPersistentContainerTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB8203062CC1800CDADDD /* NSPersistentContainerTests.m */; };
 		CEFAB8233062D47200CDADDD /* NSAsynchronousFetchTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB8223062D47200CDADDD /* NSAsynchronousFetchTests.m */; };
 		CEFAB8253062DA0B00CDADDD /* NSBatchRequestTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB8243062DA0B00CDADDD /* NSBatchRequestTests.m */; };
+		CEFAB8273063AE0E00CDADDD /* NSTransientRelationshipTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB8263063AE0E00CDADDD /* NSTransientRelationshipTests.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -95,6 +96,7 @@
 		CEFAB8203062CC1800CDADDD /* NSPersistentContainerTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPersistentContainerTests.m; path = Tests/NSPersistentContainerTests.m; sourceTree = "<group>"; };
 		CEFAB8223062D47200CDADDD /* NSAsynchronousFetchTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSAsynchronousFetchTests.m; path = Tests/NSAsynchronousFetchTests.m; sourceTree = "<group>"; };
 		CEFAB8243062DA0B00CDADDD /* NSBatchRequestTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSBatchRequestTests.m; path = Tests/NSBatchRequestTests.m; sourceTree = "<group>"; };
+		CEFAB8263063AE0E00CDADDD /* NSTransientRelationshipTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSTransientRelationshipTests.m; path = Tests/NSTransientRelationshipTests.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -121,6 +123,7 @@
 		24DFAD7E3B56719996E6F208 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				CEFAB8263063AE0E00CDADDD /* NSTransientRelationshipTests.m */,
 				CEFAB8243062DA0B00CDADDD /* NSBatchRequestTests.m */,
 				CEFAB8223062D47200CDADDD /* NSAsynchronousFetchTests.m */,
 				CEFAB8203062CC1800CDADDD /* NSPersistentContainerTests.m */,
@@ -254,6 +257,7 @@
 				CED014A93032FF59009517DE /* NSManagedObjectContextTests.m in Sources */,
 				CED014E13032FF59009517DE /* NSFetchedResultsControllerTests.m in Sources */,
 				CED014AA3032FF59009517DE /* NSIncrementalStoreTests.m in Sources */,
+				CEFAB8273063AE0E00CDADDD /* NSTransientRelationshipTests.m in Sources */,
 				CED014AB3032FF59009517DE /* VersioningTestModels.m in Sources */,
 				CED014AC3032FF59009517DE /* NSFetchRequestTests.m in Sources */,
 				CEFAB8253062DA0B00CDADDD /* NSBatchRequestTests.m in Sources */,
