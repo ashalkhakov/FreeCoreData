@@ -14,9 +14,9 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 LIBRARY_NAME = libCDMySQLStore
 
-libCDMySQLStore_OBJC_FILES = CDMySQLStore.m ../Common/CDSQLStore.m
+libCDMySQLStore_OBJC_FILES = CDMySQLStore.m ../Common/CDSQLStore.m ../Common/CDSQLQuery.m
 
-libCDMySQLStore_HEADER_FILES = CDMySQLStore.h ../Common/CDSQLStore.h
+libCDMySQLStore_HEADER_FILES = CDMySQLStore.h ../Common/CDSQLStore.h ../Common/CDSQLQuery.h
 libCDMySQLStore_HEADER_FILES_DIR = .
 libCDMySQLStore_HEADER_FILES_INSTALL_DIR = CDMySQLStore
 

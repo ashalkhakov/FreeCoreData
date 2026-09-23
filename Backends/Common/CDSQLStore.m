@@ -19,6 +19,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    it also compiles against Apple's CoreData on macOS. */
 
 #import "CDSQLStore.h"
+#import "CDSQLQuery.h"
 
 static long long advisoryLockKeyForSchema(NSString *schema);
 
@@ -447,6 +448,24 @@ static BOOL attributeComparesExactlyInSQL(NSAttributeDescription *attribute){
      return YES;
     default:
      return NO;
+   }
+}
+
+/* Types whose stored form compares EQUAL exactly, which is a wider set than
+   the one that ORDERS exactly: a UUID is stored as itself and bytes are
+   stored as themselves, so = and IN are exact for both even though < and >
+   would mean nothing.
+ 
+   Transformable values are not here: what is stored is whatever the value
+   transformer produced, and two equal objects need not archive to the same
+   bytes. */
+static BOOL attributeEqualityIsExactInSQL(NSAttributeDescription *attribute){
+   switch([attribute attributeType]){
+    case NSUUIDAttributeType:
+    case NSBinaryDataAttributeType:
+     return YES;
+    default:
+     return attributeComparesExactlyInSQL(attribute);
    }
 }
 
@@ -1319,6 +1338,10 @@ static NSString *escapedLikePattern(NSString *string){
    return [NSNumber numberWithLongLong:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID])];
 }
 
+/* The alias the fetched entity's own table carries, which correlated
+   subqueries refer back to. */
+static NSString * const CDSQLOuterAlias=@"t0";
+
 /* Walks the relationship segments of a key path, building the FROM and
    correlation fragments of an EXISTS subquery that reaches the last
    destination table.  Answers the alias of that table (and its entity), or
@@ -1331,12 +1354,13 @@ static NSString *escapedLikePattern(NSString *string){
 -(NSString *)_joinChainForSegments:(NSArray *)segments
                             entity:(NSEntityDescription *)entity
                         outerTable:(NSString *)outerTable
+                            prefix:(NSString *)prefix
                               from:(NSMutableArray *)from
                              where:(NSMutableArray *)where
                         lastEntity:(NSEntityDescription **)lastEntity
                      crossedToMany:(BOOL *)crossedToMany {
    NSEntityDescription *current=entity;
-   NSString            *currentRef=quoted(outerTable);
+   NSString            *currentRef=outerTable;
    NSUInteger           index=0;
 
    for(NSString *segment in segments){
@@ -1346,7 +1370,7 @@ static NSString *escapedLikePattern(NSString *string){
      return nil;
 
     NSEntityDescription *destination=[relationship destinationEntity];
-    NSString            *alias=[NSString stringWithFormat:@"j%lu",(unsigned long)index];
+    NSString            *alias=[NSString stringWithFormat:@"%@%lu",prefix,(unsigned long)index];
 
     if(![relationship isToMany]){
      /* A foreign key on this side points at the destination's row. */
@@ -1359,7 +1383,7 @@ static NSString *escapedLikePattern(NSString *string){
 
      if(relationshipUsesJoinTable(relationship)){
       NSDictionary *join=[self _joinSpecForRelationship:relationship];
-      NSString     *joinAlias=[NSString stringWithFormat:@"jt%lu",(unsigned long)index];
+      NSString     *joinAlias=[NSString stringWithFormat:@"%@t%lu",prefix,(unsigned long)index];
 
       [from addObject:[NSString stringWithFormat:@"%@ %@",quoted([join objectForKey:@"table"]),joinAlias]];
       [from addObject:[NSString stringWithFormat:@"%@ %@",quoted(tableNameForEntity(destination)),alias]];
@@ -1397,8 +1421,24 @@ static NSString *escapedLikePattern(NSString *string){
                      constant:(id)constant
                 rhsExpression:(NSExpression *)rhs
                      bindings:(NSMutableArray *)bindings {
-   if(!attributeComparesExactlyInSQL(attribute))
-    return nil;
+   /* "is it set" is exact for every type, whatever the column holds, and
+      needs no value to compare against. */
+   if(constant==nil && (operator==NSEqualToPredicateOperatorType || operator==NSNotEqualToPredicateOperatorType))
+    return [NSString stringWithFormat:@"%@ IS %@NULL",column,(operator==NSEqualToPredicateOperatorType)?@"":@"NOT "];
+
+   /* Equality admits more types than ordering does. */
+   switch(operator){
+    case NSEqualToPredicateOperatorType:
+    case NSNotEqualToPredicateOperatorType:
+    case NSInPredicateOperatorType:
+     if(!attributeEqualityIsExactInSQL(attribute))
+      return nil;
+     break;
+    default:
+     if(!attributeComparesExactlyInSQL(attribute))
+      return nil;
+     break;
+   }
 
    /* String matching applies to text columns only. */
    switch(operator){
@@ -1425,8 +1465,6 @@ static NSString *escapedLikePattern(NSString *string){
    switch(operator){
 
     case NSEqualToPredicateOperatorType: {
-     if(constant==nil)
-      return [NSString stringWithFormat:@"%@ IS NULL",column];
 
      NSString *placeholder=placeholderForBinding(bindings,attribute,constant);
 
@@ -1434,9 +1472,6 @@ static NSString *escapedLikePattern(NSString *string){
     }
 
     case NSNotEqualToPredicateOperatorType: {
-     if(constant==nil)
-      return [NSString stringWithFormat:@"%@ IS NOT NULL",column];
-
      /* NULL rows do not match a != constant comparison (SQL NULL
         semantics), as in Apple's SQLite store. */
      NSString *placeholder=placeholderForBinding(bindings,attribute,constant);
@@ -1527,6 +1562,234 @@ static NSString *escapedLikePattern(NSString *string){
    }
 }
 
+/* ------------------------------------------------------------------ */
+#pragma mark - Counting a relationship
+/* ------------------------------------------------------------------ */
+
+/* "how many related rows are there" is a question SQL answers directly, as
+   a correlated COUNT.  Two spellings reach here:
+ 
+     employees.@count > 2
+     SUBQUERY(employees, $e, $e.age > 40).@count > 0
+ 
+   The first is a key path ending in @count; the second is a function
+   expression over a subquery, and only Apple's Foundation can build one -
+   gnustep-base cannot parse SUBQUERY at all - so that half is written
+   defensively and simply does not fire where the framework cannot produce
+   it. */
+
+/* The key path an expression names relative to a subquery's variable, or
+   nil: $e.age is a valueForKeyPath: function over the variable. */
+-(NSString *)_keyPathOfExpression:(NSExpression *)expression forVariable:(NSString *)variable {
+   if([expression expressionType]==NSKeyPathExpressionType){
+    NSString *keyPath=[expression keyPath];
+
+    /* Some frameworks flatten $e.age into the key path "e.age". */
+    if(variable!=nil && [keyPath hasPrefix:[variable stringByAppendingString:@"."]])
+     return [keyPath substringFromIndex:[variable length]+1];
+
+    return (variable==nil)?keyPath:nil;
+   }
+
+   if([expression expressionType]!=NSFunctionExpressionType)
+    return nil;
+
+   NSString     *keyPath=nil;
+   NSExpression *operand=nil;
+   NSArray      *arguments=nil;
+
+   @try {
+    if(![[expression function] isEqualToString:@"valueForKeyPath:"])
+     return nil;
+    operand=[expression operand];
+    arguments=[expression arguments];
+   } @catch(NSException *exception){
+    return nil;
+   }
+
+   if(operand==nil || [operand expressionType]!=NSVariableExpressionType || [arguments count]!=1)
+    return nil;
+   if(variable!=nil && ![[operand variable] isEqualToString:variable])
+    return nil;
+
+   NSExpression *argument=[arguments objectAtIndex:0];
+
+   @try {
+    keyPath=([argument expressionType]==NSKeyPathExpressionType)?[argument keyPath]:[argument description];
+   } @catch(NSException *exception){
+    return nil;
+   }
+
+   return keyPath;
+}
+
+/* The predicate inside SUBQUERY(...), against the row the subquery walks:
+   its columns belong to `alias`, and its key paths are written $e.<name>. */
+-(NSString *)_translateSubqueryPredicate:(NSPredicate *)predicate
+                                variable:(NSString *)variable
+                                  entity:(NSEntityDescription *)entity
+                                   alias:(NSString *)alias
+                                bindings:(NSMutableArray *)bindings {
+   if([predicate isKindOfClass:[NSCompoundPredicate class]]){
+    NSCompoundPredicate *compound=(NSCompoundPredicate *)predicate;
+    NSMutableArray      *clauses=[NSMutableArray array];
+
+    for(NSPredicate *subpredicate in [compound subpredicates]){
+     NSString *clause=[self _translateSubqueryPredicate:subpredicate variable:variable entity:entity alias:alias bindings:bindings];
+
+     if(clause==nil)
+      return nil;
+
+     [clauses addObject:clause];
+    }
+
+    switch([compound compoundPredicateType]){
+     case NSNotPredicateType:
+      return ([clauses count]==1)?[NSString stringWithFormat:@"NOT (%@)",[clauses objectAtIndex:0]]:nil;
+     case NSAndPredicateType:
+      return [NSString stringWithFormat:@"(%@)",[clauses componentsJoinedByString:@" AND "]];
+     case NSOrPredicateType:
+      return [NSString stringWithFormat:@"(%@)",[clauses componentsJoinedByString:@" OR "]];
+     default:
+      return nil;
+    }
+   }
+
+   if(![predicate isKindOfClass:[NSComparisonPredicate class]])
+    return nil;
+
+   NSComparisonPredicate *comparison=(NSComparisonPredicate *)predicate;
+
+   if([comparison comparisonPredicateModifier]!=NSDirectPredicateModifier)
+    return nil;
+
+   NSComparisonPredicateOptions options=[comparison options];
+
+   if((options&~NSCaseInsensitivePredicateOption)!=0)
+    return nil;
+
+   NSString     *keyPath=[self _keyPathOfExpression:[comparison leftExpression] forVariable:variable];
+   NSExpression *rhs=[comparison rightExpression];
+
+   if(keyPath==nil || [keyPath rangeOfString:@"."].location!=NSNotFound)
+    return nil;   /* one hop inside the subquery; anything deeper is left alone */
+
+   NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:keyPath];
+
+   if(![property isKindOfClass:[NSAttributeDescription class]])
+    return nil;
+
+   BOOL rhsIsCollection=([comparison predicateOperatorType]==NSInPredicateOperatorType ||
+                         [comparison predicateOperatorType]==NSBetweenPredicateOperatorType);
+   id   constant=rhsIsCollection?nil:resolvedConstantValue([rhs constantValue]);
+
+   if(!rhsIsCollection && [rhs expressionType]!=NSConstantValueExpressionType)
+    return nil;
+   if(constant==[NSNull null])
+    constant=nil;
+
+   return [self _clauseForColumn:[NSString stringWithFormat:@"%@.%@",alias,quoted(columnNameForProperty(keyPath))]
+                       attribute:(NSAttributeDescription *)property
+                        operator:[comparison predicateOperatorType]
+                 caseInsensitive:((options&NSCaseInsensitivePredicateOption)!=0)
+                        constant:constant
+                   rhsExpression:rhs
+                        bindings:bindings];
+}
+
+/* (SELECT COUNT(*) FROM <the rows the key path reaches> WHERE <they belong
+   to this row> [AND <the subquery's own predicate>]) */
+-(NSString *)_countSubqueryForKeyPath:(NSString *)keyPath
+                               entity:(NSEntityDescription *)entity
+                             variable:(NSString *)variable
+                       innerPredicate:(NSPredicate *)innerPredicate
+                             bindings:(NSMutableArray *)bindings {
+   NSArray *segments=[keyPath componentsSeparatedByString:@"."];
+
+   if([segments count]==0)
+    return nil;
+
+   NSMutableArray      *from=[NSMutableArray array];
+   NSMutableArray      *where=[NSMutableArray array];
+   NSEntityDescription *leafEntity=nil;
+   NSString            *alias=[self _joinChainForSegments:segments
+                                                   entity:entity
+                                               outerTable:CDSQLOuterAlias
+                                                   prefix:@"c"
+                                                     from:from
+                                                    where:where
+                                               lastEntity:&leafEntity
+                                            crossedToMany:NULL];
+
+   if(alias==nil)
+    return nil;
+
+   if(innerPredicate!=nil){
+    NSString *clause=[self _translateSubqueryPredicate:innerPredicate variable:variable entity:leafEntity alias:alias bindings:bindings];
+
+    if(clause==nil)
+     return nil;
+
+    [where addObject:clause];
+   }
+
+   return [NSString stringWithFormat:@"(SELECT COUNT(*) FROM %@ WHERE %@)",
+                                     [from componentsJoinedByString:@", "],
+                                     [where componentsJoinedByString:@" AND "]];
+}
+
+/* The left-hand side of a comparison, when it counts a relationship: the
+   key path walked, and the subquery's variable and predicate when it came
+   from SUBQUERY(...).  Answers NO when this is not a count at all. */
+-(BOOL)_countedKeyPathOfExpression:(NSExpression *)expression
+                           keyPath:(NSString **)keyPath
+                          variable:(NSString **)variable
+                         predicate:(NSPredicate **)predicate {
+   *keyPath=nil; *variable=nil; *predicate=nil;
+
+   if([expression expressionType]==NSKeyPathExpressionType){
+    NSString *path=[expression keyPath];
+
+    if(![path hasSuffix:@".@count"])
+     return NO;
+
+    *keyPath=[path substringToIndex:[path length]-[@".@count" length]];
+
+    return YES;
+   }
+
+   if([expression expressionType]!=NSFunctionExpressionType)
+    return NO;
+
+   @try {
+    if(![[expression function] isEqualToString:@"valueForKeyPath:"])
+     return NO;
+
+    NSArray *arguments=[expression arguments];
+
+    if([arguments count]!=1 || ![[[arguments objectAtIndex:0] description] isEqualToString:@"@count"])
+     return NO;
+
+    NSExpression *operand=[expression operand];
+
+    if(operand==nil || [operand expressionType]!=NSSubqueryExpressionType)
+     return NO;
+
+    NSExpression *collection=[operand collection];
+
+    if([collection expressionType]!=NSKeyPathExpressionType)
+     return NO;
+
+    *keyPath=[collection keyPath];
+    *variable=[operand variable];
+    *predicate=[operand predicate];
+   } @catch(NSException *exception){
+    return NO;   /* a framework that does not publish these parts */
+   }
+
+   return (*keyPath!=nil);
+}
+
 -(NSString *)_translateComparisonPredicate:(NSComparisonPredicate *)comparison entity:(NSEntityDescription *)entity bindings:(NSMutableArray *)bindings {
    NSComparisonPredicateModifier modifier=[comparison comparisonPredicateModifier];
 
@@ -1574,6 +1837,44 @@ static NSString *escapedLikePattern(NSString *string){
       temporary one, or one belonging to another store) matches no row, so
       it is dropped from the list rather than making the whole predicate
       untranslatable. */
+   /* A count of related rows, compared against a number. */
+   {
+    NSString    *countedKeyPath=nil;
+    NSString    *countVariable=nil;
+    NSPredicate *countPredicate=nil;
+
+    if([self _countedKeyPathOfExpression:lhs keyPath:&countedKeyPath variable:&countVariable predicate:&countPredicate]){
+     id count=resolvedConstantValue([rhs constantValue]);
+
+     if([rhs expressionType]!=NSConstantValueExpressionType || ![count isKindOfClass:[NSNumber class]])
+      return nil;
+
+     NSString *operatorSQL=nil;
+
+     switch(operator){
+      case NSEqualToPredicateOperatorType:              operatorSQL=@"="; break;
+      case NSNotEqualToPredicateOperatorType:           operatorSQL=@"<>"; break;
+      case NSLessThanPredicateOperatorType:             operatorSQL=@"<"; break;
+      case NSLessThanOrEqualToPredicateOperatorType:    operatorSQL=@"<="; break;
+      case NSGreaterThanPredicateOperatorType:          operatorSQL=@">"; break;
+      case NSGreaterThanOrEqualToPredicateOperatorType: operatorSQL=@">="; break;
+      default:                                          return nil;
+     }
+
+     NSUInteger  mark=[bindings count];
+     NSString   *subquery=[self _countSubqueryForKeyPath:countedKeyPath entity:entity variable:countVariable innerPredicate:countPredicate bindings:bindings];
+
+     if(subquery==nil){
+      while([bindings count]>mark)
+       [bindings removeLastObject];
+      return nil;
+     }
+
+     /* The count is a number of this store's own making, not user text. */
+     return [NSString stringWithFormat:@"%@ %@ %lld",subquery,operatorSQL,[count longLongValue]];
+    }
+   }
+
    if(expressionIsSelf(lhs)){
     NSMutableArray *keys=[NSMutableArray array];
 
@@ -1607,7 +1908,7 @@ static NSString *escapedLikePattern(NSString *string){
      return nil;
 
     /* The list holds primary keys this store handed out, not user text. */
-    return [NSString stringWithFormat:@"\"Z_PK\" %@ (%@)",negated?@"NOT IN":@"IN",[keys componentsJoinedByString:@", "]];
+    return [NSString stringWithFormat:@"%@.\"Z_PK\" %@ (%@)",CDSQLOuterAlias,negated?@"NOT IN":@"IN",[keys componentsJoinedByString:@", "]];
    }
 
    if([lhs expressionType]!=NSKeyPathExpressionType)
@@ -1636,7 +1937,8 @@ static NSString *escapedLikePattern(NSString *string){
     BOOL                 crossedToMany=NO;
     NSString            *alias=[self _joinChainForSegments:[segments subarrayWithRange:NSMakeRange(0,[segments count]-1)]
                                                     entity:entity
-                                                outerTable:tableNameForEntity(entity)
+                                                outerTable:CDSQLOuterAlias
+                                                    prefix:@"j"
                                                       from:from
                                                      where:where
                                                 lastEntity:&leafEntity
@@ -1687,7 +1989,7 @@ static NSString *escapedLikePattern(NSString *string){
 
    NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:keyPath];
 
-   NSString *column=quoted(columnNameForProperty(keyPath));
+   NSString *column=[NSString stringWithFormat:@"%@.%@",CDSQLOuterAlias,quoted(columnNameForProperty(keyPath))];
 
    /* To-one relationships compare against the destination row's Z_PK. */
    if([property isKindOfClass:[NSRelationshipDescription class]]){
@@ -1723,66 +2025,212 @@ static NSString *escapedLikePattern(NSString *string){
                         bindings:bindings];
 }
 
--(NSString *)_translatePredicate:(NSPredicate *)predicate entity:(NSEntityDescription *)entity bindings:(NSMutableArray *)bindings {
+/* Translates what can be translated, and hands back the rest.
+ 
+   The interesting case is AND: a predicate like "name == 'Ada' AND picture
+   != nil" used to translate as nothing at all, because one conjunct could
+   not be expressed in SQL - so the fetch read every row of the table and
+   filtered in memory.  Each conjunct is now translated on its own, the ones
+   that succeed go into the WHERE clause, and only the remainder is
+   evaluated in memory, over the rows that survived it.
+ 
+   OR and NOT cannot be split that way: dropping a disjunct would narrow the
+   result, and dropping part of a negation would widen it.  Either the whole
+   thing translates or none of it does.
+ 
+   `residual` is the part that did not translate, and nil when everything
+   did. */
+-(NSString *)_translatePredicate:(NSPredicate *)predicate
+                          entity:(NSEntityDescription *)entity
+                        bindings:(NSMutableArray *)bindings
+                        residual:(NSPredicate **)residual {
+   if(residual!=NULL)
+    *residual=nil;
+
    if([predicate isKindOfClass:[NSCompoundPredicate class]]){
     NSCompoundPredicate *compound=(NSCompoundPredicate *)predicate;
-    NSMutableArray      *clauses=[NSMutableArray array];
+    NSArray             *subpredicates=[compound subpredicates];
 
-    for(NSPredicate *subpredicate in [compound subpredicates]){
-     NSString *clause=[self _translatePredicate:subpredicate entity:entity bindings:bindings];
+    if([compound compoundPredicateType]==NSAndPredicateType){
+     NSMutableArray *clauses=[NSMutableArray array];
+     NSMutableArray *residuals=[NSMutableArray array];
 
-     if(clause==nil)
+     for(NSPredicate *subpredicate in subpredicates){
+      NSUInteger   mark=[bindings count];
+      NSPredicate *subresidual=nil;
+      NSString    *clause=[self _translatePredicate:subpredicate entity:entity bindings:bindings residual:&subresidual];
+
+      if(clause!=nil)
+       [clauses addObject:clause];
+      if(subresidual!=nil){
+       /* A conjunct that translated only in part contributes its
+          translated half to the clause and its remainder here; one that
+          translated not at all leaves no bindings behind. */
+       if(clause==nil)
+        while([bindings count]>mark)
+         [bindings removeLastObject];
+       [residuals addObject:subresidual];
+      }
+     }
+
+     if([residuals count]>0 && residual!=NULL)
+      *residual=([residuals count]==1)
+          ?[residuals objectAtIndex:0]
+          :[NSCompoundPredicate andPredicateWithSubpredicates:residuals];
+
+     if([clauses count]==0)
       return nil;
+
+     return [NSString stringWithFormat:@"(%@)",[clauses componentsJoinedByString:@" AND "]];
+    }
+
+    /* OR and NOT: all of it, or none of it. */
+    NSUInteger      mark=[bindings count];
+    NSMutableArray *clauses=[NSMutableArray array];
+
+    for(NSPredicate *subpredicate in subpredicates){
+     NSPredicate *subresidual=nil;
+     NSString    *clause=[self _translatePredicate:subpredicate entity:entity bindings:bindings residual:&subresidual];
+
+     if(clause==nil || subresidual!=nil){
+      while([bindings count]>mark)
+       [bindings removeLastObject];
+      if(residual!=NULL)
+       *residual=predicate;
+      return nil;
+     }
 
      [clauses addObject:clause];
     }
 
     switch([compound compoundPredicateType]){
      case NSNotPredicateType:
-      if([clauses count]!=1)
+      if([clauses count]!=1){
+       if(residual!=NULL)
+        *residual=predicate;
        return nil;
+      }
       return [NSString stringWithFormat:@"NOT (%@)",[clauses objectAtIndex:0]];
-     case NSAndPredicateType:
-      if([clauses count]==0)
-       return @"TRUE";
-      return [NSString stringWithFormat:@"(%@)",[clauses componentsJoinedByString:@" AND "]];
      case NSOrPredicateType:
       if([clauses count]==0)
        return @"FALSE";
       return [NSString stringWithFormat:@"(%@)",[clauses componentsJoinedByString:@" OR "]];
      default:
+      if(residual!=NULL)
+       *residual=predicate;
       return nil;
     }
    }
 
-   if([predicate isKindOfClass:[NSComparisonPredicate class]])
-    return [self _translateComparisonPredicate:(NSComparisonPredicate *)predicate entity:entity bindings:bindings];
+   if([predicate isKindOfClass:[NSComparisonPredicate class]]){
+    NSUInteger  mark=[bindings count];
+    NSString   *clause=[self _translateComparisonPredicate:(NSComparisonPredicate *)predicate entity:entity bindings:bindings];
+
+    if(clause==nil){
+     while([bindings count]>mark)
+      [bindings removeLastObject];
+     if(residual!=NULL)
+      *residual=predicate;
+    }
+
+    return clause;
+   }
 
    if([predicate isEqual:[NSPredicate predicateWithValue:YES]])
     return @"TRUE";
    if([predicate isEqual:[NSPredicate predicateWithValue:NO]])
     return @"FALSE";
 
+   if(residual!=NULL)
+    *residual=predicate;
+
    return nil;
 }
 
--(NSString *)_translateSortDescriptors:(NSArray *)sortDescriptors entity:(NSEntityDescription *)entity {
+/* The all-or-nothing form, for callers that cannot use a residual. */
+-(NSString *)_translatePredicate:(NSPredicate *)predicate entity:(NSEntityDescription *)entity bindings:(NSMutableArray *)bindings {
+   NSUInteger   mark=[bindings count];
+   NSPredicate *residual=nil;
+   NSString    *clause=[self _translatePredicate:predicate entity:entity bindings:bindings residual:&residual];
+
+   if(residual==nil)
+    return clause;
+
+   while([bindings count]>mark)
+    [bindings removeLastObject];
+
+   return nil;
+}
+
+/* ORDER BY terms, and the joins they need.
+ 
+   A sort key that lives in another table - "employer.name" - is reached by
+   joining that table in, LEFT so that a row with no related row still
+   sorts (as it does in memory, where the missing value is nil).  Only
+   to-one hops can be joined this way: "employees.name" has no single value
+   to sort by, and Core Data does not define one, so it is left to the
+   in-memory sort.
+ 
+   Answers nil when a descriptor cannot be expressed, in which case the
+   caller sorts in memory. */
+-(NSString *)_translateSortDescriptors:(NSArray *)sortDescriptors
+                                entity:(NSEntityDescription *)entity
+                                 joins:(NSMutableArray *)joins
+                              joinedBy:(NSMutableDictionary *)aliasesByKeyPath {
    NSMutableArray *terms=[NSMutableArray array];
 
    for(NSSortDescriptor *descriptor in sortDescriptors){
     NSString *key=[descriptor key];
 
-    if(key==nil || [key rangeOfString:@"."].location!=NSNotFound)
+    if(key==nil)
      return nil;
 
-    NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:key];
+    NSEntityDescription *leafEntity=entity;
+    NSString            *qualifier=CDSQLOuterAlias;
+    NSString            *leafKey=key;
+
+    if([key rangeOfString:@"."].location!=NSNotFound){
+     NSArray  *segments=[key componentsSeparatedByString:@"."];
+     NSString *walked=nil;
+
+     leafKey=[segments lastObject];
+
+     /* One LEFT JOIN per hop, reused when two descriptors walk the same
+        path. */
+     for(NSUInteger i=0;i+1<[segments count];i++){
+      NSString                  *segment=[segments objectAtIndex:i];
+      NSRelationshipDescription *relationship=[propertiesForEntityChain(leafEntity) objectForKey:segment];
+
+      if(![relationship isKindOfClass:[NSRelationshipDescription class]] || [relationship isToMany])
+       return nil;
+
+      walked=(walked==nil)?segment:[walked stringByAppendingFormat:@".%@",segment];
+
+      NSString *existing=[aliasesByKeyPath objectForKey:walked];
+
+      if(existing==nil){
+       NSString *alias=[NSString stringWithFormat:@"s%lu",(unsigned long)[aliasesByKeyPath count]];
+
+       [joins addObject:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.\"Z_PK\" = %@.%@",
+                                                   quoted(tableNameForEntity([relationship destinationEntity])),alias,
+                                                   alias,qualifier,quoted(columnNameForProperty(segment))]];
+       [aliasesByKeyPath setObject:alias forKey:walked];
+       existing=alias;
+      }
+
+      qualifier=existing;
+      leafEntity=[relationship destinationEntity];
+     }
+    }
+
+    NSPropertyDescription *property=[propertiesForEntityChain(leafEntity) objectForKey:leafKey];
 
     if(![property isKindOfClass:[NSAttributeDescription class]] || !attributeComparesExactlyInSQL((NSAttributeDescription *)property))
      return nil;
 
     SEL       selector=[descriptor selector];
     NSString *selectorName=(selector!=NULL)?NSStringFromSelector(selector):nil;
-    NSString *term=quoted(columnNameForProperty(key));
+    NSString *term=[NSString stringWithFormat:@"%@.%@",qualifier,quoted(columnNameForProperty(leafKey))];
 
     if(selectorName!=nil && [selectorName isEqualToString:@"caseInsensitiveCompare:"]){
      if([(NSAttributeDescription *)property attributeType]!=NSStringAttributeType)
@@ -1802,13 +2250,318 @@ static NSString *escapedLikePattern(NSString *string){
 }
 
 /* ------------------------------------------------------------------ */
+#pragma mark - Projections and aggregates
+/* ------------------------------------------------------------------ */
+
+/* An NSExpressionDescription asks for something computed: max:, sum: and
+   friends over a key path.  Answers the SQL, or nil when this is not a
+   shape the store can express. */
+-(NSString *)_aggregateSQLForExpressionDescription:(NSExpressionDescription *)description entity:(NSEntityDescription *)entity {
+   return [self _aggregateSQLForExpression:[description expression] entity:entity];
+}
+
+-(NSString *)_aggregateSQLForExpression:(NSExpression *)expression entity:(NSEntityDescription *)entity {
+   if([expression expressionType]!=NSFunctionExpressionType)
+    return nil;
+
+   NSString *function=nil;
+   NSArray  *arguments=nil;
+
+   @try {
+    function=[expression function];
+    arguments=[expression arguments];
+   } @catch(NSException *exception){
+    return nil;
+   }
+
+   NSDictionary *aggregates=[NSDictionary dictionaryWithObjectsAndKeys:
+       @"COUNT",@"count:",
+       @"SUM",@"sum:",
+       @"MIN",@"min:",
+       @"MAX",@"max:",
+       @"AVG",@"average:",
+       nil];
+   NSString     *aggregate=[aggregates objectForKey:function];
+
+   if(aggregate==nil || [arguments count]!=1)
+    return nil;
+
+   NSExpression *argument=[arguments objectAtIndex:0];
+
+   if([argument expressionType]!=NSKeyPathExpressionType)
+    return nil;
+
+   NSString *keyPath=[argument keyPath];
+
+   if([keyPath rangeOfString:@"."].location!=NSNotFound)
+    return nil;   /* an aggregate over another table would need its join */
+
+   NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:keyPath];
+
+   if(![property isKindOfClass:[NSAttributeDescription class]])
+    return nil;
+
+   return [NSString stringWithFormat:@"%@(%@.%@)",aggregate,CDSQLOuterAlias,quoted(columnNameForProperty(keyPath))];
+}
+
+/* A predicate over the select list rather than over columns: a HAVING
+   clause names the things the query selects - a grouped attribute, or an
+   aggregate by the name its expression description carries - so each key
+   path is looked up there. */
+-(NSString *)_translateProjectedPredicate:(NSPredicate *)predicate
+                              expressions:(NSDictionary *)expressionsByName
+                                   entity:(NSEntityDescription *)entity
+                                 bindings:(NSMutableArray *)bindings {
+   if([predicate isKindOfClass:[NSCompoundPredicate class]]){
+    NSCompoundPredicate *compound=(NSCompoundPredicate *)predicate;
+    NSMutableArray      *clauses=[NSMutableArray array];
+
+    for(NSPredicate *subpredicate in [compound subpredicates]){
+     NSString *clause=[self _translateProjectedPredicate:subpredicate expressions:expressionsByName entity:entity bindings:bindings];
+
+     if(clause==nil)
+      return nil;
+
+     [clauses addObject:clause];
+    }
+
+    switch([compound compoundPredicateType]){
+     case NSNotPredicateType:
+      return ([clauses count]==1)?[NSString stringWithFormat:@"NOT (%@)",[clauses objectAtIndex:0]]:nil;
+     case NSAndPredicateType:
+      return [NSString stringWithFormat:@"(%@)",[clauses componentsJoinedByString:@" AND "]];
+     case NSOrPredicateType:
+      return [NSString stringWithFormat:@"(%@)",[clauses componentsJoinedByString:@" OR "]];
+     default:
+      return nil;
+    }
+   }
+
+   if(![predicate isKindOfClass:[NSComparisonPredicate class]])
+    return nil;
+
+   NSComparisonPredicate *comparison=(NSComparisonPredicate *)predicate;
+   NSExpression          *lhs=[comparison leftExpression];
+   NSExpression          *rhs=[comparison rightExpression];
+
+   if([comparison comparisonPredicateModifier]!=NSDirectPredicateModifier)
+    return nil;
+   if([rhs expressionType]!=NSConstantValueExpressionType)
+    return nil;
+
+   /* Either spelling: the name the request gave a selected expression, or
+      the aggregate written out - count:(name) > 1, which is the form
+      Apple's own documentation uses and the one this framework's in-memory
+      grouping expects. */
+   NSString *expression=nil;
+
+   if([lhs expressionType]==NSKeyPathExpressionType)
+    expression=[expressionsByName objectForKey:[lhs keyPath]];
+   else if([lhs expressionType]==NSFunctionExpressionType)
+    expression=[self _aggregateSQLForExpression:lhs entity:entity];
+
+   if(expression==nil)
+    return nil;
+
+   NSString *operatorSQL=nil;
+
+   switch([comparison predicateOperatorType]){
+    case NSEqualToPredicateOperatorType:              operatorSQL=@"="; break;
+    case NSNotEqualToPredicateOperatorType:           operatorSQL=@"<>"; break;
+    case NSLessThanPredicateOperatorType:             operatorSQL=@"<"; break;
+    case NSLessThanOrEqualToPredicateOperatorType:    operatorSQL=@"<="; break;
+    case NSGreaterThanPredicateOperatorType:          operatorSQL=@">"; break;
+    case NSGreaterThanOrEqualToPredicateOperatorType: operatorSQL=@">="; break;
+    default:                                          return nil;
+   }
+
+   id constant=resolvedConstantValue([rhs constantValue]);
+
+   if([constant isKindOfClass:[NSNumber class]])
+    return [NSString stringWithFormat:@"%@ %@ %@",expression,operatorSQL,[constant description]];
+
+   if([constant isKindOfClass:[NSString class]]){
+    [bindings addObject:constant];
+
+    return [NSString stringWithFormat:@"%@ %@ $%lu",expression,operatorSQL,(unsigned long)[bindings count]];
+   }
+
+   return nil;
+}
+
+/* ORDER BY over the select list, which is what a grouped query can sort
+   by: the grouped columns and the aggregates, under the names the request
+   gave them. */
+-(NSString *)_translateProjectedSortDescriptors:(NSArray *)sortDescriptors expressions:(NSDictionary *)expressionsByName {
+   NSMutableArray *terms=[NSMutableArray array];
+
+   for(NSSortDescriptor *descriptor in sortDescriptors){
+    NSString *expression=[expressionsByName objectForKey:[descriptor key]];
+
+    if(expression==nil)
+     return nil;
+
+    SEL       selector=[descriptor selector];
+    NSString *selectorName=(selector!=NULL)?NSStringFromSelector(selector):nil;
+
+    if(selectorName!=nil && ![selectorName isEqualToString:@"compare:"])
+     return nil;
+
+    [terms addObject:[NSString stringWithFormat:@"%@ %@",expression,[descriptor ascending]?@"ASC":@"DESC"]];
+   }
+
+   return [terms componentsJoinedByString:@", "];
+}
+
+/* The dictionary-shaped result, read as columns rather than objects.
+ 
+   This is the one result type where materializing managed objects is pure
+   waste: the caller asked for values.  Selecting the columns also makes
+   DISTINCT, GROUP BY and aggregates the database's work rather than ours.
+ 
+   Answers nil when the request is not one the store can project, and the
+   caller falls back to reading the objects. */
+-(NSArray *)_projectedRowsForRequest:(NSFetchRequest *)request
+                              entity:(NSEntityDescription *)entity
+                            whereSQL:(NSString *)whereSQL
+                            bindings:(NSArray *)bindings
+                               joins:(NSArray *)joins
+                          orderBySQL:(NSString *)orderBySQL
+                               error:(NSError **)error {
+   NSArray *fetchProperties=[request propertiesToFetch];
+
+   if([fetchProperties count]==0)
+    return nil;   /* "everything" still goes through the objects */
+
+   CDSQLQuery          *query=[CDSQLQuery queryFromTable:quoted(tableNameForEntity(entity)) alias:CDSQLOuterAlias];
+   NSMutableArray      *names=[NSMutableArray array];
+   NSMutableDictionary *expressionsByName=[NSMutableDictionary dictionary];
+
+   for(id fetchProperty in fetchProperties){
+    NSString *name=nil;
+    NSString *expression=nil;
+
+    if([fetchProperty isKindOfClass:[NSExpressionDescription class]]){
+     name=[(NSExpressionDescription *)fetchProperty name];
+     expression=[self _aggregateSQLForExpressionDescription:fetchProperty entity:entity];
+    }
+    else {
+     name=[fetchProperty isKindOfClass:[NSString class]]?fetchProperty:[(NSPropertyDescription *)fetchProperty name];
+
+     NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:name];
+
+     if([property isKindOfClass:[NSAttributeDescription class]])
+      expression=[NSString stringWithFormat:@"%@.%@",CDSQLOuterAlias,quoted(columnNameForProperty(name))];
+    }
+
+    if(name==nil || expression==nil)
+     return nil;
+
+    [query selectExpression:expression];
+    [names addObject:name];
+    [expressionsByName setObject:expression forKey:name];
+   }
+
+   for(NSString *join in joins)
+    [query addJoin:join];
+
+   [query addCondition:[NSString stringWithFormat:@"%@.\"Z_ENT\" IN (%@)",CDSQLOuterAlias,[self _entityIDListForEntity:entity includesSubentities:[request includesSubentities]]]];
+   [query addCondition:(whereSQL!=nil)?[NSString stringWithFormat:@"(%@)",whereSQL]:nil];
+   [[query parameters] addObjectsFromArray:bindings];
+
+   BOOL grouped=([[request propertiesToGroupBy] count]>0);
+
+   for(id groupedProperty in [request propertiesToGroupBy]){
+    NSString              *name=[groupedProperty isKindOfClass:[NSString class]]?groupedProperty:[(NSPropertyDescription *)groupedProperty name];
+    NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:name];
+
+    if(![property isKindOfClass:[NSAttributeDescription class]])
+     return nil;
+
+    NSString *expression=[NSString stringWithFormat:@"%@.%@",CDSQLOuterAlias,quoted(columnNameForProperty(name))];
+
+    /* A grouped column can be named in HAVING and in ORDER BY whether or
+       not the request also selected it. */
+    if([expressionsByName objectForKey:name]==nil)
+     [expressionsByName setObject:expression forKey:name];
+
+    [query addGroupBy:expression];
+   }
+
+   if([request havingPredicate]!=nil){
+    NSString *having=[self _translateProjectedPredicate:[request havingPredicate] expressions:expressionsByName entity:entity bindings:[query parameters]];
+
+    if(having==nil)
+     return nil;
+
+    [query setHaving:having];
+   }
+
+   [query setDistinct:[request returnsDistinctResults]];
+
+   if([[request sortDescriptors] count]>0){
+    /* A grouped query can only sort by what it selects; an ungrouped one
+       may sort by any column, which is what orderBySQL already holds. */
+    NSString *projectedOrder=[self _translateProjectedSortDescriptors:[request sortDescriptors] expressions:expressionsByName];
+
+    if(projectedOrder!=nil)
+     [query addOrderBy:projectedOrder];
+    else if(!grouped && [orderBySQL length]>0)
+     [query addOrderBy:orderBySQL];
+    else
+     return nil;
+   }
+
+   [query setLimit:[request fetchLimit] offset:[request fetchOffset]];
+
+   id<CDSQLResult> result=[self execute:[query SQL] parameters:[query parameters] error:error];
+
+   if(result==nil)
+    return nil;
+
+   /* The values come back as the attributes they were selected from; an
+      aggregate has no attribute, and is read as a number. */
+   NSMutableArray *rows=[NSMutableArray array];
+   NSUInteger      i,rowCount=[result rowCount];
+
+   for(i=0;i<rowCount;i++){
+    NSMutableDictionary *row=[NSMutableDictionary dictionary];
+    NSUInteger           column;
+
+    for(column=0;column<[names count];column++){
+     NSString              *name=[names objectAtIndex:column];
+     NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:name];
+     id                     value=nil;
+
+     if([result isNullAtRow:i column:column])
+      continue;
+
+     if([property isKindOfClass:[NSAttributeDescription class]])
+      value=attributeValueFromResult(result,(int)i,(int)column,(NSAttributeDescription *)property);
+     else {
+      NSString *text=[result stringAtRow:i column:column];
+
+      value=([text rangeOfString:@"."].location!=NSNotFound)
+          ?(id)[NSNumber numberWithDouble:[text doubleValue]]
+          :(id)[NSNumber numberWithLongLong:[text longLongValue]];
+     }
+
+     if(value!=nil)
+      [row setObject:value forKey:name];
+    }
+
+    [rows addObject:row];
+   }
+
+   return rows;
+}
+
+/* ------------------------------------------------------------------ */
 #pragma mark - Fetching
 /* ------------------------------------------------------------------ */
 
--(NSArray *)_fetchObjectIDsForEntity:(NSEntityDescription *)entity includesSubentities:(BOOL)includesSubentities whereSQL:(NSString *)whereSQL bindings:(NSArray *)bindings orderBySQL:(NSString *)orderBySQL fetchLimit:(NSUInteger)fetchLimit fetchOffset:(NSUInteger)fetchOffset error:(NSError **)error {
-   if([_entityIDs objectForKey:[entity name]]==nil)
-    return [NSArray array];
-
+/* The Z_ENT list of an entity and its subentities, as SQL literals. */
+-(NSString *)_entityIDListForEntity:(NSEntityDescription *)entity includesSubentities:(BOOL)includesSubentities {
    NSMutableArray *entityIDs=[NSMutableArray array];
 
    if(includesSubentities)
@@ -1816,24 +2569,56 @@ static NSString *escapedLikePattern(NSString *string){
    else
     [entityIDs addObject:[NSNumber numberWithLongLong:[self _entityIDForEntity:entity]]];
 
+   return [entityIDs componentsJoinedByString:@", "];
+}
+
+/* -1 on failure, so that a count of zero is not mistaken for one. */
+-(long long)_countForEntity:(NSEntityDescription *)entity includesSubentities:(BOOL)includesSubentities whereSQL:(NSString *)whereSQL bindings:(NSArray *)bindings error:(NSError **)error {
+   if([_entityIDs objectForKey:[entity name]]==nil)
+    return 0;
+
+   CDSQLQuery *query=[CDSQLQuery queryFromTable:quoted(tableNameForEntity(entity)) alias:CDSQLOuterAlias];
+
+   [query selectExpression:@"COUNT(*)"];
+   [query addCondition:[NSString stringWithFormat:@"%@.\"Z_ENT\" IN (%@)",CDSQLOuterAlias,[self _entityIDListForEntity:entity includesSubentities:includesSubentities]]];
+   [query addCondition:(whereSQL!=nil)?[NSString stringWithFormat:@"(%@)",whereSQL]:nil];
+   [[query parameters] addObjectsFromArray:bindings];
+
+   id<CDSQLResult> result=[self execute:[query SQL] parameters:[query parameters] error:error];
+
+   if(result==nil)
+    return -1;
+
+   return ([result rowCount]>0)?[result longLongAtRow:0 column:0]:0;
+}
+
+-(NSArray *)_fetchObjectIDsForEntity:(NSEntityDescription *)entity includesSubentities:(BOOL)includesSubentities whereSQL:(NSString *)whereSQL bindings:(NSArray *)bindings orderBySQL:(NSString *)orderBySQL joins:(NSArray *)joins fetchLimit:(NSUInteger)fetchLimit fetchOffset:(NSUInteger)fetchOffset error:(NSError **)error {
+   if([_entityIDs objectForKey:[entity name]]==nil)
+    return [NSArray array];
+
+   CDSQLQuery *query=[CDSQLQuery queryFromTable:quoted(tableNameForEntity(entity)) alias:CDSQLOuterAlias];
+
+   [query selectExpression:[NSString stringWithFormat:@"%@.\"Z_PK\"",CDSQLOuterAlias]];
+   [query selectExpression:[NSString stringWithFormat:@"%@.\"Z_ENT\"",CDSQLOuterAlias]];
+
+   for(NSString *join in joins)
+    [query addJoin:join];
+
    /* The Z_ENT list holds one trusted integer literal per entity in the
       model subtree, so it is bounded by the model size. */
-   NSString *sql=[NSString stringWithFormat:@"SELECT \"Z_PK\", \"Z_ENT\" FROM %@ WHERE \"Z_ENT\" IN (%@)",
-                                            quoted(tableNameForEntity(entity)),
-                                            [entityIDs componentsJoinedByString:@", "]];
-
-   if(whereSQL!=nil)
-    sql=[sql stringByAppendingFormat:@" AND (%@)",whereSQL];
+   [query addCondition:[NSString stringWithFormat:@"%@.\"Z_ENT\" IN (%@)",CDSQLOuterAlias,[self _entityIDListForEntity:entity includesSubentities:includesSubentities]]];
+   [query addCondition:(whereSQL!=nil)?[NSString stringWithFormat:@"(%@)",whereSQL]:nil];
+   [[query parameters] addObjectsFromArray:bindings];
 
    if([orderBySQL length]>0)
-    sql=[sql stringByAppendingFormat:@" ORDER BY %@, \"Z_PK\"",orderBySQL];
-   else
-    sql=[sql stringByAppendingString:@" ORDER BY \"Z_PK\""];
+    [query addOrderBy:orderBySQL];
+   [query addOrderBy:[NSString stringWithFormat:@"%@.\"Z_PK\"",CDSQLOuterAlias]];
 
-   if(fetchLimit>0)
-    sql=[sql stringByAppendingFormat:@" LIMIT %llu",(unsigned long long)fetchLimit];
-   if(fetchOffset>0)
-    sql=[sql stringByAppendingFormat:@" OFFSET %llu",(unsigned long long)fetchOffset];
+   [query setLimit:fetchLimit offset:fetchOffset];
+
+   NSString *sql=[query SQL];
+
+   bindings=[query parameters];
 
    id<CDSQLResult> result=[self execute:sql parameters:bindings error:error];
 
@@ -1886,31 +2671,59 @@ static NSString *escapedLikePattern(NSString *string){
       the limit/offset can only be pushed down when nothing is. */
    NSMutableArray *bindings=[NSMutableArray array];
    NSString       *whereSQL=nil;
-   BOOL            predicateInSQL=YES;
+   NSPredicate    *residualPredicate=nil;
 
-   if([request predicate]!=nil){
-    whereSQL=[self _translatePredicate:[request predicate] entity:entity bindings:bindings];
-    predicateInSQL=(whereSQL!=nil);
+   if([request predicate]!=nil)
+    whereSQL=[self _translatePredicate:[request predicate] entity:entity bindings:bindings residual:&residualPredicate];
 
-    if(!predicateInSQL)
-     [bindings removeAllObjects];
-   }
+   BOOL predicateInSQL=(residualPredicate==nil);
 
    BOOL countOnly=([request resultType]==NSCountResultType);
 
-   NSString *orderBySQL=nil;
-   BOOL      sortsInSQL=YES;
+   NSString            *orderBySQL=nil;
+   NSMutableArray      *sortJoins=[NSMutableArray array];
+   NSMutableDictionary *sortAliases=[NSMutableDictionary dictionary];
+   BOOL                 sortsInSQL=YES;
 
    if(!countOnly && [[request sortDescriptors] count]>0){
-    orderBySQL=[self _translateSortDescriptors:[request sortDescriptors] entity:entity];
+    orderBySQL=[self _translateSortDescriptors:[request sortDescriptors] entity:entity joins:sortJoins joinedBy:sortAliases];
     sortsInSQL=(orderBySQL!=nil);
+
+    if(!sortsInSQL)
+     [sortJoins removeAllObjects];
    }
 
    BOOL       filtersInMemory=(!predicateInSQL || !sortsInSQL);
    NSUInteger sqlLimit=filtersInMemory?0:[request fetchLimit];
    NSUInteger sqlOffset=filtersInMemory?0:[request fetchOffset];
 
-   NSArray *objectIDs=[self _fetchObjectIDsForEntity:entity includesSubentities:[request includesSubentities] whereSQL:whereSQL bindings:bindings orderBySQL:orderBySQL fetchLimit:sqlLimit fetchOffset:sqlOffset error:error];
+   /* A count the database can answer is asked of it as a count: fetching
+      every matching key only to take the length of the array reads the
+      whole result set for a single number. */
+   if(countOnly && predicateInSQL && [request fetchLimit]==0 && [request fetchOffset]==0){
+    long long count=[self _countForEntity:entity includesSubentities:[request includesSubentities] whereSQL:whereSQL bindings:bindings error:error];
+
+    if(count<0)
+     return nil;
+
+    return [NSArray arrayWithObject:[NSNumber numberWithUnsignedInteger:(NSUInteger)count]];
+   }
+
+   /* Values, not objects: read the columns and be done, when everything
+      the request asks for can be expressed in the query. */
+   if([request resultType]==NSDictionaryResultType && predicateInSQL){
+    NSError *projectionError=nil;
+    NSArray *rows=[self _projectedRowsForRequest:request entity:entity whereSQL:whereSQL bindings:bindings joins:sortJoins orderBySQL:orderBySQL error:&projectionError];
+
+    if(rows!=nil)
+     return rows;
+    if(projectionError!=nil && error!=NULL)
+     *error=projectionError;
+    if(projectionError!=nil)
+     return nil;
+   }
+
+   NSArray *objectIDs=[self _fetchObjectIDsForEntity:entity includesSubentities:[request includesSubentities] whereSQL:whereSQL bindings:bindings orderBySQL:orderBySQL joins:sortJoins fetchLimit:sqlLimit fetchOffset:sqlOffset error:error];
 
    if(objectIDs==nil)
     return nil;
@@ -1923,8 +2736,9 @@ static NSString *escapedLikePattern(NSString *string){
    for(NSManagedObjectID *objectID in objectIDs)
     [objects addObject:[context objectWithID:objectID]];
 
-   if([request predicate]!=nil && !predicateInSQL)
-    [objects filterUsingPredicate:[request predicate]];
+   /* Only what SQL could not answer, over the rows it did. */
+   if(residualPredicate!=nil)
+    [objects filterUsingPredicate:residualPredicate];
 
    if([[request sortDescriptors] count]>0 && !sortsInSQL)
     [objects sortUsingDescriptors:[request sortDescriptors]];
@@ -2434,7 +3248,7 @@ static NSString *escapedLikePattern(NSString *string){
      [bindings removeAllObjects];
    }
 
-   NSArray *objectIDs=[self _fetchObjectIDsForEntity:entity includesSubentities:includesSubentities whereSQL:whereSQL bindings:bindings orderBySQL:nil fetchLimit:0 fetchOffset:0 error:error];
+   NSArray *objectIDs=[self _fetchObjectIDsForEntity:entity includesSubentities:includesSubentities whereSQL:whereSQL bindings:bindings orderBySQL:nil joins:nil fetchLimit:0 fetchOffset:0 error:error];
 
    if(objectIDs==nil || predicateInSQL)
     return objectIDs;

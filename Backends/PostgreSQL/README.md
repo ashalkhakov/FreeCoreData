@@ -223,6 +223,142 @@ their own (`pg_terminate_backend`) and checking that the next fetch and save
 succeed, that the store is still reading its own schema afterwards, and that
 a save interrupted mid-flight either completes or leaves nothing behind.
 
+## What runs in SQL, and what does not
+
+A fetch's predicate is translated as far as it goes and the rest is
+evaluated in memory, over the rows the translated part returned.  The
+division matters: a predicate that does not translate at all means reading
+every row of the entity and faulting each one.
+
+Translated: comparisons against a constant on integer, floating-point,
+decimal, boolean, date and string columns; `==`/`!=`/`IN` on UUID and binary
+columns as well (a byte comparison is exact, even though ordering those
+would mean nothing); `== nil` and `!= nil` on **any** column, whatever it
+holds; `BEGINSWITH`, `ENDSWITH`, `CONTAINS`, `LIKE` and `MATCHES`-free
+string matching, case-sensitive or `[c]`; `BETWEEN`, `IN`; `SELF` against
+object IDs; key paths across relationships, with `ANY`/`ALL` where they
+cross a to-many; and `AND`/`OR`/`NOT` of any of those.
+
+A conjunction is translated **piece by piece**: the parts that translate go
+into the `WHERE` clause and only the remainder is evaluated in memory.  So
+
+```objc
+[NSPredicate predicateWithFormat:@"age > %d AND settings == %@", 40, value]
+```
+
+fetches the rows over forty and checks the transformable attribute on those,
+rather than reading the table.  `OR` and `NOT` cannot be split that way -
+dropping a disjunct would narrow the result, dropping half a negation would
+widen it - so they translate whole or not at all.
+
+Counting related rows translates too.  `employees.@count > 2` becomes a
+correlated count:
+
+```sql
+SELECT "Z_PK", "Z_ENT" FROM "ZCOMPANY" WHERE "Z_ENT" IN (1)
+  AND ((SELECT COUNT(*) FROM "ZPERSON" c0
+         WHERE c0."ZEMPLOYER" = "ZCOMPANY"."Z_PK") > 2)
+```
+
+and `SUBQUERY(employees, $e, $e.age > 40).@count > 1` adds the subquery's
+own predicate to that `WHERE`.  A count, rather than a join, is what makes
+`@count == 0` work: a row with nothing related still has a count.
+
+(`SUBQUERY` is understood where the framework can express it.  gnustep-base
+cannot parse `SUBQUERY(...)` at all, so on FreeCoreData the question cannot
+be asked; `@count` on a relationship works on both.)
+
+Left to the in-memory evaluator: diacritic-insensitive and locale-sensitive
+matching (`[d]`, `[cd]`); ordering comparisons on transformable values;
+equality on transformable values (what is stored is whatever the value
+transformer produced, and two equal objects need not archive to the same
+bytes); aggregates other than `@count`; `IN` lists longer than 900;
+sort descriptors whose key path crosses a relationship or whose selector is
+neither `compare:` nor `caseInsensitiveCompare:`; and block predicates,
+which nothing could translate.
+
+Counting asks the database to count (`SELECT COUNT(*)`) when the predicate
+translated and no fetch limit or offset is set; otherwise the keys are
+fetched and counted here, as they must be.
+
+When any part of the predicate or any sort descriptor is evaluated in
+memory, the fetch limit and offset are applied in memory too - applying them
+in SQL would take them from the wrong set of rows.
+
+## How a statement is built
+
+Fetches are assembled through a small query object
+([`CDSQLQuery`](../Common/CDSQLQuery.h)) rather than by appending to a
+string: a select list, a from-table and its alias, a join list, conditions,
+grouping, ordering and a limit, written out in that order.  Parameters are
+collected as each part is built, so their order matches the placeholders in
+the finished statement.
+
+It is deliberately not a relational algebra.  A fetch request can name one
+entity, a predicate, sort descriptors, a limit and a result type - there is
+no union or derived table to plan.  What the object provides is somewhere to
+put a join list and a select list, and one place that hands out aliases, so
+that a join and a correlated subquery cannot pick the same name.  The rows
+of the entity being fetched are always `t0`, which is what the correlated
+subqueries refer back to.
+
+It earns its place on three shapes:
+
+**Sorting on another table's value.**  `employer.name` joins that table in:
+
+```sql
+SELECT t0."Z_PK", t0."Z_ENT" FROM "ZPERSON" t0
+  LEFT JOIN "ZCOMPANY" s0 ON s0."Z_PK" = t0."ZEMPLOYER"
+ WHERE t0."Z_ENT" IN (3, 2) AND (t0."ZEMPLOYER" IS NOT NULL)
+ ORDER BY s0."ZNAME" COLLATE "C" DESC, t0."Z_PK" LIMIT 1
+```
+
+The join is a LEFT one so that a row with nothing related still comes back,
+as it does when the sort happens in memory.  Sorting on a *to-many* key path
+has no single value to sort by, so it stays in memory.
+
+**Dictionary results.**  When a request asks for values rather than objects
+and names the properties it wants, the columns are read directly - no
+managed objects are built - and `DISTINCT` and `GROUP BY` become the
+database's work:
+
+```sql
+SELECT DISTINCT t0."ZAGE" FROM "ZPERSON" t0 WHERE t0."Z_ENT" IN (3, 2)
+ ORDER BY t0."ZAGE" ASC
+```
+
+**Aggregates.**  An `NSExpressionDescription` over `max:`, `min:`, `sum:`,
+`average:` or `count:` of a local attribute is selected as the aggregate
+itself:
+
+```sql
+SELECT MAX(t0."ZAGE") FROM "ZPERSON" t0 WHERE t0."Z_ENT" IN (3, 2)
+```
+
+**Grouping.**  `propertiesToGroupBy` becomes `GROUP BY`, `havingPredicate`
+becomes `HAVING`, and a grouped result can be sorted by its own aggregate:
+
+```sql
+SELECT t0."ZAGE", COUNT(t0."ZNAME") FROM "ZPERSON" t0 WHERE t0."Z_ENT" IN (3, 2)
+ GROUP BY t0."ZAGE" HAVING COUNT(t0."ZNAME") > 1
+```
+
+A having predicate may name a selected expression (`headcount > 1`) or write
+the aggregate out (`count:(name) > 1`); both translate.
+
+Anything the query cannot express - an aggregate across a relationship, a
+request whose predicate is partly evaluated in memory - falls back to reading
+the objects, which is what the store did for every dictionary result before.
+
+**On FreeCoreData none of this is reached.**  Its `NSManagedObjectContext`
+builds dictionary results itself, from snapshots, including grouping,
+aggregates and `HAVING`; the store is asked for objects and the context does
+the rest.  So the projection above is what runs against Apple's CoreData,
+and is ready for the day the framework hands dictionary requests to the
+store.  Two consequences show up in the tests: a having predicate must be
+written in the aggregate form there, and a grouped result cannot be sorted
+by an aggregate's name.
+
 ## Optimistic locking
 
 Every row carries `Z_OPT`, and the store remembers the version of each row it

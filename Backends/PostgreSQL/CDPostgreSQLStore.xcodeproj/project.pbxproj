@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		AA0000000000000000000020 /* CDPostgreSQLStore.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000011 /* CDPostgreSQLStore.m */; };
 		AA0000000000000000000025 /* CDSQLStore.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000018 /* CDSQLStore.m */; };
+		AA0000000000000000000028 /* CDSQLQuery.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000026 /* CDSQLQuery.m */; };
 		AA0000000000000000000021 /* CDPostgreSQLStoreTests.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000012 /* CDPostgreSQLStoreTests.m */; };
 		AA0000000000000000000022 /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000015 /* CoreData.framework */; };
 		AA0000000000000000000023 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000016 /* XCTest.framework */; };
@@ -29,6 +30,8 @@
 		AA0000000000000000000010 /* CDPostgreSQLStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CDPostgreSQLStore.h; sourceTree = "<group>"; };
 		AA0000000000000000000011 /* CDPostgreSQLStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CDPostgreSQLStore.m; sourceTree = "<group>"; };
 		AA0000000000000000000018 /* CDSQLStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDSQLStore.m; path = ../Common/CDSQLStore.m; sourceTree = "<group>"; };
+		AA0000000000000000000026 /* CDSQLQuery.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDSQLQuery.m; path = ../Common/CDSQLQuery.m; sourceTree = "<group>"; };
+		AA0000000000000000000027 /* CDSQLQuery.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDSQLQuery.h; path = ../Common/CDSQLQuery.h; sourceTree = "<group>"; };
 		AA0000000000000000000019 /* CDSQLStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDSQLStore.h; path = ../Common/CDSQLStore.h; sourceTree = "<group>"; };
 		AA0000000000000000000012 /* CDPostgreSQLStoreTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDPostgreSQLStoreTests.m; path = Tests/CDPostgreSQLStoreTests.m; sourceTree = "<group>"; };
 		AA0000000000000000000013 /* libCDPostgreSQLStore.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libCDPostgreSQLStore.a; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -64,6 +67,8 @@
 			children = (
 				AA0000000000000000000019 /* CDSQLStore.h */,
 				AA0000000000000000000018 /* CDSQLStore.m */,
+				AA0000000000000000000027 /* CDSQLQuery.h */,
+				AA0000000000000000000026 /* CDSQLQuery.m */,
 				AA0000000000000000000010 /* CDPostgreSQLStore.h */,
 				AA0000000000000000000011 /* CDPostgreSQLStore.m */,
 				AA0000000000000000000005 /* Tests */,
@@ -171,6 +176,7 @@
 			files = (
 				AA0000000000000000000020 /* CDPostgreSQLStore.m in Sources */,
 				AA0000000000000000000025 /* CDSQLStore.m in Sources */,
+				AA0000000000000000000028 /* CDSQLQuery.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

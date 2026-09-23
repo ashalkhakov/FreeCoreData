@@ -13,9 +13,9 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 LIBRARY_NAME = libCDPostgreSQLStore
 
-libCDPostgreSQLStore_OBJC_FILES = CDPostgreSQLStore.m ../Common/CDSQLStore.m
+libCDPostgreSQLStore_OBJC_FILES = CDPostgreSQLStore.m ../Common/CDSQLStore.m ../Common/CDSQLQuery.m
 
-libCDPostgreSQLStore_HEADER_FILES = CDPostgreSQLStore.h ../Common/CDSQLStore.h
+libCDPostgreSQLStore_HEADER_FILES = CDPostgreSQLStore.h ../Common/CDSQLStore.h ../Common/CDSQLQuery.h
 libCDPostgreSQLStore_HEADER_FILES_DIR = .
 libCDPostgreSQLStore_HEADER_FILES_INSTALL_DIR = CDPostgreSQLStore
 

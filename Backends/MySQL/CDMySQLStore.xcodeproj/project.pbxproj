@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		BB0000000000000000000020 /* CDMySQLStore.m in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000011 /* CDMySQLStore.m */; };
 		BB0000000000000000000025 /* CDSQLStore.m in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000018 /* CDSQLStore.m */; };
+		BB0000000000000000000028 /* CDSQLQuery.m in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000026 /* CDSQLQuery.m */; };
 		BB0000000000000000000021 /* CDMySQLStoreTests.m in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000012 /* CDMySQLStoreTests.m */; };
 		BB0000000000000000000022 /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000015 /* CoreData.framework */; };
 		BB0000000000000000000023 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000016 /* XCTest.framework */; };
@@ -29,6 +30,8 @@
 		BB0000000000000000000010 /* CDMySQLStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CDMySQLStore.h; sourceTree = "<group>"; };
 		BB0000000000000000000011 /* CDMySQLStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CDMySQLStore.m; sourceTree = "<group>"; };
 		BB0000000000000000000018 /* CDSQLStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDSQLStore.m; path = ../Common/CDSQLStore.m; sourceTree = "<group>"; };
+		BB0000000000000000000026 /* CDSQLQuery.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDSQLQuery.m; path = ../Common/CDSQLQuery.m; sourceTree = "<group>"; };
+		BB0000000000000000000027 /* CDSQLQuery.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDSQLQuery.h; path = ../Common/CDSQLQuery.h; sourceTree = "<group>"; };
 		BB0000000000000000000019 /* CDSQLStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDSQLStore.h; path = ../Common/CDSQLStore.h; sourceTree = "<group>"; };
 		BB0000000000000000000012 /* CDMySQLStoreTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDMySQLStoreTests.m; path = Tests/CDMySQLStoreTests.m; sourceTree = "<group>"; };
 		BB0000000000000000000013 /* libCDMySQLStore.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libCDMySQLStore.a; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -64,6 +67,8 @@
 			children = (
 				BB0000000000000000000019 /* CDSQLStore.h */,
 				BB0000000000000000000018 /* CDSQLStore.m */,
+				BB0000000000000000000027 /* CDSQLQuery.h */,
+				BB0000000000000000000026 /* CDSQLQuery.m */,
 				BB0000000000000000000010 /* CDMySQLStore.h */,
 				BB0000000000000000000011 /* CDMySQLStore.m */,
 				BB0000000000000000000005 /* Tests */,
@@ -171,6 +176,7 @@
 			files = (
 				BB0000000000000000000020 /* CDMySQLStore.m in Sources */,
 				BB0000000000000000000025 /* CDSQLStore.m in Sources */,
+				BB0000000000000000000028 /* CDSQLQuery.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

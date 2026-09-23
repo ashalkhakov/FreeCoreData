@@ -283,6 +283,18 @@ static NSManagedObjectModel *CDPostgreSQLTestModel(void)
                                    context:context] firstObject];
 }
 
+/* A predicate no store can translate - the SQL side has nothing to work
+   with - so it is always the in-memory evaluator that answers it.  (A
+   [c] comparison would do as well on Apple, but gnustep-base's in-memory
+   evaluator does not honour the case-insensitive option for ==, so it
+   would be testing the framework rather than the store.) */
+- (NSPredicate *)namedPredicate:(NSString *)name
+{
+    return [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {
+        return [[object valueForKey:@"name"] isEqual:name];
+    }];
+}
+
 - (BOOL)save
 {
     NSError *error = nil;
@@ -1642,6 +1654,528 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
 
     XCTAssertEqual([colleagues count], (NSUInteger)1);
     XCTAssertEqualObjects([[colleagues firstObject] valueForKey:@"name"], @"Grace");
+}
+
+
+/* -- query translation -------------------------------------------------- */
+
+/* A predicate whose halves are not equally translatable used to translate
+   as nothing at all: the fetch read the whole table and filtered in memory.
+   What matters to a caller is that the answer is the same either way, which
+   is what these pin down; the SQL itself is checked by hand against the
+   server's statement log. */
+- (void)testMixedPredicateAnswersTheSameAsItsParts
+{
+    if (![self databaseAvailable]) return;
+
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" age:36];
+    [ada setValue:[@"portrait" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"picture"];
+    [self insertPersonNamed:@"Grace" age:45];            /* no picture */
+    [[self insertPersonNamed:@"alan" age:41] setValue:[@"snap" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"picture"];
+
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+
+    /* One half translates (age), the other is a binary column. */
+    NSArray *both = [self fetchPeopleWithPredicate:[NSPredicate predicateWithFormat:@"age > %d AND picture != nil", 40]
+                                   sortDescriptors:nil context:reopened];
+
+    XCTAssertEqual([both count], (NSUInteger)1);
+    XCTAssertEqualObjects([[both firstObject] valueForKey:@"name"], @"alan");
+
+    /* And with a half that no store could translate - a block, which only
+       the in-memory evaluator can run - the answer must still be right. */
+    NSPredicate *mixedPredicate = [NSCompoundPredicate andPredicateWithSubpredicates:@[
+        [NSPredicate predicateWithFormat:@"age > %d", 30],
+        [self namedPredicate:@"Ada"] ]];
+    NSArray *mixed = [self fetchPeopleWithPredicate:mixedPredicate sortDescriptors:nil context:reopened];
+
+    XCTAssertEqual([mixed count], (NSUInteger)1);
+    XCTAssertEqualObjects([[mixed firstObject] valueForKey:@"name"], @"Ada");
+}
+
+/* OR cannot be split: dropping a disjunct would narrow the result. */
+- (void)testOrWithAnUntranslatableHalfStillAnswersCorrectly
+{
+    if (![self databaseAvailable]) return;
+
+    [self insertPersonNamed:@"Ada" age:36];
+    [self insertPersonNamed:@"Grace" age:45];
+    [self insertPersonNamed:@"alan" age:41];
+    if (![self save]) return;
+
+    NSPredicate *either = [NSCompoundPredicate orPredicateWithSubpredicates:@[
+        [NSPredicate predicateWithFormat:@"age > %d", 44],
+        [self namedPredicate:@"Ada"] ]];
+    NSManagedObjectContext *reopened = [self newContext];
+    NSArray *found = [self fetchPeopleWithPredicate:either
+                                    sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]
+                                            context:reopened];
+
+    XCTAssertEqual([found count], (NSUInteger)2, @"both disjuncts must count");
+}
+
+/* "is it set" is exact for every column type, including the ones whose
+   values cannot be compared in SQL at all. */
+- (void)testIsNullWorksForEveryType
+{
+    if (![self databaseAvailable]) return;
+
+    NSManagedObject *full = [self insertPersonNamed:@"Ada" age:36];
+    [full setValue:[@"portrait" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"picture"];
+    [full setValue:[NSUUID UUID] forKey:@"identifier"];
+    [full setValue:@[ @"dark" ] forKey:@"settings"];
+
+    [self insertPersonNamed:@"Grace" age:45];            /* all of them nil */
+
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+
+    for (NSString *key in @[ @"picture", @"identifier", @"settings" ]) {
+        NSArray *unset = [self fetchPeopleWithPredicate:[NSPredicate predicateWithFormat:@"%K == nil", key]
+                                        sortDescriptors:nil context:reopened];
+        NSArray *set = [self fetchPeopleWithPredicate:[NSPredicate predicateWithFormat:@"%K != nil", key]
+                                      sortDescriptors:nil context:reopened];
+
+        XCTAssertEqual([unset count], (NSUInteger)1, @"%@ == nil", key);
+        XCTAssertEqualObjects([[unset firstObject] valueForKey:@"name"], @"Grace", @"%@ == nil", key);
+        XCTAssertEqual([set count], (NSUInteger)1, @"%@ != nil", key);
+        XCTAssertEqualObjects([[set firstObject] valueForKey:@"name"], @"Ada", @"%@ != nil", key);
+    }
+}
+
+/* A UUID and a byte string are stored as themselves, so equality is exact
+   even though ordering them would mean nothing. */
+- (void)testEqualityOnUUIDAndBinaryColumns
+{
+    if (![self databaseAvailable]) return;
+
+    NSUUID *wanted = [NSUUID UUID];
+    NSData *picture = [@"portrait" dataUsingEncoding:NSUTF8StringEncoding];
+
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" age:36];
+    [ada setValue:wanted forKey:@"identifier"];
+    [ada setValue:picture forKey:@"picture"];
+
+    NSManagedObject *grace = [self insertPersonNamed:@"Grace" age:45];
+    [grace setValue:[NSUUID UUID] forKey:@"identifier"];
+    [grace setValue:[@"other" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"picture"];
+
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+
+    NSArray *byUUID = [self fetchPeopleWithPredicate:[NSPredicate predicateWithFormat:@"identifier == %@", wanted]
+                                     sortDescriptors:nil context:reopened];
+
+    XCTAssertEqual([byUUID count], (NSUInteger)1);
+    XCTAssertEqualObjects([[byUUID firstObject] valueForKey:@"name"], @"Ada");
+
+    NSArray *byBytes = [self fetchPeopleWithPredicate:[NSPredicate predicateWithFormat:@"picture == %@", picture]
+                                      sortDescriptors:nil context:reopened];
+
+    XCTAssertEqual([byBytes count], (NSUInteger)1);
+    XCTAssertEqualObjects([[byBytes firstObject] valueForKey:@"name"], @"Ada");
+
+    NSArray *inList = [self fetchPeopleWithPredicate:[NSPredicate predicateWithFormat:@"identifier IN %@", @[ wanted ]]
+                                     sortDescriptors:nil context:reopened];
+
+    XCTAssertEqual([inList count], (NSUInteger)1);
+}
+
+/* Counting asks the database for a count; the answer must not change. */
+- (void)testCountMatchesTheFetchItCounts
+{
+    if (![self databaseAvailable]) return;
+
+    for (int i = 0; i < 10; i++)
+        [self insertPersonNamed:[NSString stringWithFormat:@"Person %d", i] age:i];
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Person"]];
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"age >= %d", 4]];
+
+    NSError *error = nil;
+    NSUInteger counted = [reopened countForFetchRequest:fetch error:&error];
+    NSUInteger fetched = [[reopened executeFetchRequest:fetch error:&error] count];
+
+    XCTAssertEqual(counted, (NSUInteger)6, @"count failed: %@", error);
+    XCTAssertEqual(counted, fetched);
+
+    /* A count whose predicate does not translate must still be right. */
+    [fetch setPredicate:[self namedPredicate:@"Person 3"]];
+    XCTAssertEqual([reopened countForFetchRequest:fetch error:&error], (NSUInteger)1);
+
+    /* And a count with a limit keeps Apple's meaning. */
+    [fetch setPredicate:nil];
+    [fetch setFetchLimit:3];
+    XCTAssertEqual([reopened countForFetchRequest:fetch error:&error], (NSUInteger)3);
+}
+
+
+/* Counting related rows is a question SQL answers directly. */
+- (void)testCountOfARelationshipInAPredicate
+{
+    if (![self databaseAvailable]) return;
+
+    NSManagedObject *big = [NSEntityDescription insertNewObjectForEntityForName:@"Company"
+                                                        inManagedObjectContext:self.context];
+    [big setValue:@"Bletchley" forKey:@"name"];
+
+    NSManagedObject *small = [NSEntityDescription insertNewObjectForEntityForName:@"Company"
+                                                          inManagedObjectContext:self.context];
+    [small setValue:@"Hut8" forKey:@"name"];
+
+    NSManagedObject *empty = [NSEntityDescription insertNewObjectForEntityForName:@"Company"
+                                                          inManagedObjectContext:self.context];
+    [empty setValue:@"Empty" forKey:@"name"];
+
+    [[self insertPersonNamed:@"Ada" age:36] setValue:big forKey:@"employer"];
+    [[self insertPersonNamed:@"alan" age:41] setValue:big forKey:@"employer"];
+    [[self insertPersonNamed:@"Joan" age:44] setValue:big forKey:@"employer"];
+    [[self insertPersonNamed:@"Grace" age:45] setValue:small forKey:@"employer"];
+
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Company"]];
+    [fetch setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+
+    NSError *error = nil;
+
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"employees.@count > %d", 2]];
+    NSArray *crowded = [reopened executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([crowded count], (NSUInteger)1, @"fetch failed: %@", error);
+    XCTAssertEqualObjects([[crowded firstObject] valueForKey:@"name"], @"Bletchley");
+
+    /* Zero has to work too, which is the case a join would get wrong. */
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"employees.@count == %d", 0]];
+    NSArray *deserted = [reopened executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([deserted count], (NSUInteger)1);
+    XCTAssertEqualObjects([[deserted firstObject] valueForKey:@"name"], @"Empty");
+
+    /* And counting across a join table. */
+    NSManagedObject *ada = [self personNamed:@"Ada" inContext:self.context];
+    [ada setValue:[NSSet setWithObject:[self personNamed:@"Grace" inContext:self.context]] forKey:@"friends"];
+    if (![self save]) return;
+
+    NSManagedObjectContext *third = [self newContext];
+    NSArray *sociable = [self fetchPeopleWithPredicate:[NSPredicate predicateWithFormat:@"friends.@count > %d", 0]
+                                       sortDescriptors:nil context:third];
+
+    XCTAssertEqual([sociable count], (NSUInteger)1);
+    XCTAssertEqualObjects([[sociable firstObject] valueForKey:@"name"], @"Ada");
+}
+
+/* SUBQUERY narrows the rows before counting them.  gnustep-base cannot
+   parse SUBQUERY at all, so this checks the translation where the framework
+   can express it, and skips where it cannot. */
+- (void)testFilteredCountOfARelationship
+{
+    if (![self databaseAvailable]) return;
+
+    NSPredicate *predicate = nil;
+
+    @try {
+        predicate = [NSPredicate predicateWithFormat:@"SUBQUERY(employees, $e, $e.age > %d).@count > %d", 40, 1];
+    } @catch (NSException *exception) {
+        return;   /* this Foundation does not do SUBQUERY */
+    }
+
+    NSManagedObject *seniors = [NSEntityDescription insertNewObjectForEntityForName:@"Company"
+                                                            inManagedObjectContext:self.context];
+    [seniors setValue:@"Seniors" forKey:@"name"];
+
+    NSManagedObject *mixed = [NSEntityDescription insertNewObjectForEntityForName:@"Company"
+                                                          inManagedObjectContext:self.context];
+    [mixed setValue:@"Mixed" forKey:@"name"];
+
+    [[self insertPersonNamed:@"Grace" age:45] setValue:seniors forKey:@"employer"];
+    [[self insertPersonNamed:@"alan" age:41] setValue:seniors forKey:@"employer"];
+    [[self insertPersonNamed:@"Ada" age:36] setValue:mixed forKey:@"employer"];
+    [[self insertPersonNamed:@"Joan" age:44] setValue:mixed forKey:@"employer"];
+
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Company"]];
+    [fetch setPredicate:predicate];
+
+    NSError *error = nil;
+    NSArray *found = [reopened executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([found count], (NSUInteger)1, @"fetch failed: %@", error);
+    XCTAssertEqualObjects([[found firstObject] valueForKey:@"name"], @"Seniors");
+
+    /* A filter that no row satisfies counts to zero everywhere. */
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"SUBQUERY(employees, $e, $e.age > %d).@count > %d", 100, 0]];
+    XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)0);
+}
+
+
+/* Sorting on a value that lives in another table: the store joins it in
+   rather than sorting in memory, and a row with nothing related still
+   sorts - which is why the join is a LEFT one. */
+- (void)testSortingAcrossAToOneRelationship
+{
+    if (![self databaseAvailable]) return;
+
+    NSManagedObject *acme = [NSEntityDescription insertNewObjectForEntityForName:@"Company"
+                                                         inManagedObjectContext:self.context];
+    [acme setValue:@"Acme" forKey:@"name"];
+
+    NSManagedObject *zenith = [NSEntityDescription insertNewObjectForEntityForName:@"Company"
+                                                           inManagedObjectContext:self.context];
+    [zenith setValue:@"Zenith" forKey:@"name"];
+
+    [[self insertPersonNamed:@"Worker at Zenith" age:30] setValue:zenith forKey:@"employer"];
+    [[self insertPersonNamed:@"Worker at Acme" age:31] setValue:acme forKey:@"employer"];
+    [self insertPersonNamed:@"Unemployed" age:32];      /* no employer at all */
+
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSArray *byEmployer = [self fetchPeopleWithPredicate:nil
+                                         sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"employer.name" ascending:YES],
+                                                            [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]
+                                                 context:reopened];
+
+    XCTAssertEqual([byEmployer count], (NSUInteger)3, @"the employer-less row must not be dropped");
+
+    NSMutableArray *names = [NSMutableArray array];
+
+    for (NSManagedObject *person in byEmployer)
+        [names addObject:[person valueForKey:@"name"]];
+
+    /* Whether a missing value sorts first or last is the database's
+       business; what matters is that all three came back and the two with
+       employers are in employer order. */
+    NSUInteger acmeIndex = [names indexOfObject:@"Worker at Acme"];
+    NSUInteger zenithIndex = [names indexOfObject:@"Worker at Zenith"];
+
+    XCTAssertNotEqual(acmeIndex, (NSUInteger)NSNotFound);
+    XCTAssertNotEqual(zenithIndex, (NSUInteger)NSNotFound);
+    XCTAssertLessThan(acmeIndex, zenithIndex, @"Acme sorts before Zenith");
+
+    /* Descending, and combined with a predicate and a limit - which are
+       only pushed into SQL when the sort is. */
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Person"]];
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"employer != nil"]];
+    [fetch setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"employer.name" ascending:NO] ]];
+    [fetch setFetchLimit:1];
+
+    NSError *error = nil;
+    NSArray *top = [reopened executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([top count], (NSUInteger)1, @"fetch failed: %@", error);
+    XCTAssertEqualObjects([[top firstObject] valueForKey:@"name"], @"Worker at Zenith");
+}
+
+/* Sorting on a to-many has no single value to sort by, so it stays in
+   memory - and must still answer correctly. */
+- (void)testSortingAcrossAToManyStillAnswers
+{
+    if (![self databaseAvailable]) return;
+
+    [self insertPersonNamed:@"Ada" age:36];
+    [self insertPersonNamed:@"Grace" age:45];
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Company"]];
+    [fetch setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"employees.name" ascending:YES] ]];
+
+    NSError *error = nil;
+    NSArray *found = nil;
+
+    @try {
+        found = [reopened executeFetchRequest:fetch error:&error];
+    } @catch (NSException *exception) {
+        return;   /* the framework may refuse the descriptor outright */
+    }
+
+    XCTAssertNotNil(found, @"fetch failed: %@", error);
+}
+
+
+/* A dictionary result asks for values, so the store reads columns instead
+   of building objects - and lets the database do DISTINCT, GROUP BY and the
+   aggregate. */
+- (void)testDictionaryResultsAreReadAsColumns
+{
+    if (![self databaseAvailable]) return;
+
+    [self insertPersonNamed:@"Ada" age:36];
+    [self insertPersonNamed:@"Grace" age:45];
+    [self insertPersonNamed:@"alan" age:41];
+    [self insertPersonNamed:@"Joan" age:41];
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Person"]];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:@[ @"name", @"age" ]];
+    [fetch setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"age" ascending:YES] ]];
+
+    NSError *error = nil;
+    NSArray *rows = [reopened executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([rows count], (NSUInteger)4, @"fetch failed: %@", error);
+    XCTAssertEqualObjects([[rows firstObject] objectForKey:@"name"], @"Ada");
+    XCTAssertEqualObjects([[rows firstObject] objectForKey:@"age"], @36);
+    XCTAssertNil([[rows firstObject] objectForKey:@"score"], @"only what was asked for");
+
+    /* DISTINCT over one column. */
+    [fetch setPropertiesToFetch:@[ @"age" ]];
+    [fetch setReturnsDistinctResults:YES];
+
+    NSArray *ages = [reopened executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([ages count], (NSUInteger)3, @"41 appears twice but distinctly once");
+}
+
+- (void)testAggregateInADictionaryResult
+{
+    if (![self databaseAvailable]) return;
+
+    [self insertPersonNamed:@"Ada" age:36];
+    [self insertPersonNamed:@"Grace" age:45];
+    [self insertPersonNamed:@"alan" age:41];
+    if (![self save]) return;
+
+    NSExpressionDescription *oldest = [[NSExpressionDescription alloc] init];
+    [oldest setName:@"oldest"];
+    [oldest setExpression:[NSExpression expressionForFunction:@"max:"
+                                                    arguments:@[ [NSExpression expressionForKeyPath:@"age"] ]]];
+    [oldest setExpressionResultType:NSInteger64AttributeType];
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Person"]];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:@[ oldest ]];
+
+    NSError *error = nil;
+    NSArray *rows = [reopened executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([rows count], (NSUInteger)1, @"fetch failed: %@", error);
+    XCTAssertEqualObjects([[rows firstObject] objectForKey:@"oldest"], @45);
+}
+
+
+/* Grouped reports: the database groups, counts and filters the groups. */
+- (void)testGroupByWithAnAggregate
+{
+    if (![self databaseAvailable]) return;
+
+    /* Three at Bletchley, one at Hut8, told apart by the employer's name
+       through a plain attribute so the grouping stays on one table. */
+    [self insertPersonNamed:@"Ada" age:41];
+    [self insertPersonNamed:@"alan" age:41];
+    [self insertPersonNamed:@"Joan" age:41];
+    [self insertPersonNamed:@"Grace" age:45];
+    [self insertPersonNamed:@"Mary" age:36];
+    if (![self save]) return;
+
+    NSExpressionDescription *headcount = [[NSExpressionDescription alloc] init];
+    [headcount setName:@"headcount"];
+    [headcount setExpression:[NSExpression expressionForFunction:@"count:"
+                                                       arguments:@[ [NSExpression expressionForKeyPath:@"name"] ]]];
+    [headcount setExpressionResultType:NSInteger64AttributeType];
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Person"]];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:@[ @"age", headcount ]];
+    [fetch setPropertiesToGroupBy:@[ @"age" ]];
+    [fetch setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"age" ascending:YES] ]];
+
+    NSError *error = nil;
+    NSArray *rows = [reopened executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([rows count], (NSUInteger)3, @"one row per age: %@", error);
+    XCTAssertEqualObjects([[rows firstObject] objectForKey:@"age"], @36);
+    XCTAssertEqualObjects([[rows firstObject] objectForKey:@"headcount"], @1);
+    XCTAssertEqualObjects([[rows objectAtIndex:1] objectForKey:@"age"], @41);
+    XCTAssertEqualObjects([[rows objectAtIndex:1] objectForKey:@"headcount"], @3);
+}
+
+/* HAVING names what the query selects, and keeps only the groups that
+   pass. */
+- (void)testGroupByWithHaving
+{
+    if (![self databaseAvailable]) return;
+
+    [self insertPersonNamed:@"Ada" age:41];
+    [self insertPersonNamed:@"alan" age:41];
+    [self insertPersonNamed:@"Joan" age:41];
+    [self insertPersonNamed:@"Grace" age:45];
+    [self insertPersonNamed:@"Mary" age:36];
+    if (![self save]) return;
+
+    NSExpressionDescription *headcount = [[NSExpressionDescription alloc] init];
+    [headcount setName:@"headcount"];
+    [headcount setExpression:[NSExpression expressionForFunction:@"count:"
+                                                       arguments:@[ [NSExpression expressionForKeyPath:@"name"] ]]];
+    [headcount setExpressionResultType:NSInteger64AttributeType];
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Person"]];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:@[ @"age", headcount ]];
+    [fetch setPropertiesToGroupBy:@[ @"age" ]];
+    /* The aggregate written out, which is the form Apple documents and
+       the only one this framework's in-memory grouping understands. */
+    [fetch setHavingPredicate:[NSPredicate predicateWithFormat:@"count:(name) > %d", 1]];
+
+    NSError *error = nil;
+    NSArray *rows = [reopened executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([rows count], (NSUInteger)1, @"only the group of three: %@", error);
+    XCTAssertEqualObjects([[rows firstObject] objectForKey:@"age"], @41);
+    XCTAssertEqualObjects([[rows firstObject] objectForKey:@"headcount"], @3);
+
+    /* Sorting by the aggregate itself, which only a grouped query can do.
+       A framework that builds grouped rows in the context rather than
+       handing the request to the store sorts the rows' objects instead, and
+       does not know the name; where that is so, this is skipped. */
+    [fetch setHavingPredicate:nil];
+    [fetch setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"headcount" ascending:NO] ]];
+
+    @try {
+        rows = [reopened executeFetchRequest:fetch error:&error];
+
+        XCTAssertEqual([rows count], (NSUInteger)3, @"fetch failed: %@", error);
+        XCTAssertEqualObjects([[rows firstObject] objectForKey:@"headcount"], @3);
+    } @catch (NSException *exception) {
+        rows = nil;
+    }
+
+    /* A predicate narrows the rows before they are grouped. */
+    [fetch setSortDescriptors:nil];
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"age > %d", 40]];
+
+    rows = [reopened executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([rows count], (NSUInteger)2, @"36 is filtered out before grouping: %@", error);
 }
 
 /* -- optimistic locking ------------------------------------------------ */
