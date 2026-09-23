@@ -103,3 +103,26 @@ typedef NSUInteger NSBatchDeleteRequestResultType;
 - (NSBatchDeleteRequestResultType)resultType;
 
 @end
+
+enum {
+    NSPersistentHistoryResultTypeStatusOnly = 0x0,
+    NSPersistentHistoryResultTypeObjectIDs = 0x1,
+    NSPersistentHistoryResultTypeCount = 0x2,
+    NSPersistentHistoryResultTypeTransactionsOnly = 0x3,
+    NSPersistentHistoryResultTypeChangesOnly = 0x4,
+    NSPersistentHistoryResultTypeTransactionsAndChanges = 0x5
+};
+typedef NSInteger NSPersistentHistoryResultType;
+
+/* result is, per the request's resultType: NSNumber (status or count),
+   an NSArray of NSManagedObjectIDs, of NSPersistentHistoryTransactions
+   (with or without their changes) or of NSPersistentHistoryChanges. */
+@interface NSPersistentHistoryResult : NSPersistentStoreResult {
+    id _result;
+    NSPersistentHistoryResultType _resultType;
+}
+
+- (id)result;
+- (NSPersistentHistoryResultType)resultType;
+
+@end

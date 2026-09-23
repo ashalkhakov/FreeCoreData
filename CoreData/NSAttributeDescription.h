@@ -51,6 +51,7 @@ enum {
     NSString *_valueClassName;
     id _defaultValue;
     NSString *_valueTransformerName;
+    BOOL _preservesValueInHistoryOnDeletion;
 }
 
 - (NSString *)attributeValueClassName;
@@ -67,9 +68,15 @@ enum {
    data to object and are applied in reverse, matching Apple. */
 - (NSString *)valueTransformerName;
 
+/* When YES and the store tracks persistent history, a deleted object's
+   last value for this attribute is preserved in the history change's
+   tombstone. */
+- (BOOL)preservesValueInHistoryOnDeletion;
+
 - (void)setAttributeType:(NSAttributeType)value;
 - (void)setAttributeValueClassName:(NSString *)value;
 - (void)setDefaultValue:(id)value;
 - (void)setValueTransformerName:(NSString *)value;
+- (void)setPreservesValueInHistoryOnDeletion:(BOOL)value;
 
 @end

@@ -51,6 +51,12 @@ NSString * const NSRefreshedObjectsKey=@"NSRefreshedObjectsKey";
 NSString * const NSInvalidatedObjectsKey=@"NSInvalidatedObjectsKey";
 NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
+NSString * const NSManagedObjectContextDidSaveObjectIDsNotification=@"NSManagedObjectContextDidSaveObjectIDsNotification";
+
+NSString * const NSInsertedObjectIDsKey=@"inserted_objectIDs";
+NSString * const NSUpdatedObjectIDsKey=@"updated_objectIDs";
+NSString * const NSDeletedObjectIDsKey=@"deleted_objectIDs";
+
 @interface NSAtomicStore(private)
 -(void)_uniqueObjectID:(NSManagedObjectID *)objectID;
 -(void)_removeCacheNodes:(NSSet *)cacheNodes;
@@ -196,6 +202,16 @@ static char CDContextQueueSpecificKey;
    value=[value copy];
    [_contextName release];
    _contextName=value;
+}
+
+-(NSString *)transactionAuthor {
+   return _transactionAuthor;
+}
+
+-(void)setTransactionAuthor:(NSString *)author {
+   author=[author copy];
+   [_transactionAuthor release];
+   _transactionAuthor=author;
 }
 
 -(NSManagedObjectContext *)parentContext {
@@ -349,6 +365,7 @@ static char CDContextQueueSpecificKey;
    if(_concurrencyType==NSPrivateQueueConcurrencyType && _workQueue!=NULL)
     dispatch_release((dispatch_queue_t)_workQueue);
    [_contextName release];
+   [_transactionAuthor release];
    if(_parentMergeObserver!=nil)
     [[NSNotificationCenter defaultCenter] removeObserver:_parentMergeObserver];
    [_parentMergeObserver release];
@@ -1056,6 +1073,12 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    NSPersistentStoreRequestType type=[request requestType];
 
    if(type==NSBatchInsertRequestType || type==NSBatchUpdateRequestType || type==NSBatchDeleteRequestType)
+    return [self _executeBatchRequest:request error:error];
+
+   /* History requests take the same store-direct, coordinator-locked
+      path as batch requests (the batch-delete entity resolution inside
+      it is class-guarded and does not apply). */
+   if(type==NSPersistentHistoryRequestType)
     return [self _executeBatchRequest:request error:error];
 
    [NSException raise:NSInvalidArgumentException
@@ -2754,16 +2777,18 @@ static id CDUndoRestoredValue(id value){
    }
 }
 
--(void)mergeChangesFromContextDidSaveNotification:(NSNotification *)notification {
-   NSDictionary *userInfo=[notification userInfo];
-
-   for(NSManagedObject *inserted in [userInfo objectForKey:NSInsertedObjectsKey]){
+/* Both userInfo dialects are understood: the DidSave keys carry
+   NSManagedObjects (as posted by a saving context), the *ObjectIDsKey
+   keys carry bare NSManagedObjectIDs (as built by
+   -[NSPersistentHistoryTransaction objectIDNotification]). */
+-(void)_mergeInsertedObjectIDs:(id)insertedIDs updatedObjectIDs:(id)updatedIDs deletedObjectIDs:(id)deletedIDs {
+   for(NSManagedObjectID *objectID in insertedIDs){
     /* Registers a fault for the newly saved object in the receiver and
        surfaces it through the receiver's objects-did-change
        notification - fetched-results-style observers learn about
        merged inserts exactly this way on Apple.  (Nothing retains the
        fault beyond that unless retainsRegisteredObjects is set.) */
-    NSManagedObject *local=[self objectWithID:[inserted objectID]];
+    NSManagedObject *local=[self objectWithID:objectID];
 
     if(local!=nil){
      [_pendingInsertedObjects addObject:local];
@@ -2771,15 +2796,15 @@ static id CDUndoRestoredValue(id value){
     }
    }
 
-   for(NSManagedObject *updated in [userInfo objectForKey:NSUpdatedObjectsKey]){
-    NSManagedObject *local=[self objectRegisteredForID:[updated objectID]];
+   for(NSManagedObjectID *objectID in updatedIDs){
+    NSManagedObject *local=[self objectRegisteredForID:objectID];
 
     if(local!=nil)
      [self refreshObject:local mergeChanges:YES];
    }
 
-   for(NSManagedObject *deleted in [userInfo objectForKey:NSDeletedObjectsKey]){
-    NSManagedObject *local=[self objectRegisteredForID:[deleted objectID]];
+   for(NSManagedObjectID *objectID in deletedIDs){
+    NSManagedObject *local=[self objectRegisteredForID:objectID];
 
     if(local!=nil){
      /* Apple keeps the local instance registered and materialized (its
@@ -2797,6 +2822,30 @@ static id CDUndoRestoredValue(id value){
      [self _requestProcessPendingChanges];
     }
    }
+}
+
+static id objectIDsFromObjects(id objects){
+   NSMutableArray *result=[NSMutableArray array];
+
+   for(NSManagedObject *object in objects)
+    [result addObject:[object objectID]];
+   return result;
+}
+
+-(void)mergeChangesFromContextDidSaveNotification:(NSNotification *)notification {
+   NSDictionary *userInfo=[notification userInfo];
+   id insertedIDs=[userInfo objectForKey:NSInsertedObjectIDsKey];
+   id updatedIDs=[userInfo objectForKey:NSUpdatedObjectIDsKey];
+   id deletedIDs=[userInfo objectForKey:NSDeletedObjectIDsKey];
+
+   if(insertedIDs==nil)
+    insertedIDs=objectIDsFromObjects([userInfo objectForKey:NSInsertedObjectsKey]);
+   if(updatedIDs==nil)
+    updatedIDs=objectIDsFromObjects([userInfo objectForKey:NSUpdatedObjectsKey]);
+   if(deletedIDs==nil)
+    deletedIDs=objectIDsFromObjects([userInfo objectForKey:NSDeletedObjectsKey]);
+
+   [self _mergeInsertedObjectIDs:insertedIDs updatedObjectIDs:updatedIDs deletedObjectIDs:deletedIDs];
 }
 
 

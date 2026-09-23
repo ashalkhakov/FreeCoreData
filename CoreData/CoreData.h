@@ -33,6 +33,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSBatchUpdateRequest.h>
 #import <CoreData/NSBatchDeleteRequest.h>
 #import <CoreData/NSPersistentStoreResult.h>
+#import <CoreData/NSPersistentHistoryToken.h>
+#import <CoreData/NSPersistentHistoryChange.h>
+#import <CoreData/NSPersistentHistoryTransaction.h>
+#import <CoreData/NSPersistentHistoryChangeRequest.h>
 #import <CoreData/NSAtomicStore.h>
 #import <CoreData/NSAtomicStoreCacheNode.h>
 #import <CoreData/NSPersistentStore.h>

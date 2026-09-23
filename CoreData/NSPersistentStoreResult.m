@@ -169,3 +169,30 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 @end
+
+@implementation NSPersistentHistoryResult
+
+-(void)dealloc {
+   [_result release];
+   [super dealloc];
+}
+
+-(id)result {
+   return _result;
+}
+
+-(NSPersistentHistoryResultType)resultType {
+   return _resultType;
+}
+
+@end
+
+@implementation NSPersistentHistoryResult (CDPrivate)
+
+-(instancetype)_initWithResult:(id)result resultType:(NSPersistentHistoryResultType)resultType {
+   _result=[result retain];
+   _resultType=resultType;
+   return self;
+}
+
+@end

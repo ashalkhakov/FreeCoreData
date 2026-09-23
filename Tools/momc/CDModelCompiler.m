@@ -280,6 +280,8 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
      [attribute setOptional:boolAttr(attributeElement,@"optional")];
      if(boolAttr(attributeElement,@"transient"))
       [attribute setTransient:YES];
+     if(boolAttr(attributeElement,@"preserveValueOnDeletion"))
+      [attribute setPreservesValueInHistoryOnDeletion:YES];
      if(attr(attributeElement,@"versionHashModifier")!=nil)
       [attribute setVersionHashModifier:attr(attributeElement,@"versionHashModifier")];
      if(attr(attributeElement,@"valueTransformerName")!=nil)

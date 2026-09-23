@@ -31,6 +31,16 @@ COREDATA_EXPORT NSString *const NSRefreshedObjectsKey;
 COREDATA_EXPORT NSString *const NSInvalidatedObjectsKey;
 COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
 
+/* Object-ID flavor of the save notification, as built by
+   -[NSPersistentHistoryTransaction objectIDNotification]; the userInfo
+   carries collections of NSManagedObjectIDs under the keys below, and
+   mergeChangesFromContextDidSaveNotification: understands both flavors. */
+COREDATA_EXPORT NSString *const NSManagedObjectContextDidSaveObjectIDsNotification;
+
+COREDATA_EXPORT NSString *const NSInsertedObjectIDsKey;
+COREDATA_EXPORT NSString *const NSUpdatedObjectIDsKey;
+COREDATA_EXPORT NSString *const NSDeletedObjectIDsKey;
+
 /* Queue association, as on Apple: a context created with a queue type
    owns a serial execution context that all access must go through
    (performBlock: / performBlockAndWait:).  A context created with
@@ -56,6 +66,7 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
                                private contexts, the main queue for
                                main-queue contexts */
     NSString *_contextName;
+    NSString *_transactionAuthor;
 
     /* Nested contexts: a child saves into its parent instead of the
        store, and fetches through it. */
@@ -112,6 +123,11 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
 /* Debug label, as on Apple. */
 - (NSString *)name;
 - (void)setName:(NSString *)value;
+
+/* Recorded as the author of this context's saves in a store's
+   persistent history. */
+- (NSString *)transactionAuthor;
+- (void)setTransactionAuthor:(NSString *)author;
 
 /* Nested contexts.  A child context uses its parent as its "store":
    fetches are answered from the parent's current state (including the

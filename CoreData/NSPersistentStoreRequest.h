@@ -18,7 +18,8 @@ enum {
     NSSaveRequestType,
     NSBatchInsertRequestType = 5,
     NSBatchUpdateRequestType = 6,
-    NSBatchDeleteRequestType = 7
+    NSBatchDeleteRequestType = 7,
+    NSPersistentHistoryRequestType = 9   /* not public on Apple; matches NSPersistentHistoryChangeRequest */
 };
 typedef NSUInteger NSPersistentStoreRequestType;
 

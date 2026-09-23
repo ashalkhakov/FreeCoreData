@@ -41,6 +41,7 @@ CoreDataTests_OBJC_FILES = \
 	NSAsynchronousFetchTests.m \
 	NSBatchRequestTests.m \
 	NSTransientRelationshipTests.m \
+	NSPersistentHistoryTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
 	StoreVersioningTests.m

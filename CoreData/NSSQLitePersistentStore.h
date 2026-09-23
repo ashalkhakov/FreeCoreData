@@ -37,6 +37,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     void *_database;
     NSMutableDictionary *_entityIDs; /* entity name -> NSNumber (Z_ENT) */
     NSMutableDictionary *_entityNamesByID; /* NSNumber (Z_ENT) -> entity name */
+
+    /* Persistent history (NSPersistentHistoryTrackingKey): saves and
+       batch operations are recorded in Z_ATRANSACTION/Z_ACHANGE
+       (mirroring Apple's ATRANSACTION/ACHANGE tables). */
+    BOOL _historyTracking;
+    BOOL _postsRemoteChangeNotification;
 }
 
 @end

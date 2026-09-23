@@ -9,33 +9,37 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
-#import <CoreData/NSPersistentStoreResult.h>
+#import <Foundation/NSObject.h>
+#import <CoreData/CoreDataExports.h>
 
-@interface NSAsynchronousFetchResult (CDPrivate)
+@class NSManagedObjectID, NSDictionary, NSSet;
+@class NSPersistentHistoryTransaction;
 
-- (instancetype)_initWithManagedObjectContext:(NSManagedObjectContext *)context
-                                 fetchRequest:(NSAsynchronousFetchRequest *)request
-                                     progress:(NSProgress *)progress;
+enum {
+    NSPersistentHistoryChangeTypeInsert = 0,
+    NSPersistentHistoryChangeTypeUpdate = 1,
+    NSPersistentHistoryChangeTypeDelete = 2
+};
+typedef NSInteger NSPersistentHistoryChangeType;
 
-/* Called by the executing context, on its queue, before the completion
-   block runs. */
-- (void)_setFinalResult:(NSArray *)result;
-- (void)_setOperationError:(NSError *)error;
+/* One insertion, update or deletion as the store recorded it.
+   updatedProperties (updates only) names what changed; tombstone
+   (deletions only) carries the last values of attributes marked
+   preservesValueInHistoryOnDeletion, keyed by attribute name. */
+@interface NSPersistentHistoryChange : NSObject <NSCopying> {
+    int64_t _changeID;
+    NSPersistentHistoryChangeType _changeType;
+    NSManagedObjectID *_changedObjectID;
+    NSDictionary *_tombstone;
+    NSSet *_updatedProperties;
+    NSPersistentHistoryTransaction *_transaction;   /* not retained */
+}
 
-@end
+- (int64_t)changeID;
+- (NSPersistentHistoryChangeType)changeType;
+- (NSManagedObjectID *)changedObjectID;
+- (NSDictionary *)tombstone;
+- (NSSet *)updatedProperties;   /* NSPropertyDescription */
+- (NSPersistentHistoryTransaction *)transaction;
 
-@interface NSBatchInsertResult (CDPrivate)
-- (instancetype)_initWithResult:(id)result resultType:(NSBatchInsertRequestResultType)resultType;
-@end
-
-@interface NSBatchUpdateResult (CDPrivate)
-- (instancetype)_initWithResult:(id)result resultType:(NSBatchUpdateRequestResultType)resultType;
-@end
-
-@interface NSBatchDeleteResult (CDPrivate)
-- (instancetype)_initWithResult:(id)result resultType:(NSBatchDeleteRequestResultType)resultType;
-@end
-
-@interface NSPersistentHistoryResult (CDPrivate)
-- (instancetype)_initWithResult:(id)result resultType:(NSPersistentHistoryResultType)resultType;
 @end
