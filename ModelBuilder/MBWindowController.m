@@ -340,7 +340,9 @@ static const CGFloat MBInspectorMinimum = 260.0;
      (not disabled in the xib) DELIBERATELY: each line below is the
      to-do list for a schema feature, and enabling one should happen
      next to the serializer change that supports it. --- */
-  MBDisable(self.preserveCheckbox, MBNotSerializedTip);
+  self.preserveCheckbox.toolTip =
+      @"With persistent history tracking, a deleted object's last value "
+      @"for this attribute is kept in the history change's tombstone.";
   MBDisable(self.undefinedClassField,
       @"Custom value classes apply to Transformable attributes.");
   MBDisableControlsOfClass(self.inspectorTabView, [NSComboBox class],
@@ -889,6 +891,8 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
     [self.attributeTypePopup selectItemWithTitle:typeName];
   self.optionalCheckbox.state = attr.isOptional ? NSOnState : NSOffState;
   self.transientCheckbox.state = attr.isTransient ? NSOnState : NSOffState;
+  self.preserveCheckbox.state =
+      attr.preservesValueInHistoryOnDeletion ? NSOnState : NSOffState;
 
   MBAttributeEditor *editor = [MBAttributeEditor
       editorForAttributeNamed:attr.name
@@ -1549,6 +1553,8 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   editor.name = self.attributeNameField.stringValue;
   editor.optional = (self.optionalCheckbox.state == NSOnState);
   editor.transient = (self.transientCheckbox.state == NSOnState);
+  editor.preservesValueInHistoryOnDeletion =
+      (self.preserveCheckbox.state == NSOnState);
   editor.hashModifier = self.attributeHashModifierField.stringValue;
   editor.renamingIdentifier = self.attributeRenamingField.stringValue;
 

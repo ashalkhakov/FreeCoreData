@@ -35,7 +35,7 @@ static NSString *const kRichModelXML = @""
 "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
 "<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\" sourceLanguage=\"Objective-C\">\n"
 "  <entity name=\"Article\" representedClassName=\"NSManagedObject\" versionHashModifier=\"v2\" elementID=\"Post\" syncable=\"YES\">\n"
-"    <attribute name=\"title\" attributeType=\"String\" defaultValueString=\"Untitled\" minValueString=\"1\" maxValueString=\"80\" regularExpressionString=\".+\"/>\n"
+"    <attribute name=\"title\" attributeType=\"String\" defaultValueString=\"Untitled\" preserveValueOnDeletion=\"YES\" minValueString=\"1\" maxValueString=\"80\" regularExpressionString=\".+\"/>\n"
 "    <attribute name=\"titleUpper\" optional=\"YES\" attributeType=\"String\" derived=\"YES\" derivationExpression=\"uppercase:(title)\"/>\n"
 "    <attribute name=\"titleCopy\" optional=\"YES\" attributeType=\"String\" derived=\"YES\" derivationExpression=\"title\"/>\n"
 "    <attribute name=\"stamp\" optional=\"YES\" attributeType=\"Date\" derived=\"YES\" derivationExpression=\"now()\"/>\n"
@@ -175,6 +175,8 @@ static NSString *const kRichModelXML = @""
 
     NSAttributeDescription *titleB = [[articleB attributesByName] objectForKey:@"title"];
     XCTAssertEqualObjects([titleB defaultValue], @"Untitled");
+    XCTAssertTrue([titleB preservesValueInHistoryOnDeletion],
+                  @"preserveValueOnDeletion round-trips (history tombstones)");
     XCTAssertEqualObjects([[[articleB attributesByName] objectForKey:@"published"] defaultValue],
                           [NSNumber numberWithBool:YES]);
     XCTAssertEqualObjects([[[articleB attributesByName] objectForKey:@"createdAt"] defaultValue],
