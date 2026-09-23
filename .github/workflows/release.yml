@@ -3,8 +3,9 @@ name: Release
 # Ported from XFormsKit's release workflow. Tag a version to publish, or run it
 # by hand to get the artifacts without creating a release.
 #
-# Two outputs, one per platform ModelBuilder ships on: an AppImage for Linux
-# and a signed, notarized app for macOS.
+# Two outputs, one per platform: a FreeCoreData AppImage for Linux (the
+# CDLauncher chooser, Model Builder and the sample apps in one image) and a
+# signed, notarized ModelBuilder app for macOS.
 on:
   push:
     tags: ['v*']
@@ -93,49 +94,50 @@ jobs:
       - name: Package the AppImage
         run: GNUSTEP_PREFIX="$INSTALL_PATH" ./Scripts/package-appimage.sh
 
-      # Proof it starts. The app is GUI-only, so it is launched against a
-      # virtual display, bare and with a model to open; a bundle that cannot
-      # find its framework, its backend or its nibs dies here rather than for
-      # whoever downloads it.
+      # Proof it starts. The apps are GUI-only, so each launch mode runs
+      # against a virtual display: bare (the launcher), a model to open
+      # (Model Builder), and each sample by its keyword; a bundle that
+      # cannot find its framework, its backend or its nibs dies here
+      # rather than for whoever downloads it.
       - name: Smoke-test the AppImage
         run: |
           sudo apt-get -q -y install xvfb
-          image=$(ls ModelBuilder-Linux-*.AppImage)
+          image=$(ls FreeCoreData-Linux-*.AppImage)
           chmod +x "$image"
-          for doc in "" Tests/MomcFixture.xcdatamodeld; do
+          for mode in "" Tests/MomcFixture.xcdatamodeld staffbook employeedirectory; do
             log="$RUNNER_TEMP/smoke.log"
-            timeout 90 xvfb-run -a ./"$image" $doc > "$log" 2>&1 &
+            timeout 90 xvfb-run -a ./"$image" $mode > "$log" 2>&1 &
             pid=$!
             sleep 25
             if kill -0 $pid 2>/dev/null; then
-              echo "${doc:-no document}: up after 25s"
+              echo "${mode:-launcher}: up after 25s"
               kill $pid 2>/dev/null || true
               wait $pid 2>/dev/null || true
             else
               wait $pid; status=$?
               cat "$log"
-              echo "::error::ModelBuilder (${doc:-no document}) exited on its own with status $status"
+              echo "::error::AppImage (${mode:-launcher}) exited on its own with status $status"
               exit 1
             fi
             # Staying up is not enough: an app whose nib failed to load stays
             # up too, as an icon with no menu and no window. GNUstep reports
             # that on stderr, so it is read back from there.
             if grep -E "Failed to load Xib|could not load nib|failed to load MainMenu" "$log"; then
-              echo "::error::ModelBuilder (${doc:-no document}) started without its interface"
+              echo "::error::AppImage (${mode:-launcher}) started without its interface"
               exit 1
             fi
           done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ModelBuilder-Linux-${{ env.APP_VERSION }}
-          path: ${{ env.SRC_PATH }}/ModelBuilder-Linux-*.AppImage
+          name: FreeCoreData-Linux-${{ env.APP_VERSION }}
+          path: ${{ env.SRC_PATH }}/FreeCoreData-Linux-*.AppImage
 
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.SRC_PATH }}/ModelBuilder-Linux-*.AppImage
+          files: ${{ env.SRC_PATH }}/FreeCoreData-Linux-*.AppImage
 
   ############################ macOS ############################
   macos:

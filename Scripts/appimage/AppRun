@@ -1,14 +1,15 @@
 #!/bin/sh
 # Ported from XFormsKit's Scripts/appimage/AppRun (by way of RDLKit and
-# UDQuakeTools). The difference is the end: this image carries one app, so
-# there is no launcher to dispatch between several.
+# UDQuakeTools), dispatch included: the image carries CDLauncher, Model
+# Builder and the two samples, opens the launcher when run bare, and starts
+# a specific app for a keyword argument or a matching symlink name.
 set -eu
 
 HERE="$(dirname "$(readlink -f "$0")")"
 
 # Write runtime GNUstep config to a private temp file. The paths are not known
 # until the image is mounted, which is why they cannot be baked in.
-export GNUSTEP_CONFIG_FILE="/tmp/GNUstep-ModelBuilder-$$.conf"
+export GNUSTEP_CONFIG_FILE="/tmp/GNUstep-FreeCoreData-$$.conf"
 cat << IN_EOF > "$GNUSTEP_CONFIG_FILE"
 GNUSTEP_USER_CONFIG_FILE=.GNUstep.conf
 GNUSTEP_USER_DEFAULTS_DIR=GNUstep/Defaults
@@ -46,7 +47,7 @@ export LD_LIBRARY_PATH="$HERE/usr/lib:${LD_LIBRARY_PATH:-}"
 export PATH="$HERE/usr/local/bin:$HERE/usr/bin:$PATH"
 
 export FONTCONFIG_FILE="$HERE/usr/etc/fonts/fonts.conf"
-export XDG_CACHE_HOME="/tmp/fc-cache-modelbuilder-$$"
+export XDG_CACHE_HOME="/tmp/fc-cache-freecoredata-$$"
 mkdir -p "$XDG_CACHE_HOME"
 
 trap 'rm -rf "$XDG_CACHE_HOME" "$GNUSTEP_CONFIG_FILE"' EXIT
@@ -56,7 +57,10 @@ trap 'rm -rf "$XDG_CACHE_HOME" "$GNUSTEP_CONFIG_FILE"' EXIT
 # Info.plist carries.
 DEFAULTS_TOOL=$(find "$HERE" -name defaults -type f -perm -111 | head -n 1)
 if [ -n "$DEFAULTS_TOOL" ]; then
-    for domain in ModelBuilder org.gnustep.ModelBuilder; do
+    for domain in CDLauncher org.gnustep.CDLauncher \
+                  ModelBuilder org.gnustep.ModelBuilder \
+                  Staffbook org.gnustep.Staffbook \
+                  EmployeeDirectory org.gnustep.EmployeeDirectory; do
         "$DEFAULTS_TOOL" write "$domain" GSTheme Eau
         "$DEFAULTS_TOOL" write "$domain" NSFont LiberationSans
         "$DEFAULTS_TOOL" write "$domain" NSBoldFont LiberationSans-Bold
@@ -83,22 +87,41 @@ if [ -n "$DEFAULTS_TOOL" ]; then
     done
 fi
 
+# Which app: the launcher when run bare (the XFormsKit arrangement), a
+# specific one for a matching symlink name or a keyword first argument,
+# and Model Builder for a document path, which it opens.
+APP=CDLauncher
+case "$(basename "${ARGV0:-$0}")" in
+  *[Mm]odel[Bb]uilder*)   APP=ModelBuilder ;;
+  *[Ss]taffbook*)         APP=Staffbook ;;
+  *[Dd]irectory*)         APP=EmployeeDirectory ;;
+esac
+case "${1:-}" in
+  modelbuilder|ModelBuilder)                      APP=ModelBuilder; shift ;;
+  staffbook|Staffbook)                            APP=Staffbook; shift ;;
+  directory|employeedirectory|EmployeeDirectory)  APP=EmployeeDirectory; shift ;;
+  launcher|CDLauncher)                            APP=CDLauncher; shift ;;
+  "") ;;
+  -*) ;;
+  *) APP=ModelBuilder ;;   # a path: the model editor opens it, or says why not
+esac
+
 # The executable INSIDE the app wrapper, never the copy linuxdeploy leaves in
 # usr/bin: NSBundle finds the main bundle from where the executable sits, and
 # started from usr/bin the app has no Resources -- MainMenu.xib does not load
 # and it comes up as an icon with no menu and no window.
-REAL_BIN=$(find "$HERE/usr" -path '*/ModelBuilder.app/*' -type f -name ModelBuilder -perm -111 \
+REAL_BIN=$(find "$HERE/usr" -path "*/$APP.app/*" -type f -name "$APP" -perm -111 \
              -exec file {} \; 2>/dev/null | awk -F: '/ELF/{print $1; exit}')
 if [ -z "$REAL_BIN" ]; then
-    REAL_BIN="$HERE/usr/System/Applications/ModelBuilder.app/ModelBuilder"
+    REAL_BIN="$HERE/usr/System/Applications/$APP.app/$APP"
 fi
 
-# MB_GDB=1: the app under gdb. gdb itself must run against the host's
-# libraries -- started inside this environment it loads the image's and dies
-# before the prompt -- so it gets the host's paths back and applies the
-# image's to the program alone, through its exec wrapper. Then: `run`,
-# reproduce, `bt`.
-if [ -n "${MB_GDB:-}" ]; then
+# CD_GDB=1 (MB_GDB still honored): the app under gdb. gdb itself must run
+# against the host's libraries -- started inside this environment it loads
+# the image's and dies before the prompt -- so it gets the host's paths back
+# and applies the image's to the program alone, through its exec wrapper.
+# Then: `run`, reproduce, `bt`.
+if [ -n "${CD_GDB:-}${MB_GDB:-}" ]; then
     exec env LD_LIBRARY_PATH="$MB_HOST_LD_LIBRARY_PATH" PATH="$MB_HOST_PATH" \
         gdb -iex "set exec-wrapper env LD_LIBRARY_PATH=$LD_LIBRARY_PATH PATH=$PATH" \
             --args "$REAL_BIN" "$@"

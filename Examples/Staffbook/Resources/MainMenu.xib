@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24127" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+    <dependencies>
+        <deployment identifier="macosx"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24127"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="NSApplication">
+            <connections>
+                <outlet property="delegate" destination="SBd-el-Gt1" id="G3j-7V-53z"/>
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+        <customObject id="-3" userLabel="Application" customClass="NSObject"/>
+        <customObject id="SBd-el-Gt1" customClass="SBAppDelegate"/>
+        <menu title="Main Menu" systemMenu="main" id="4hO-SD-RET">
+            <items>
+                <menuItem title="Staffbook" id="cWI-9r-QWO">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Staffbook" systemMenu="apple" id="wja-uQ-LKX">
+                        <items>
+                            <menuItem title="About Staffbook" id="79I-qJ-zQt">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="orderFrontStandardAboutPanel:" target="-1" id="JZP-GS-EZ4"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="zBm-s1-rac"/>
+                            <menuItem title="Hide Staffbook" keyEquivalent="h" id="7Fx-6m-qSF">
+                                <connections>
+                                    <action selector="hide:" target="-1" id="DGX-0F-ZBJ"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Hide Others" keyEquivalent="h" id="Q6c-1s-uD6">
+                                <modifierMask key="keyEquivalentModifierMask" option="YES" command="YES"/>
+                                <connections>
+                                    <action selector="hideOtherApplications:" target="-1" id="ZgC-ST-Y9G"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Show All" id="Kd2-mp-pUS">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="unhideAllApplications:" target="-1" id="Dhg-Le-xox"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="kCx-OE-vgT"/>
+                            <menuItem title="Quit Staffbook" keyEquivalent="q" id="4sb-4s-VLi">
+                                <connections>
+                                    <action selector="terminate:" target="-1" id="Te7-pn-YzF"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Edit" id="5QF-Oa-p0T">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Edit" id="W48-6f-4Dl">
+                        <items>
+                            <menuItem title="Undo" keyEquivalent="z" id="dRJ-4n-Yzg">
+                                <connections>
+                                    <action selector="undo:" target="-1" id="M6e-cu-g7V"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Redo" keyEquivalent="Z" id="6dh-zS-Vam">
+                                <connections>
+                                    <action selector="redo:" target="-1" id="Cpv-R7-4pV"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="WRV-NI-Exz"/>
+                            <menuItem title="Cut" keyEquivalent="x" id="uRl-iY-unG">
+                                <connections>
+                                    <action selector="cut:" target="-1" id="YJe-68-I9s"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Copy" keyEquivalent="c" id="x3v-GG-iWU">
+                                <connections>
+                                    <action selector="copy:" target="-1" id="G1f-GL-Joy"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Paste" keyEquivalent="v" id="gVA-U4-sdL">
+                                <connections>
+                                    <action selector="paste:" target="-1" id="UvS-8e-Qdg"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="AYD-tP-1cn"/>
+                            <menuItem title="Select All" keyEquivalent="a" id="Ruw-6m-B2m">
+                                <connections>
+                                    <action selector="selectAll:" target="-1" id="VNm-Mi-diN"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Employees" id="SBe-mp-M01">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Employees" id="SBe-mp-M02">
+                        <items>
+                            <menuItem title="Add Employee" keyEquivalent="n" id="SBe-mp-M03">
+                                <connections>
+                                    <action selector="addEmployee:" target="-1" id="SBe-mp-M04"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Edit Employee" keyEquivalent="e" id="SBe-mp-M05">
+                                <connections>
+                                    <action selector="editEmployee:" target="-1" id="SBe-mp-M06"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Delete Employee" id="SBe-mp-M07">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="deleteEmployee:" target="-1" id="SBe-mp-M08"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="SBe-mp-M09"/>
+                            <menuItem title="Insert Sample Data" keyEquivalent="d" id="SBe-mp-M10">
+                                <connections>
+                                    <action selector="insertSampleData:" target="-1" id="SBe-mp-M11"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Delete Shown" id="SBe-mp-M12">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="deleteShown:" target="-1" id="SBe-mp-M13"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="SBe-mp-M14"/>
+                            <menuItem title="Refresh Chart" keyEquivalent="r" id="SBe-mp-M15">
+                                <connections>
+                                    <action selector="refreshChart:" target="-1" id="SBe-mp-M16"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Window" id="aUF-d1-5bR">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Window" systemMenu="window" id="0g2-no-a9f">
+                        <items>
+                            <menuItem title="Minimize" keyEquivalent="m" id="OY7-WF-poV">
+                                <connections>
+                                    <action selector="performMiniaturize:" target="-1" id="NiG-eF-tW9"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Close" keyEquivalent="w" id="Rz2-KC-cdq">
+                                <connections>
+                                    <action selector="performClose:" target="-1" id="Qm5-mn-hHo"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+            </items>
+        </menu>
+    </objects>
+</document>

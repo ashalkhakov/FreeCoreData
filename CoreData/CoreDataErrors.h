@@ -57,6 +57,9 @@ enum {
     NSPersistentStoreOperationError = 134070,
     NSPersistentStoreOpenError = 134080,
     NSPersistentStoreTimeoutError = 134090,
+    /* A store was asked to execute a request type it does not support
+       (e.g. a batch request against a non-SQLite store). */
+    NSPersistentStoreUnsupportedRequestTypeError = 134091,
     NSPersistentStoreIncompatibleVersionHashError = 134100,
     NSMigrationError = 134110,
     NSMigrationCancelledError = 134120,

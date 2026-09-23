@@ -450,11 +450,19 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
    NSString            *className=[entity managedObjectClassName];
    Class                class;
  
-   if(className)
+   if(className){
     class = NSClassFromString(className);
+
+    /* Apple falls back rather than messaging Nil into a silent no-op
+       (the fault-realization path already behaves this way). */
+    if(class == Nil){
+     NSLog(@"Unable to find class %@ specified by entity %@ in the runtime, using NSManagedObject",className,[entity name]);
+     class = [NSManagedObject class];
+    }
+   }
    else {
     NSLog(@"Entity %@ has no managedObjectClassName set, using NSManagedObject",[entity name]);
-    
+
     class = [NSManagedObject class];
    }
    

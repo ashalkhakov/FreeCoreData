@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="22758" systemVersion="23G93" minimumToolsVersion="Automatic" sourceLanguage="Objective-C" userDefinedModelVersionIdentifier="">
+    <entity name="Employee" representedClassName="SBEmployee" syncable="YES">
+        <attribute name="name" attributeType="String" defaultValueString=""/>
+        <attribute name="department" attributeType="String" defaultValueString="Engineering"/>
+        <attribute name="salary" attributeType="Double" defaultValueString="0.0" usesScalarValueType="NO"/>
+        <attribute name="hireDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="reviews" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Review" inverseName="employee" inverseEntity="Review"/>
+    </entity>
+    <entity name="Review" representedClassName="SBReview" syncable="YES">
+        <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="rating" attributeType="Integer 32" defaultValueString="3" usesScalarValueType="NO"/>
+        <attribute name="summary" optional="YES" attributeType="String"/>
+        <relationship name="employee" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Employee" inverseName="reviews" inverseEntity="Employee"/>
+    </entity>
+</model>

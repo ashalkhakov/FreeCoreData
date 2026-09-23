@@ -18,6 +18,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @class NSSet, NSMutableSet, NSNotification, NSUndoManager, NSMapTable;
 @class NSManagedObject, NSManagedObjectID, NSFetchRequest, NSPersistentStore, NSPersistentStoreCoordinator;
+@class NSPersistentStoreRequest, NSPersistentStoreResult;
 
 COREDATA_EXPORT NSString *const NSManagedObjectContextWillSaveNotification;
 COREDATA_EXPORT NSString *const NSManagedObjectContextDidSaveNotification;
@@ -30,6 +31,17 @@ COREDATA_EXPORT NSString *const NSRefreshedObjectsKey;
 COREDATA_EXPORT NSString *const NSInvalidatedObjectsKey;
 COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
 
+/* Queue association, as on Apple: a context created with a queue type
+   owns a serial execution context that all access must go through
+   (performBlock: / performBlockAndWait:).  A context created with
+   plain -init is a legacy thread-confined context. */
+enum {
+    NSConfinementConcurrencyType = 0x00,
+    NSPrivateQueueConcurrencyType = 0x01,
+    NSMainQueueConcurrencyType = 0x02
+};
+typedef NSUInteger NSManagedObjectContextConcurrencyType;
+
 @interface NSManagedObjectContext : NSObject <NSLocking> {
     NSLock *_lock;
     NSPersistentStoreCoordinator *_storeCoordinator;
@@ -38,6 +50,18 @@ COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
     BOOL _propagatesDeletesAtEndOfEvent;
     NSTimeInterval _stalenessInterval;
     id _mergePolicy;
+
+    NSManagedObjectContextConcurrencyType _concurrencyType;
+    void *_workQueue;       /* dispatch_queue_t: owned serial queue for
+                               private contexts, the main queue for
+                               main-queue contexts */
+    NSString *_contextName;
+
+    /* Nested contexts: a child saves into its parent instead of the
+       store, and fetches through it. */
+    NSManagedObjectContext *_parentContext;
+    BOOL _automaticallyMergesChangesFromParent;
+    id _parentMergeObserver;
 
     NSMutableSet *_registeredObjects;
 
@@ -70,6 +94,41 @@ COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
 - (BOOL)propagatesDeletesAtEndOfEvent;
 - (NSTimeInterval)stalenessInterval;
 - (id)mergePolicy;
+
+/* The designated initializer on Apple since 10.7; plain -init remains
+   the legacy thread-confined context. */
+- (instancetype)initWithConcurrencyType:(NSManagedObjectContextConcurrencyType)concurrencyType;
+- (NSManagedObjectContextConcurrencyType)concurrencyType;
+
+/* Queue access.  performBlock: runs asynchronously on the context's
+   queue, wrapped in an autorelease pool and followed by
+   processPendingChanges (a "user event", as Apple documents);
+   performBlockAndWait: runs synchronously with neither wrapper, and is
+   reentrant - called from the context's own queue it executes
+   immediately.  Both raise on a confinement context. */
+- (void)performBlock:(void (^)(void))block;
+- (void)performBlockAndWait:(void (^)(void))block;
+
+/* Debug label, as on Apple. */
+- (NSString *)name;
+- (void)setName:(NSString *)value;
+
+/* Nested contexts.  A child context uses its parent as its "store":
+   fetches are answered from the parent's current state (including the
+   parent's unsaved changes), and -save: pushes the child's changes
+   into the parent without touching any persistent store - only the
+   root of the chain writes to disk.  Object IDs are shared down the
+   chain, so IDs stay temporary until the root context saves.
+   persistentStoreCoordinator walks up the chain when unset locally.
+   Setting a parent on a confinement context raises, as on Apple. */
+- (NSManagedObjectContext *)parentContext;
+- (void)setParentContext:(NSManagedObjectContext *)parent;
+
+/* When set, saves by the parent (for a child context) or by sibling
+   contexts of the same coordinator (for a coordinator-backed context)
+   are merged into this context automatically, on its queue. */
+- (BOOL)automaticallyMergesChangesFromParent;
+- (void)setAutomaticallyMergesChangesFromParent:(BOOL)value;
 
 - (void)setPersistentStoreCoordinator:(NSPersistentStoreCoordinator *)value;
 - (void)setUndoManager:(NSUndoManager *)value;
@@ -107,6 +166,12 @@ COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
 - (NSArray *)executeFetchRequest:(NSFetchRequest *)request error:(NSError **)error;
 - (NSUInteger)countForFetchRequest:(NSFetchRequest *)request error:(NSError **)error;
 
+/* General request execution.  An NSAsynchronousFetchRequest returns
+   its NSAsynchronousFetchResult immediately; the wrapped fetch then
+   runs as its own event on the context's queue and the request's
+   completion block is called there with the populated result. */
+- (__kindof NSPersistentStoreResult *)executeRequest:(NSPersistentStoreRequest *)request error:(NSError **)error;
+
 - (void)insertObject:(NSManagedObject *)object;
 - (void)deleteObject:(NSManagedObject *)object;
 
@@ -121,6 +186,12 @@ COREDATA_EXPORT NSString *const NSInvalidatedAllObjectsKey;
 - (BOOL)obtainPermanentIDsForObjects:(NSArray *)objects error:(NSError **)error;
 - (BOOL)save:(NSError **)error;
 - (void)mergeChangesFromContextDidSaveNotification:(NSNotification *)notification;
+
+/* Tells contexts about changes made behind their backs (batch
+   requests): a dictionary of NSManagedObjectID arrays keyed by
+   NSInsertedObjectsKey / NSUpdatedObjectsKey / NSDeletedObjectsKey,
+   applied to each context on its own queue. */
++ (void)mergeChangesFromRemoteContextSave:(NSDictionary *)changeNotificationData intoContexts:(NSArray *)contexts;
 
 - (BOOL)commitEditing;
 - (void)commitEditingWithDelegate:(id)delegate didCommitSelector:(SEL)didCommitSelector contextInfo:(void *)contextInfo;

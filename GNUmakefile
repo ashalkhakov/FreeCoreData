@@ -14,6 +14,11 @@ CoreData_OBJC_FILES = \
 	CoreData/NSFetchedPropertyDescription.m \
 	CoreData/NSPersistentStoreRequest.m \
 	CoreData/NSSaveChangesRequest.m \
+	CoreData/NSAsynchronousFetchRequest.m \
+	CoreData/NSPersistentStoreResult.m \
+	CoreData/NSBatchInsertRequest.m \
+	CoreData/NSBatchUpdateRequest.m \
+	CoreData/NSBatchDeleteRequest.m \
 	CoreData/NSFetchRequest.m \
 	CoreData/NSManagedObject.m \
 	CoreData/NSManagedObjectID.m \
@@ -22,6 +27,8 @@ CoreData_OBJC_FILES = \
 	CoreData/NSManagedObjectMutableSet.m \
 	CoreData/NSManagedObjectSetEnumerator.m \
 	CoreData/NSPersistentStoreCoordinator.m \
+	CoreData/NSPersistentStoreDescription.m \
+	CoreData/NSPersistentContainer.m \
 	CoreData/NSPersistentStore.m \
 	CoreData/NSAtomicStore.m \
 	CoreData/NSIncrementalStore.m \
@@ -53,6 +60,11 @@ CoreData_HEADER_FILES = \
 	NSEntityDescription.h \
 	NSPersistentStoreRequest.h \
 	NSSaveChangesRequest.h \
+	NSAsynchronousFetchRequest.h \
+	NSPersistentStoreResult.h \
+	NSBatchInsertRequest.h \
+	NSBatchUpdateRequest.h \
+	NSBatchDeleteRequest.h \
 	NSFetchRequest.h \
 	NSFetchedPropertyDescription.h \
 	NSIncrementalStore.h \
@@ -64,6 +76,8 @@ CoreData_HEADER_FILES = \
 	NSManagedObjectModel.h \
 	NSPersistentStore.h \
 	NSPersistentStoreCoordinator.h \
+	NSPersistentStoreDescription.h \
+	NSPersistentContainer.h \
 	NSPropertyDescription.h \
 	NSRelationshipDescription.h \
 	NSSQLitePersistentStore.h \
@@ -78,7 +92,10 @@ CoreData_HEADER_FILES = \
 
 CoreData_OBJCFLAGS = -fno-objc-arc
 
-CoreData_LIBRARIES_DEPEND_UPON += -lsqlite3
+CoreData_LIBRARIES_DEPEND_UPON += -lsqlite3 -ldispatch
+
+ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include
+ADDITIONAL_LIB_DIRS += -L/usr/local/lib
 
 CoreData_INCLUDE_DIRS = -I.
 

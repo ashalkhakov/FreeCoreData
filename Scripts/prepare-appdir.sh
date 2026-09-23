@@ -33,6 +33,18 @@ make install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
 make -C ModelBuilder
 make -C ModelBuilder install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
 
+# The samples and the launcher that dispatches between everything (the
+# XFormsKit arrangement: the image opens CDLauncher, which starts its
+# sibling apps). Staffbook's model is compiled by momc, built first and
+# pointed at explicitly - the tool is not installed on PATH here.
+make -C Tools/momc
+make -C CDLauncher
+make -C CDLauncher install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
+make -C Examples/EmployeeDirectory
+make -C Examples/EmployeeDirectory install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
+make -C Examples/Staffbook MOMC="${WORKSPACE_DIR}/Tools/momc/obj/momc"
+make -C Examples/Staffbook install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM MOMC="${WORKSPACE_DIR}/Tools/momc/obj/momc"
+
 if [ -d "${LOCAL_PREFIX}/System/Library/Themes" ]; then
 mkdir -p AppDir/usr/System/Library/Themes
 cp -Rp "${LOCAL_PREFIX}/System/Library/Themes/"* AppDir/usr/System/Library/Themes/
@@ -104,9 +116,9 @@ find AppDir -maxdepth 1 -type d ! -name "AppDir" ! -name "usr" -exec rm -rf {} +
 
 echo "AppDir assembled:"
 du -sh AppDir
-# The app and the framework it links, or the image is not what it says it is.
+# The apps and the framework they link, or the image is not what it says it is.
 missing=0
-for wrapper in ModelBuilder.app CoreData.framework; do
+for wrapper in CDLauncher.app ModelBuilder.app Staffbook.app EmployeeDirectory.app CoreData.framework; do
     found=$(find AppDir/usr -maxdepth 5 -name "$wrapper" | head -n 1)
     if [ -n "$found" ]; then
         echo "  $found"

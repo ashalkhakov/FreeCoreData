@@ -1,6 +1,6 @@
 # GNUstep patches carried by this project
 
-Three fixes, written for upstream and applied by
+Five fixes, written for upstream and applied by
 `.github/scripts/dependencies.sh` when CI and the release build the GNUstep
 stack. They are held here while upstream is in code freeze; send them once
 it lifts, and delete each one (and its `patch` line in the script) when it
@@ -46,3 +46,52 @@ says, so every input field in a nib drew flat, and — without the bezel's
 inset — with its text about 2 pt above its label. The patch leaves
 nib-loaded fields as the nib has them and keeps the default for fields made
 in code.
+
+## gnustep-gui-arraycontroller-selection-kvo.patch (libs-gui)
+
+`-[NSArrayController setSelectionIndexes:]` changed the selection without
+a word to key-value observers: automatic KVO fired for
+`selectionIndexes` itself (it is the setter), but nothing was declared
+to depend on it, so `selection`, `selectedObjects`, `canRemove` and
+`canSelectNext/Previous` stayed silent. Every binding that follows the
+selection therefore froze at its initial state - a Remove button bound
+to `canRemove` stayed grey forever, a date picker bound through
+`selection.date` kept the first row's date. `-selection` itself also
+answered with the raw content array, so `selection.<key>` collected
+over every row and could not be observed at all (observing a key on an
+array raises).
+
+The patch declares the dependent keys with
+`+keyPathsForValuesAffecting...` and overrides `-selection` to return
+the selected object when exactly one row is selected, nil otherwise
+(full Cocoa fidelity wants a multi-selection proxy answering
+`NSMultipleValuesMarker`; noted in the code for the day a binding here
+needs it).
+
+`repro-nsarraycontroller-selection-kvo.m` beside this file demonstrates
+the gap and proves the fix: it registers observers for the seven
+selection-dependent key paths, changes the selection, and reports which
+of them heard about it - exit 0 patched, 1 unpatched. Build and run
+instructions are in its header; send it upstream together with the
+patch.
+
+## gnustep-base-dateformatter-cell-behavior.patch (libs-base)
+
+`-[NSDateFormatter stringForObjectValue:]` - the NSFormatter entry
+point every NSCell calls, so the way a date reaches the screen from a
+text field or a bound table column - always formatted with the 10.0
+calendar-format code, even when the formatter was explicitly set to
+`NSDateFormatterBehavior10_4`; the modern ICU machinery lives only in
+`-stringFromDate:`. An ICU pattern such as `yyyy-MM-dd` has no
+%-escapes, so every date column in Staffbook showed the literal
+pattern instead of the date. `-getObjectValue:forString:...`
+mis-parsed for the same reason.
+
+The patch makes both entry points delegate to the modern
+`-stringFromDate:` / `-dateFromString:` when the instance's behavior
+is `NSDateFormatterBehavior10_4`, and leaves the 10.0 path untouched
+for everyone who has not asked for the modern behavior.
+
+`repro-nsdateformatter-cell-behavior.m` beside this file demonstrates
+the gap and proves the fix (exit 0 patched, 1 unpatched); send it
+upstream together with the patch.

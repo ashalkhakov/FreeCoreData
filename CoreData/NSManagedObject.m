@@ -281,7 +281,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -(NSDictionary *)_committedValuesFromIncrementalStore:(NSIncrementalStore *)store {
    NSError                *nodeError=nil;
-   NSIncrementalStoreNode *node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
+   NSIncrementalStoreNode *node;
+
+   /* Store round trips are serialized through the coordinator's
+      recursive lock (contexts on different queues share the stores). */
+   [[_context persistentStoreCoordinator] lock];
+   node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
+   [[_context persistentStoreCoordinator] unlock];
    NSMutableDictionary    *storedValues=[[NSMutableDictionary alloc] init];
 
    /* propertiesByName includes inherited properties, [entity properties]
@@ -335,6 +341,61 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(NSDictionary *)_committedValues {
+
+   /* Values already realized or seeded (a child context seeds them
+      after saving into its parent) win over every lazy source. */
+   if(_committedValues!=nil)
+    return _committedValues;
+
+   /* A child context realizes committed values from its PARENT's
+      current state, exactly as a root context realizes them from a
+      store; the recursion bottoms out at the root.  A temporary-ID
+      object the parent has never seen is an unsaved local insert:
+      nothing committed. */
+   {
+    NSManagedObjectContext *parent=[_context parentContext];
+
+    if(parent!=nil){
+     NSManagedObjectID *oid=[self objectID];
+
+     if([oid isTemporaryID]){
+      __block BOOL parentKnowsIt=NO;
+
+      [parent _performAsChainMemberAndWait:^{
+        parentKnowsIt=([parent objectRegisteredForID:oid]!=nil);
+       }];
+      if(!parentKnowsIt)
+       return nil;
+     }
+
+     __block NSDictionary *snapshot=nil;
+
+     [parent _performAsChainMemberAndWait:^{
+       NSManagedObject *local=[parent objectWithID:oid];
+
+       snapshot=[[local _snapshotOfCurrentValuesChangedOnly:NO] retain];
+      }];
+     [snapshot autorelease];
+
+     NSMutableDictionary *storedValues=[[NSMutableDictionary alloc] init];
+
+     for(NSString *key in snapshot){
+      id value=[snapshot objectForKey:key];
+
+      if(value!=[NSNull null])
+       [storedValues setObject:value forKey:key];
+     }
+     _committedValues=storedValues;
+
+     if(_isFault){
+      _isFault=NO;
+      [_context _disableUndoRegistration];
+      [self awakeFromFetch];
+      [_context _enableUndoRegistration];
+     }
+     return _committedValues;
+    }
+   }
 
    if([[self objectID] isTemporaryID])
     return nil;
@@ -415,6 +476,132 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 -(NSDictionary *)_cachedCommittedValues {
    return _committedValues;
+}
+
+/* --- Nested-context value transport --------------------------------
+
+   Canonical snapshot shape (the committed-values shape): attributes
+   as plain values, to-ones as NSManagedObjectIDs, to-manys as
+   NSMutableSet/NSMutableArray of IDs, NSNull for an explicit nil, an
+   unfired CDRelationshipFault carried through as-is (it resolves
+   against the store, which holds exactly the saved state it stands
+   for).  IDs are uniqued by pointer across the whole context chain,
+   so either side can resolve them. */
+
+-(NSDictionary *)_snapshotOfCurrentValuesChangedOnly:(BOOL)changedOnly {
+   NSMutableDictionary *snapshot=[NSMutableDictionary dictionary];
+   NSDictionary *properties=[[self entity] propertiesByName];
+   NSDictionary *committed=changedOnly?nil:[self _committedValues];
+
+   for(NSString *name in properties){
+    NSPropertyDescription *property=[properties objectForKey:name];
+
+    if(![property isKindOfClass:[NSAttributeDescription class]] &&
+       ![property isKindOfClass:[NSRelationshipDescription class]])
+     continue;
+
+    id value=[_changedValues objectForKey:name];
+
+    if(value==nil){
+     if(changedOnly)
+      continue;
+     value=[committed objectForKey:name];
+     if(value==nil)
+      continue;
+    }
+
+    if(value==[NSNull null]){
+     [snapshot setObject:[NSNull null] forKey:name];
+     continue;
+    }
+    if([value isKindOfClass:[CDRelationshipFault class]]){
+     [snapshot setObject:value forKey:name];
+     continue;
+    }
+
+    if([property isKindOfClass:[NSRelationshipDescription class]]){
+     NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
+
+     if(![relationship isToMany]){
+      [snapshot setObject:([value isKindOfClass:[NSManagedObjectID class]]?value:[value objectID])
+                   forKey:name];
+     }
+     else {
+      id members=[relationship isOrdered]?(id)[NSMutableArray array]:(id)[NSMutableSet set];
+
+      for(id member in value)
+       [members addObject:([member isKindOfClass:[NSManagedObjectID class]]?member:[(NSManagedObject *)member objectID])];
+      [snapshot setObject:members forKey:name];
+     }
+     continue;
+    }
+
+    [snapshot setObject:value forKey:name];
+   }
+   return snapshot;
+}
+
+/* Parent-side injection of a child's saved values: straight into the
+   changed-values storage, in the internal representation - to-one
+   values and to-many members stay NSManagedObjectIDs, exactly as
+   -setValue:forKey: would store them (valueForKey: resolves IDs on
+   the way out; storing resolved objects here instead put objects
+   where every reader expects IDs and broke the root save).
+   No KVO, no undo capture, no inverse maintenance - the child already
+   maintained inverses and pushes every affected object explicitly. */
+-(void)_absorbChangedValuesFromSnapshot:(NSDictionary *)snapshot {
+   NSDictionary *properties=[[self entity] propertiesByName];
+
+   for(NSString *name in snapshot){
+    id value=[snapshot objectForKey:name];
+    NSPropertyDescription *property=[properties objectForKey:name];
+
+    if(value==[NSNull null]){
+     [_changedValues setObject:[NSNull null] forKey:name];
+     continue;
+    }
+    if([value isKindOfClass:[CDRelationshipFault class]])
+     continue;   /* unchanged saved state; nothing to absorb */
+
+    if([property isKindOfClass:[NSRelationshipDescription class]]){
+     NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
+
+     if(![relationship isToMany])
+      [_changedValues setObject:value forKey:name];
+     else {
+      id members=[relationship isOrdered]?(id)[NSMutableArray array]:(id)[NSMutableSet set];
+
+      for(NSManagedObjectID *memberID in value)
+       [members addObject:memberID];
+      [_changedValues setObject:members forKey:name];
+     }
+     continue;
+    }
+
+    [_changedValues setObject:value forKey:name];
+   }
+}
+
+/* Child-side bookkeeping after saving into the parent: the given full
+   snapshot (or one built now) becomes the committed base and the
+   changed values are cleared - NOT invalidated, which would re-realize
+   from a store that does not have this data until the root saves. */
+-(void)_promoteCurrentValuesToCommitted:(NSDictionary *)fullSnapshot {
+   if(fullSnapshot==nil)
+    fullSnapshot=[self _snapshotOfCurrentValuesChangedOnly:NO];
+
+   NSMutableDictionary *storedValues=[[NSMutableDictionary alloc] init];
+
+   for(NSString *key in fullSnapshot){
+    id value=[fullSnapshot objectForKey:key];
+
+    if(value!=[NSNull null])
+     [storedValues setObject:value forKey:key];
+   }
+   [_committedValues release];
+   _committedValues=storedValues;
+   [_changedValues removeAllObjects];
+   _isFault=NO;
 }
 
 -(void)_invalidateCommittedValues {
@@ -675,10 +862,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 -(id)_resolveRelationshipFault:(CDRelationshipFault *)fault forKey:(NSString *)key {
    NSPersistentStore *store=[[self objectID] persistentStore];
    NSError           *relationshipError=nil;
-   id                 value=[(NSIncrementalStore *)store newValueForRelationship:[fault relationship]
-                                                                 forObjectWithID:[self objectID]
-                                                                     withContext:_context
-                                                                           error:&relationshipError];
+   id                 value;
+
+   [[_context persistentStoreCoordinator] lock];
+   value=[(NSIncrementalStore *)store newValueForRelationship:[fault relationship]
+                                              forObjectWithID:[self objectID]
+                                                  withContext:_context
+                                                        error:&relationshipError];
+   [[_context persistentStoreCoordinator] unlock];
 
    [value autorelease];
 

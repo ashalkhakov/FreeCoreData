@@ -19,4 +19,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)_discardChangedValues;
 - (void)_discardChangedValueForKey:(NSString *)key;
 - (void)_setFault:(BOOL)isFault;
+
+/* Nested-context value transport (see NSManagedObject.m). */
+- (NSDictionary *)_snapshotOfCurrentValuesChangedOnly:(BOOL)changedOnly;
+- (void)_absorbChangedValuesFromSnapshot:(NSDictionary *)snapshot;
+- (void)_promoteCurrentValuesToCommitted:(NSDictionary *)fullSnapshot;
 @end

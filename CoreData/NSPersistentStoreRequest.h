@@ -15,7 +15,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 enum {
     NSFetchRequestType = 1,
-    NSSaveRequestType
+    NSSaveRequestType,
+    NSBatchInsertRequestType = 5,
+    NSBatchUpdateRequestType = 6,
+    NSBatchDeleteRequestType = 7
 };
 typedef NSUInteger NSPersistentStoreRequestType;
 

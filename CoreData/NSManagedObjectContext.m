@@ -7,6 +7,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSManagedObjectContext.h>
+#include <dispatch/dispatch.h>
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSFetchRequest.h>
 #import "NSFetchRequest-Private.h"
@@ -20,7 +21,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSIncrementalStore.h>
 #import <CoreData/NSIncrementalStoreNode.h>
 #import <CoreData/NSSaveChangesRequest.h>
+#import <CoreData/NSAsynchronousFetchRequest.h>
+#import <CoreData/NSBatchInsertRequest.h>
+#import <CoreData/NSBatchUpdateRequest.h>
+#import <CoreData/NSBatchDeleteRequest.h>
+#import <CoreData/NSPersistentStoreResult.h>
+#import "NSPersistentStoreResult-Private.h"
 #import <CoreData/CoreDataErrors.h>
+#import <Foundation/NSProgress.h>
 #import <CoreData/NSMergePolicy.h>
 #import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
@@ -102,6 +110,27 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 
 @end
 
+/* --- Queue confinement via libdispatch -----------------------------
+
+   Queue-confined contexts sit directly on libdispatch, matching Apple:
+   a private-queue context owns a serial dispatch queue, a main-queue
+   context targets the main dispatch queue.  (On GNUstep this makes
+   swift-corelibs-libdispatch a dependency of the framework, and
+   gnustep-base must be built with its run-loop integration so the
+   main queue drains from NSRunLoop - see docs/GNUSTEP-SETUP.md.)
+
+   Reentrancy detection for performBlockAndWait: each private queue
+   carries its context as a queue-specific value under one global key,
+   so "am I already on this context's queue?" is one
+   dispatch_get_specific away.  Main-queue contexts are bound to the
+   main thread itself, so the check there is -isMainThread.
+
+   Blocks submitted through performBlock: capture and thereby retain
+   the context, matching Apple's guarantee that a context stays alive
+   until its pending blocks have run. */
+
+static char CDContextQueueSpecificKey;
+
 @implementation NSManagedObjectContext
 
 -init {
@@ -126,9 +155,172 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
    
    _objectIdToObject=NSCreateMapTable(NSObjectMapKeyCallBacks,NSObjectMapValueCallBacks,0);
    _requestedProcessPendingChanges = NO;
+   _concurrencyType=NSConfinementConcurrencyType;
+   _workQueue=NULL;
+   _contextName=nil;
+   _parentContext=nil;
+   _automaticallyMergesChangesFromParent=NO;
+   _parentMergeObserver=nil;
    [NSMergePolicy self]; // ensure the merge policy globals are initialized
    _mergePolicy=[NSErrorMergePolicy retain];
    return self;
+}
+
+-(instancetype)initWithConcurrencyType:(NSManagedObjectContextConcurrencyType)concurrencyType {
+   self=[self init];
+   if(self!=nil){
+    _concurrencyType=concurrencyType;
+    if(concurrencyType==NSPrivateQueueConcurrencyType){
+     dispatch_queue_t queue=dispatch_queue_create("NSManagedObjectContext",DISPATCH_QUEUE_SERIAL);
+
+     /* the queue knows its context; performBlockAndWait's reentrancy
+        check reads it back with dispatch_get_specific */
+     dispatch_queue_set_specific(queue,&CDContextQueueSpecificKey,self,NULL);
+     _workQueue=queue;
+    }
+    else if(concurrencyType==NSMainQueueConcurrencyType)
+     _workQueue=dispatch_get_main_queue();
+   }
+   return self;
+}
+
+-(NSManagedObjectContextConcurrencyType)concurrencyType {
+   return _concurrencyType;
+}
+
+-(NSString *)name {
+   return _contextName;
+}
+
+-(void)setName:(NSString *)value {
+   value=[value copy];
+   [_contextName release];
+   _contextName=value;
+}
+
+-(NSManagedObjectContext *)parentContext {
+   return _parentContext;
+}
+
+/* Rebuilds the automatic-merge subscription for the current parent /
+   coordinator arrangement.  The handler block captures self as a raw
+   pointer - capturing the object would retain it and the observer
+   would keep the context alive forever; the observer is removed in
+   dealloc before the pointer can dangle. */
+-(void)_installParentMergeObserverIfNeeded {
+   NSNotificationCenter *center=[NSNotificationCenter defaultCenter];
+
+   if(_parentMergeObserver!=nil){
+    [center removeObserver:_parentMergeObserver];
+    [_parentMergeObserver release];
+    _parentMergeObserver=nil;
+   }
+   if(!_automaticallyMergesChangesFromParent)
+    return;
+
+   void *unretainedSelf=(void *)self;
+   id    parentObject=_parentContext;   /* nil = observe every context */
+
+   _parentMergeObserver=[[center
+       addObserverForName:NSManagedObjectContextDidSaveNotification
+                   object:parentObject
+                    queue:nil
+               usingBlock:^(NSNotification *note){
+     NSManagedObjectContext *receiver=(NSManagedObjectContext *)unretainedSelf;
+
+     if([note object]==receiver)
+      return;
+     /* coordinator-parented contexts merge saves of their coordinator
+        siblings; a child context observes exactly its parent */
+     if(receiver->_parentContext==nil &&
+        [[note object] persistentStoreCoordinator]!=[receiver persistentStoreCoordinator])
+      return;
+
+     if(receiver->_concurrencyType==NSConfinementConcurrencyType)
+      [receiver mergeChangesFromContextDidSaveNotification:note];
+     else
+      [receiver performBlock:^{
+        [receiver mergeChangesFromContextDidSaveNotification:note];
+       }];
+    }] retain];
+}
+
+/* A parent hop that also works when the target is a legacy
+   thread-confined context (performBlockAndWait raises there; macOS
+   accepts confinement contexts in a chain, so the port does too and
+   runs the work inline in that case). */
+-(void)_performAsChainMemberAndWait:(void (^)(void))block {
+   if(_concurrencyType==NSConfinementConcurrencyType)
+    block();
+   else
+    [self performBlockAndWait:block];
+}
+
+-(void)setParentContext:(NSManagedObjectContext *)parent {
+   /* No type restriction: setting a parent on a confinement context
+      does not throw on macOS (arbitrated by
+      testConfinementContextsMayJoinAChain). */
+   parent=[parent retain];
+   [_parentContext release];
+   _parentContext=parent;
+   [self _installParentMergeObserverIfNeeded];
+}
+
+-(BOOL)automaticallyMergesChangesFromParent {
+   return _automaticallyMergesChangesFromParent;
+}
+
+-(void)setAutomaticallyMergesChangesFromParent:(BOOL)value {
+   _automaticallyMergesChangesFromParent=value;
+   [self _installParentMergeObserverIfNeeded];
+}
+
+/* A "user event", per Apple's performBlock: contract: the block runs
+   inside an autorelease pool and pending changes are processed when it
+   finishes. */
+-(void)_runQueuedEventBlock:(void (^)(void))block {
+   NSAutoreleasePool *pool=[[NSAutoreleasePool alloc] init];
+   block();
+   [self processPendingChanges];
+   [pool release];
+}
+
+-(void)_raiseIfConfinement:(SEL)selector {
+   if(_concurrencyType==NSConfinementConcurrencyType)
+    [NSException raise:NSInvalidArgumentException
+                format:@"%@ can only be used on an NSManagedObjectContext that was created with a queue (NSMainQueueConcurrencyType or NSPrivateQueueConcurrencyType).",
+                       NSStringFromSelector(selector)];
+}
+
+-(BOOL)_isOnOwnQueue {
+   if(_concurrencyType==NSMainQueueConcurrencyType)
+    return [NSThread isMainThread];
+   return dispatch_get_specific(&CDContextQueueSpecificKey)==(void *)self;
+}
+
+-(void)performBlock:(void (^)(void))block {
+   [self _raiseIfConfinement:_cmd];
+
+   /* asynchronous even from the context's own queue, like
+      dispatch_async; on a main-queue context the main queue drains
+      through the run loop (gnustep-base's libdispatch integration) */
+   dispatch_async((dispatch_queue_t)_workQueue,^{
+     [self _runQueuedEventBlock:block];
+    });
+}
+
+-(void)performBlockAndWait:(void (^)(void))block {
+   [self _raiseIfConfinement:_cmd];
+
+   /* No autorelease pool and no processPendingChanges - Apple documents
+      performBlockAndWait: as providing neither.  Reentrant: on the
+      context's own queue the block runs immediately (dispatch_sync
+      would deadlock). */
+   if([self _isOnOwnQueue]){
+    block();
+    return;
+   }
+   dispatch_sync((dispatch_queue_t)_workQueue,block);
 }
 
 -(void)dealloc {
@@ -153,6 +345,15 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
       the undo manager message a deallocated object. */
    [_undoManager removeAllActionsWithTarget:self];
 
+   /* only private queues are owned; the main queue is global */
+   if(_concurrencyType==NSPrivateQueueConcurrencyType && _workQueue!=NULL)
+    dispatch_release((dispatch_queue_t)_workQueue);
+   [_contextName release];
+   if(_parentMergeObserver!=nil)
+    [[NSNotificationCenter defaultCenter] removeObserver:_parentMergeObserver];
+   [_parentMergeObserver release];
+   [_parentContext release];
+
    [_storeCoordinator release];
    [_undoManager release];
    NSFreeMapTable(_undoEventOldValues);
@@ -171,6 +372,9 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(NSPersistentStoreCoordinator *)persistentStoreCoordinator {
+   /* walks the chain: a child context reaches the root's coordinator */
+   if(_storeCoordinator==nil && _parentContext!=nil)
+    return [_parentContext persistentStoreCoordinator];
    return _storeCoordinator;
 }
 
@@ -380,6 +584,17 @@ NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
 }
 
 -(NSAtomicStoreCacheNode *)_cacheNodeForObjectID:(NSManagedObjectID *)objectID {
+   NSAtomicStoreCacheNode *result=nil;
+   NSPersistentStoreCoordinator *lockedCoordinator=
+       (_parentContext==nil)?[self persistentStoreCoordinator]:nil;
+
+   [lockedCoordinator lock];
+   result=[self _coordinatorLocked_cacheNodeForObjectID:objectID];
+   [lockedCoordinator unlock];
+   return result;
+}
+
+-(NSAtomicStoreCacheNode *)_coordinatorLocked_cacheNodeForObjectID:(NSManagedObjectID *)objectID {
    NSAtomicStore *store=(NSAtomicStore *)[_storeCoordinator _persistentStoreForObjectID:objectID];
 
    return [store cacheNodeForObjectID:objectID];
@@ -718,13 +933,143 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    }
 }
 
+/* Store access from every context funnels through the coordinator's
+   recursive lock, serializing queue-confined contexts running on
+   different threads (Apple's coordinator serializes internally the
+   same way).  The wrappers bracket the whole operation; the lock is
+   recursive so nested store round trips (fault fires, internal
+   re-fetches) are free. */
 -(NSArray *)executeFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error {
+   NSArray *result=nil;
+   NSPersistentStoreCoordinator *lockedCoordinator=
+       (_parentContext==nil)?[self persistentStoreCoordinator]:nil;
+
+   [lockedCoordinator lock];
+   NS_DURING
+    result=[self _coordinatorLocked_executeFetchRequest:fetchRequest error:error];
+   NS_HANDLER
+    [lockedCoordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [lockedCoordinator unlock];
+   return result;
+}
+
+/* An asynchronous fetch is its own "user event" on the context's
+   queue: executeRequest: returns the result handle immediately, the
+   wrapped fetch runs through the ordinary fetch path (so entity-name
+   resolution, parent-chain forwarding and coordinator locking all
+   apply), and the completion block is called on the queue with the
+   populated result.  Cancellation (result -cancel, or cancelling a
+   parent NSProgress) is checked before the fetch runs; a cancelled
+   request delivers an EMPTY finalResult with no operationError -
+   arbitrated on macOS, where an earlier version of this path reported
+   NSUserCancelledError and Apple instead delivered the completion
+   with an empty array and a nil error. */
+-(NSAsynchronousFetchResult *)_executeAsynchronousFetchRequest:(NSAsynchronousFetchRequest *)request error:(NSError **)error {
+   [self _raiseIfConfinement:@selector(executeRequest:error:)];
+
+   NSFetchRequest *fetch=[[request fetchRequest] copy];   /* execution is deferred; snapshot the fetch */
+   NSInteger estimate=[request estimatedResultCount];
+   NSProgress *progress=[NSProgress progressWithTotalUnitCount:(estimate>0)?estimate:1];
+   NSAsynchronousFetchResult *result=[[[NSAsynchronousFetchResult alloc]
+       _initWithManagedObjectContext:self
+                        fetchRequest:request
+                            progress:progress] autorelease];
+   NSPersistentStoreAsynchronousFetchResultCompletionBlock completion=[request completionBlock];
+
+   [self performBlock:^{
+     if([progress isCancelled])
+      [result _setFinalResult:[NSArray array]];
+     else {
+      NSError *fetchError=nil;
+      NSArray *rows=[self executeFetchRequest:fetch error:&fetchError];
+
+      if(rows!=nil)
+       [result _setFinalResult:rows];
+      else
+       [result _setOperationError:fetchError];
+     }
+     [progress setCompletedUnitCount:[progress totalUnitCount]];
+     if(completion!=NULL)
+      completion(result);
+    }];
+   [fetch release];
+   return result;
+}
+
+/* Batch requests go straight to a store through the coordinator (its
+   lock serializes them against ordinary fetch/save traffic); contexts
+   are bypassed entirely, so registered objects stay stale until
+   refreshed or told via mergeChangesFromRemoteContextSave:. */
+-(NSPersistentStoreResult *)_executeBatchRequest:(NSPersistentStoreRequest *)request error:(NSError **)error {
+   NSPersistentStoreCoordinator *coordinator=[self persistentStoreCoordinator];
+
+   /* A delete request built around an entity-name-only fetch request
+      resolves the name here, like executeFetchRequest: does. */
+   if([request isKindOfClass:[NSBatchDeleteRequest class]]){
+    NSFetchRequest *fetch=[(NSBatchDeleteRequest *)request fetchRequest];
+
+    if(fetch!=nil && [fetch _entityIfResolved]==nil && [fetch entityName]!=nil){
+     NSEntityDescription *named=[[[coordinator managedObjectModel] entitiesByName] objectForKey:[fetch entityName]];
+
+     if(named==nil)
+      [NSException raise:NSInvalidArgumentException
+                  format:@"executeRequest:error: could not locate an entity named '%@' in this model.",[fetch entityName]];
+
+     [fetch setEntity:named];
+    }
+   }
+
+   NSArray *stores=[request affectedStores];
+
+   if([stores count]==0)
+    stores=[coordinator persistentStores];
+
+   NSPersistentStore *store=([stores count]>0)?[stores objectAtIndex:0]:nil;
+
+   if(![store isKindOfClass:[NSIncrementalStore class]]){
+    if(error!=NULL)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain
+                                code:NSPersistentStoreUnsupportedRequestTypeError
+                            userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"%@ does not support batch requests.",[store class]] forKey:NSLocalizedDescriptionKey]];
+    return nil;
+   }
+
+   id result=nil;
+
+   [coordinator lock];
+   NS_DURING
+    result=[(NSIncrementalStore *)store executeRequest:request withContext:self error:error];
+   NS_HANDLER
+    [coordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [coordinator unlock];
+   return result;
+}
+
+-(NSPersistentStoreResult *)executeRequest:(NSPersistentStoreRequest *)request error:(NSError **)error {
+   if([request isKindOfClass:[NSAsynchronousFetchRequest class]])
+    return [self _executeAsynchronousFetchRequest:(NSAsynchronousFetchRequest *)request error:error];
+
+   NSPersistentStoreRequestType type=[request requestType];
+
+   if(type==NSBatchInsertRequestType || type==NSBatchUpdateRequestType || type==NSBatchDeleteRequestType)
+    return [self _executeBatchRequest:request error:error];
+
+   [NSException raise:NSInvalidArgumentException
+               format:@"executeRequest:error: does not support requests of class %@.",[request class]];
+   return nil;
+}
+
+-(NSArray *)_coordinatorLocked_executeFetchRequest:(NSFetchRequest *)fetchRequest error:(NSError **)error {
    /* A request created with an entity name resolves it against the
       coordinator's model at execution time, matching Apple.  (The
       private accessor avoids the NSObjectInaccessibleException that
       -entity raises on an unresolved name-based request.) */
    if([fetchRequest _entityIfResolved]==nil && [fetchRequest entityName]!=nil){
-    NSEntityDescription *named=[[[_storeCoordinator managedObjectModel] entitiesByName] objectForKey:[fetchRequest entityName]];
+    NSEntityDescription *named=[[[[self persistentStoreCoordinator] managedObjectModel] entitiesByName] objectForKey:[fetchRequest entityName]];
 
     if(named==nil){
      [NSException raise:NSInvalidArgumentException
@@ -734,10 +1079,13 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     [fetchRequest setEntity:named];
    }
 
+   if(_parentContext!=nil)
+    return [self _executeFetchRequestThroughParent:fetchRequest error:error];
+
    NSArray *affectedStores=[fetchRequest affectedStores];
 
    if(affectedStores==nil)
-    affectedStores=[_storeCoordinator persistentStores];
+    affectedStores=[[self persistentStoreCoordinator] persistentStores];
 
    NSFetchRequestResultType resultType=[fetchRequest resultType];
    NSPredicate             *predicate=[fetchRequest predicate];
@@ -1039,6 +1387,22 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 }
 
 -(NSManagedObject *)existingObjectWithID:(NSManagedObjectID *)objectID error:(NSError **)error {
+   NSManagedObject *result=nil;
+   NSPersistentStoreCoordinator *lockedCoordinator=
+       (_parentContext==nil)?[self persistentStoreCoordinator]:nil;
+
+   [lockedCoordinator lock];
+   NS_DURING
+    result=[self _coordinatorLocked_existingObjectWithID:objectID error:error];
+   NS_HANDLER
+    [lockedCoordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [lockedCoordinator unlock];
+   return result;
+}
+
+-(NSManagedObject *)_coordinatorLocked_existingObjectWithID:(NSManagedObjectID *)objectID error:(NSError **)error {
    /* Matching Apple: an object the context recognizes is returned
       directly; otherwise a fully realized object is fetched from the
       persistent store - this method never returns a fault.  When the
@@ -1049,6 +1413,42 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     return registered;
 
    BOOL exists=NO;
+
+   /* A child context asks its parent - the parent's current state is
+      the child's backing "store". */
+   if(_parentContext!=nil){
+    if(objectID!=nil){
+     NSManagedObjectContext *parent=_parentContext;
+     __block BOOL parentHasIt=NO;
+     __block NSError *parentError=nil;
+
+     [parent _performAsChainMemberAndWait:^{
+       NSError *innerError=nil;
+       parentHasIt=([parent existingObjectWithID:objectID error:&innerError]!=nil);
+       parentError=[innerError retain];
+      }];
+     [parentError autorelease];
+     exists=parentHasIt;
+     if(!exists && parentError!=nil && error!=NULL){
+      *error=parentError;
+      return nil;
+     }
+    }
+    if(!exists){
+     if(error!=NULL){
+      NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+      [userInfo setObject:[NSString stringWithFormat:@"The object with ID %@ could not be found in the parent context.",objectID] forKey:NSLocalizedDescriptionKey];
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectReferentialIntegrityError userInfo:userInfo];
+     }
+     return nil;
+    }
+
+    NSManagedObject *object=[self objectWithID:objectID];
+
+    [object _committedValues];   /* realized through the parent */
+    return object;
+   }
 
    if(objectID!=nil && ![objectID isTemporaryID]){
     NSPersistentStore *store=[objectID persistentStore];
@@ -1084,7 +1484,10 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 }
 
 -(void)insertObject:(NSManagedObject *)object {
-   NSPersistentStore *store=[_storeCoordinator _persistentStoreForObject:object];
+   /* chain-aware: a child stamps the ROOT's store on the (shared) ID,
+      so the object is fetchable at every level and saveable at the
+      root without reassignment */
+   NSPersistentStore *store=[[self persistentStoreCoordinator] _persistentStoreForObject:object];
    
    [[object objectID] setStoreIdentifier:[store identifier]];
    [[object objectID] setPersistentStore:store];
@@ -1163,6 +1566,14 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 }
 
 -(void)_requestProcessPendingChanges {
+    /* Private-queue contexts have no run loop: pending changes are
+       processed when the current performBlock: "user event" ends (or
+       at the next explicit processPendingChanges / save).  Scheduling
+       on the MAIN run loop from a worker thread would both race and
+       process on the wrong thread. */
+    if(_concurrencyType==NSPrivateQueueConcurrencyType)
+     return;
+
     if(!_requestedProcessPendingChanges){
 
 	NSRunLoop *runLoop = [NSRunLoop mainRunLoop];
@@ -1467,6 +1878,22 @@ static id CDUndoRestoredValue(id value){
 }
 
 -(BOOL)obtainPermanentIDsForObjects:(NSArray *)objects error:(NSError **)error {
+   BOOL result=NO;
+   NSPersistentStoreCoordinator *lockedCoordinator=
+       (_parentContext==nil)?[self persistentStoreCoordinator]:nil;
+
+   [lockedCoordinator lock];
+   NS_DURING
+    result=[self _coordinatorLocked_obtainPermanentIDsForObjects:objects error:error];
+   NS_HANDLER
+    [lockedCoordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [lockedCoordinator unlock];
+   return result;
+}
+
+-(BOOL)_coordinatorLocked_obtainPermanentIDsForObjects:(NSArray *)objects error:(NSError **)error {
 
    for(NSManagedObject *check in objects){
     NSManagedObjectID *checkID=[check objectID];
@@ -1762,6 +2189,301 @@ static id CDUndoRestoredValue(id value){
 }
 
 -(BOOL)save:(NSError **)errorp {
+   BOOL result=NO;
+   NSPersistentStoreCoordinator *lockedCoordinator=
+       (_parentContext==nil)?[self persistentStoreCoordinator]:nil;
+
+   [lockedCoordinator lock];
+   NS_DURING
+    result=[self _coordinatorLocked_save:errorp];
+   NS_HANDLER
+    [lockedCoordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [lockedCoordinator unlock];
+   return result;
+}
+
+/* --- Nested-context machinery --------------------------------------
+
+   The parent context plays the store's role for a child: fetches take
+   their saved-state candidates from the parent's CURRENT state (the
+   parent's own unsaved changes included), and a save pushes the
+   child's changes into the parent without touching any persistent
+   store.  Values cross the boundary as canonical snapshots - the same
+   shape committed values use internally: attributes as plain values,
+   to-ones as NSManagedObjectIDs, to-manys as collections of IDs -
+   which both sides can resolve because object IDs are uniqued by
+   pointer across the whole chain. */
+
+-(NSArray *)_executeFetchRequestThroughParent:(NSFetchRequest *)fetchRequest error:(NSError **)error {
+   NSManagedObjectContext *parent=_parentContext;
+   NSFetchRequestResultType resultType=[fetchRequest resultType];
+   NSPredicate *predicate=[fetchRequest predicate];
+
+   /* Dictionary rows reflect saved state only (Apple documents pending
+      changes as unsupported there); the parent applies exactly those
+      semantics itself, so forward wholesale. */
+   if(resultType==NSDictionaryResultType){
+    __block NSArray *rows=nil;
+    __block NSError *innerError=nil;
+
+    [parent _performAsChainMemberAndWait:^{
+      NSError *fetchError=nil;
+      rows=[[parent executeFetchRequest:fetchRequest error:&fetchError] retain];
+      innerError=[fetchError retain];
+     }];
+    [rows autorelease];
+    [innerError autorelease];
+    if(rows==nil && error!=NULL)
+     *error=innerError;
+    return rows;
+   }
+
+   /* Saved-state candidates: the parent's answer, as IDs, unwindowed -
+      the child's own overlay happens before the limit applies. */
+   NSFetchRequest *inner=[[fetchRequest copy] autorelease];
+
+   [inner setResultType:NSManagedObjectIDResultType];
+   [inner setFetchLimit:0];
+   [inner setFetchOffset:0];
+   [inner setIncludesPendingChanges:YES];   /* the parent's now IS our saved state */
+
+   __block NSArray *parentIDs=nil;
+   __block NSError *innerError=nil;
+
+   [parent _performAsChainMemberAndWait:^{
+     NSError *fetchError=nil;
+     parentIDs=[[parent executeFetchRequest:inner error:&fetchError] retain];
+     innerError=[fetchError retain];
+    }];
+   [parentIDs autorelease];
+   [innerError autorelease];
+   if(parentIDs==nil){
+    if(error!=NULL)
+     *error=innerError;
+    return nil;
+   }
+
+   NSMutableArray *merged=[NSMutableArray array];
+   NSMutableSet   *seen=[NSMutableSet set];
+
+   for(NSManagedObjectID *candidateID in parentIDs){
+    NSManagedObject *object=[self objectWithID:candidateID];
+
+    if(![seen containsObject:object]){
+     [seen addObject:object];
+     [merged addObject:object];
+    }
+   }
+
+   BOOL mergePending=[fetchRequest includesPendingChanges] &&
+                     ([_insertedObjects count]>0 || [_updatedObjects count]>0 || [_deletedObjects count]>0);
+
+   NSMutableArray *overlaid=[NSMutableArray array];
+
+   if(!mergePending)
+    [overlaid addObjectsFromArray:merged];
+   else {
+    /* the same overlay the store path applies: drop this context's
+       pending deletes, re-test pending updates both ways, add pending
+       inserts that match */
+    for(NSManagedObject *check in merged){
+     if([_deletedObjects containsObject:check])
+      continue;
+     if(predicate!=nil && [_updatedObjects containsObject:check] &&
+        ![predicate evaluateWithObject:check])
+      continue;
+     [overlaid addObject:check];
+    }
+
+    NSMutableSet *additions=[NSMutableSet setWithSet:_updatedObjects];
+
+    [additions unionSet:_insertedObjects];
+
+    for(NSManagedObject *check in additions){
+     if([_deletedObjects containsObject:check])
+      continue;
+     if([seen containsObject:check] && ![overlaid containsObject:check])
+      continue;
+     if([overlaid containsObject:check])
+      continue;
+     if(![[check entity] _isKindOfEntity:[fetchRequest entity]])
+      continue;
+     if(![fetchRequest includesSubentities] &&
+        ![[[check entity] name] isEqualToString:[[fetchRequest entity] name]])
+      continue;
+     if(predicate!=nil && ![predicate evaluateWithObject:check])
+      continue;
+     [overlaid addObject:check];
+    }
+   }
+
+   if([[fetchRequest sortDescriptors] count]>0)
+    [overlaid sortUsingDescriptors:[fetchRequest sortDescriptors]];
+
+   NSUInteger offset=[fetchRequest fetchOffset],limit=[fetchRequest fetchLimit];
+
+   if(offset>0){
+    if(offset>=[overlaid count])
+     [overlaid removeAllObjects];
+    else
+     [overlaid removeObjectsInRange:NSMakeRange(0,offset)];
+   }
+   if(limit>0 && [overlaid count]>limit)
+    [overlaid removeObjectsInRange:NSMakeRange(limit,[overlaid count]-limit)];
+
+   switch(resultType){
+    case NSManagedObjectIDResultType: {
+     NSMutableArray *ids=[NSMutableArray array];
+
+     for(NSManagedObject *object in overlaid)
+      [ids addObject:[object objectID]];
+     return ids;
+    }
+
+    case NSCountResultType:
+     return [NSArray arrayWithObject:[NSNumber numberWithUnsignedInteger:[overlaid count]]];
+
+    default:
+     [self _finalizeFetchedObjects:overlaid request:fetchRequest];
+     return overlaid;
+   }
+}
+
+/* Parent-side absorption of one child save, run on the parent's
+   queue.  Values arrive as canonical snapshots and are injected
+   directly into the counterparts' storage - no KVO, no undo capture,
+   no inverse re-maintenance: the child already maintained inverses,
+   and every affected object's final state crosses over explicitly. */
+-(void)_absorbChildInsertWithID:(NSManagedObjectID *)objectID snapshot:(NSDictionary *)snapshot {
+   NSManagedObject *local=[self objectWithID:objectID];
+
+   [local _absorbChangedValuesFromSnapshot:snapshot];
+   [local _setFault:NO];
+   [_insertedObjects addObject:local];
+   [_pendingInsertedObjects addObject:local];
+   [self _requestProcessPendingChanges];
+}
+
+-(void)_absorbChildUpdateWithID:(NSManagedObjectID *)objectID snapshot:(NSDictionary *)snapshot {
+   NSManagedObject *local=[self objectWithID:objectID];
+
+   [local _absorbChangedValuesFromSnapshot:snapshot];
+   if(![_insertedObjects containsObject:local]){
+    [_updatedObjects addObject:local];
+    if(![_pendingInsertedObjects containsObject:local])
+     [_pendingUpdatedObjects addObject:local];
+   }
+   [self _requestProcessPendingChanges];
+}
+
+-(BOOL)_saveToParent:(NSError **)errorp {
+   NSManagedObjectContext *parent=_parentContext;
+
+   [self processPendingChanges];
+   [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextWillSaveNotification object:self];
+
+   NSMutableSet *changedObjects=[NSMutableSet setWithSet:_insertedObjects];
+   [changedObjects unionSet:_updatedObjects];
+   [changedObjects unionSet:_deletedObjects];
+
+   for(NSManagedObject *object in changedObjects)
+    [object willSave];
+
+   [self _propagateCascadeDeletes];
+
+   if(![self _validateChangesForSave:errorp])
+    return NO;
+
+   [self _nullifyRelationshipsOfDeletedObjects];
+
+   NSMutableSet *notifyInserted=[NSMutableSet set];
+   NSMutableSet *notifyUpdated=[NSMutableSet set];
+   NSSet        *notifyDeleted=[[_deletedObjects copy] autorelease];
+
+   for(NSManagedObject *check in _insertedObjects)
+    if(![_deletedObjects containsObject:check])
+     [notifyInserted addObject:check];
+   for(NSManagedObject *check in _updatedObjects)
+    if(![_deletedObjects containsObject:check] && ![_insertedObjects containsObject:check])
+     [notifyUpdated addObject:check];
+
+   /* Snapshots are built on this queue, before crossing over: full
+      current values for inserts, changed keys only for updates. */
+   NSMapTable *insertSnapshots=[NSMapTable mapTableWithKeyOptions:NSMapTableObjectPointerPersonality
+                                                     valueOptions:NSMapTableStrongMemory];
+   NSMapTable *updateSnapshots=[NSMapTable mapTableWithKeyOptions:NSMapTableObjectPointerPersonality
+                                                     valueOptions:NSMapTableStrongMemory];
+
+   for(NSManagedObject *object in notifyInserted)
+    [insertSnapshots setObject:[object _snapshotOfCurrentValuesChangedOnly:NO] forKey:object];
+   for(NSManagedObject *object in notifyUpdated)
+    [updateSnapshots setObject:[object _snapshotOfCurrentValuesChangedOnly:YES] forKey:object];
+
+   [parent _performAsChainMemberAndWait:^{
+     for(NSManagedObject *object in notifyInserted)
+      [parent _absorbChildInsertWithID:[object objectID]
+                              snapshot:[insertSnapshots objectForKey:object]];
+     for(NSManagedObject *object in notifyUpdated)
+      [parent _absorbChildUpdateWithID:[object objectID]
+                              snapshot:[updateSnapshots objectForKey:object]];
+     for(NSManagedObject *object in notifyDeleted){
+      NSManagedObjectID *deletedID=[object objectID];
+
+      /* an object born and deleted in the child never reached the
+         parent; there is nothing to delete there */
+      if([deletedID isTemporaryID] && [parent objectRegisteredForID:deletedID]==nil)
+       continue;
+
+      NSManagedObject *local=[parent objectWithID:deletedID];
+
+      [parent deleteObject:local];
+     }
+    }];
+
+   /* Child bookkeeping: deletes drop out; inserts and updates become
+      this context's clean base state - committed values are seeded
+      from the very snapshots that crossed over (NOT invalidated: a
+      re-realize would ask the store, which does not have this data
+      until the root saves). */
+   for(NSManagedObject *deleted in _deletedObjects){
+    NSMapRemove(_objectIdToObject,[deleted objectID]);
+    [_insertedObjects removeObject:deleted];
+    [_updatedObjects removeObject:deleted];
+   }
+   [_deletedObjects removeAllObjects];
+
+   for(NSManagedObject *object in notifyInserted)
+    [object _promoteCurrentValuesToCommitted:[insertSnapshots objectForKey:object]];
+   for(NSManagedObject *object in notifyUpdated)
+    [object _promoteCurrentValuesToCommitted:nil];
+
+   [_insertedObjects removeAllObjects];
+   [_updatedObjects removeAllObjects];
+
+   for(NSManagedObject *object in notifyInserted)
+    [object didSave];
+   for(NSManagedObject *object in notifyUpdated)
+    [object didSave];
+   for(NSManagedObject *object in notifyDeleted)
+    [object didSave];
+
+   NSMutableDictionary *notifyInfo=[NSMutableDictionary dictionary];
+
+   [notifyInfo setObject:notifyInserted forKey:NSInsertedObjectsKey];
+   [notifyInfo setObject:notifyUpdated forKey:NSUpdatedObjectsKey];
+   [notifyInfo setObject:notifyDeleted forKey:NSDeletedObjectsKey];
+
+   [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification object:self userInfo:notifyInfo];
+
+   return YES;
+}
+
+-(BOOL)_coordinatorLocked_save:(NSError **)errorp {
+   if(_parentContext!=nil)
+    return [self _saveToParent:errorp];
+
    NSMutableArray *errors=[NSMutableArray array];
    NSMutableArray *errorStores=[NSMutableArray array];
    NSError        *idError=nil;
@@ -1952,6 +2674,16 @@ static id CDUndoRestoredValue(id value){
      [object _invalidateCommittedValues];
     }
 
+    /* Re-realize the committed snapshot NOW rather than lazily on the
+       next read (the round trip also picks up store-computed derived
+       values).  Apple keeps saved objects materialized, so rows later
+       changed behind the context's back - batch requests, other
+       processes - leave these objects STALE until they are refreshed
+       or merged; a lazy re-read would instead make them accidentally
+       see such changes. */
+    for(NSManagedObject *object in saved)
+     [object _committedValues];
+
     for(NSManagedObject *object in saved)
      [object didSave];
     for(NSManagedObject *object in notifyDeleted)
@@ -1980,12 +2712,67 @@ static id CDUndoRestoredValue(id value){
    return NO;
 }
 
+/* The batch-request companion to mergeChangesFromContextDidSaveNotification:
+   the dictionary carries arrays of NSManagedObjectIDs (as produced by
+   the batch results' ObjectIDs result types) under NSInsertedObjectsKey /
+   NSUpdatedObjectsKey / NSDeletedObjectsKey, and each context is told
+   on its own queue.  Inserts surface through objectsDidChange, updates
+   refresh any registered instance from the store, and deletes mark
+   registered instances deleted, mirroring the instance method. */
++(void)mergeChangesFromRemoteContextSave:(NSDictionary *)changeNotificationData intoContexts:(NSArray *)contexts {
+   for(NSManagedObjectContext *context in contexts){
+    [context _performAsChainMemberAndWait:^{
+      for(NSManagedObjectID *objectID in [changeNotificationData objectForKey:NSInsertedObjectsKey]){
+       NSManagedObject *local=[context objectWithID:objectID];
+
+       if(local!=nil){
+        [context->_pendingInsertedObjects addObject:local];
+        [context _requestProcessPendingChanges];
+       }
+      }
+
+      for(NSManagedObjectID *objectID in [changeNotificationData objectForKey:NSUpdatedObjectsKey]){
+       NSManagedObject *local=[context objectRegisteredForID:objectID];
+
+       if(local!=nil)
+        [context refreshObject:local mergeChanges:YES];
+      }
+
+      for(NSManagedObjectID *objectID in [changeNotificationData objectForKey:NSDeletedObjectsKey]){
+       NSManagedObject *local=[context objectRegisteredForID:objectID];
+
+       if(local!=nil){
+        [local _discardChangedValues];
+
+        [context->_insertedObjects removeObject:local];
+        [context->_updatedObjects removeObject:local];
+        [context->_deletedObjects addObject:local];
+
+        [context->_pendingDeletedObjects addObject:local];
+        [context->_pendingInsertedObjects removeObject:local];
+        [context->_pendingUpdatedObjects removeObject:local];
+        [context _requestProcessPendingChanges];
+       }
+      }
+     }];
+   }
+}
+
 -(void)mergeChangesFromContextDidSaveNotification:(NSNotification *)notification {
    NSDictionary *userInfo=[notification userInfo];
 
    for(NSManagedObject *inserted in [userInfo objectForKey:NSInsertedObjectsKey]){
-    /* Registers a fault for the newly saved object in the receiver. */
-    [self objectWithID:[inserted objectID]];
+    /* Registers a fault for the newly saved object in the receiver and
+       surfaces it through the receiver's objects-did-change
+       notification - fetched-results-style observers learn about
+       merged inserts exactly this way on Apple.  (Nothing retains the
+       fault beyond that unless retainsRegisteredObjects is set.) */
+    NSManagedObject *local=[self objectWithID:[inserted objectID]];
+
+    if(local!=nil){
+     [_pendingInsertedObjects addObject:local];
+     [self _requestProcessPendingChanges];
+    }
    }
 
    for(NSManagedObject *updated in [userInfo objectForKey:NSUpdatedObjectsKey]){
@@ -2007,6 +2794,11 @@ static id CDUndoRestoredValue(id value){
      [_insertedObjects removeObject:local];
      [_updatedObjects removeObject:local];
      [_deletedObjects addObject:local];
+
+     [_pendingDeletedObjects addObject:local];
+     [_pendingInsertedObjects removeObject:local];
+     [_pendingUpdatedObjects removeObject:local];
+     [self _requestProcessPendingChanges];
     }
    }
 }
