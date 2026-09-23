@@ -27,6 +27,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
            @"Employee roster: bindings, child-context editing, batch requests, async fetches." ],
         @[ @"EmployeeDirectory", @"Employee Directory",
            @"Inheritance, validation, relationships and NSFetchedResultsController, scenario by scenario." ],
+        @[ @"Bulletin", @"Bulletin",
+           @"Persistent history: two stacks on one store file, syncing through the transaction log." ],
     ];
 }
 

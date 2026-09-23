@@ -1,0 +1,316 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		BL0000000000000000000115 /* BLAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = BL0000000000000000000100 /* BLAppDelegate.m */; };
+		BL0000000000000000000117 /* BLHistoryWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = BL0000000000000000000102 /* BLHistoryWindowController.m */; };
+		BL0000000000000000000118 /* BLBoardWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = BL0000000000000000000103 /* BLBoardWindowController.m */; };
+		BL0000000000000000000119 /* BLManagedObjects.m in Sources */ = {isa = PBXBuildFile; fileRef = BL0000000000000000000104 /* BLManagedObjects.m */; };
+		BL000000000000000000011A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = BL0000000000000000000105 /* main.m */; };
+		BL000000000000000000011E /* Bulletin.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = BL0000000000000000000121 /* Bulletin.xcdatamodeld */; };
+		BL000000000000000000011B /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = BL000000000000000000010C /* MainMenu.xib */; };
+		BL000000000000000000011C /* BoardWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = BL000000000000000000010D /* BoardWindow.xib */; };
+		BL000000000000000000011D /* HistoryWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = BL000000000000000000010E /* HistoryWindow.xib */; };
+		BL000000000000000000011F /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BL0000000000000000000111 /* Cocoa.framework */; };
+		BL0000000000000000000120 /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BL0000000000000000000112 /* CoreData.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		BL0000000000000000000100 /* BLAppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BLAppDelegate.m; sourceTree = "<group>"; };
+		BL0000000000000000000102 /* BLHistoryWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BLHistoryWindowController.m; sourceTree = "<group>"; };
+		BL0000000000000000000103 /* BLBoardWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BLBoardWindowController.m; sourceTree = "<group>"; };
+		BL0000000000000000000104 /* BLManagedObjects.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BLManagedObjects.m; sourceTree = "<group>"; };
+		BL0000000000000000000105 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		BL0000000000000000000106 /* BLAppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BLAppDelegate.h; sourceTree = "<group>"; };
+		BL0000000000000000000108 /* BLHistoryWindowController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BLHistoryWindowController.h; sourceTree = "<group>"; };
+		BL0000000000000000000109 /* BLBoardWindowController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BLBoardWindowController.h; sourceTree = "<group>"; };
+		BL000000000000000000010A /* BLManagedObjects.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BLManagedObjects.h; sourceTree = "<group>"; };
+		BL000000000000000000010B /* BLGNUstepCompat.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BLGNUstepCompat.h; sourceTree = "<group>"; };
+		BL000000000000000000010C /* MainMenu.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MainMenu.xib; sourceTree = "<group>"; };
+		BL000000000000000000010D /* BoardWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = BoardWindow.xib; sourceTree = "<group>"; };
+		BL000000000000000000010E /* HistoryWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = HistoryWindow.xib; sourceTree = "<group>"; };
+		BL000000000000000000010F /* Bulletin-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Bulletin-Info.plist"; sourceTree = "<group>"; };
+		BL0000000000000000000110 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		BL0000000000000000000111 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		BL0000000000000000000112 /* CoreData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreData.framework; path = System/Library/Frameworks/CoreData.framework; sourceTree = SDKROOT; };
+		BL0000000000000000000113 /* Bulletin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bulletin.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BL0000000000000000000114 /* Bulletin.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = Bulletin.xcdatamodel; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BL0000000000000000000128 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BL000000000000000000011F /* Cocoa.framework in Frameworks */,
+				BL0000000000000000000120 /* CoreData.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		BL0000000000000000000122 = {
+			isa = PBXGroup;
+			children = (
+				BL0000000000000000000123 /* Sources */,
+				BL0000000000000000000124 /* Resources */,
+				BL0000000000000000000121 /* Bulletin.xcdatamodeld */,
+				BL000000000000000000010F /* Bulletin-Info.plist */,
+				BL0000000000000000000110 /* README.md */,
+				BL0000000000000000000125 /* Frameworks */,
+				BL0000000000000000000126 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		BL0000000000000000000123 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				BL0000000000000000000106 /* BLAppDelegate.h */,
+				BL0000000000000000000100 /* BLAppDelegate.m */,
+				BL0000000000000000000109 /* BLBoardWindowController.h */,
+				BL0000000000000000000103 /* BLBoardWindowController.m */,
+				BL0000000000000000000108 /* BLHistoryWindowController.h */,
+				BL0000000000000000000102 /* BLHistoryWindowController.m */,
+				BL000000000000000000010A /* BLManagedObjects.h */,
+				BL0000000000000000000104 /* BLManagedObjects.m */,
+				BL000000000000000000010B /* BLGNUstepCompat.h */,
+				BL0000000000000000000105 /* main.m */,
+			);
+			name = Sources;
+			sourceTree = "<group>";
+		};
+		BL0000000000000000000124 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				BL000000000000000000010C /* MainMenu.xib */,
+				BL000000000000000000010D /* BoardWindow.xib */,
+				BL000000000000000000010E /* HistoryWindow.xib */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		BL0000000000000000000125 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				BL0000000000000000000111 /* Cocoa.framework */,
+				BL0000000000000000000112 /* CoreData.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		BL0000000000000000000126 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BL0000000000000000000113 /* Bulletin.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		BL000000000000000000012A /* Bulletin */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BL000000000000000000012C /* Build configuration list for PBXNativeTarget "Bulletin" */;
+			buildPhases = (
+				BL0000000000000000000127 /* Sources */,
+				BL0000000000000000000128 /* Frameworks */,
+				BL0000000000000000000129 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Bulletin;
+			productName = Bulletin;
+			productReference = BL0000000000000000000113 /* Bulletin.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BL000000000000000000012B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = BL000000000000000000012D /* Build configuration list for PBXProject "Bulletin" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = BL0000000000000000000122;
+			productRefGroup = BL0000000000000000000126 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BL000000000000000000012A /* Bulletin */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BL0000000000000000000129 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BL000000000000000000011B /* MainMenu.xib in Resources */,
+				BL000000000000000000011C /* BoardWindow.xib in Resources */,
+				BL000000000000000000011D /* HistoryWindow.xib in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BL0000000000000000000127 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BL0000000000000000000115 /* BLAppDelegate.m in Sources */,
+				BL0000000000000000000117 /* BLHistoryWindowController.m in Sources */,
+				BL0000000000000000000118 /* BLBoardWindowController.m in Sources */,
+				BL0000000000000000000119 /* BLManagedObjects.m in Sources */,
+				BL000000000000000000011A /* main.m in Sources */,
+				BL000000000000000000011E /* Bulletin.xcdatamodeld in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		BL000000000000000000012E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				ONLY_ACTIVE_ARCH = YES;
+			};
+			name = Debug;
+		};
+		BL000000000000000000012F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+			};
+			name = Release;
+		};
+		BL0000000000000000000130 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Bulletin-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.examples.Bulletin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		BL0000000000000000000131 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Bulletin-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.examples.Bulletin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		BL000000000000000000012C /* Build configuration list for PBXNativeTarget "Bulletin" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BL0000000000000000000130 /* Debug */,
+				BL0000000000000000000131 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BL000000000000000000012D /* Build configuration list for PBXProject "Bulletin" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BL000000000000000000012E /* Debug */,
+				BL000000000000000000012F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCVersionGroup section */
+		BL0000000000000000000121 /* Bulletin.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				BL0000000000000000000114 /* Bulletin.xcdatamodel */,
+			);
+			currentVersion = BL0000000000000000000114 /* Bulletin.xcdatamodel */;
+			path = Bulletin.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+/* End XCVersionGroup section */
+	};
+	rootObject = BL000000000000000000012B /* Project object */;
+}

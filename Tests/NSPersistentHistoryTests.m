@@ -573,6 +573,83 @@ static BOOL CDWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
         @"sorted history fetches raise on Apple; the port matches");
 }
 
+/* The arrangement the Bulletin example is built on: a second, fully
+   independent stack (its own coordinator, its own context) on the SAME
+   store file, whose saves the first stack replays via the canonical
+   token-anchored, author-filtered history fetch. */
+- (void)testTwoStacksOnOneFileSyncThroughHistory
+{
+    /* Arbitrated on macOS: without this, the final assertion reads the
+       OLD value.  Apple caches fetched rows per coordinator, and a
+       refresh refetches through that cache; with the default (infinite)
+       staleness interval, a row written by ANOTHER coordinator stays
+       invisible to this stack forever, merge or no merge.  A history
+       consumer that shares its store file with other writers sets the
+       staleness interval to 0 so every refresh goes back to the store.
+       (FreeCoreData reads the store on every refresh regardless, so
+       this is a no-op there.) */
+    [self.ctx setStalenessInterval:0];
+
+    /* The mirror object exists first, so the first stack has something
+       registered to refresh. */
+    NSManagedObject *note = [self insertNoteWithText:@"v1"];
+    [self.ctx setTransactionAuthor:@"reader"];
+    NSError *err = nil;
+    XCTAssertTrue([self.ctx save:&err], @"seed save: %@", err);
+
+    NSPersistentHistoryToken *token =
+        [self.psc currentPersistentHistoryTokenFromStores:nil];
+
+    /* An independent writer stack on the same file. */
+    NSPersistentStoreCoordinator *writerPSC = [[NSPersistentStoreCoordinator alloc]
+        initWithManagedObjectModel:self.model];
+    NSDictionary *options = [NSDictionary dictionaryWithObjectsAndKeys:
+        [NSNumber numberWithBool:YES], NSPersistentHistoryTrackingKey, nil];
+    XCTAssertNotNil([writerPSC addPersistentStoreWithType:NSSQLiteStoreType
+                                            configuration:nil
+                                                      URL:[NSURL fileURLWithPath:self.storePath]
+                                                  options:options
+                                                    error:&err], @"writer store: %@", err);
+
+    NSManagedObjectContext *writerCtx = [[NSManagedObjectContext alloc]
+        initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [writerCtx setPersistentStoreCoordinator:writerPSC];
+    [writerCtx setTransactionAuthor:@"writer"];
+
+    NSManagedObject *writerNote = [writerCtx objectWithID:[note objectID]];
+    XCTAssertEqualObjects(@"v1", [writerNote valueForKey:@"text"]);
+    [writerNote setValue:@"v2" forKey:@"text"];
+    XCTAssertTrue([writerCtx save:&err], @"writer save: %@", err);
+
+    /* The reader has not heard about it... */
+    XCTAssertEqualObjects(@"v1", [note valueForKey:@"text"]);
+
+    /* ...until it runs the canonical merge against its own stack. */
+    NSPersistentHistoryChangeRequest *request =
+        [NSPersistentHistoryChangeRequest fetchHistoryAfterToken:token];
+    NSFetchRequest *othersOnly = [self historyFetchRequestWithEntity:
+        [NSPersistentHistoryTransaction entityDescriptionWithContext:self.ctx]];
+    [othersOnly setPredicate:[NSPredicate predicateWithFormat:@"author != %@", @"reader"]];
+    [request setFetchRequest:othersOnly];
+
+    NSPersistentHistoryResult *result =
+        (NSPersistentHistoryResult *)[self.ctx executeRequest:request error:&err];
+    XCTAssertNotNil(result, @"history fetch: %@", err);
+
+    NSArray *transactions = [result result];
+    XCTAssertEqual((NSUInteger)1, [transactions count]);
+    XCTAssertEqualObjects(@"writer", [[transactions objectAtIndex:0] author]);
+
+    for (NSPersistentHistoryTransaction *tx in transactions)
+        [self.ctx mergeChangesFromContextDidSaveNotification:[tx objectIDNotification]];
+
+    XCTAssertEqualObjects(@"v2", [note valueForKey:@"text"],
+                          @"the merge should refresh the reader's registered object");
+
+    for (NSPersistentStore *store in [[writerPSC persistentStores] copy])
+        [writerPSC removePersistentStore:store error:NULL];
+}
+
 - (void)testResultTypeVariants
 {
     [self insertNoteWithText:@"variant"];

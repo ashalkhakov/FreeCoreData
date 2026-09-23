@@ -44,6 +44,8 @@ make -C Examples/EmployeeDirectory
 make -C Examples/EmployeeDirectory install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
 make -C Examples/Staffbook MOMC="${WORKSPACE_DIR}/Tools/momc/obj/momc"
 make -C Examples/Staffbook install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM MOMC="${WORKSPACE_DIR}/Tools/momc/obj/momc"
+make -C Examples/Bulletin MOMC="${WORKSPACE_DIR}/Tools/momc/obj/momc"
+make -C Examples/Bulletin install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM MOMC="${WORKSPACE_DIR}/Tools/momc/obj/momc"
 
 if [ -d "${LOCAL_PREFIX}/System/Library/Themes" ]; then
 mkdir -p AppDir/usr/System/Library/Themes
@@ -118,7 +120,7 @@ echo "AppDir assembled:"
 du -sh AppDir
 # The apps and the framework they link, or the image is not what it says it is.
 missing=0
-for wrapper in CDLauncher.app ModelBuilder.app Staffbook.app EmployeeDirectory.app CoreData.framework; do
+for wrapper in CDLauncher.app ModelBuilder.app Staffbook.app EmployeeDirectory.app Bulletin.app CoreData.framework; do
     found=$(find AppDir/usr -maxdepth 5 -name "$wrapper" | head -n 1)
     if [ -n "$found" ]; then
         echo "  $found"

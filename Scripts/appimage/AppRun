@@ -1,7 +1,7 @@
 #!/bin/sh
 # Ported from XFormsKit's Scripts/appimage/AppRun (by way of RDLKit and
 # UDQuakeTools), dispatch included: the image carries CDLauncher, Model
-# Builder and the two samples, opens the launcher when run bare, and starts
+# Builder and the samples, opens the launcher when run bare, and starts
 # a specific app for a keyword argument or a matching symlink name.
 set -eu
 
@@ -60,7 +60,8 @@ if [ -n "$DEFAULTS_TOOL" ]; then
     for domain in CDLauncher org.gnustep.CDLauncher \
                   ModelBuilder org.gnustep.ModelBuilder \
                   Staffbook org.gnustep.Staffbook \
-                  EmployeeDirectory org.gnustep.EmployeeDirectory; do
+                  EmployeeDirectory org.gnustep.EmployeeDirectory \
+                  Bulletin org.gnustep.Bulletin; do
         "$DEFAULTS_TOOL" write "$domain" GSTheme Eau
         "$DEFAULTS_TOOL" write "$domain" NSFont LiberationSans
         "$DEFAULTS_TOOL" write "$domain" NSBoldFont LiberationSans-Bold
@@ -95,11 +96,13 @@ case "$(basename "${ARGV0:-$0}")" in
   *[Mm]odel[Bb]uilder*)   APP=ModelBuilder ;;
   *[Ss]taffbook*)         APP=Staffbook ;;
   *[Dd]irectory*)         APP=EmployeeDirectory ;;
+  *[Bb]ulletin*)          APP=Bulletin ;;
 esac
 case "${1:-}" in
   modelbuilder|ModelBuilder)                      APP=ModelBuilder; shift ;;
   staffbook|Staffbook)                            APP=Staffbook; shift ;;
   directory|employeedirectory|EmployeeDirectory)  APP=EmployeeDirectory; shift ;;
+  bulletin|Bulletin)                              APP=Bulletin; shift ;;
   launcher|CDLauncher)                            APP=CDLauncher; shift ;;
   "") ;;
   -*) ;;

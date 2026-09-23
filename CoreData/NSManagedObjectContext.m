@@ -2503,6 +2503,21 @@ static id CDUndoRestoredValue(id value){
    return YES;
 }
 
+/* Whether the given store persists the object the ID names.  Pointer
+   identity covers the ordinary case; the identifier comparison covers
+   IDs that came from ANOTHER coordinator's store instance on the same
+   store file (same store UUID) - object IDs are interchangeable across
+   stacks on Apple (the persistent-history multi-writer arrangement),
+   and the save must not silently drop such objects. */
+static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *objectID){
+   if([objectID persistentStore]==store)
+    return YES;
+
+   NSString *identifier=[objectID storeIdentifier];
+
+   return identifier!=nil && [identifier isEqualToString:[store identifier]];
+}
+
 -(BOOL)_coordinatorLocked_save:(NSError **)errorp {
    if(_parentContext!=nil)
     return [self _saveToParent:errorp];
@@ -2662,13 +2677,13 @@ static id CDUndoRestoredValue(id value){
      NSMutableSet       *storeDeleted=[NSMutableSet set];
 
      for(NSManagedObject *check in incrementalInserted)
-      if([[check objectID] persistentStore]==store)
+      if(CDStoreServesObjectID(store,[check objectID]))
        [storeInserted addObject:check];
      for(NSManagedObject *check in incrementalUpdated)
-      if([[check objectID] persistentStore]==store)
+      if(CDStoreServesObjectID(store,[check objectID]))
        [storeUpdated addObject:check];
      for(NSManagedObject *check in incrementalDeleted)
-      if([[check objectID] persistentStore]==store)
+      if(CDStoreServesObjectID(store,[check objectID]))
        [storeDeleted addObject:check];
 
      NSSaveChangesRequest *request=[[[NSSaveChangesRequest alloc] initWithInsertedObjects:storeInserted updatedObjects:storeUpdated deletedObjects:storeDeleted lockedObjects:nil] autorelease];

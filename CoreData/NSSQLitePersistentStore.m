@@ -734,6 +734,13 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 
    _database=database;
 
+   /* More than one connection can serve the same store file - a second
+      coordinator in this process, or another process entirely (the
+      persistent-history arrangement).  A finite busy timeout makes an
+      overlapping commit wait briefly instead of failing with
+      SQLITE_BUSY. */
+   sqlite3_busy_timeout(DATABASE,5000);
+
    id trackingOption=[[self options] objectForKey:NSPersistentHistoryTrackingKey];
    id postOption=[[self options] objectForKey:NSPersistentStoreRemoteChangeNotificationPostOptionKey];
 

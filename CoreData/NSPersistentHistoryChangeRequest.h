@@ -54,7 +54,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    AND transactionNumber > <last merged>. */
 + (instancetype)fetchHistoryWithFetchRequest:(NSFetchRequest *)fetchRequest;
 
+/* Settable, as on Apple: the canonical multi-writer pattern anchors
+   with fetchHistoryAfterToken: and then sets a fetch request carrying
+   the author predicate, combining "only what is new" with "only the
+   other writers". */
 - (NSFetchRequest *)fetchRequest;
+- (void)setFetchRequest:(NSFetchRequest *)fetchRequest;
 
 - (NSPersistentHistoryResultType)resultType;   /* default TransactionsAndChanges */
 - (void)setResultType:(NSPersistentHistoryResultType)resultType;

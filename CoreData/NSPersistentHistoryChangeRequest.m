@@ -102,6 +102,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return _fetchRequest;
 }
 
+-(void)setFetchRequest:(NSFetchRequest *)fetchRequest {
+   fetchRequest=[fetchRequest retain];
+   [_fetchRequest release];
+   _fetchRequest=fetchRequest;
+}
+
 -copyWithZone:(NSZone *)zone {
    NSPersistentHistoryChangeRequest *copy=[[[self class] allocWithZone:zone] init];
 
