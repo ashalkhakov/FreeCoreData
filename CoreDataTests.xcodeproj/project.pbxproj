@@ -47,6 +47,7 @@
 		CEFAB8233062D47200CDADDD /* NSAsynchronousFetchTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB8223062D47200CDADDD /* NSAsynchronousFetchTests.m */; };
 		CEFAB8253062DA0B00CDADDD /* NSBatchRequestTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB8243062DA0B00CDADDD /* NSBatchRequestTests.m */; };
 		CEFAB8273063AE0E00CDADDD /* NSTransientRelationshipTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB8263063AE0E00CDADDD /* NSTransientRelationshipTests.m */; };
+		CEFAB8293063BE9700CDADDD /* NSPersistentHistoryTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CEFAB8283063BE9700CDADDD /* NSPersistentHistoryTests.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -97,6 +98,7 @@
 		CEFAB8223062D47200CDADDD /* NSAsynchronousFetchTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSAsynchronousFetchTests.m; path = Tests/NSAsynchronousFetchTests.m; sourceTree = "<group>"; };
 		CEFAB8243062DA0B00CDADDD /* NSBatchRequestTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSBatchRequestTests.m; path = Tests/NSBatchRequestTests.m; sourceTree = "<group>"; };
 		CEFAB8263063AE0E00CDADDD /* NSTransientRelationshipTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSTransientRelationshipTests.m; path = Tests/NSTransientRelationshipTests.m; sourceTree = "<group>"; };
+		CEFAB8283063BE9700CDADDD /* NSPersistentHistoryTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPersistentHistoryTests.m; path = Tests/NSPersistentHistoryTests.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -123,6 +125,7 @@
 		24DFAD7E3B56719996E6F208 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				CEFAB8283063BE9700CDADDD /* NSPersistentHistoryTests.m */,
 				CEFAB8263063AE0E00CDADDD /* NSTransientRelationshipTests.m */,
 				CEFAB8243062DA0B00CDADDD /* NSBatchRequestTests.m */,
 				CEFAB8223062D47200CDADDD /* NSAsynchronousFetchTests.m */,
@@ -240,6 +243,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CEFAB8293063BE9700CDADDD /* NSPersistentHistoryTests.m in Sources */,
 				CED0149F3032FF59009517DE /* NSPersistentStoreRequestTests.m in Sources */,
 				CED014A03032FF59009517DE /* NSIncrementalStoreNodeTests.m in Sources */,
 				CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */,

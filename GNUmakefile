@@ -19,6 +19,10 @@ CoreData_OBJC_FILES = \
 	CoreData/NSBatchInsertRequest.m \
 	CoreData/NSBatchUpdateRequest.m \
 	CoreData/NSBatchDeleteRequest.m \
+	CoreData/NSPersistentHistoryToken.m \
+	CoreData/NSPersistentHistoryChange.m \
+	CoreData/NSPersistentHistoryTransaction.m \
+	CoreData/NSPersistentHistoryChangeRequest.m \
 	CoreData/NSFetchRequest.m \
 	CoreData/NSManagedObject.m \
 	CoreData/NSManagedObjectID.m \
@@ -65,6 +69,10 @@ CoreData_HEADER_FILES = \
 	NSBatchInsertRequest.h \
 	NSBatchUpdateRequest.h \
 	NSBatchDeleteRequest.h \
+	NSPersistentHistoryToken.h \
+	NSPersistentHistoryChange.h \
+	NSPersistentHistoryTransaction.h \
+	NSPersistentHistoryChangeRequest.h \
 	NSFetchRequest.h \
 	NSFetchedPropertyDescription.h \
 	NSIncrementalStore.h \

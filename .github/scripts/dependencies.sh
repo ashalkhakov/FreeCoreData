@@ -20,7 +20,7 @@
 # XCTest, so tools-xctest is; and the packaged app ships with the Eau theme,
 # which has to be built against the same gui it will be loaded into.
 #
-# Five fixes are carried as patches in patches/gnustep/, applied below; they
+# Six fixes are carried as patches in patches/gnustep/, applied below; they
 # are written for upstream and held here until they can be sent. See
 # patches/gnustep/README.md. Everything else is built from master as it
 # stands.
@@ -110,6 +110,10 @@ install_libs_base() {
     # ignored the 10.4 behavior: dates in cells rendered as the literal ICU
     # pattern and would not parse; see the repro beside the patch.
     patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-base-dateformatter-cell-behavior.patch"
+    # +archivedDataWithRootObject:requiringSecureCoding:error: answered nil
+    # (no error) whenever secure coding was requested, so persistent history
+    # tokens could not be archived; see the repro beside the patch.
+    patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-base-keyedarchiver-secure-coding.patch"
     # The reference recipe names $PREFIX/etc/GNUstep.conf here. This
     # gnustep-make writes it to $PREFIX/etc/GNUstep/GNUstep.conf instead, and
     # when the named file does not exist libs-base falls back to the built-in

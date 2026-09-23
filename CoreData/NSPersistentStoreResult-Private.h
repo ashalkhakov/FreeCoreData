@@ -35,3 +35,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 @interface NSBatchDeleteResult (CDPrivate)
 - (instancetype)_initWithResult:(id)result resultType:(NSBatchDeleteRequestResultType)resultType;
 @end
+
+@interface NSPersistentHistoryResult (CDPrivate)
+- (instancetype)_initWithResult:(id)result resultType:(NSPersistentHistoryResultType)resultType;
+@end

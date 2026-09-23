@@ -347,6 +347,16 @@ static BOOL MBValuesEqual(id a, id b)
   self.attribute.transient = transient;
   [self didChange:@"transient" from:old];
 }
+- (BOOL)preservesValueInHistoryOnDeletion
+{
+  return self.attribute.preservesValueInHistoryOnDeletion;
+}
+- (void)setPreservesValueInHistoryOnDeletion:(BOOL)preserves
+{
+  id old = [self valueForKey:@"preservesValueInHistoryOnDeletion"];
+  self.attribute.preservesValueInHistoryOnDeletion = preserves;
+  [self didChange:@"preservesValueInHistoryOnDeletion" from:old];
+}
 
 /* The default value as stored, for undo: lossless where -defaultString
    is a rendering of it. */
@@ -554,6 +564,7 @@ static BOOL MBValuesEqual(id a, id b)
     plain.attributeType = attribute.attributeType;
     plain.optional = attribute.isOptional;
     plain.transient = attribute.isTransient;
+    plain.preservesValueInHistoryOnDeletion = attribute.preservesValueInHistoryOnDeletion;
     plain.defaultValue = attribute.defaultValue;
     plain.userInfo = attribute.userInfo;
     [_document replaceProperty:attribute withProperty:plain];   /* undo puts this one back */
@@ -577,6 +588,7 @@ static BOOL MBValuesEqual(id a, id b)
   replacement.attributeType = attribute.attributeType;
   replacement.optional = attribute.isOptional;
   replacement.transient = attribute.isTransient;
+  replacement.preservesValueInHistoryOnDeletion = attribute.preservesValueInHistoryOnDeletion;
   replacement.userInfo = attribute.userInfo;
   replacement.derivationExpression = expression;
   [_document replaceProperty:attribute withProperty:replacement];

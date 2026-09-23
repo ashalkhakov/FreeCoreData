@@ -1,0 +1,12 @@
+/*
+ * This file is part of Bulletin, the FreeCoreData persistent-history
+ * example application.
+ * Copyright (c) 2026 the GNUstep CoreData port contributors.
+ * Released under the MIT license; see the repository's LICENSE.
+ */
+#import <AppKit/AppKit.h>
+
+int main(int argc, const char *argv[])
+{
+    return NSApplicationMain(argc, argv);
+}

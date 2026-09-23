@@ -20,6 +20,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSBatchDeleteRequest-Private.h"
 #import <CoreData/NSPersistentStoreResult.h>
 #import "NSPersistentStoreResult-Private.h"
+#import "NSPersistentHistory-Private.h"
 #import <CoreData/NSFetchRequest.h>
 #import "NSFetchRequest-Private.h"
 #import <CoreData/NSManagedObjectModel.h>
@@ -733,6 +734,19 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 
    _database=database;
 
+   /* More than one connection can serve the same store file - a second
+      coordinator in this process, or another process entirely (the
+      persistent-history arrangement).  A finite busy timeout makes an
+      overlapping commit wait briefly instead of failing with
+      SQLITE_BUSY. */
+   sqlite3_busy_timeout(DATABASE,5000);
+
+   id trackingOption=[[self options] objectForKey:NSPersistentHistoryTrackingKey];
+   id postOption=[[self options] objectForKey:NSPersistentStoreRemoteChangeNotificationPostOptionKey];
+
+   _historyTracking=[trackingOption respondsToSelector:@selector(boolValue)] && [trackingOption boolValue];
+   _postsRemoteChangeNotification=[postOption respondsToSelector:@selector(boolValue)] && [postOption boolValue];
+
    if(tableExists(DATABASE,@"Z_METADATA")){
     NSDictionary *metadata=readMetadata(DATABASE,error);
 
@@ -741,7 +755,7 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 
     [super setMetadata:metadata];
 
-    return [self _loadEntityIDs:error];
+    return [self _loadEntityIDs:error] && [self _prepareHistoryTracking:error];
    }
 
    /* New (or empty) file: create the schema and stamp the metadata with
@@ -780,7 +794,185 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
     return NO;
    }
 
+   return [self _prepareHistoryTracking:error];
+}
+
+/* ------------------------------------------------------------------ */
+#pragma mark - Persistent history
+/* ------------------------------------------------------------------ */
+
+/* Apple's history lives in ATRANSACTION/ACHANGE (plus a string-interning
+   ATRANSACTIONSTRING table); this store uses the same shape under
+   Z_-prefixed names, with author/context strings stored inline.  The
+   transaction row's Z_PK is the transaction number, which is also what a
+   history token records per store. */
+-(BOOL)_prepareHistoryTracking:(NSError **)error {
+   if(!_historyTracking)
+    return YES;
+
+   if(!tableExists(DATABASE,@"Z_ATRANSACTION") &&
+      !executeSQL(DATABASE,@"CREATE TABLE Z_ATRANSACTION (Z_PK INTEGER PRIMARY KEY AUTOINCREMENT, ZTIMESTAMP REAL, ZAUTHOR VARCHAR, ZCONTEXTNAME VARCHAR, ZPROCESSID VARCHAR, ZBUNDLEID VARCHAR)",error))
+    return NO;
+
+   if(!tableExists(DATABASE,@"Z_ACHANGE") &&
+      !executeSQL(DATABASE,@"CREATE TABLE Z_ACHANGE (Z_PK INTEGER PRIMARY KEY AUTOINCREMENT, ZTRANSACTIONID INTEGER, ZCHANGETYPE INTEGER, ZENTITY VARCHAR, ZENTITYPK INTEGER, ZUPDATEDPROPERTIES VARCHAR, ZTOMBSTONE BLOB)",error))
+    return NO;
+
    return YES;
+}
+
+-(BOOL)_historyTrackingEnabled {
+   return _historyTracking;
+}
+
+-(long long)_lastHistoryTransactionNumber {
+   if(!_historyTracking || !tableExists(DATABASE,@"Z_ATRANSACTION"))
+    return 0;
+
+   sqlite3_stmt *statement=prepareStatement(DATABASE,@"SELECT MAX(Z_PK) FROM Z_ATRANSACTION",NULL);
+   long long     result=0;
+
+   if(statement==NULL)
+    return 0;
+
+   if(sqlite3_step(statement)==SQLITE_ROW)
+    result=sqlite3_column_int64(statement,0);
+   sqlite3_finalize(statement);
+
+   return result;
+}
+
+/* Opens a transaction row inside the caller's BEGIN/COMMIT and answers
+   its number (0 on failure). */
+-(long long)_recordHistoryTransactionWithContext:(NSManagedObjectContext *)context error:(NSError **)error {
+   sqlite3_stmt *statement=prepareStatement(DATABASE,@"INSERT INTO Z_ATRANSACTION (ZTIMESTAMP, ZAUTHOR, ZCONTEXTNAME, ZPROCESSID, ZBUNDLEID) VALUES (?, ?, ?, ?, ?)",error);
+
+   if(statement==NULL)
+    return 0;
+
+   NSString *author=[context transactionAuthor];
+   NSString *contextName=[context name];
+   NSString *processID=[NSString stringWithFormat:@"%d",(int)[[NSProcessInfo processInfo] processIdentifier]];
+   NSString *bundleID=[[NSBundle mainBundle] bundleIdentifier];
+
+   if(bundleID==nil)
+    bundleID=[[NSProcessInfo processInfo] processName];
+
+   sqlite3_bind_double(statement,1,[[NSDate date] timeIntervalSinceReferenceDate]);
+   if(author!=nil)
+    sqlite3_bind_text(statement,2,[author UTF8String],-1,SQLITE_TRANSIENT);
+   else
+    sqlite3_bind_null(statement,2);
+   if(contextName!=nil)
+    sqlite3_bind_text(statement,3,[contextName UTF8String],-1,SQLITE_TRANSIENT);
+   else
+    sqlite3_bind_null(statement,3);
+   sqlite3_bind_text(statement,4,[processID UTF8String],-1,SQLITE_TRANSIENT);
+   if(bundleID!=nil)
+    sqlite3_bind_text(statement,5,[bundleID UTF8String],-1,SQLITE_TRANSIENT);
+   else
+    sqlite3_bind_null(statement,5);
+
+   BOOL ok=(sqlite3_step(statement)==SQLITE_DONE);
+
+   sqlite3_finalize(statement);
+
+   if(!ok){
+    if(error!=NULL)
+     *error=sqliteError(DATABASE,NSPersistentStoreSaveError,@"unable to record a history transaction");
+    return 0;
+   }
+
+   return sqlite3_last_insert_rowid(DATABASE);
+}
+
+-(BOOL)_recordHistoryChangeInTransaction:(long long)transactionID
+                                    type:(int)changeType
+                                  entity:(NSEntityDescription *)entity
+                              primaryKey:(long long)primaryKey
+                       updatedProperties:(NSString *)updatedProperties
+                               tombstone:(NSData *)tombstone
+                                   error:(NSError **)error {
+   sqlite3_stmt *statement=prepareStatement(DATABASE,@"INSERT INTO Z_ACHANGE (ZTRANSACTIONID, ZCHANGETYPE, ZENTITY, ZENTITYPK, ZUPDATEDPROPERTIES, ZTOMBSTONE) VALUES (?, ?, ?, ?, ?, ?)",error);
+
+   if(statement==NULL)
+    return NO;
+
+   sqlite3_bind_int64(statement,1,transactionID);
+   sqlite3_bind_int(statement,2,changeType);
+   sqlite3_bind_text(statement,3,[[entity name] UTF8String],-1,SQLITE_TRANSIENT);
+   sqlite3_bind_int64(statement,4,primaryKey);
+   if(updatedProperties!=nil)
+    sqlite3_bind_text(statement,5,[updatedProperties UTF8String],-1,SQLITE_TRANSIENT);
+   else
+    sqlite3_bind_null(statement,5);
+   if(tombstone!=nil)
+    sqlite3_bind_blob(statement,6,[tombstone bytes],(int)[tombstone length],SQLITE_TRANSIENT);
+   else
+    sqlite3_bind_null(statement,6);
+
+   BOOL ok=(sqlite3_step(statement)==SQLITE_DONE);
+
+   sqlite3_finalize(statement);
+
+   if(!ok && error!=NULL)
+    *error=sqliteError(DATABASE,NSPersistentStoreSaveError,@"unable to record a history change");
+
+   return ok;
+}
+
+-(long long)_primaryKeyOfObjectID:(NSManagedObjectID *)objectID {
+   return primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID]);
+}
+
+/* The tombstone for a deletion: the last values of the entity's
+   attributes marked preservesValueInHistoryOnDeletion, as a binary
+   plist keyed by attribute name; nil when the entity flags none. */
+-(NSData *)_tombstoneForEntity:(NSEntityDescription *)entity values:(NSDictionary *)values {
+   NSMutableDictionary *tombstone=nil;
+   NSDictionary        *attributes=[entity attributesByName];
+
+   for(NSString *name in attributes){
+    NSAttributeDescription *attribute=[attributes objectForKey:name];
+
+    if(![attribute preservesValueInHistoryOnDeletion])
+     continue;
+
+    id value=[values objectForKey:name];
+
+    if(value==nil || value==[NSNull null])
+     continue;
+    if(tombstone==nil)
+     tombstone=[NSMutableDictionary dictionary];
+    [tombstone setObject:value forKey:name];
+   }
+
+   if(tombstone==nil)
+    return nil;
+
+   return [NSPropertyListSerialization dataWithPropertyList:tombstone format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];
+}
+
+/* Posted after a committed save or batch operation when the store was
+   added with NSPersistentStoreRemoteChangeNotificationPostOptionKey.
+   The signal itself is contentless, as on Apple; with history tracking
+   also on, the userInfo carries the store's new token. */
+-(void)_postRemoteChangeNotificationIfEnabled {
+   if(!_postsRemoteChangeNotification)
+    return;
+
+   NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+   if(_historyTracking){
+    NSDictionary *positions=[NSDictionary dictionaryWithObject:[NSNumber numberWithLongLong:[self _lastHistoryTransactionNumber]] forKey:[self identifier]];
+    NSPersistentHistoryToken *token=[[[NSPersistentHistoryToken alloc] _initWithPositions:positions] autorelease];
+
+    [userInfo setObject:token forKey:NSPersistentHistoryTokenKey];
+   }
+   if([self URL]!=nil)
+    [userInfo setObject:[self URL] forKey:@"NSPersistentStoreURL"];
+
+   [[NSNotificationCenter defaultCenter] postNotificationName:NSPersistentStoreRemoteChangeNotification object:[self persistentStoreCoordinator] userInfo:userInfo];
 }
 
 /* ------------------------------------------------------------------ */
@@ -1686,6 +1878,46 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     }
    }
 
+   /* Tombstones read committed values, so capture them before the rows
+      are deleted (they are, in fact, read from the objects, but keep
+      the ordering conservative). */
+   NSUInteger changeCount=[[request insertedObjects] count]+[[request updatedObjects] count]+[[request deletedObjects] count];
+
+   if(_historyTracking && changeCount>0){
+    long long transactionID=[self _recordHistoryTransactionWithContext:context error:error];
+
+    if(transactionID==0){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+
+    for(NSManagedObject *object in [request insertedObjects]){
+     if(![self _recordHistoryChangeInTransaction:transactionID type:NSPersistentHistoryChangeTypeInsert entity:[object entity] primaryKey:[self _primaryKeyOfObjectID:[object objectID]] updatedProperties:nil tombstone:nil error:error]){
+      executeSQL(DATABASE,@"ROLLBACK",NULL);
+      return nil;
+     }
+    }
+
+    for(NSManagedObject *object in [request updatedObjects]){
+     NSArray  *changedKeys=[[[object changedValues] allKeys] sortedArrayUsingSelector:@selector(compare:)];
+     NSString *updatedProperties=([changedKeys count]>0)?[changedKeys componentsJoinedByString:@","]:nil;
+
+     if(![self _recordHistoryChangeInTransaction:transactionID type:NSPersistentHistoryChangeTypeUpdate entity:[object entity] primaryKey:[self _primaryKeyOfObjectID:[object objectID]] updatedProperties:updatedProperties tombstone:nil error:error]){
+      executeSQL(DATABASE,@"ROLLBACK",NULL);
+      return nil;
+     }
+    }
+
+    for(NSManagedObject *object in [request deletedObjects]){
+     NSData *tombstone=[self _tombstoneForEntity:[object entity] values:[object committedValuesForKeys:nil]];
+
+     if(![self _recordHistoryChangeInTransaction:transactionID type:NSPersistentHistoryChangeTypeDelete entity:[object entity] primaryKey:[self _primaryKeyOfObjectID:[object objectID]] updatedProperties:nil tombstone:tombstone error:error]){
+      executeSQL(DATABASE,@"ROLLBACK",NULL);
+      return nil;
+     }
+    }
+   }
+
    for(NSManagedObject *object in [request deletedObjects]){
     if(![self _deleteRowForObject:object error:error]){
      executeSQL(DATABASE,@"ROLLBACK",NULL);
@@ -1702,6 +1934,9 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     executeSQL(DATABASE,@"ROLLBACK",NULL);
     return nil;
    }
+
+   if(changeCount>0)
+    [self _postRemoteChangeNotificationIfEnabled];
 
    return [NSArray array];
 }
@@ -1782,7 +2017,7 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    return result;
 }
 
--(id)_executeBatchInsertRequest:(NSBatchInsertRequest *)request error:(NSError **)error {
+-(id)_executeBatchInsertRequest:(NSBatchInsertRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
    NSEntityDescription *entity=[self _batchEntityForName:[request entityName] entity:[request entity] error:error];
 
    if(entity==nil)
@@ -1887,10 +2122,29 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     [insertedIDs addObject:[[self newObjectIDForEntity:entity referenceObject:referenceObjectForPrimaryKey(primaryKey)] autorelease]];
    }
 
+   if(_historyTracking && [insertedIDs count]>0){
+    long long transactionID=[self _recordHistoryTransactionWithContext:context error:error];
+
+    if(transactionID==0){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+
+    for(NSManagedObjectID *objectID in insertedIDs){
+     if(![self _recordHistoryChangeInTransaction:transactionID type:NSPersistentHistoryChangeTypeInsert entity:entity primaryKey:[self _primaryKeyOfObjectID:objectID] updatedProperties:nil tombstone:nil error:error]){
+      executeSQL(DATABASE,@"ROLLBACK",NULL);
+      return nil;
+     }
+    }
+   }
+
    if(!writeMetadata(DATABASE,[self metadata],error) || !executeSQL(DATABASE,@"COMMIT",error)){
     executeSQL(DATABASE,@"ROLLBACK",NULL);
     return nil;
    }
+
+   if([insertedIDs count]>0)
+    [self _postRemoteChangeNotificationIfEnabled];
 
    switch([request resultType]){
     case NSBatchInsertRequestResultTypeObjectIDs:
@@ -1902,7 +2156,7 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    }
 }
 
--(id)_executeBatchUpdateRequest:(NSBatchUpdateRequest *)request error:(NSError **)error {
+-(id)_executeBatchUpdateRequest:(NSBatchUpdateRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
    NSEntityDescription *entity=[self _batchEntityForName:[request entityName] entity:[request entity] error:error];
 
    if(entity==nil)
@@ -1983,10 +2237,36 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     }
    }
 
+   if(_historyTracking && total>0){
+    NSMutableArray *names=[NSMutableArray array];
+
+    for(id key in updates)
+     [names addObject:[key isKindOfClass:[NSPropertyDescription class]]?[(NSPropertyDescription *)key name]:(NSString *)key];
+    [names sortUsingSelector:@selector(compare:)];
+
+    NSString *updatedProperties=([names count]>0)?[names componentsJoinedByString:@","]:nil;
+    long long transactionID=[self _recordHistoryTransactionWithContext:context error:error];
+
+    if(transactionID==0){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+
+    for(NSManagedObjectID *objectID in targetIDs){
+     if(![self _recordHistoryChangeInTransaction:transactionID type:NSPersistentHistoryChangeTypeUpdate entity:[objectID entity] primaryKey:[self _primaryKeyOfObjectID:objectID] updatedProperties:updatedProperties tombstone:nil error:error]){
+      executeSQL(DATABASE,@"ROLLBACK",NULL);
+      return nil;
+     }
+    }
+   }
+
    if(!writeMetadata(DATABASE,[self metadata],error) || !executeSQL(DATABASE,@"COMMIT",error)){
     executeSQL(DATABASE,@"ROLLBACK",NULL);
     return nil;
    }
+
+   if(total>0)
+    [self _postRemoteChangeNotificationIfEnabled];
 
    switch([request resultType]){
     case NSUpdatedObjectIDsResultType:
@@ -1998,7 +2278,7 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    }
 }
 
--(id)_executeBatchDeleteRequest:(NSBatchDeleteRequest *)request error:(NSError **)error {
+-(id)_executeBatchDeleteRequest:(NSBatchDeleteRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
    NSArray *explicitIDs=[request _objectIDsToDelete];
    NSArray *targetIDs=nil;
 
@@ -2037,6 +2317,53 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    if(!executeSQL(DATABASE,@"BEGIN",error))
     return nil;
 
+   /* History records first: a deletion's tombstone reads the row's
+      current values, which are gone once the row is. */
+   if(_historyTracking && [targetIDs count]>0){
+    long long transactionID=[self _recordHistoryTransactionWithContext:context error:error];
+
+    if(transactionID==0){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return nil;
+    }
+
+    for(NSManagedObjectID *objectID in targetIDs){
+     NSEntityDescription *entity=[objectID entity];
+     NSData              *tombstone=nil;
+     BOOL                 wantsTombstone=NO;
+
+     for(NSAttributeDescription *attribute in [[entity attributesByName] allValues])
+      if([attribute preservesValueInHistoryOnDeletion]){
+       wantsTombstone=YES;
+       break;
+      }
+
+     if(wantsTombstone){
+      NSIncrementalStoreNode *node=[self newValuesForObjectWithID:objectID withContext:nil error:NULL];
+
+      if(node!=nil){
+       NSMutableDictionary *values=[NSMutableDictionary dictionary];
+       NSDictionary        *attributes=[entity attributesByName];
+
+       for(NSString *name in attributes){
+        id value=[node valueForPropertyDescription:[attributes objectForKey:name]];
+
+        if(value!=nil && value!=[NSNull null])
+         [values setObject:value forKey:name];
+       }
+       [node release];
+
+       tombstone=[self _tombstoneForEntity:entity values:values];
+      }
+     }
+
+     if(![self _recordHistoryChangeInTransaction:transactionID type:NSPersistentHistoryChangeTypeDelete entity:entity primaryKey:[self _primaryKeyOfObjectID:objectID] updatedProperties:nil tombstone:tombstone error:error]){
+      executeSQL(DATABASE,@"ROLLBACK",NULL);
+      return nil;
+     }
+    }
+   }
+
    for(NSManagedObjectID *objectID in targetIDs){
     if(![self _deleteRowWithEntity:[objectID entity] primaryKey:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID]) error:error]){
      executeSQL(DATABASE,@"ROLLBACK",NULL);
@@ -2049,6 +2376,9 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     return nil;
    }
 
+   if([targetIDs count]>0)
+    [self _postRemoteChangeNotificationIfEnabled];
+
    switch([request resultType]){
     case NSBatchDeleteResultTypeObjectIDs:
      return [[[NSBatchDeleteResult alloc] _initWithResult:targetIDs resultType:NSBatchDeleteResultTypeObjectIDs] autorelease];
@@ -2056,6 +2386,254 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
      return [[[NSBatchDeleteResult alloc] _initWithResult:[NSNumber numberWithUnsignedInteger:[targetIDs count]] resultType:NSBatchDeleteResultTypeCount] autorelease];
     default:
      return [[[NSBatchDeleteResult alloc] _initWithResult:[NSNumber numberWithBool:YES] resultType:NSBatchDeleteResultTypeStatusOnly] autorelease];
+   }
+}
+
+/* ------------------------------------------------------------------ */
+#pragma mark - History requests
+/* ------------------------------------------------------------------ */
+
+/* Both anchor directions are exclusive (verified on macOS): a fetch
+   "after" an anchor returns strictly newer transactions, and a purge
+   "before" an anchor removes strictly older ones - the anchor's own
+   transaction survives the purge, even though an "after" fetch does
+   not return it either. */
+-(id)_executeHistoryRequest:(NSPersistentHistoryChangeRequest *)request error:(NSError **)error {
+   if(!_historyTracking){
+    if(error!=NULL)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:@"Persistent history tracking is not enabled on this store (NSPersistentHistoryTrackingKey)." forKey:NSLocalizedDescriptionKey]];
+    return nil;
+   }
+
+   /* Resolve the anchor to either a transaction number or a timestamp. */
+   long long anchorNumber=0;
+   NSDate   *anchorDate=[request _anchorDate];
+   BOOL      byDate=(anchorDate!=nil);
+
+   if(!byDate){
+    if([request _anchorTransactionNumber]>=0)
+     anchorNumber=[request _anchorTransactionNumber];
+    else if([request _anchorToken]!=nil)
+     anchorNumber=[[request _anchorToken] _transactionNumberForStoreIdentifier:[self identifier]];
+   }
+
+   if([request _isPurge]){
+    NSString *transactionCondition=byDate?
+        [NSString stringWithFormat:@"ZTIMESTAMP < %f",[anchorDate timeIntervalSinceReferenceDate]]:
+        [NSString stringWithFormat:@"Z_PK < %lld",anchorNumber];
+
+    if(!executeSQL(DATABASE,[NSString stringWithFormat:@"DELETE FROM Z_ACHANGE WHERE ZTRANSACTIONID IN (SELECT Z_PK FROM Z_ATRANSACTION WHERE %@)",transactionCondition],error))
+     return nil;
+    if(!executeSQL(DATABASE,[NSString stringWithFormat:@"DELETE FROM Z_ATRANSACTION WHERE %@",transactionCondition],error))
+     return nil;
+
+    return [[[NSPersistentHistoryResult alloc] _initWithResult:[NSNumber numberWithBool:YES] resultType:NSPersistentHistoryResultTypeStatusOnly] autorelease];
+   }
+
+   /* The predicate-filtered flavor: the attached fetch request names
+      one of the two synthetic history entities, and its predicate is
+      evaluated in memory against the materialized transaction/change
+      objects (their accessors are the entity's property names, so KVC
+      resolves the key paths exactly).  History stays small when
+      applications purge, so nothing here is worth pushing into SQL. */
+   NSFetchRequest      *filter=[request fetchRequest];
+   BOOL                 filtersTransactions=NO,filtersChanges=NO;
+
+   if(filter!=nil){
+    NSEntityDescription *filterEntity=[filter _entityIfResolved];
+
+    if(filterEntity==[NSPersistentHistoryTransaction entityDescription])
+     filtersTransactions=YES;
+    else if(filterEntity==[NSPersistentHistoryChange entityDescription])
+     filtersChanges=YES;
+    else {
+     if(error!=NULL)
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:@"fetchHistoryWithFetchRequest: requires a fetch request built on +[NSPersistentHistoryTransaction entityDescription] or +[NSPersistentHistoryChange entityDescription]." forKey:NSLocalizedDescriptionKey]];
+     return nil;
+    }
+
+    /* Arbitrated on macOS: sort descriptors on a history fetch raise
+       there for every public keypath (Apple resolves them against its
+       internal TRANSACTION entity, whose attribute names differ from
+       the public accessors - transactionNumber and timestamp both
+       throw "keypath not found").  Raise the same way, so code cannot
+       come to rely on an ordering Apple refuses to provide; results
+       come back in transaction order. */
+    if([[filter sortDescriptors] count]>0)
+     [NSException raise:NSInvalidArgumentException
+                 format:@"keypath %@ not found in entity TRANSACTION (history fetch requests do not support sort descriptors, matching Apple CoreData)",[[[filter sortDescriptors] objectAtIndex:0] key]];
+   }
+
+   NSPersistentHistoryResultType resultType=[request resultType];
+   NSString *transactionCondition=byDate?
+       [NSString stringWithFormat:@"ZTIMESTAMP > %f",[anchorDate timeIntervalSinceReferenceDate]]:
+       [NSString stringWithFormat:@"Z_PK > %lld",anchorNumber];
+   sqlite3_stmt *statement=prepareStatement(DATABASE,[NSString stringWithFormat:@"SELECT Z_PK, ZTIMESTAMP, ZAUTHOR, ZCONTEXTNAME, ZPROCESSID, ZBUNDLEID FROM Z_ATRANSACTION WHERE %@ ORDER BY Z_PK",transactionCondition],error);
+
+   if(statement==NULL)
+    return nil;
+
+   NSMutableArray *transactions=[NSMutableArray array];
+
+   while(sqlite3_step(statement)==SQLITE_ROW){
+    long long            number=sqlite3_column_int64(statement,0);
+    NSDate              *timestamp=[NSDate dateWithTimeIntervalSinceReferenceDate:sqlite3_column_double(statement,1)];
+    const unsigned char *author=sqlite3_column_text(statement,2);
+    const unsigned char *contextName=sqlite3_column_text(statement,3);
+    const unsigned char *processID=sqlite3_column_text(statement,4);
+    const unsigned char *bundleID=sqlite3_column_text(statement,5);
+    NSPersistentHistoryTransaction *transaction=[[[NSPersistentHistoryTransaction alloc]
+        _initWithNumber:number
+              timestamp:timestamp
+                 author:(author!=NULL)?[NSString stringWithUTF8String:(const char *)author]:nil
+            contextName:(contextName!=NULL)?[NSString stringWithUTF8String:(const char *)contextName]:nil
+              processID:(processID!=NULL)?[NSString stringWithUTF8String:(const char *)processID]:nil
+               bundleID:(bundleID!=NULL)?[NSString stringWithUTF8String:(const char *)bundleID]:nil
+                storeID:[self identifier]
+                changes:nil] autorelease];
+
+    [transactions addObject:transaction];
+   }
+   sqlite3_finalize(statement);
+
+   /* A transaction-entity predicate keeps whole transactions. */
+   if(filtersTransactions && [filter predicate]!=nil)
+    transactions=[[[transactions filteredArrayUsingPredicate:[filter predicate]] mutableCopy] autorelease];
+
+   /* Changes are needed for the changes-shaped results - and to
+      evaluate a change-entity predicate whatever the result type,
+      since a transaction whose changes all fail it is dropped. */
+   BOOL wantsChanges=filtersChanges ||
+       (resultType==NSPersistentHistoryResultTypeTransactionsAndChanges ||
+        resultType==NSPersistentHistoryResultTypeChangesOnly ||
+        resultType==NSPersistentHistoryResultTypeObjectIDs);
+
+   NSDictionary   *entitiesByName=[[[self persistentStoreCoordinator] managedObjectModel] entitiesByName];
+   NSMutableArray *keptTransactions=wantsChanges?[NSMutableArray array]:(NSMutableArray *)transactions;
+   NSMutableArray *allChanges=[NSMutableArray array];
+   NSMutableArray *allObjectIDs=[NSMutableArray array];
+
+   if(wantsChanges)
+   for(NSPersistentHistoryTransaction *transaction in transactions){
+    sqlite3_stmt *changeStatement=prepareStatement(DATABASE,@"SELECT Z_PK, ZCHANGETYPE, ZENTITY, ZENTITYPK, ZUPDATEDPROPERTIES, ZTOMBSTONE FROM Z_ACHANGE WHERE ZTRANSACTIONID = ? ORDER BY Z_PK",error);
+
+    if(changeStatement==NULL)
+     return nil;
+
+    sqlite3_bind_int64(changeStatement,1,[transaction transactionNumber]);
+
+    NSMutableArray *changes=[NSMutableArray array];
+
+    while(sqlite3_step(changeStatement)==SQLITE_ROW){
+     long long            changeID=sqlite3_column_int64(changeStatement,0);
+     int                  changeType=sqlite3_column_int(changeStatement,1);
+     const unsigned char *entityName=sqlite3_column_text(changeStatement,2);
+     long long            primaryKey=sqlite3_column_int64(changeStatement,3);
+     const unsigned char *updatedNames=sqlite3_column_text(changeStatement,4);
+     NSEntityDescription *entity=(entityName!=NULL)?[entitiesByName objectForKey:[NSString stringWithUTF8String:(const char *)entityName]]:nil;
+
+     if(entity==nil)
+      continue;   /* recorded against an entity the current model lacks */
+
+     NSManagedObjectID *objectID=[[self newObjectIDForEntity:entity referenceObject:referenceObjectForPrimaryKey(primaryKey)] autorelease];
+     NSMutableSet      *updatedProperties=nil;
+
+     if(updatedNames!=NULL){
+      NSDictionary *propertiesByName=[entity propertiesByName];
+
+      updatedProperties=[NSMutableSet set];
+      for(NSString *name in [[NSString stringWithUTF8String:(const char *)updatedNames] componentsSeparatedByString:@","]){
+       NSPropertyDescription *property=[propertiesByName objectForKey:name];
+
+       if(property!=nil)
+        [updatedProperties addObject:property];
+      }
+     }
+
+     NSDictionary *tombstone=nil;
+
+     if(sqlite3_column_type(changeStatement,5)==SQLITE_BLOB){
+      const void *bytes=sqlite3_column_blob(changeStatement,5);
+      int         length=sqlite3_column_bytes(changeStatement,5);
+
+      if(bytes!=NULL && length>0){
+       NSData *data=[NSData dataWithBytes:bytes length:length];
+
+       tombstone=[NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:NULL error:NULL];
+      }
+     }
+
+     NSPersistentHistoryChange *change=[[[NSPersistentHistoryChange alloc] _initWithChangeID:changeID type:changeType objectID:objectID updatedProperties:updatedProperties tombstone:tombstone] autorelease];
+
+     /* A change-entity predicate keeps individual changes. */
+     if(filtersChanges && [filter predicate]!=nil &&
+        ![[filter predicate] evaluateWithObject:change])
+      continue;
+
+     [changes addObject:change];
+     [allObjectIDs addObject:objectID];
+    }
+    sqlite3_finalize(changeStatement);
+
+    /* A change-filtered transaction with nothing left is dropped. */
+    if(filtersChanges && [changes count]==0)
+     continue;
+
+    /* Only a transactions-shaped result ties changes to their
+       transaction: the back-pointer is unretained, so a flat changes
+       result (which does not keep the transactions alive) leaves it
+       nil.  A Change-entity fetch request always answers flat changes,
+       whatever the result type. */
+    if(resultType==NSPersistentHistoryResultTypeTransactionsAndChanges && !filtersChanges)
+     [transaction _setChanges:changes];
+    [allChanges addObjectsFromArray:changes];
+    [keptTransactions addObject:transaction];
+   }
+
+   /* A Change-entity fetch request answers the matching changes
+      themselves, not transactions (arbitrated on macOS, where the
+      result held _NSPersistentHistoryChange objects). */
+   BOOL flatChanges=filtersChanges || (resultType==NSPersistentHistoryResultTypeChangesOnly);
+
+   /* The fetch request's limit/offset apply to the result's top-level
+      collection: the flat changes for a changes-shaped result, the
+      transactions otherwise.  (Sort descriptors were rejected above.) */
+   if(filter!=nil){
+    NSMutableArray *topLevel=flatChanges?allChanges:keptTransactions;
+
+    NSUInteger offset=[filter fetchOffset];
+    NSUInteger limit=[filter fetchLimit];
+
+    if(offset>0 || limit>0){
+     if(offset>[topLevel count])
+      offset=[topLevel count];
+
+     NSUInteger length=[topLevel count]-offset;
+
+     if(limit>0 && limit<length)
+      length=limit;
+     topLevel=[[[topLevel subarrayWithRange:NSMakeRange(offset,length)] mutableCopy] autorelease];
+    }
+
+    if(flatChanges)
+     allChanges=topLevel;
+    else
+     keptTransactions=topLevel;
+   }
+
+   switch(resultType){
+    case NSPersistentHistoryResultTypeStatusOnly:
+     return [[[NSPersistentHistoryResult alloc] _initWithResult:[NSNumber numberWithBool:YES] resultType:resultType] autorelease];
+    case NSPersistentHistoryResultTypeCount:
+     return [[[NSPersistentHistoryResult alloc] _initWithResult:[NSNumber numberWithUnsignedInteger:flatChanges?[allChanges count]:[keptTransactions count]] resultType:resultType] autorelease];
+    case NSPersistentHistoryResultTypeObjectIDs:
+     return [[[NSPersistentHistoryResult alloc] _initWithResult:allObjectIDs resultType:resultType] autorelease];
+    case NSPersistentHistoryResultTypeChangesOnly:
+     return [[[NSPersistentHistoryResult alloc] _initWithResult:allChanges resultType:resultType] autorelease];
+    case NSPersistentHistoryResultTypeTransactionsOnly:
+     return [[[NSPersistentHistoryResult alloc] _initWithResult:keptTransactions resultType:resultType] autorelease];
+    default:
+     return [[[NSPersistentHistoryResult alloc] _initWithResult:flatChanges?allChanges:keptTransactions resultType:NSPersistentHistoryResultTypeTransactionsAndChanges] autorelease];
    }
 }
 
@@ -2067,13 +2645,16 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     return [self _executeSaveRequest:(NSSaveChangesRequest *)request withContext:context error:error];
 
    if([request requestType]==NSBatchInsertRequestType)
-    return [self _executeBatchInsertRequest:(NSBatchInsertRequest *)request error:error];
+    return [self _executeBatchInsertRequest:(NSBatchInsertRequest *)request withContext:context error:error];
 
    if([request requestType]==NSBatchUpdateRequestType)
-    return [self _executeBatchUpdateRequest:(NSBatchUpdateRequest *)request error:error];
+    return [self _executeBatchUpdateRequest:(NSBatchUpdateRequest *)request withContext:context error:error];
 
    if([request requestType]==NSBatchDeleteRequestType)
-    return [self _executeBatchDeleteRequest:(NSBatchDeleteRequest *)request error:error];
+    return [self _executeBatchDeleteRequest:(NSBatchDeleteRequest *)request withContext:context error:error];
+
+   if([request requestType]==NSPersistentHistoryRequestType)
+    return [self _executeHistoryRequest:(NSPersistentHistoryChangeRequest *)request error:error];
 
    if(error!=NULL)
     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:@"Unsupported request type" forKey:NSLocalizedDescriptionKey]];

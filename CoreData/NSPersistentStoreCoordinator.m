@@ -19,6 +19,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSSQLitePersistentStore.h"
 #import "NSManagedObjectID-Private.h"
 #import "NSDerivedAttributeDescription-Private.h"
+#import "NSPersistentHistory-Private.h"
 #import "CoreDataUtilities.h"
 
 NSString * const NSStoreTypeKey=@"NSStoreTypeKey";
@@ -38,6 +39,19 @@ NSString * const NSPersistentStoreCoordinatorStoresDidChangeNotification=@"NSPer
 NSString * const NSAddedPersistentStoresKey=@"NSAddedPersistentStoresKey";
 NSString * const NSRemovedPersistentStoresKey=@"NSRemovedPersistentStoresKey";
 NSString * const NSUUIDChangedPersistentStoresKey=@"NSUUIDChangedPersistentStoresKey";
+
+NSString * const NSPersistentHistoryTrackingKey=@"NSPersistentHistoryTrackingKey";
+NSString * const NSPersistentStoreRemoteChangeNotificationPostOptionKey=@"NSPersistentStoreRemoteChangeNotificationOptionKey";
+NSString * const NSPersistentStoreRemoteChangeNotification=@"NSPersistentStoreRemoteChangeNotification";
+NSString * const NSPersistentHistoryTokenKey=@"historyToken";
+
+/* Implemented by stores that track persistent history (the SQLite
+   store); other store classes are simply skipped when a token is
+   assembled. */
+@interface NSPersistentStore(CDHistoryTracking)
+-(BOOL)_historyTrackingEnabled;
+-(long long)_lastHistoryTransactionNumber;
+@end
 
 @implementation NSPersistentStoreCoordinator
 
@@ -301,6 +315,27 @@ static NSMutableDictionary *_storeTypes=nil;
 
 -(void)unlock {
    [_lock unlock];
+}
+
+-(NSPersistentHistoryToken *)currentPersistentHistoryTokenFromStores:(NSArray *)stores {
+   NSMutableDictionary *positions=[NSMutableDictionary dictionary];
+
+   [self lock];
+   if(stores==nil)
+    stores=[[_stores copy] autorelease];
+
+   for(NSPersistentStore *store in stores){
+    if(![store respondsToSelector:@selector(_historyTrackingEnabled)] || ![store _historyTrackingEnabled])
+     continue;
+
+    [positions setObject:[NSNumber numberWithLongLong:[store _lastHistoryTransactionNumber]] forKey:[store identifier]];
+   }
+   [self unlock];
+
+   if([positions count]==0)
+    return nil;
+
+   return [[[NSPersistentHistoryToken alloc] _initWithPositions:positions] autorelease];
 }
 
 -(NSDictionary *)metadataForPersistentStore:(NSPersistentStore *)store {

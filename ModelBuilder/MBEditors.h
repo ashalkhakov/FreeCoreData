@@ -74,6 +74,10 @@
 @property (nonatomic, copy) NSString *typeName;      /* momc spelling; change drops default */
 @property (nonatomic, assign, getter=isOptional) BOOL optional;
 @property (nonatomic, assign, getter=isTransient) BOOL transient;
+/* With persistent history tracking, a deleted object's last value for
+   this attribute is kept in the history change's tombstone
+   (preserveValueOnDeletion in the model XML). */
+@property (nonatomic, assign) BOOL preservesValueInHistoryOnDeletion;
 @property (nonatomic, copy) NSString *hashModifier;
 @property (nonatomic, copy) NSDictionary *userInfo;
 

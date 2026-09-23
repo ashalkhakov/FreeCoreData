@@ -31,6 +31,20 @@ COREDATA_EXPORT NSString *const NSAddedPersistentStoresKey;
 COREDATA_EXPORT NSString *const NSRemovedPersistentStoresKey;
 COREDATA_EXPORT NSString *const NSUUIDChangedPersistentStoresKey;
 
+/* Persistent history tracking.  Adding a store with
+   NSPersistentHistoryTrackingKey set to a truthy NSNumber makes the
+   SQLite store record every save and batch operation; with
+   NSPersistentStoreRemoteChangeNotificationPostOptionKey also set, the
+   coordinator posts NSPersistentStoreRemoteChangeNotification (object:
+   the coordinator) after each recorded change, whose userInfo carries
+   the store's new history token under NSPersistentHistoryTokenKey. */
+COREDATA_EXPORT NSString *const NSPersistentHistoryTrackingKey;
+COREDATA_EXPORT NSString *const NSPersistentStoreRemoteChangeNotificationPostOptionKey;
+COREDATA_EXPORT NSString *const NSPersistentStoreRemoteChangeNotification;
+COREDATA_EXPORT NSString *const NSPersistentHistoryTokenKey;
+
+@class NSPersistentHistoryToken;
+
 @interface NSPersistentStoreCoordinator : NSObject <NSLocking> {
     /* Recursive, so the serialization brackets around store access can
        nest (a fetch that fires a fault re-enters through the object's
@@ -64,6 +78,11 @@ COREDATA_EXPORT NSString *const NSUUIDChangedPersistentStoresKey;
 - (void)lock;
 - (BOOL)tryLock;
 - (void)unlock;
+
+/* The combined position of the given history-tracking stores (all of
+   the coordinator's stores when the array is nil); nil when none of
+   them track history. */
+- (NSPersistentHistoryToken *)currentPersistentHistoryTokenFromStores:(NSArray *)stores;
 
 - (NSDictionary *)metadataForPersistentStore:(NSPersistentStore *)store;
 - (void)setMetadata:(NSDictionary *)metadata forPersistentStore:(NSPersistentStore *)store;

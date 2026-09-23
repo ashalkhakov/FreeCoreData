@@ -26,6 +26,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    _valueClassName= [[coder decodeObjectForKey: @"NSAttributeValueClassName"] retain];
    _defaultValue = [[coder decodeObjectForKey: @"NSDefaultValue"] retain];
    _valueTransformerName= [[coder decodeObjectForKey: @"NSValueTransformerName"] retain];
+   _preservesValueInHistoryOnDeletion = [coder decodeBoolForKey: @"NSPreservesValueInHistoryOnDeletion"];
 
    return self;
 }
@@ -41,6 +42,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [coder encodeObject:_defaultValue forKey: @"NSDefaultValue"];
    if(_valueTransformerName!=nil)
     [coder encodeObject:_valueTransformerName forKey: @"NSValueTransformerName"];
+   if(_preservesValueInHistoryOnDeletion)
+    [coder encodeBool:_preservesValueInHistoryOnDeletion forKey: @"NSPreservesValueInHistoryOnDeletion"];
 }
 
 
@@ -80,6 +83,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 - (NSString *) valueTransformerName {
     return _valueTransformerName;
+}
+
+
+- (BOOL) preservesValueInHistoryOnDeletion {
+    return _preservesValueInHistoryOnDeletion;
 }
 
 
@@ -126,6 +134,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     value=[value copy];
     [_valueTransformerName release];
     _valueTransformerName=value;
+}
+
+
+- (void) setPreservesValueInHistoryOnDeletion: (BOOL) value {
+    if([_entity _hasBeenInstantiated]) {
+	NSLog(@"Attempt to modify entity after instantiating it.");
+	return;
+    }
+
+    _preservesValueInHistoryOnDeletion = value;
 }
 
 

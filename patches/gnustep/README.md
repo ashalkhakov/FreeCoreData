@@ -1,6 +1,6 @@
 # GNUstep patches carried by this project
 
-Five fixes, written for upstream and applied by
+Six fixes, written for upstream and applied by
 `.github/scripts/dependencies.sh` when CI and the release build the GNUstep
 stack. They are held here while upstream is in code freeze; send them once
 it lifts, and delete each one (and its `patch` line in the script) when it
@@ -93,5 +93,28 @@ is `NSDateFormatterBehavior10_4`, and leaves the 10.0 path untouched
 for everyone who has not asked for the modern behavior.
 
 `repro-nsdateformatter-cell-behavior.m` beside this file demonstrates
+the gap and proves the fix (exit 0 patched, 1 unpatched); send it
+upstream together with the patch.
+
+## gnustep-base-keyedarchiver-secure-coding.patch (libs-base)
+
+`+[NSKeyedArchiver archivedDataWithRootObject:requiringSecureCoding:error:]`
+— the modern (10.13) archiving entry point, and the only non-deprecated
+one on macOS — answered nil whenever secure coding was requested,
+without setting the error, even for objects that fully adopt
+NSSecureCoding: the class method simply skipped the whole encode when
+`requiresSecureCoding` was YES, although the archiver instance has
+carried a `requiresSecureCoding` flag for years. CoreData's
+NSPersistentHistoryToken (which applications archive to remember their
+position in a store's history) could not be persisted through the
+documented API.
+
+The patch makes the method encode with the archiver's flag set, checks
+that the root object's class supports secure coding (reporting a
+violation through the error as `NSCoderInvalidValueError` instead of
+silently answering nil for everything), and clears the error on
+success.
+
+`repro-nskeyedarchiver-secure-coding.m` beside this file demonstrates
 the gap and proves the fix (exit 0 patched, 1 unpatched); send it
 upstream together with the patch.
