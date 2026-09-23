@@ -2180,21 +2180,16 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
     XCTAssertEqualObjects([[rows firstObject] objectForKey:@"age"], @41);
     XCTAssertEqualObjects([[rows firstObject] objectForKey:@"headcount"], @3);
 
-    /* Sorting by the aggregate itself, which only a grouped query can do.
-       A framework that builds grouped rows in the context rather than
-       handing the request to the store sorts the rows' objects instead, and
-       does not know the name; where that is so, this is skipped. */
+    /* Sorting by the aggregate itself, which only a grouped query can do:
+       the name exists on the row, not on any object, so the order has to
+       be taken after the rows are built. */
     [fetch setHavingPredicate:nil];
     [fetch setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"headcount" ascending:NO] ]];
 
-    @try {
-        rows = [reopened executeFetchRequest:fetch error:&error];
+    rows = [reopened executeFetchRequest:fetch error:&error];
 
-        XCTAssertEqual([rows count], (NSUInteger)3, @"fetch failed: %@", error);
-        XCTAssertEqualObjects([[rows firstObject] objectForKey:@"headcount"], @3);
-    } @catch (NSException *exception) {
-        rows = nil;
-    }
+    XCTAssertEqual([rows count], (NSUInteger)3, @"fetch failed: %@", error);
+    XCTAssertEqualObjects([[rows firstObject] objectForKey:@"headcount"], @3);
 
     /* A predicate narrows the rows before they are grouped. */
     [fetch setSortDescriptors:nil];

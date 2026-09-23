@@ -137,6 +137,14 @@ NSString * const NSDeletedObjectIDsKey=@"deleted_objectIDs";
 
 static char CDContextQueueSpecificKey;
 
+/* A store may answer this to say it can produce dictionary rows - grouped
+   or aggregated ones included - itself.  Declared here so the compiler
+   knows the selector; it is asked for with respondsToSelector:, so no
+   store is required to have it. */
+@interface NSObject (CDDictionaryRequestShaping)
+-(BOOL)_canShapeDictionaryRequest:(NSFetchRequest *)request;
+@end
+
 @implementation NSManagedObjectContext
 
 -init {
@@ -734,6 +742,33 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    columns - grouping, a having filter, expression columns, or
    relationship columns - and must therefore be done by the context
    rather than passed through to a store. */
+/* Whether the rows this request asks for stand one-to-one with the
+   objects behind them.  Grouping collapses several into one, and an
+   aggregate without grouping collapses all of them into one; in either
+   case a row's keys - the grouped columns and the expression
+   descriptions' names - are the only things it can be sorted by, and
+   they do not exist until the rows are built. */
+-(BOOL)_dictionaryRequestReshapesRows:(NSFetchRequest *)request {
+   if([[request propertiesToGroupBy] count]>0)
+    return YES;
+
+   for(id property in [request propertiesToFetch])
+    if([property isKindOfClass:[NSExpressionDescription class]]){
+     NSExpression *expression=[(NSExpressionDescription *)property expression];
+
+     if([expression expressionType]==NSFunctionExpressionType){
+      NSString *function=[expression function];
+
+      if([function isEqualToString:@"count:"] || [function isEqualToString:@"sum:"] ||
+         [function isEqualToString:@"min:"] || [function isEqualToString:@"max:"] ||
+         [function isEqualToString:@"average:"])
+       return YES;
+     }
+    }
+
+   return NO;
+}
+
 -(BOOL)_dictionaryRequestNeedsContextShaping:(NSFetchRequest *)request {
    if([[request propertiesToGroupBy] count]>0 || [request havingPredicate]!=nil)
     return YES;
@@ -1131,10 +1166,24 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
        requests that need grouping, having, expression or relationship
        columns are shaped here instead - stores only shape plain
        attribute rows. */
+    /* A store may say it can shape a grouped or aggregated request
+       itself - a SQL store answers one in a single statement, where
+       shaping here means fetching every object first.  It is asked by
+       respondsToSelector:, so no store has to know about this. */
+    BOOL storeShapes=NO;
+
+    if([affectedStores count]==1 && resultType==NSDictionaryResultType){
+     NSPersistentStore *store=[affectedStores objectAtIndex:0];
+
+     storeShapes=[store respondsToSelector:@selector(_canShapeDictionaryRequest:)] &&
+                 [(id)store _canShapeDictionaryRequest:fetchRequest];
+    }
+
     if([affectedStores count]==1 &&
        [[affectedStores objectAtIndex:0] isKindOfClass:[NSIncrementalStore class]] &&
        !(resultType==NSDictionaryResultType &&
-         [self _dictionaryRequestNeedsContextShaping:fetchRequest])){
+         [self _dictionaryRequestNeedsContextShaping:fetchRequest] &&
+         !storeShapes)){
      NSArray *passed=[(NSIncrementalStore *)[affectedStores objectAtIndex:0] executeRequest:fetchRequest withContext:self error:error];
 
      /* Realization options are enforced here too - a store is free to
@@ -1154,6 +1203,13 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     NSMutableArray *objects=[NSMutableArray array];
     NSMutableArray *savedSnapshots=[NSMutableArray array]; /* parallel to objects */
 
+    /* Shaping collapses rows - a group is one row, an aggregate over no
+       grouping is one row - so the order cannot be taken until the rows
+       exist: "headcount" is a name on a row, not a key on any object.
+       The ordering therefore happens after shaping, and the stores are
+       not asked for one they would have to raise on. */
+    BOOL reshapes=(resultType==NSDictionaryResultType && [self _dictionaryRequestReshapesRows:fetchRequest]);
+
     for(NSPersistentStore *genericStore in affectedStores){
      if([genericStore isKindOfClass:[NSIncrementalStore class]]){
       NSFetchRequest *inner=[[fetchRequest copy] autorelease];
@@ -1165,6 +1221,9 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
       [inner setFetchLimit:0];
       [inner setFetchOffset:0];
       [inner setIncludesPendingChanges:NO];
+
+      if(reshapes)
+       [inner setSortDescriptors:nil];
 
       NSArray *fetched=[(NSIncrementalStore *)genericStore executeRequest:inner withContext:self error:error];
 
@@ -1202,8 +1261,10 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
      }
     }
 
-    /* Order, then window, then shape. */
-    if([[fetchRequest sortDescriptors] count]>0){
+    /* Order, then window, then shape - except when shaping collapses
+       rows, where the order comes after instead.  That is SQL's order
+       too (GROUP BY, HAVING, ORDER BY, LIMIT). */
+    if(!reshapes && [[fetchRequest sortDescriptors] count]>0){
      NSArray *sorted=[objects sortedArrayUsingDescriptors:[fetchRequest sortDescriptors]];
      NSMutableArray *reorderedSnapshots=[NSMutableArray array];
 
@@ -1221,6 +1282,22 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     if(resultType==NSDictionaryResultType){
      NSMutableArray *rows=[NSMutableArray arrayWithArray:
       [self _dictionaryResultsForRequest:fetchRequest snapshots:savedSnapshots]];
+
+     /* The rows can be ordered now that they have their names.  A
+        descriptor keyed on something the rows do not carry is left
+        alone rather than raising on a dictionary that has no such
+        key. */
+     if(reshapes && [[fetchRequest sortDescriptors] count]>0 && [rows count]>0){
+      NSDictionary *first=[rows objectAtIndex:0];
+      BOOL          sortable=YES;
+
+      for(NSSortDescriptor *descriptor in [fetchRequest sortDescriptors])
+       if([first objectForKey:[descriptor key]]==nil)
+        sortable=NO;
+
+      if(sortable)
+       rows=[NSMutableArray arrayWithArray:[rows sortedArrayUsingDescriptors:[fetchRequest sortDescriptors]]];
+     }
 
      if(offset>0){
       if(offset>=[rows count])

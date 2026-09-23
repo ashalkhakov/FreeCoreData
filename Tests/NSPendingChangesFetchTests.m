@@ -783,6 +783,52 @@ static NSExpressionDescription *expressionColumn(NSString *name,
 #endif
 }
 
+/* Sorting a grouped request by the aggregate's own name.  The name
+   belongs to the row, not to any object, so the ordering can only be
+   taken once the rows exist - the context used to sort the objects
+   first and raise NSUnknownKeyException on "headcount". */
+- (void)testGroupBySortedByAggregateName
+{
+    self.ctx = [self contextWithStoreType:NSSQLiteStoreType];
+    [self insertEmployeeNamed:@"amy" salary:10 inContext:self.ctx];
+    [self insertEmployeeNamed:@"ben" salary:10 inContext:self.ctx];
+    [self insertEmployeeNamed:@"cal" salary:20 inContext:self.ctx];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"Employee"
+                                 inManagedObjectContext:self.ctx]];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:[NSArray arrayWithObjects:
+        @"salary",
+        expressionColumn(@"headcount", aggregateExpression(@"count", @"name"),
+                         NSInteger64AttributeType),
+        nil]];
+    [fetch setPropertiesToGroupBy:[NSArray arrayWithObject:@"salary"]];
+    [fetch setSortDescriptors:[NSArray arrayWithObject:
+        [NSSortDescriptor sortDescriptorWithKey:@"headcount" ascending:NO]]];
+
+    NSArray *rows = [self.ctx executeFetchRequest:fetch error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([rows count], (NSUInteger)2);
+    XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"headcount"] intValue], 2);
+    XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"salary"] intValue], 10);
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"headcount"] intValue], 1);
+
+    /* Ascending is the other way round, so the order is the sort's and
+       not the order the groups happened to be built in. */
+    [fetch setSortDescriptors:[NSArray arrayWithObject:
+        [NSSortDescriptor sortDescriptorWithKey:@"headcount" ascending:YES]]];
+
+    rows = [self.ctx executeFetchRequest:fetch error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"headcount"] intValue], 1);
+}
+
 /* A to-one relationship in propertiesToFetch puts the related object's
    ID in the row. */
 - (void)testToOneRelationshipColumnYieldsObjectID

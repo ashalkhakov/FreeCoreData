@@ -2421,20 +2421,19 @@ static NSString * const CDSQLOuterAlias=@"t0";
  
    Answers nil when the request is not one the store can project, and the
    caller falls back to reading the objects. */
--(NSArray *)_projectedRowsForRequest:(NSFetchRequest *)request
-                              entity:(NSEntityDescription *)entity
-                            whereSQL:(NSString *)whereSQL
-                            bindings:(NSArray *)bindings
-                               joins:(NSArray *)joins
-                          orderBySQL:(NSString *)orderBySQL
-                               error:(NSError **)error {
+-(CDSQLQuery *)_projectionQueryForRequest:(NSFetchRequest *)request
+                                   entity:(NSEntityDescription *)entity
+                                 whereSQL:(NSString *)whereSQL
+                                 bindings:(NSArray *)bindings
+                                    joins:(NSArray *)joins
+                               orderBySQL:(NSString *)orderBySQL
+                                    names:(NSMutableArray *)names {
    NSArray *fetchProperties=[request propertiesToFetch];
 
    if([fetchProperties count]==0)
     return nil;   /* "everything" still goes through the objects */
 
    CDSQLQuery          *query=[CDSQLQuery queryFromTable:quoted(tableNameForEntity(entity)) alias:CDSQLOuterAlias];
-   NSMutableArray      *names=[NSMutableArray array];
    NSMutableDictionary *expressionsByName=[NSMutableDictionary dictionary];
 
    for(id fetchProperty in fetchProperties){
@@ -2514,6 +2513,22 @@ static NSString * const CDSQLOuterAlias=@"t0";
 
    [query setLimit:[request fetchLimit] offset:[request fetchOffset]];
 
+   return query;
+}
+
+-(NSArray *)_projectedRowsForRequest:(NSFetchRequest *)request
+                              entity:(NSEntityDescription *)entity
+                            whereSQL:(NSString *)whereSQL
+                            bindings:(NSArray *)bindings
+                               joins:(NSArray *)joins
+                          orderBySQL:(NSString *)orderBySQL
+                               error:(NSError **)error {
+   NSMutableArray *names=[NSMutableArray array];
+   CDSQLQuery     *query=[self _projectionQueryForRequest:request entity:entity whereSQL:whereSQL bindings:bindings joins:joins orderBySQL:orderBySQL names:names];
+
+   if(query==nil)
+    return nil;
+
    id<CDSQLResult> result=[self execute:[query SQL] parameters:[query parameters] error:error];
 
    if(result==nil)
@@ -2554,6 +2569,69 @@ static NSString * const CDSQLOuterAlias=@"t0";
    }
 
    return rows;
+}
+
+/* Whether the rows are one per object, or fewer.  Used to refuse a
+   request the store said it would shape and then could not, rather than
+   quietly answering ungrouped rows. */
+static BOOL requestReshapesRows(NSFetchRequest *request){
+   if([[request propertiesToGroupBy] count]>0 || [request havingPredicate]!=nil)
+    return YES;
+
+   /* An aggregate collapses the rows; a plain expression description does
+      not, and the older object-built path still answers those. */
+   for(id fetchProperty in [request propertiesToFetch])
+    if([fetchProperty isKindOfClass:[NSExpressionDescription class]] &&
+       [[(NSExpressionDescription *)fetchProperty expression] expressionType]==NSFunctionExpressionType)
+     return YES;
+
+   return NO;
+}
+
+/* Answers whether this store can produce the dictionary rows itself.
+ 
+   The framework asks this - by respondsToSelector:, so it is a courtesy,
+   not a contract - before it decides to fetch every object and group them
+   in memory.  A grouped request answered here is one statement; answered
+   there it is the whole table.
+ 
+   The answer is not a guess: it builds the very query the fetch would run
+   and says yes if it came out.  What cannot be built - an aggregate over a
+   relationship, a predicate that does not translate exactly, a sort on
+   something the grouped query does not select - is left to the framework,
+   which is still right, only slower. */
+-(BOOL)_canShapeDictionaryRequest:(NSFetchRequest *)request {
+   if([request resultType]!=NSDictionaryResultType)
+    return NO;
+
+   NSEntityDescription *entity=[self _entityForFetchRequest:request];
+
+   if(entity==nil)
+    return NO;
+
+   NSMutableArray *bindings=[NSMutableArray array];
+   NSString       *whereSQL=nil;
+   NSPredicate    *residual=nil;
+
+   if([request predicate]!=nil){
+    whereSQL=[self _translatePredicate:[request predicate] entity:entity bindings:bindings residual:&residual];
+
+    if(residual!=nil)
+     return NO;   /* rows would be filtered after grouping, which is not the same result */
+   }
+
+   NSMutableArray      *sortJoins=[NSMutableArray array];
+   NSMutableDictionary *sortAliases=[NSMutableDictionary dictionary];
+   NSString            *orderBySQL=nil;
+
+   if([[request sortDescriptors] count]>0){
+    orderBySQL=[self _translateSortDescriptors:[request sortDescriptors] entity:entity joins:sortJoins joinedBy:sortAliases];
+
+    if(orderBySQL==nil)
+     [sortJoins removeAllObjects];
+   }
+
+   return [self _projectionQueryForRequest:request entity:entity whereSQL:whereSQL bindings:bindings joins:sortJoins orderBySQL:orderBySQL names:[NSMutableArray array]]!=nil;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2721,6 +2799,15 @@ static NSString * const CDSQLOuterAlias=@"t0";
      *error=projectionError;
     if(projectionError!=nil)
      return nil;
+   }
+
+   /* Below here rows are built from objects, one row each.  That is not an
+      answer to a grouped or aggregated request, so say so instead of
+      returning rows of the wrong shape. */
+   if([request resultType]==NSDictionaryResultType && requestReshapesRows(request)){
+    if(error!=NULL)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:@"the store cannot express this grouped or aggregated fetch request" forKey:NSLocalizedDescriptionKey]];
+    return nil;
    }
 
    NSArray *objectIDs=[self _fetchObjectIDsForEntity:entity includesSubentities:[request includesSubentities] whereSQL:whereSQL bindings:bindings orderBySQL:orderBySQL joins:sortJoins fetchLimit:sqlLimit fetchOffset:sqlOffset error:error];

@@ -69,3 +69,26 @@ against Apple's CoreData, and guards every call with a runtime check that is
 false there.  `PostgreSQL` does exactly this, and reports history as an
 unsupported request type when built against Apple's framework.  See the individual backend's
 README for what it does and does not implement.
+
+Grouped and aggregated fetches
+------------------------------
+
+A `NSDictionaryResultType` request that groups rows, or computes an aggregate
+over them, is one statement to a SQL database and a full table scan to anyone
+who shapes the rows after fetching the objects.  Apple's CoreData hands the
+whole request - grouping, `havingPredicate`, sort descriptors and all - to the
+store.  This framework used to shape those rows itself for every store, which
+was correct but read the whole table, and could not sort by an aggregate's
+name at all: the name belongs to the row, not to any object.
+
+A store may now say it will do the work, by answering
+`-_canShapeDictionaryRequest:`.  The framework asks with
+`respondsToSelector:`, so no store has to know about it, and a store that
+answers `NO` - or is not asked, because several stores are affected - gets the
+in-memory shaping as before, now ordered after the rows are built rather than
+before.  `CDSQLStore` answers by building the very query the fetch would run
+and saying yes if it came out, so it never claims more than it can express;
+what it cannot express (an aggregate across a relationship, a predicate that
+does not translate exactly) it leaves to the framework.
+
+Nothing here is needed on Apple's CoreData, which never sends the message.
