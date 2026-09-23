@@ -13,7 +13,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/CoreDataExports.h>
 
 @class NSManagedObjectID, NSDictionary, NSSet;
-@class NSPersistentHistoryTransaction;
+@class NSPersistentHistoryTransaction, NSEntityDescription, NSFetchRequest, NSManagedObjectContext;
 
 enum {
     NSPersistentHistoryChangeTypeInsert = 0,
@@ -34,6 +34,19 @@ typedef NSInteger NSPersistentHistoryChangeType;
     NSSet *_updatedProperties;
     NSPersistentHistoryTransaction *_transaction;   /* not retained */
 }
+
+/* A synthetic entity (named "Change") describing one history change,
+   for building the fetch request that NSPersistentHistoryChangeRequest's
+   fetchHistoryWithFetchRequest: filters by (predicates may use the
+   accessor names below, e.g. changedObjectID == %@).  The entity is
+   not part of the application's model.  Portable code builds its fetch
+   request from entityDescriptionWithContext: - see the note in
+   NSPersistentHistoryTransaction.h. */
++ (NSEntityDescription *)entityDescription;
++ (NSEntityDescription *)entityDescriptionWithContext:(NSManagedObjectContext *)context;
+
+/* A fetch request preconfigured with that entity. */
++ (NSFetchRequest *)fetchRequest;
 
 - (int64_t)changeID;
 - (NSPersistentHistoryChangeType)changeType;

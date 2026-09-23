@@ -13,7 +13,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/CoreDataExports.h>
 
 @class NSString, NSDate, NSArray, NSNotification;
-@class NSPersistentHistoryToken;
+@class NSPersistentHistoryToken, NSEntityDescription, NSFetchRequest, NSManagedObjectContext;
 
 /* One recorded unit of change: a context save or a batch operation
    against a history-tracking store.  objectIDNotification wraps the
@@ -30,6 +30,25 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSString *_storeID;
     NSArray *_changes;
 }
+
+/* A synthetic entity (named "Transaction", as on Apple) describing a
+   history transaction, for building the fetch request that
+   NSPersistentHistoryChangeRequest's fetchHistoryWithFetchRequest:
+   filters by.  Predicates may use the accessor names below (author,
+   contextName, timestamp, transactionNumber, ...); the entity is not
+   part of the application's model.
+
+   Portability note (verified on macOS): Apple's context-less
+   +entityDescription and +fetchRequest answer nil unless a loaded
+   persistent container lets CoreData find "the" model, so code that
+   should run on both platforms builds its fetch request from
+   entityDescriptionWithContext:.  This port answers the same entity
+   from all three, ignoring the context. */
++ (NSEntityDescription *)entityDescription;
++ (NSEntityDescription *)entityDescriptionWithContext:(NSManagedObjectContext *)context;
+
+/* A fetch request preconfigured with that entity. */
++ (NSFetchRequest *)fetchRequest;
 
 - (int64_t)transactionNumber;
 - (NSDate *)timestamp;

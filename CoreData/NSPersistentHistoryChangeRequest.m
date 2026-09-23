@@ -25,6 +25,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 -(void)dealloc {
    [_anchorDate release];
    [_anchorToken release];
+   [_fetchRequest release];
    [super dealloc];
 }
 
@@ -47,6 +48,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
    if(transaction!=nil)
     result->_anchorTransactionNumber=[transaction transactionNumber];
+   return result;
+}
+
++(instancetype)fetchHistoryWithFetchRequest:(NSFetchRequest *)fetchRequest {
+   NSPersistentHistoryChangeRequest *result=[[[self alloc] init] autorelease];
+
+   result->_fetchRequest=[fetchRequest retain];
    return result;
 }
 
@@ -90,6 +98,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return _anchorToken;
 }
 
+-(NSFetchRequest *)fetchRequest {
+   return _fetchRequest;
+}
+
 -copyWithZone:(NSZone *)zone {
    NSPersistentHistoryChangeRequest *copy=[[[self class] allocWithZone:zone] init];
 
@@ -97,6 +109,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    copy->_anchorDate=[_anchorDate retain];
    copy->_anchorToken=[_anchorToken retain];
    copy->_anchorTransactionNumber=_anchorTransactionNumber;
+   copy->_fetchRequest=[_fetchRequest retain];
    copy->_resultType=_resultType;
    [copy setAffectedStores:[self affectedStores]];
    return copy;

@@ -12,9 +12,43 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSPersistentHistoryChange.h"
 #import "NSPersistentHistory-Private.h"
 #import <CoreData/NSManagedObjectID.h>
+#import "NSEntityDescription.h"
+#import "NSFetchRequest.h"
 #import <Foundation/Foundation.h>
+#include <dispatch/dispatch.h>
 
 @implementation NSPersistentHistoryChange
+
+/* The property names mirror the accessors, so a predicate built
+   against this entity evaluates directly against
+   NSPersistentHistoryChange instances through KVC (the canonical
+   filter is changedObjectID == %@). */
++(NSEntityDescription *)entityDescription {
+   static NSEntityDescription *entity=nil;
+   static dispatch_once_t once;
+
+   dispatch_once(&once,^{
+     entity=[[NSEntityDescription alloc] init];
+     [entity setName:@"Change"];   /* matches Apple's "Transaction" naming */
+     [entity setProperties:[NSArray arrayWithObjects:
+         CDHistoryEntityAttribute(@"changeID",NSInteger64AttributeType),
+         CDHistoryEntityAttribute(@"changeType",NSInteger64AttributeType),
+         CDHistoryEntityAttribute(@"changedObjectID",NSUndefinedAttributeType),
+         nil]];
+   });
+   return entity;
+}
+
++(NSEntityDescription *)entityDescriptionWithContext:(NSManagedObjectContext *)context {
+   return [self entityDescription];
+}
+
++(NSFetchRequest *)fetchRequest {
+   NSFetchRequest *request=[[[NSFetchRequest alloc] init] autorelease];
+
+   [request setEntity:[self entityDescription]];
+   return request;
+}
 
 -(void)dealloc {
    [_changedObjectID release];

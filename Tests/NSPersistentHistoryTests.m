@@ -412,6 +412,167 @@ static BOOL CDWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
                           @"replaying history should refresh the registered object");
 }
 
+/* Apple's context-less +entityDescription / +fetchRequest answer nil
+   unless a loaded persistent container lets CoreData find "the" model
+   (arbitrated on macOS: they were nil under this test's bare
+   coordinator), so the portable construction goes through
+   entityDescriptionWithContext:. */
+- (NSFetchRequest *)historyFetchRequestWithEntity:(NSEntityDescription *)entity
+{
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:entity];
+    return fetch;
+}
+
+- (void)testFetchRequestFlavorEchoesRequest
+{
+    NSEntityDescription *txEntity =
+        [NSPersistentHistoryTransaction entityDescriptionWithContext:self.ctx];
+    NSEntityDescription *changeEntity =
+        [NSPersistentHistoryChange entityDescriptionWithContext:self.ctx];
+    XCTAssertNotNil(txEntity);
+    XCTAssertNotNil(changeEntity);
+    XCTAssertEqualObjects(@"Transaction", [txEntity name]);
+    XCTAssertEqualObjects(@"Change", [changeEntity name]);
+
+    NSFetchRequest *fetch = [self historyFetchRequestWithEntity:txEntity];
+
+    NSPersistentHistoryChangeRequest *request =
+        [NSPersistentHistoryChangeRequest fetchHistoryWithFetchRequest:fetch];
+    XCTAssertEqualObjects(fetch, [request fetchRequest]);
+    XCTAssertEqual(NSPersistentHistoryResultTypeTransactionsAndChanges,
+                   [request resultType]);
+}
+
+/* The canonical multi-writer merge filter: each writer sets a distinct
+   transactionAuthor and merges only the other writers' transactions. */
+- (void)testAuthorPredicateFiltersTransactions
+{
+    [self.ctx setTransactionAuthor:@"writer-a"];
+    [self insertNoteWithText:@"from a"];
+    NSError *err = nil;
+    XCTAssertTrue([self.ctx save:&err], @"save a: %@", err);
+
+    [self.ctx setTransactionAuthor:@"writer-b"];
+    NSManagedObject *fromB = [self insertNoteWithText:@"from b"];
+    XCTAssertTrue([self.ctx save:&err], @"save b: %@", err);
+
+    NSFetchRequest *fetch = [self historyFetchRequestWithEntity:
+        [NSPersistentHistoryTransaction entityDescriptionWithContext:self.ctx]];
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"author != %@",
+                                                         @"writer-a"]];
+
+    NSPersistentHistoryChangeRequest *request =
+        [NSPersistentHistoryChangeRequest fetchHistoryWithFetchRequest:fetch];
+    NSPersistentHistoryResult *result =
+        (NSPersistentHistoryResult *)[self.ctx executeRequest:request error:&err];
+    XCTAssertNotNil(result, @"filtered fetch: %@", err);
+
+    NSArray *transactions = [result result];
+    XCTAssertEqual((NSUInteger)1, [transactions count]);
+
+    NSPersistentHistoryTransaction *tx = [transactions objectAtIndex:0];
+    XCTAssertEqualObjects(@"writer-b", [tx author]);
+    XCTAssertEqual((NSUInteger)1, [[tx changes] count]);
+    XCTAssertEqualObjects(
+        [[[fromB objectID] URIRepresentation] absoluteString],
+        [[[[[tx changes] objectAtIndex:0] changedObjectID] URIRepresentation] absoluteString]);
+}
+
+- (void)testTransactionNumberPredicateFiltersTransactions
+{
+    [self insertNoteWithText:@"first"];
+    NSError *err = nil;
+    XCTAssertTrue([self.ctx save:&err], @"save 1: %@", err);
+    [self insertNoteWithText:@"second"];
+    XCTAssertTrue([self.ctx save:&err], @"save 2: %@", err);
+
+    int64_t firstNumber =
+        [[[self fetchAllTransactions] objectAtIndex:0] transactionNumber];
+
+    NSFetchRequest *fetch = [self historyFetchRequestWithEntity:
+        [NSPersistentHistoryTransaction entityDescriptionWithContext:self.ctx]];
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"transactionNumber > %@",
+        [NSNumber numberWithLongLong:firstNumber]]];
+
+    NSPersistentHistoryChangeRequest *request =
+        [NSPersistentHistoryChangeRequest fetchHistoryWithFetchRequest:fetch];
+    NSPersistentHistoryResult *result =
+        (NSPersistentHistoryResult *)[self.ctx executeRequest:request error:&err];
+    XCTAssertNotNil(result, @"filtered fetch: %@", err);
+
+    NSArray *transactions = [result result];
+    XCTAssertEqual((NSUInteger)1, [transactions count]);
+    XCTAssertTrue([[transactions objectAtIndex:0] transactionNumber] > firstNumber);
+}
+
+- (void)testChangeEntityPredicateFiltersChanges
+{
+    NSManagedObject *tracked = [self insertNoteWithText:@"tracked"];
+    [self insertNoteWithText:@"noise"];
+    NSError *err = nil;
+    XCTAssertTrue([self.ctx save:&err], @"seed save: %@", err);
+
+    [tracked setValue:@"tracked v2" forKey:@"text"];
+    XCTAssertTrue([self.ctx save:&err], @"update save: %@", err);
+
+    NSFetchRequest *fetch = [self historyFetchRequestWithEntity:
+        [NSPersistentHistoryChange entityDescriptionWithContext:self.ctx]];
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"changedObjectID == %@",
+                                                         [tracked objectID]]];
+
+    NSPersistentHistoryChangeRequest *request =
+        [NSPersistentHistoryChangeRequest fetchHistoryWithFetchRequest:fetch];
+    NSPersistentHistoryResult *result =
+        (NSPersistentHistoryResult *)[self.ctx executeRequest:request error:&err];
+    XCTAssertNotNil(result, @"filtered fetch: %@", err);
+
+    /* Arbitrated on macOS: a Change-entity fetch request answers the
+       matching changes themselves, not transactions.  The tracked
+       object was touched twice (insert, then update); the first save's
+       "noise" insert is filtered out. */
+    NSArray *changes = [result result];
+    XCTAssertEqual((NSUInteger)2, [changes count]);
+
+    NSString *trackedURI = [[[tracked objectID] URIRepresentation] absoluteString];
+    NSMutableSet *changeTypes = [NSMutableSet set];
+    for (NSPersistentHistoryChange *change in changes) {
+        XCTAssertEqualObjects(trackedURI,
+            [[[change changedObjectID] URIRepresentation] absoluteString]);
+        [changeTypes addObject:[NSNumber numberWithInteger:[change changeType]]];
+    }
+    XCTAssertTrue([changeTypes containsObject:
+        [NSNumber numberWithInteger:NSPersistentHistoryChangeTypeInsert]]);
+    XCTAssertTrue([changeTypes containsObject:
+        [NSNumber numberWithInteger:NSPersistentHistoryChangeTypeUpdate]]);
+}
+
+/* Arbitrated on macOS: sort descriptors on a history fetch raise for
+   every public keypath (Apple resolves them against its internal
+   TRANSACTION entity, whose attribute names differ from the public
+   accessors - transactionNumber and timestamp both threw "keypath not
+   found in entity TRANSACTION"), even though the same keypaths work in
+   a predicate.  History results are consumed in transaction order. */
+- (void)testSortDescriptorsAreRejectedOnHistoryFetches
+{
+    [self insertNoteWithText:@"unsortable"];
+    NSError *err = nil;
+    XCTAssertTrue([self.ctx save:&err], @"save: %@", err);
+
+    NSFetchRequest *fetch = [self historyFetchRequestWithEntity:
+        [NSPersistentHistoryTransaction entityDescriptionWithContext:self.ctx]];
+    [fetch setSortDescriptors:[NSArray arrayWithObject:
+        [NSSortDescriptor sortDescriptorWithKey:@"timestamp"
+                                      ascending:NO]]];
+
+    NSPersistentHistoryChangeRequest *request =
+        [NSPersistentHistoryChangeRequest fetchHistoryWithFetchRequest:fetch];
+    XCTAssertThrowsSpecificNamed(
+        [self.ctx executeRequest:request error:NULL],
+        NSException, NSInvalidArgumentException,
+        @"sorted history fetches raise on Apple; the port matches");
+}
+
 - (void)testResultTypeVariants
 {
     [self insertNoteWithText:@"variant"];

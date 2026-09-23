@@ -2423,6 +2423,40 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     return [[[NSPersistentHistoryResult alloc] _initWithResult:[NSNumber numberWithBool:YES] resultType:NSPersistentHistoryResultTypeStatusOnly] autorelease];
    }
 
+   /* The predicate-filtered flavor: the attached fetch request names
+      one of the two synthetic history entities, and its predicate is
+      evaluated in memory against the materialized transaction/change
+      objects (their accessors are the entity's property names, so KVC
+      resolves the key paths exactly).  History stays small when
+      applications purge, so nothing here is worth pushing into SQL. */
+   NSFetchRequest      *filter=[request fetchRequest];
+   BOOL                 filtersTransactions=NO,filtersChanges=NO;
+
+   if(filter!=nil){
+    NSEntityDescription *filterEntity=[filter _entityIfResolved];
+
+    if(filterEntity==[NSPersistentHistoryTransaction entityDescription])
+     filtersTransactions=YES;
+    else if(filterEntity==[NSPersistentHistoryChange entityDescription])
+     filtersChanges=YES;
+    else {
+     if(error!=NULL)
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:@"fetchHistoryWithFetchRequest: requires a fetch request built on +[NSPersistentHistoryTransaction entityDescription] or +[NSPersistentHistoryChange entityDescription]." forKey:NSLocalizedDescriptionKey]];
+     return nil;
+    }
+
+    /* Arbitrated on macOS: sort descriptors on a history fetch raise
+       there for every public keypath (Apple resolves them against its
+       internal TRANSACTION entity, whose attribute names differ from
+       the public accessors - transactionNumber and timestamp both
+       throw "keypath not found").  Raise the same way, so code cannot
+       come to rely on an ordering Apple refuses to provide; results
+       come back in transaction order. */
+    if([[filter sortDescriptors] count]>0)
+     [NSException raise:NSInvalidArgumentException
+                 format:@"keypath %@ not found in entity TRANSACTION (history fetch requests do not support sort descriptors, matching Apple CoreData)",[[[filter sortDescriptors] objectAtIndex:0] key]];
+   }
+
    NSPersistentHistoryResultType resultType=[request resultType];
    NSString *transactionCondition=byDate?
        [NSString stringWithFormat:@"ZTIMESTAMP > %f",[anchorDate timeIntervalSinceReferenceDate]]:
@@ -2455,20 +2489,24 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    }
    sqlite3_finalize(statement);
 
-   if(resultType==NSPersistentHistoryResultTypeCount)
-    return [[[NSPersistentHistoryResult alloc] _initWithResult:[NSNumber numberWithUnsignedInteger:[transactions count]] resultType:resultType] autorelease];
-   if(resultType==NSPersistentHistoryResultTypeStatusOnly)
-    return [[[NSPersistentHistoryResult alloc] _initWithResult:[NSNumber numberWithBool:YES] resultType:resultType] autorelease];
+   /* A transaction-entity predicate keeps whole transactions. */
+   if(filtersTransactions && [filter predicate]!=nil)
+    transactions=[[[transactions filteredArrayUsingPredicate:[filter predicate]] mutableCopy] autorelease];
 
-   BOOL wantsChanges=(resultType!=NSPersistentHistoryResultTypeTransactionsOnly);
-
-   if(!wantsChanges)
-    return [[[NSPersistentHistoryResult alloc] _initWithResult:transactions resultType:resultType] autorelease];
+   /* Changes are needed for the changes-shaped results - and to
+      evaluate a change-entity predicate whatever the result type,
+      since a transaction whose changes all fail it is dropped. */
+   BOOL wantsChanges=filtersChanges ||
+       (resultType==NSPersistentHistoryResultTypeTransactionsAndChanges ||
+        resultType==NSPersistentHistoryResultTypeChangesOnly ||
+        resultType==NSPersistentHistoryResultTypeObjectIDs);
 
    NSDictionary   *entitiesByName=[[[self persistentStoreCoordinator] managedObjectModel] entitiesByName];
+   NSMutableArray *keptTransactions=wantsChanges?[NSMutableArray array]:(NSMutableArray *)transactions;
    NSMutableArray *allChanges=[NSMutableArray array];
    NSMutableArray *allObjectIDs=[NSMutableArray array];
 
+   if(wantsChanges)
    for(NSPersistentHistoryTransaction *transaction in transactions){
     sqlite3_stmt *changeStatement=prepareStatement(DATABASE,@"SELECT Z_PK, ZCHANGETYPE, ZENTITY, ZENTITYPK, ZUPDATEDPROPERTIES, ZTOMBSTONE FROM Z_ACHANGE WHERE ZTRANSACTIONID = ? ORDER BY Z_PK",error);
 
@@ -2520,27 +2558,75 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
 
      NSPersistentHistoryChange *change=[[[NSPersistentHistoryChange alloc] _initWithChangeID:changeID type:changeType objectID:objectID updatedProperties:updatedProperties tombstone:tombstone] autorelease];
 
+     /* A change-entity predicate keeps individual changes. */
+     if(filtersChanges && [filter predicate]!=nil &&
+        ![[filter predicate] evaluateWithObject:change])
+      continue;
+
      [changes addObject:change];
      [allObjectIDs addObject:objectID];
     }
     sqlite3_finalize(changeStatement);
 
+    /* A change-filtered transaction with nothing left is dropped. */
+    if(filtersChanges && [changes count]==0)
+     continue;
+
     /* Only a transactions-shaped result ties changes to their
        transaction: the back-pointer is unretained, so a flat changes
        result (which does not keep the transactions alive) leaves it
-       nil. */
-    if(resultType==NSPersistentHistoryResultTypeTransactionsAndChanges)
+       nil.  A Change-entity fetch request always answers flat changes,
+       whatever the result type. */
+    if(resultType==NSPersistentHistoryResultTypeTransactionsAndChanges && !filtersChanges)
      [transaction _setChanges:changes];
     [allChanges addObjectsFromArray:changes];
+    [keptTransactions addObject:transaction];
+   }
+
+   /* A Change-entity fetch request answers the matching changes
+      themselves, not transactions (arbitrated on macOS, where the
+      result held _NSPersistentHistoryChange objects). */
+   BOOL flatChanges=filtersChanges || (resultType==NSPersistentHistoryResultTypeChangesOnly);
+
+   /* The fetch request's limit/offset apply to the result's top-level
+      collection: the flat changes for a changes-shaped result, the
+      transactions otherwise.  (Sort descriptors were rejected above.) */
+   if(filter!=nil){
+    NSMutableArray *topLevel=flatChanges?allChanges:keptTransactions;
+
+    NSUInteger offset=[filter fetchOffset];
+    NSUInteger limit=[filter fetchLimit];
+
+    if(offset>0 || limit>0){
+     if(offset>[topLevel count])
+      offset=[topLevel count];
+
+     NSUInteger length=[topLevel count]-offset;
+
+     if(limit>0 && limit<length)
+      length=limit;
+     topLevel=[[[topLevel subarrayWithRange:NSMakeRange(offset,length)] mutableCopy] autorelease];
+    }
+
+    if(flatChanges)
+     allChanges=topLevel;
+    else
+     keptTransactions=topLevel;
    }
 
    switch(resultType){
+    case NSPersistentHistoryResultTypeStatusOnly:
+     return [[[NSPersistentHistoryResult alloc] _initWithResult:[NSNumber numberWithBool:YES] resultType:resultType] autorelease];
+    case NSPersistentHistoryResultTypeCount:
+     return [[[NSPersistentHistoryResult alloc] _initWithResult:[NSNumber numberWithUnsignedInteger:flatChanges?[allChanges count]:[keptTransactions count]] resultType:resultType] autorelease];
     case NSPersistentHistoryResultTypeObjectIDs:
      return [[[NSPersistentHistoryResult alloc] _initWithResult:allObjectIDs resultType:resultType] autorelease];
     case NSPersistentHistoryResultTypeChangesOnly:
      return [[[NSPersistentHistoryResult alloc] _initWithResult:allChanges resultType:resultType] autorelease];
+    case NSPersistentHistoryResultTypeTransactionsOnly:
+     return [[[NSPersistentHistoryResult alloc] _initWithResult:keptTransactions resultType:resultType] autorelease];
     default:
-     return [[[NSPersistentHistoryResult alloc] _initWithResult:transactions resultType:NSPersistentHistoryResultTypeTransactionsAndChanges] autorelease];
+     return [[[NSPersistentHistoryResult alloc] _initWithResult:flatChanges?allChanges:keptTransactions resultType:NSPersistentHistoryResultTypeTransactionsAndChanges] autorelease];
    }
 }
 

@@ -13,8 +13,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSPersistentHistoryChange.h>
 #import <CoreData/NSPersistentHistoryTransaction.h>
 #import <CoreData/NSPersistentHistoryChangeRequest.h>
+#import <CoreData/NSAttributeDescription.h>
 
-@class NSManagedObjectID, NSPropertyDescription;
+@class NSManagedObjectID, NSPropertyDescription, NSEntityDescription;
+
+/* Shared by the two synthetic history entities (defined in
+   NSPersistentHistoryTransaction.m). */
+NSAttributeDescription *CDHistoryEntityAttribute(NSString *name,NSAttributeType type);
 
 @interface NSPersistentHistoryToken (CDPrivate)
 

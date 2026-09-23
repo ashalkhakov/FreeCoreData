@@ -12,9 +12,56 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSPersistentHistoryTransaction.h"
 #import "NSPersistentHistory-Private.h"
 #import "NSManagedObjectContext.h"
+#import "NSEntityDescription.h"
+#import "NSAttributeDescription.h"
+#import "NSFetchRequest.h"
 #import <Foundation/Foundation.h>
+#include <dispatch/dispatch.h>
+
+NSAttributeDescription *CDHistoryEntityAttribute(NSString *name,NSAttributeType type){
+   NSAttributeDescription *attribute=[[[NSAttributeDescription alloc] init] autorelease];
+
+   [attribute setName:name];
+   [attribute setAttributeType:type];
+   [attribute setOptional:YES];
+   return attribute;
+}
 
 @implementation NSPersistentHistoryTransaction
+
+/* The property names mirror the accessors, so a predicate built
+   against this entity evaluates directly against
+   NSPersistentHistoryTransaction instances through KVC. */
++(NSEntityDescription *)entityDescription {
+   static NSEntityDescription *entity=nil;
+   static dispatch_once_t once;
+
+   dispatch_once(&once,^{
+     entity=[[NSEntityDescription alloc] init];
+     [entity setName:@"Transaction"];   /* Apple's name, verified on macOS */
+     [entity setProperties:[NSArray arrayWithObjects:
+         CDHistoryEntityAttribute(@"transactionNumber",NSInteger64AttributeType),
+         CDHistoryEntityAttribute(@"timestamp",NSDateAttributeType),
+         CDHistoryEntityAttribute(@"author",NSStringAttributeType),
+         CDHistoryEntityAttribute(@"contextName",NSStringAttributeType),
+         CDHistoryEntityAttribute(@"processID",NSStringAttributeType),
+         CDHistoryEntityAttribute(@"bundleID",NSStringAttributeType),
+         CDHistoryEntityAttribute(@"storeID",NSStringAttributeType),
+         nil]];
+   });
+   return entity;
+}
+
++(NSEntityDescription *)entityDescriptionWithContext:(NSManagedObjectContext *)context {
+   return [self entityDescription];
+}
+
++(NSFetchRequest *)fetchRequest {
+   NSFetchRequest *request=[[[NSFetchRequest alloc] init] autorelease];
+
+   [request setEntity:[self entityDescription]];
+   return request;
+}
 
 -(void)dealloc {
    [_timestamp release];

@@ -26,6 +26,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSDate *_anchorDate;
     NSPersistentHistoryToken *_anchorToken;
     int64_t _anchorTransactionNumber;   /* -1: none */
+    NSFetchRequest *_fetchRequest;
     NSPersistentHistoryResultType _resultType;
 }
 
@@ -37,9 +38,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 + (instancetype)deleteHistoryBeforeToken:(NSPersistentHistoryToken *)token;
 + (instancetype)deleteHistoryBeforeTransaction:(NSPersistentHistoryTransaction *)transaction;
 
-/* Apple's predicate-filtered flavor (fetchHistoryWithFetchRequest:,
-   the fetchRequest property, entityDescriptionWithContext:) is not
-   implemented; the anchor-based requests above are. */
+/* The predicate-filtered flavor: fetchRequest's entity is
+   +[NSPersistentHistoryTransaction entityDescription] (its predicate
+   filters whole transactions, and the result holds transactions) or
+   +[NSPersistentHistoryChange entityDescription] (its predicate
+   filters individual changes, and the result holds the matching
+   changes themselves - macOS-arbitrated).  Results come back in
+   transaction order; sort descriptors raise
+   NSInvalidArgumentException (Apple resolves them against its
+   internal history entity, whose attribute names differ from every
+   public accessor, so no public keypath is sortable there - verified
+   for transactionNumber and timestamp both).  fetchLimit/fetchOffset
+   apply to the result's top-level collection.  The canonical use is
+   the multi-writer merge filter: author != "<my transactionAuthor>"
+   AND transactionNumber > <last merged>. */
++ (instancetype)fetchHistoryWithFetchRequest:(NSFetchRequest *)fetchRequest;
+
+- (NSFetchRequest *)fetchRequest;
 
 - (NSPersistentHistoryResultType)resultType;   /* default TransactionsAndChanges */
 - (void)setResultType:(NSPersistentHistoryResultType)resultType;
