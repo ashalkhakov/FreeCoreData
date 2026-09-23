@@ -44,9 +44,14 @@
     [money setMaximumFractionDigits:0];
     [[[self.tableView tableColumnWithIdentifier:@"salary"] dataCell] setFormatter:money];
 
+    /* The same derivation NSDatePickerCell uses for its own display
+     * (template "yMd" through the locale's pattern generator), so the
+     * column and the editor's date pickers show one format. */
     NSDateFormatter *day = [[NSDateFormatter alloc] init];
     [day setFormatterBehavior:NSDateFormatterBehavior10_4];
-    [day setDateFormat:@"yyyy-MM-dd"];
+    NSString *dayPattern = [NSDateFormatter dateFormatFromTemplate:@"yMd" options:0
+                                                            locale:[NSLocale currentLocale]];
+    [day setDateFormat:([dayPattern length] > 0) ? dayPattern : @"yyyy-MM-dd"];
     [[[self.tableView tableColumnWithIdentifier:@"hireDate"] dataCell] setFormatter:day];
 
     [self.departmentPopUp removeAllItems];
