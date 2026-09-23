@@ -121,16 +121,33 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return copy;
 }
 
-@end
+/* Reading the request: additions of this framework's, so that a store
+   outside it can implement history.  See the header. */
 
-@implementation NSPersistentHistoryChangeRequest (CDPrivate)
-
--(BOOL)_isPurge {
+-(BOOL)isPurgeRequest {
    return _isPurge;
 }
 
--(NSDate *)_anchorDate {
+-(NSDate *)anchorDate {
    return _anchorDate;
+}
+
+-(int64_t)anchorTransactionNumber {
+   return _anchorTransactionNumber;
+}
+
+@end
+
+/* The original spellings, kept because the in-tree SQLite store and the
+   tests use them; each is the public accessor above. */
+@implementation NSPersistentHistoryChangeRequest (CDPrivate)
+
+-(BOOL)_isPurge {
+   return [self isPurgeRequest];
+}
+
+-(NSDate *)_anchorDate {
+   return [self anchorDate];
 }
 
 -(NSPersistentHistoryToken *)_anchorToken {
@@ -138,7 +155,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(int64_t)_anchorTransactionNumber {
-   return _anchorTransactionNumber;
+   return [self anchorTransactionNumber];
 }
 
 @end

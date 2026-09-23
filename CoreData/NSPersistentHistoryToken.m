@@ -57,6 +57,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @implementation NSPersistentHistoryToken (CDPrivate)
 
++(instancetype)tokenWithTransactionNumbersByStoreIdentifier:(NSDictionary *)numbers {
+   return [[[self alloc] _initWithPositions:numbers] autorelease];
+}
+
+-(int64_t)transactionNumberForStoreIdentifier:(NSString *)identifier {
+   return [self _transactionNumberForStoreIdentifier:identifier];
+}
+
 -(instancetype)_initWithPositions:(NSDictionary *)positions {
    _positions=[positions copy];
    return self;

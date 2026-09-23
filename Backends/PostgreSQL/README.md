@@ -1,0 +1,369 @@
+# PostgreSQL backend
+
+An `NSIncrementalStore` that keeps a Core Data model in PostgreSQL, built on
+libpq.  It is an addon: it is not part of `CoreData.framework` and nothing
+else in this repository depends on it.
+
+Status: **experimental**.  Fetching, saving, faulting, object IDs, batch
+requests and persistent history all work and are covered by tests.  History is
+the one feature that needs FreeCoreData rather than Apple's CoreData - see
+below for why.
+
+## Building
+
+Requires libpq (`libpq-dev` on Debian/Ubuntu, `brew install libpq` on macOS)
+and the framework built in this tree.
+
+```sh
+make                              # the framework, from the repository root
+make -C Backends/PostgreSQL
+```
+
+`pg_config` is used to locate libpq when it is on PATH; otherwise the
+compiler's default search paths are used.  Homebrew keeps libpq off PATH, so
+on macOS point at it explicitly:
+
+```sh
+make -C Backends/PostgreSQL PG_CONFIG=/opt/homebrew/opt/libpq/bin/pg_config
+```
+
+## Using it
+
+Link the library and open a store; the store class registers its type from
+`+load`, so there is nothing to call first:
+
+```objc
+#import <CDPostgreSQLStore/CDPostgreSQLStore.h>
+
+NSURL *url = [NSURL URLWithString:@"postgresql://user:secret@localhost/mydb"];
+NSError *error = nil;
+
+[coordinator addPersistentStoreWithType:CDPostgreSQLStoreType
+                          configuration:nil
+                                    URL:url
+                                options:nil
+                                  error:&error];
+```
+
+The URL is handed to libpq as written, so anything libpq accepts as a
+connection URI works, including `?sslmode=require` and the rest of its
+parameters.
+
+`CDPostgreSQLSchemaNameOption` confines the store to a schema of its own,
+which it creates if necessary:
+
+```objc
+options:@{ CDPostgreSQLSchemaNameOption : @"myapp" }
+```
+
+## Batch requests
+
+`NSBatchInsertRequest` (both the dictionary-array and dictionary-handler
+forms), `NSBatchUpdateRequest` and `NSBatchDeleteRequest` all run directly
+against the database, with every result type.  As on Apple, no managed objects
+are materialized, no validation or delete rules run, and loaded contexts are
+not notified - though a batch delete does sweep the join-table rows of the
+rows it removes.
+
+A batch delete created with `initWithObjectIDs:` carries its list as a
+`SELF IN <ids>` predicate on its fetch request, which the store translates
+into a primary key list.  A predicate that does not translate to SQL is
+evaluated row by row against stored values instead, exactly as the fetch path
+does, so a batch request never silently applies to the wrong rows.
+
+## Schema
+
+The same layout the SQLite store uses, so a model behaves the same in either:
+`Z_METADATA` and `Z_PRIMARYKEY` for store bookkeeping, one `Z<ENTITY>` table
+per root entity (with `Z_PK`, `Z_ENT`, `Z_OPT` and a `Z<PROPERTY>` column per
+attribute and to-one relationship), foreign keys on the destination table for
+a to-many with a to-one inverse, and a `Z_<ENT><NAME>` join table for a
+many-to-many.  All identifiers are quoted, so they keep their upper case.
+
+Opening a store takes a PostgreSQL **advisory lock** on its schema for the
+duration of one transaction, and re-checks inside the lock whether the store
+already exists.  Two processes opening the same new store otherwise race to
+create it - which SQLite hides behind its file lock and a server does not.
+`CREATE TABLE IF NOT EXISTS` is not enough on its own: concurrent creates of
+the same table fail with `duplicate key value violates unique constraint
+"pg_type_typname_nsp_index"`, which is exactly what the test for this sees
+when the lock is removed.
+
+Faulting a relationship reads the destination rows' `Z_ENT` in the same query
+as their keys, and object IDs are resolved without asking the database at all
+when the destination entity has no subentities (its concrete entity cannot
+vary, so there is nothing to look up).  Without both, faulting an N-element
+relationship of an inherited entity would cost N+1 round trips.
+
+Three differences from the SQLite store are worth knowing about:
+
+- **Primary keys** are allocated with `UPDATE ... RETURNING`, one statement
+  rather than the SQLite store's UPDATE-then-SELECT, so two connections
+  cannot be handed the same key.
+- **Opening is serialized** by the advisory lock described above, where the
+  SQLite store relies on the file lock it gets for free.
+- **Ordering is forced to the C collation.**  `NSString`'s `-compare:` orders
+  by code point, which is what SQLite's default BINARY collation does; a
+  PostgreSQL database created with a language collation would sort `alan`
+  before `Grace`.  Every ordered comparison and `ORDER BY` on a text column
+  therefore asks for `COLLATE "C"` explicitly.
+
+Dates are stored as the `timeIntervalSinceReferenceDate` in a `double
+precision` column, matching what the SQLite store persists, rather than as a
+`timestamptz`.  That keeps the round trip exact and both stores readable by
+the same tools, at the cost of dates being awkward to read in `psql`.
+
+## Predicates across relationships
+
+A key path that crosses relationships becomes an `EXISTS` subquery over the
+tables it walks:
+
+```objc
+[NSPredicate predicateWithFormat:@"employer.name == %@", @"Bletchley"]
+```
+
+```sql
+SELECT "Z_PK", "Z_ENT" FROM "ZCOMPANY" WHERE "Z_ENT" IN (1)
+  AND (EXISTS (SELECT 1 FROM "ZPERSON" j0
+                WHERE j0."ZEMPLOYER" = "ZCOMPANY"."Z_PK" AND j0."ZNAME" = $1))
+```
+
+Correlating back to the outer table by name, rather than joining it into the
+outer `SELECT`, keeps the rest of the translator untouched and means no
+`DISTINCT` is needed when a to-many is crossed.  Any number of hops works,
+through to-one relationships, foreign-key to-many relationships and join
+tables alike, and such a clause combines with local ones (and with fetch
+limits and offsets, which are only pushed into SQL when the whole predicate
+is).
+
+`ANY` and `ALL` say what crossing a to-many means, and both are translated:
+`ANY` as `EXISTS`, `ALL` as `NOT EXISTS` of the negation - written as
+`(clause) IS NOT TRUE` so that a NULL on the far side counts as failing the
+test rather than as unknown, which is what Core Data's in-memory evaluation
+does.  A path through a to-many *without* `ANY` or `ALL` has no single
+meaning, so it is left to the in-memory fallback rather than guessed at.
+
+## Migration
+
+The framework's `NSMigratePersistentStoresAutomaticallyOption` cannot serve a
+store like this one: the coordinator implements it by copying the store
+through `NSMigrationManager` into a second store and then **renaming files
+over the original**, which a database at the far end of a socket does not
+have.  The coordinator also refuses an incompatible store *before* the store
+itself is opened, so it never gets the chance.
+
+So this store migrates itself, in place.  An application asks for it with
+`CDPostgreSQLMigrateSchemaOption`, and passes
+`NSIgnorePersistentStoreVersioningOption` as well so that the coordinator's
+file-oriented check stands aside:
+
+```objc
+options:@{ CDPostgreSQLMigrateSchemaOption        : @YES,
+           NSIgnorePersistentStoreVersioningOption : @YES }
+```
+
+The store then does the version check itself - through
+`-[NSManagedObjectModel isConfiguration:compatibleWithStoreMetadata:]`, the
+same question the coordinator asks - and reconciles what it finds with what
+the model wants:
+
+- entities and properties **added**: new tables, new columns, a new
+  `Z_PRIMARYKEY` row with the next free `Z_ENT` (existing entities keep
+  theirs, because every row records the one it was written with);
+- entities and properties **removed**: their columns and tables dropped, and
+  only when the whole model - not merely this configuration - has no use for
+  them;
+- entities and properties **renamed** through `renamingIdentifier`: renamed
+  in place, with their data, and a property may be renamed and retyped in
+  the same version;
+- attribute types **widened** where PostgreSQL can do it without losing
+  anything (the integer family, `real` to `double precision`, anything to
+  `text`).
+
+Anything else - a changed inheritance chain, a type change that could lose
+data - is refused by name, with the advice to use a mapping model and
+`NSMigrationManager`, which work through ordinary fetches and saves and so
+need nothing special from this store.
+
+With neither option an incompatible store is refused, exactly as the
+coordinator would refuse it.
+
+Migration runs inside the same advisory-locked transaction as store
+creation, so two clients that open an out-of-date store at the same moment
+cannot both migrate it.
+
+## Losing the connection
+
+A store's connection can go away under it - the server restarts, an idle
+session is timed out, a network path breaks - and libpq does not notice until
+the next statement.  The store therefore finds out by trying, and then, when
+it is safe, resets the connection (`PQreset`), restores the session state
+that does not survive a reset (the `search_path` for a store confined to a
+schema) and runs the statement once more.
+
+Safety is the whole question, and getting it wrong is worse than never
+retrying:
+
+- A statement issued **inside a transaction** is never replayed, because the
+  transaction it belonged to is gone and repeating one statement of it would
+  write a fragment of a save.
+- **`COMMIT` and `ROLLBACK` are never replayed.**  An empty `COMMIT` on a
+  fresh connection succeeds, so replaying one would report a save that never
+  happened.  The store tracks its own transaction rather than asking libpq
+  after the fact: a dropped connection answers `PQTRANS_UNKNOWN`, which says
+  nothing about what was open when it died.
+
+One case stays undecidable, as it does for every client of every database: a
+connection that dies after the server commits but before the reply arrives is
+reported as a failure, because nothing on this side can tell it from a commit
+that never happened.
+
+The tests cover this by terminating the store's backend from a connection of
+their own (`pg_terminate_backend`) and checking that the next fetch and save
+succeed, that the store is still reading its own schema afterwards, and that
+a save interrupted mid-flight either completes or leaves nothing behind.
+
+## Optimistic locking
+
+Every row carries `Z_OPT`, and the store remembers the version of each row it
+reads.  An update is then conditional on the row still being that version, so
+a row changed by another client in between is refused rather than silently
+overwritten: the save fails with `NSPersistentStoreSaveConflictsError`
+carrying `NSMergeConflict` objects under
+`NSPersistentStoreSaveConflictsErrorKey`, each with the versions and the row
+as it now stands.
+
+Which layer notices depends on the framework.  A context that re-reads the
+row at save time catches the common case before the store is ever asked -
+both Apple's CoreData and FreeCoreData do - so the store's check is the
+backstop for writers the framework cannot see: other processes, other
+machines, and batch requests.  Neither framework routes a store-reported
+conflict through the context's merge policy, so it arrives as a save error
+for the application to resolve.
+
+Two caveats.  A row this store has never read carries no expectation and is
+written unconditionally.  And the version table grows with the number of rows
+the store has read, since it keeps one number per row for the life of the
+store.
+
+## Persistent history (FreeCoreData only)
+
+Pass `NSPersistentHistoryTrackingKey` in the store options and every save and
+batch operation records a transaction in `Z_ATRANSACTION` with one
+`Z_ACHANGE` row per object touched, including tombstones for attributes
+marked `preservesValueInHistoryOnDeletion`.  Fetches and purges anchored by
+token, date or transaction, the predicate-filtered
+`fetchHistoryWithFetchRequest:` flavor over either history entity, and every
+result type are all supported.  With
+`NSPersistentStoreRemoteChangeNotificationPostOptionKey` the store also posts
+`NSPersistentStoreRemoteChangeNotification` carrying its new token.
+
+Nothing extra is needed to make the coordinator aware of the store's history
+position: `-currentPersistentHistoryTokenFromStores:` asks each store through
+`respondsToSelector:`, so implementing `_historyTrackingEnabled` and
+`_lastHistoryTransactionNumber` is the whole of it.
+
+**This works against FreeCoreData only**, through public API of its own that
+Apple's CoreData has no equivalent of.  A store implementing history has to
+do two things neither framework used to allow from outside:
+
+*Read the request* - is it a fetch or a purge, and what is it anchored to?
+FreeCoreData publishes `-isPurgeRequest`, `-anchorDate` and
+`-anchorTransactionNumber`.
+
+*Build what it answers with* - the transactions, changes and tokens.
+FreeCoreData publishes `+[NSPersistentHistoryTransaction
+transactionWithNumber:timestamp:author:contextName:processID:bundleID:storeIdentifier:changes:]`,
+`+[NSPersistentHistoryChange changeWithID:type:objectID:updatedProperties:tombstone:]`,
+`+[NSPersistentHistoryToken tokenWithTransactionNumbersByStoreIdentifier:]`
+and `-[NSPersistentHistoryToken transactionNumberForStoreIdentifier:]`.  A
+transaction adopts its changes when it is made, which is what wires up each
+change's `-transaction` back-pointer.
+
+Why Apple's cannot serve:
+
+- Apple publishes `token`, `fetchRequest` and `resultType` on
+  `NSPersistentHistoryChangeRequest`, and nothing else; this framework
+  publishes exactly the same three and keeps `_isPurge`, `_anchorDate` and
+  `_anchorTransactionNumber` to itself.
+- The class does not carry the distinction: `fetchHistoryAfterDate:` and
+  `deleteHistoryBeforeDate:` both return a plain
+  `NSPersistentHistoryChangeRequest` (verified against Apple's runtime), so
+  `isKindOfClass:` cannot separate them.
+- The default `resultType` only hints.  Apple pins a purge to
+  `NSPersistentHistoryResultTypeStatusOnly` and silently refuses to raise it,
+  but a fetch may be set to `StatusOnly` too, so the common case stays
+  ambiguous - and running a purge as a fetch would delete history someone
+  asked to read.
+
+So the store reaches into nothing.  It declares those methods in its own
+source rather than importing a header - which is what lets the same file
+still compile against Apple's CoreData - and guards every call with a
+runtime check.  Built against Apple's CoreData that check is
+false, and history requests are reported as an unsupported request type.  The
+test suite checks both halves: the behavior on FreeCoreData, and the refusal
+on Apple.
+
+## Not implemented
+
+- **`SUBQUERY(...)`**, and key paths crossing relationships in *sort
+  descriptors* (predicates do translate - see below).  These fetches are
+  evaluated in memory instead, as they are in the SQLite store.
+- **Derived attributes** other than the plain copy form, which becomes a
+  stored generated column.  Other derivations are written as whatever the
+  object holds at save time.
+- **Connection pooling.**  One connection per store, which is the shape Core
+  Data expects (a coordinator per thread brings its own store, and so its own
+  connection).
+
+## On macOS
+
+`CDPostgreSQLStore.xcodeproj` builds the same sources against **Apple's**
+CoreData, which is the point: a store written to the public API can be
+checked against the implementation this project is a port of.  (Persistent
+history is the exception and is skipped there; see above.)  It has two
+targets - `CDPostgreSQLStore` (a static library) and `CDPostgreSQLStoreTests`
+(the same test suite) - and needs Homebrew's libpq:
+
+```sh
+brew install libpq
+
+xcodebuild -project Backends/PostgreSQL/CDPostgreSQLStore.xcodeproj \
+    -scheme CDPostgreSQLStoreTests -destination 'platform=macOS' \
+    TEST_RUNNER_CD_TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5432/coredata_test \
+    test
+```
+
+The `TEST_RUNNER_` prefix matters: **xcodebuild does not pass the shell's
+environment to the test process**, and it strips that prefix when handing the
+variable over.  Setting plain `CD_TEST_POSTGRES_URL` in the shell leaves the
+suite skipping every test while still reporting success - which is exactly
+what it did the first time this was run.  Running from the Xcode UI instead,
+put `CD_TEST_POSTGRES_URL` in the scheme's Test action environment.
+
+Debug builds set `ONLY_ACTIVE_ARCH`, because Homebrew's libpq is built for
+the host architecture alone and a universal build cannot link the other
+slice.
+
+## Tests
+
+The tests need a database:
+
+```sh
+docker run -d --name pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=coredata_test \
+    -p 5432:5432 postgres:16
+
+CD_TEST_POSTGRES_URL=postgresql://postgres:test@localhost/coredata_test \
+    make -C Backends/PostgreSQL/Tests run-tests
+```
+
+Each test runs in a schema of its own, which is dropped afterwards, so runs
+cannot collide.  With `CD_TEST_POSTGRES_URL` unset every test returns
+immediately, which is why `run-tests` is safe to run anywhere.
+
+The suite is written against behavior Apple's CoreData defines, so it runs on
+macOS against Apple's framework as well (see above) - which is how it was
+first verified.  Where the two disagree, Apple arbitrates: batch updating a
+relationship, for instance, is rejected by Apple with an exception before the
+request reaches any store, so the test accepts a raise as well as a returned
+error.

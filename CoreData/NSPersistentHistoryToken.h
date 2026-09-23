@@ -23,4 +23,22 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSDictionary *_positions;   /* store identifier -> NSNumber (transaction number) */
 }
 
+
+/* --- Building and reading a token (a FreeCoreData addition) ---------
+ 
+   Apple publishes nothing on this class at all, which leaves a persistent
+   store outside the framework unable to answer a history request: it can
+   neither say where its history has reached nor read the anchor it was
+   given.  These two do that, and nothing else.  Code that must also build
+   against Apple's CoreData should test for them with -respondsToSelector:
+   and treat their absence as "history is not supported here". */
+
+/* A token recording how far each store has got, keyed by store identifier
+   with NSNumber transaction numbers. */
++ (instancetype)tokenWithTransactionNumbersByStoreIdentifier:(NSDictionary *)numbers;
+
+/* The transaction number this token records for one store, or 0 when it
+   records nothing for it. */
+- (int64_t)transactionNumberForStoreIdentifier:(NSString *)identifier;
+
 @end

@@ -55,4 +55,16 @@ typedef NSInteger NSPersistentHistoryChangeType;
 - (NSSet *)updatedProperties;   /* NSPropertyDescription */
 - (NSPersistentHistoryTransaction *)transaction;
 
+
+/* --- Building a change (a FreeCoreData addition) --------------------
+ 
+   A store outside the framework has to hand these back when it answers a
+   history request, and Apple publishes no way to make one.  See
+   NSPersistentHistoryToken.h for the compatibility note. */
++ (instancetype)changeWithID:(int64_t)changeID
+                        type:(NSPersistentHistoryChangeType)type
+                    objectID:(NSManagedObjectID *)objectID
+           updatedProperties:(NSSet *)updatedProperties
+                   tombstone:(NSDictionary *)tombstone;
+
 @end
