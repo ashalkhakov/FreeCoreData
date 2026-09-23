@@ -249,6 +249,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return [[_context deletedObjects] containsObject:self];
 }
 
+-(BOOL)hasChanges {
+   return [self isInserted] || [self isDeleted] || [self isUpdated] ||
+          [_changedValues count]>0;
+}
+
 -(BOOL)isFault {
    return _isFault;
 }
@@ -275,8 +280,27 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void) prepareForDeletion {
 }
 
+/* Persistent properties only, matching Apple's documentation and its
+   behavior (Mac-arbitrated): a transient change dirties the object -
+   -hasChanges says so - but is never reported here. */
 -(NSDictionary *)changedValues {
-   return _changedValues;
+   NSDictionary *properties=[[self entity] propertiesByName];
+   BOOL          anyTransient=NO;
+
+   for(NSString *name in _changedValues)
+    if([[properties objectForKey:name] isTransient]){
+     anyTransient=YES;
+     break;
+    }
+   if(!anyTransient)
+    return _changedValues;
+
+   NSMutableDictionary *persistent=[NSMutableDictionary dictionary];
+
+   for(NSString *name in _changedValues)
+    if(![[properties objectForKey:name] isTransient])
+     [persistent setObject:[_changedValues objectForKey:name] forKey:name];
+   return persistent;
 }
 
 -(NSDictionary *)_committedValuesFromIncrementalStore:(NSIncrementalStore *)store {
@@ -296,6 +320,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
    for(NSPropertyDescription *property in properties){
     NSString *name=[property name];
+
+    /* The store neither has nor answers for transient properties: a
+       transient to-one must not cost a newValueForRelationship round
+       trip against a column that does not exist, and a transient
+       to-many must not be seeded as a store-backed fault.  Absent from
+       the snapshot, they read as nil until set. */
+    if([property isTransient])
+     continue;
 
     if([property isKindOfClass:[NSAttributeDescription class]]){
      id value=[node valueForPropertyDescription:property];
@@ -607,6 +639,47 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 -(void)_invalidateCommittedValues {
    [_committedValues release];
    _committedValues=nil;
+}
+
+/* Post-save reset: the committed snapshot re-realizes from the store,
+   which knows nothing of transient properties - their current values
+   (changed if a change is pending, committed otherwise) are lifted
+   out first and folded back in afterwards, so a transient attribute
+   or relationship keeps its value across a save exactly as a
+   persistent one does.  Values stay in the internal representation
+   (relationships as object IDs), which is what the committed snapshot
+   holds anyway. */
+-(void)_resetCommittedValuesAfterSavePreservingTransients {
+   NSDictionary        *properties=[[self entity] propertiesByName];
+   NSMutableDictionary *transients=nil;
+
+   for(NSString *name in properties){
+    NSPropertyDescription *property=[properties objectForKey:name];
+
+    if(![property isTransient])
+     continue;
+
+    id value=[_changedValues objectForKey:name];
+
+    if(value==nil)
+     value=[_committedValues objectForKey:name];
+    if(value==nil || value==[NSNull null])
+     continue;   /* absent and explicitly-nil both mean nil */
+
+    if(transients==nil)
+     transients=[NSMutableDictionary dictionary];
+    [transients setObject:value forKey:name];
+   }
+
+   [self _discardChangedValues];
+   [self _invalidateCommittedValues];
+   [self _committedValues];
+
+   if(transients!=nil){
+    if(_committedValues==nil)
+     _committedValues=[[NSMutableDictionary alloc] init];
+    [(NSMutableDictionary *)_committedValues addEntriesFromDictionary:transients];
+   }
 }
 
 -(void)_discardChangedValues {

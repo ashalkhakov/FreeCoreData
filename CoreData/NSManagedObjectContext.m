@@ -2669,20 +2669,16 @@ static id CDUndoRestoredValue(id value){
     NSMutableSet *saved=[NSMutableSet setWithSet:notifyInserted];
     [saved unionSet:notifyUpdated];
 
-    for(NSManagedObject *object in saved){
-     [object _discardChangedValues];
-     [object _invalidateCommittedValues];
-    }
-
     /* Re-realize the committed snapshot NOW rather than lazily on the
        next read (the round trip also picks up store-computed derived
        values).  Apple keeps saved objects materialized, so rows later
        changed behind the context's back - batch requests, other
        processes - leave these objects STALE until they are refreshed
        or merged; a lazy re-read would instead make them accidentally
-       see such changes. */
+       see such changes.  Transient property values, which the store
+       round trip knows nothing about, are carried across. */
     for(NSManagedObject *object in saved)
-     [object _committedValues];
+     [object _resetCommittedValuesAfterSavePreservingTransients];
 
     for(NSManagedObject *object in saved)
      [object didSave];

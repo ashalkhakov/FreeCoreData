@@ -27,6 +27,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (BOOL)isInserted;
 - (BOOL)isUpdated;
 - (BOOL)isDeleted;
+
+/* YES when the object is inserted, deleted, or has unsaved changed
+   values (transient properties included), matching Apple. */
+- (BOOL)hasChanges;
 - (BOOL)isFault;
 - (BOOL)hasFaultForRelationshipNamed:(NSString *)key;
 
