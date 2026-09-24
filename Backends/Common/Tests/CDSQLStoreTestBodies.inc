@@ -1610,9 +1610,11 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
     XCTAssertEqualObjects([[sociable firstObject] valueForKey:@"name"], @"Ada");
 }
 
-/* SUBQUERY narrows the rows before counting them.  gnustep-base cannot
-   parse SUBQUERY at all, so this checks the translation where the framework
-   can express it, and skips where it cannot. */
+/* SUBQUERY narrows the rows before counting them.  A Foundation that
+   cannot parse SUBQUERY cannot ask the question at all - gnustep-base could
+   not until the patch this project carries in patches/gnustep/ - so this
+   checks the translation where the framework can express it, and skips
+   where it cannot. */
 - (void)testFilteredCountOfARelationship
 {
     if (![self databaseAvailable]) return;

@@ -1,0 +1,37 @@
+diff --git a/Source/NSPredicate.m b/Source/NSPredicate.m
+index dabf91d1c..572b628e0 100644
+--- a/Source/NSPredicate.m
++++ b/Source/NSPredicate.m
+@@ -1525,9 +1531,30 @@ GSICUStringMatchesRegex(NSString *string, NSString *regex, NSStringCompareOption
+   switch (_type)
+     {
+       case NSEqualToPredicateOperatorType:
+-	return [leftResult isEqual: rightResult];
+       case NSNotEqualToPredicateOperatorType:
+-	return ![leftResult isEqual: rightResult];
++	{
++	  BOOL	equal;
++
++	  /* The [c] and [d] options apply to equality as well as to
++	   * ordering and matching: "Ada" ==[c] "ada" is true.  -isEqual:
++	   * can express neither option, so two strings compared with one
++	   * are compared as strings.
++	   */
++	  if ((_options & (NSCaseInsensitivePredicateOption
++	    | NSDiacriticInsensitivePredicateOption))
++	    && [leftResult isKindOfClass: [NSString class]]
++	    && [rightResult isKindOfClass: [NSString class]])
++	    {
++	      equal = ([leftResult compare: rightResult
++				   options: compareOptions] == NSOrderedSame);
++	    }
++	  else
++	    {
++	      equal = [leftResult isEqual: rightResult];
++	    }
++
++	  return (NSEqualToPredicateOperatorType == _type) ? equal : !equal;
++	}
+       case NSMatchesPredicateOperatorType:
+ #if	GS_USE_ICU == 1
+ 	return GSICUStringMatchesRegex(leftResult, rightResult, compareOptions);

@@ -286,10 +286,11 @@ NSManagedObjectModel *CDSQLTestModel(void)
 }
 
 /* A predicate no store can translate - the SQL side has nothing to work
-   with - so it is always the in-memory evaluator that answers it.  (A
-   [c] comparison would do as well on Apple, but gnustep-base's in-memory
-   evaluator does not honour the case-insensitive option for ==, so it
-   would be testing the framework rather than the store.) */
+   with - so it is always the in-memory evaluator that answers it.  A block
+   is used rather than a [c] comparison because a block is untranslatable
+   everywhere, whereas what a given framework does with an option is the
+   framework's business: gnustep-base ignored [c] for == until the patch
+   this project carries in patches/gnustep/. */
 - (NSPredicate *)namedPredicate:(NSString *)name
 {
     return [NSPredicate predicateWithBlock:^BOOL(id object, NSDictionary *bindings) {

@@ -265,8 +265,13 @@ own predicate to that `WHERE`.  A count, rather than a join, is what makes
 `@count == 0` work: a row with nothing related still has a count.
 
 (`SUBQUERY` is understood where the framework can express it.  gnustep-base
-cannot parse `SUBQUERY(...)` at all, so on FreeCoreData the question cannot
-be asked; `@count` on a relationship works on both.)
+could not parse `SUBQUERY(...)` at all until the patch this project carries
+in `patches/gnustep/`, so against an unpatched one the question cannot be
+asked and the store never sees it; `@count` on a relationship works
+everywhere.  The two parsers also build the same predicate differently -
+Apple makes `SUBQUERY(...).@count` a `valueForKeyPath:` function
+expression, gnustep-base a key path composition - and the store reads
+either.)
 
 Left to the in-memory evaluator: diacritic-insensitive and locale-sensitive
 matching (`[d]`, `[cd]`); ordering comparisons on transformable values;
@@ -468,9 +473,9 @@ on Apple.
 
 ## Not implemented
 
-- **`SUBQUERY(...)`**, and key paths crossing relationships in *sort
-  descriptors* (predicates do translate - see below).  These fetches are
-  evaluated in memory instead, as they are in the SQLite store.
+- **Key paths crossing relationships in *sort descriptors*** (predicates do
+  translate - see below).  Those fetches are ordered in memory instead, as
+  they are in the SQLite store.
 - **Derived attributes** other than the plain copy form, which becomes a
   stored generated column.  Other derivations are written as whatever the
   object holds at save time.

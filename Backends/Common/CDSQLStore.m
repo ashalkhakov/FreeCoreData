@@ -1597,8 +1597,25 @@ static NSString * const CDSQLOuterAlias=@"t0";
     return (variable==nil)?keyPath:nil;
    }
 
-   if([expression expressionType]!=NSFunctionExpressionType)
-    return nil;
+   /* $e.age is a key path composition here and a valueForKeyPath: function
+      on Apple; both are read, so the same store serves either. */
+   if([expression expressionType]!=NSFunctionExpressionType){
+    @try {
+     NSExpression *left=[expression leftExpression];
+     NSExpression *right=[expression rightExpression];
+
+     if(left==nil || [left expressionType]!=NSVariableExpressionType)
+      return nil;
+     if(variable!=nil && ![[left variable] isEqualToString:variable])
+      return nil;
+     if([right expressionType]!=NSKeyPathExpressionType)
+      return nil;
+
+     return [right keyPath];
+    } @catch(NSException *exception){
+     return nil;
+    }
+   }
 
    NSString     *keyPath=nil;
    NSExpression *operand=nil;
@@ -1764,8 +1781,36 @@ static NSString * const CDSQLOuterAlias=@"t0";
     return YES;
    }
 
-   if([expression expressionType]!=NSFunctionExpressionType)
-    return NO;
+   /* The two framework's parsers build SUBQUERY(...).@count differently.
+      Apple's makes a function expression - valueForKeyPath: with @count as
+      its argument and the subquery as its operand - while gnustep-base
+      makes a key path composition whose left is the subquery and whose
+      right is the key path @count.  Both are asked for by duck typing, so
+      neither framework has to publish anything the other does not. */
+   if([expression expressionType]!=NSFunctionExpressionType){
+    @try {
+     NSExpression *left=[expression leftExpression];
+     NSExpression *right=[expression rightExpression];
+
+     if(left==nil || [left expressionType]!=NSSubqueryExpressionType)
+      return NO;
+     if(![[right keyPath] isEqualToString:@"@count"])
+      return NO;
+
+     NSExpression *collection=[left collection];
+
+     if([collection expressionType]!=NSKeyPathExpressionType)
+      return NO;
+
+     *keyPath=[collection keyPath];
+     *variable=[left variable];
+     *predicate=[left predicate];
+    } @catch(NSException *exception){
+     return NO;
+    }
+
+    return (*keyPath!=nil);
+   }
 
    @try {
     if(![[expression function] isEqualToString:@"valueForKeyPath:"])

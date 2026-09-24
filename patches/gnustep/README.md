@@ -1,6 +1,6 @@
 # GNUstep patches carried by this project
 
-Six fixes, written for upstream and applied by
+Ten fixes, written for upstream and applied by
 `.github/scripts/dependencies.sh` when CI and the release build the GNUstep
 stack. They are held here while upstream is in code freeze; send them once
 it lifts, and delete each one (and its `patch` line in the script) when it
@@ -118,3 +118,93 @@ success.
 `repro-nskeyedarchiver-secure-coding.m` beside this file demonstrates
 the gap and proves the fix (exit 0 patched, 1 unpatched); send it
 upstream together with the patch.
+
+## gnustep-base-predicate-equality-options.patch (libs-base)
+
+The `[c]` and `[d]` options are honoured by every comparison except the
+one people write most. `-[GSComparisonPredicate evaluateWithObject:]`
+works out the string compare options from the predicate's options and
+then uses them only for ordering and matching: `==` and `!=` are answered
+with `-isEqual:`, which can express neither option. `"Ada" ==[c] "ada"` is
+true on macOS and false here.
+
+The option is parsed and kept - the predicate even prints as
+`name ==[c] ada` - so the mismatch is silent: a filter that reads as
+case-insensitive simply misses rows. The patch compares two strings with
+the options when either is set, and leaves everything else going through
+`-isEqual:`.
+
+`repro-nspredicate-equality-options.m` beside this file demonstrates the
+gap and proves the fix (exit 0 patched, 1 unpatched); send it upstream
+together with the patch.
+
+## gnustep-base-expression-self-type.patch (libs-base)
+
+Every kind of `NSExpression` is built through `-initWithExpressionType:`,
+which is what `-expressionType` answers with - every kind but one. The
+shared expression behind `+expressionForEvaluatedObject` is built with
+`+new`, so its type stays zero, and zero is
+`NSConstantValueExpressionType`: `SELF` reports itself as a constant
+value.
+
+Anything that switches on `-expressionType` is then wrong about `SELF` -
+a persistent store translating a predicate either mistakes it for a
+constant and asks for a `constantValue` it has not got, or quietly
+declines to translate something it understands perfectly well. The patch
+builds the shared expression with its own type, like all the others.
+
+`repro-nsexpression-self-type.m` beside this file demonstrates the gap and
+proves the fix (exit 0 patched, 1 unpatched); send it upstream together
+with the patch.
+
+## gnustep-base-expression-binary-coding.patch (libs-base)
+
+Four kinds of expression share the class that holds a left and a right
+expression: a key path composition (`$x.y`, and anything else written with
+a dot after something that is not a plain key path), a union, an
+intersection and a difference. None of them implements
+`-encodeWithCoder:`, so they inherit `NSExpression`'s, which raises
+`should be overridden by subclass`.
+
+Archiving a predicate is how a Core Data model stores a fetch request
+template and how one process hands a predicate to another, so a predicate
+with `$x.y` in it could not be saved at all. The patch encodes the two
+halves and writes out which of the four kinds it is, so that one
+initialiser reads them all back.
+
+`repro-nsexpression-binary-coding.m` beside this file demonstrates the gap
+and proves the fix (exit 0 patched, 1 unpatched); send it upstream
+together with the patch.
+
+## gnustep-base-predicate-subquery.patch (libs-base)
+
+`NSSubqueryExpressionType` is named in the enumeration and
+`GSSubqueryExpression` is declared with an empty implementation, but there
+is nothing behind either: no
+`+expressionForSubquery:usingIteratorVariable:predicate:`, no evaluation,
+and nothing in the parser. `SUBQUERY(...)` in a format string is read as a
+call to a function named `SUBQUERY` and raises while parsing.
+
+The raise comes from somewhere unexpected - `[GSVariableExpression
+-keyPath] should be overridden by subclass` - and that is a second gap
+behind the first: the parser asks an expression for its key path to decide
+what it is looking at, and `-keyPath` raises for the kinds that have none.
+`$x.y` could not be parsed either, subquery or no subquery.
+
+The patch adds the factory method, the expression class (evaluation,
+description, coding, equality and substitution) and the parser clause, and
+makes the parser ask about the kind before it asks for the key path. The
+iterator variable is bound by substituting it into the subpredicate for
+each member, since `-evaluateWithObject:` passes no context for a variable
+to be looked up in.
+
+`repro-nspredicate-subquery.m` beside this file demonstrates the gap and
+proves the fix (exit 0 patched, 1 unpatched); send it upstream together
+with the patch.
+
+These four are what this project's SQL backends found: a store translates
+a predicate by walking it, so a predicate the framework cannot parse, or
+an expression that will not say what kind it is, stops the translation
+before it starts. With them applied, `SUBQUERY(employees, $e, $e.age >
+40).@count > 1` reaches the database as a correlated `COUNT`, the same
+statement Apple's CoreData produces.

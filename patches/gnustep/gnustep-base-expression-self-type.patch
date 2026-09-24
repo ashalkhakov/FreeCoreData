@@ -1,0 +1,14 @@
+diff --git a/Source/NSPredicate.m b/Source/NSPredicate.m
+index dabf91d1c..572b628e0 100644
+--- a/Source/NSPredicate.m
++++ b/Source/NSPredicate.m
+@@ -1800,7 +1827,8 @@ GSICUStringMatchesRegex(NSString *string, NSString *regex, NSStringCompareOption
+ {
+   if (self == [NSExpression class] && nil == evaluatedObjectExpression)
+     {
+-      evaluatedObjectExpression = [GSEvaluatedObjectExpression new];
++      evaluatedObjectExpression = [[GSEvaluatedObjectExpression alloc]
++	initWithExpressionType: NSEvaluatedObjectExpressionType];
+ 
+       /* An archive names the kinds of expression the way OS X does, so that
+        * one written here can be read there and the other way about.

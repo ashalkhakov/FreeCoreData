@@ -20,7 +20,7 @@
 # XCTest, so tools-xctest is; and the packaged app ships with the Eau theme,
 # which has to be built against the same gui it will be loaded into.
 #
-# Six fixes are carried as patches in patches/gnustep/, applied below; they
+# Ten fixes are carried as patches in patches/gnustep/, applied below; they
 # are written for upstream and held here until they can be sent. See
 # patches/gnustep/README.md. Everything else is built from master as it
 # stands.
@@ -114,6 +114,20 @@ install_libs_base() {
     # (no error) whenever secure coding was requested, so persistent history
     # tokens could not be archived; see the repro beside the patch.
     patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-base-keyedarchiver-secure-coding.patch"
+    # == and != ignored the [c] and [d] options, so a case-insensitive
+    # equality filter silently missed rows; see the repro beside the patch.
+    patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-base-predicate-equality-options.patch"
+    # The shared SELF expression was built without its type, so it reported
+    # itself as a constant value; see the repro beside the patch.
+    patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-base-expression-self-type.patch"
+    # A key path composition ($x.y), a union, an intersection and a
+    # difference could not be archived at all - -encodeWithCoder: raised;
+    # see the repro beside the patch.
+    patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-base-expression-binary-coding.patch"
+    # SUBQUERY(...) was named in the enumeration but implemented nowhere,
+    # and the parser could not read $x.y either; see the repro beside the
+    # patch.
+    patch -p1 < "$WORKSPACE_DIR/patches/gnustep/gnustep-base-predicate-subquery.patch"
     # The reference recipe names $PREFIX/etc/GNUstep.conf here. This
     # gnustep-make writes it to $PREFIX/etc/GNUstep/GNUstep.conf instead, and
     # when the named file does not exist libs-base falls back to the built-in
