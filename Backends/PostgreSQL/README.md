@@ -495,7 +495,10 @@ CD_TEST_POSTGRES_URL=postgresql://postgres:test@localhost/coredata_test \
 
 Each test runs in a schema of its own, which is dropped afterwards, so runs
 cannot collide.  With `CD_TEST_POSTGRES_URL` unset every test returns
-immediately, which is why `run-tests` is safe to run anywhere.
+immediately, which is why `run-tests` is safe to run anywhere.  That silence
+is wrong where a server was meant to be there - a database that failed to
+start would leave a green run that tested nothing - so setting
+`CD_TEST_REQUIRE_DATABASE` turns the skip into a failure.  CI sets it.
 
 The suite is written against behavior Apple's CoreData defines, so it runs on
 macOS against Apple's framework as well (see above) - which is how it was

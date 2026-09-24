@@ -156,10 +156,23 @@ static NSManagedObjectModel *CDMySQLTestModel(void)
 @implementation CDMySQLStoreTests
 
 /* The tests are no-ops without a server; XCTSkip is not available in every
-   XCTest this project runs against, so each test asks first. */
+   XCTest this project runs against, so each test asks first.
+
+   A suite that skips itself reports success, which is the right answer on a
+   developer's machine with no server and the wrong one in CI, where a
+   database that failed to start would go unnoticed.  Setting
+   CD_TEST_REQUIRE_DATABASE turns the skip into a failure. */
 - (BOOL)databaseAvailable
 {
-    return (self.storeURL != nil);
+    if (self.storeURL != nil)
+        return YES;
+
+    NSString *required = [[NSProcessInfo processInfo] environment][@"CD_TEST_REQUIRE_DATABASE"];
+
+    if ([required length] > 0)
+        XCTFail(@"CD_TEST_REQUIRE_DATABASE is set, but CD_TEST_MYSQL_URL names no reachable server");
+
+    return NO;
 }
 
 - (void)setUp

@@ -117,4 +117,7 @@ xcodebuild -project Backends/MySQL/CDMySQLStore.xcodeproj \
 ```
 
 Each test works in a database of its own, dropped afterwards.  With
-`CD_TEST_MYSQL_URL` unset every test returns immediately.
+`CD_TEST_MYSQL_URL` unset every test returns immediately; set
+`CD_TEST_REQUIRE_DATABASE` to turn that skip into a failure instead, which is
+what CI does so that a server which failed to start cannot pass for a green
+run.

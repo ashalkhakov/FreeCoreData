@@ -6,6 +6,9 @@
 #
 # Without CD_TEST_MYSQL_URL in the environment every test returns
 # immediately, so `run-tests` is safe to run on a machine with no server.
+#
+# CD_TEST_REQUIRE_DATABASE makes that a failure instead, for CI, where a
+# server that did not start must not pass for a suite that did.
 
 BUNDLE_NAME = CDMySQLStoreTests
 

@@ -92,3 +92,28 @@ what it cannot express (an aggregate across a relationship, a predicate that
 does not translate exactly) it leaves to the framework.
 
 Nothing here is needed on Apple's CoreData, which never sends the message.
+
+Continuous integration
+----------------------
+
+`.github/workflows/backends.yml` is these backends' own workflow - the
+framework's CI does not build them, since they are an addon and need servers
+to say anything.  It runs when anything under `Backends/` changes, and when
+`CoreData/` does: a store is a client of the framework's public API, so a
+change there can break a backend without touching a file here.
+
+On Linux it builds the framework and both backends against a restored GNUstep
+stack (the same cache the framework's CI fills) and runs each suite against a
+service container: PostgreSQL 16, MySQL 8, and MariaDB 11 through the MySQL
+backend, which is written for both and cannot be assumed correct on one from a
+run on the other.
+
+On macOS it builds both backends and their test bundles against Apple's
+CoreData.  That is the check the public-API-only rule needs - one private
+method and it stops compiling - while running the suites there would need
+servers on the runner, which is left to whoever wants it locally.
+
+The suites skip themselves when no URL is configured, which is right on a
+machine with no server and wrong in CI, where a database that failed to start
+would leave a green run that tested nothing.  CI therefore sets
+`CD_TEST_REQUIRE_DATABASE`, which turns the skip into a failure.
