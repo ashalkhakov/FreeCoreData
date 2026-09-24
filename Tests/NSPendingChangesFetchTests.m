@@ -863,22 +863,26 @@ static NSExpressionDescription *expressionColumn(NSString *name,
     NSError *error = nil;
     XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
 
-    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
-    [fetch setEntity:[NSEntityDescription entityForName:@"Department"
-                                 inManagedObjectContext:self.ctx]];
-    [fetch setResultType:NSDictionaryResultType];
-    [fetch setPropertiesToFetch:[NSArray arrayWithObjects:
+    NSFetchRequest *(^grouped)(NSArray *) = ^(NSArray *columns) {
+        NSFetchRequest *request = [[NSFetchRequest alloc] init];
+
+        [request setEntity:[NSEntityDescription entityForName:@"Department"
+                                      inManagedObjectContext:self.ctx]];
+        [request setResultType:NSDictionaryResultType];
+        [request setPropertiesToFetch:columns];
+        [request setPropertiesToGroupBy:[NSArray arrayWithObject:@"name"]];
+        [request setSortDescriptors:[NSArray arrayWithObject:
+            [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES]]];
+
+        return request;
+    };
+
+    /* Counting what a to-many reaches. */
+    NSArray *rows = [self.ctx executeFetchRequest:grouped([NSArray arrayWithObjects:
         @"name",
         expressionColumn(@"headcount", aggregateExpression(@"count", @"employees"),
                          NSInteger64AttributeType),
-        expressionColumn(@"payroll", aggregateExpression(@"sum", @"employees.salary"),
-                         NSInteger64AttributeType),
-        nil]];
-    [fetch setPropertiesToGroupBy:[NSArray arrayWithObject:@"name"]];
-    [fetch setSortDescriptors:[NSArray arrayWithObject:
-        [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES]]];
-
-    NSArray *rows = [self.ctx executeFetchRequest:fetch error:&error];
+        nil]) error:&error];
 
     XCTAssertNotNil(rows, @"fetch failed: %@", error);
     XCTAssertEqual([rows count], (NSUInteger)3);
@@ -886,13 +890,49 @@ static NSExpressionDescription *expressionColumn(NSString *name,
     /* Empty, Engineering, Sales. */
     XCTAssertEqualObjects([[rows objectAtIndex:0] objectForKey:@"name"], @"Empty");
     XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"headcount"] intValue], 0);
-
     XCTAssertEqualObjects([[rows objectAtIndex:1] objectForKey:@"name"], @"Engineering");
     XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"headcount"] intValue], 2);
-    /* Both earn ten: twenty, not ten. */
-    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"payroll"] intValue], 20);
-
     XCTAssertEqualObjects([[rows objectAtIndex:2] objectForKey:@"name"], @"Sales");
+    XCTAssertEqual([[[rows objectAtIndex:2] objectForKey:@"headcount"] intValue], 1);
+
+    /* Summing an attribute beyond it.  Both engineers earn ten, and the
+       two are added rather than folded into one value, which is what
+       -valueForKeyPath: over a set would have done. */
+    rows = [self.ctx executeFetchRequest:grouped([NSArray arrayWithObjects:
+        @"name",
+        expressionColumn(@"payroll", aggregateExpression(@"sum", @"employees.salary"),
+                         NSInteger64AttributeType),
+        nil]) error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"payroll"] intValue], 20);
+    XCTAssertEqual([[[rows objectAtIndex:2] objectForKey:@"payroll"] intValue], 25);
+
+    /* Both at once.  Apple's SQLite store joins the relationship once per
+       aggregate - two LEFT OUTER JOINs of ZEMPLOYEE onto ZDEPARTMENT -
+       so its rows multiply and Engineering comes back as four employees
+       earning forty (observed on macOS 2026-09-24).  The port shapes the
+       rows from the objects and counts each employee once; the SQL
+       backends in Backends/ share one join between the aggregates and
+       agree with the port. */
+    rows = [self.ctx executeFetchRequest:grouped([NSArray arrayWithObjects:
+        @"name",
+        expressionColumn(@"headcount", aggregateExpression(@"count", @"employees"),
+                         NSInteger64AttributeType),
+        expressionColumn(@"payroll", aggregateExpression(@"sum", @"employees.salary"),
+                         NSInteger64AttributeType),
+        nil]) error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+
+#if defined(__APPLE__)
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"headcount"] intValue], 4);
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"payroll"] intValue], 40);
+#else
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"headcount"] intValue], 2);
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"payroll"] intValue], 20);
+#endif
+
     XCTAssertEqual([[[rows objectAtIndex:2] objectForKey:@"headcount"] intValue], 1);
     XCTAssertEqual([[[rows objectAtIndex:2] objectForKey:@"payroll"] intValue], 25);
 }

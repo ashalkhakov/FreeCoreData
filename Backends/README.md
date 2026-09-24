@@ -121,6 +121,16 @@ multiplies the rows, so one such crossing is allowed per request and a second
 - or a local aggregate counted alongside one - is declined rather than
 answered with the product.
 
+Two aggregates over the *same* relationship share that one join, which is
+where these backends and Apple's own SQLite store part company: Apple joins
+the relationship once per aggregate, so asking for `count:(employees)` and
+`sum:(employees.salary)` together joins ZEMPLOYEE twice and multiplies the
+rows - two employees earning ten each come back as four earning forty
+(observed on macOS 2026-09-24).  These backends, and this framework when it
+shapes the rows itself, count each row once.  It is the one place where the
+backends deliberately do not reproduce Apple's answer, because Apple's
+answer is arithmetic nobody asked for.
+
 Nothing here is needed on Apple's CoreData, which never sends the message.
 
 ## Continuous integration
