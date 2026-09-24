@@ -30,10 +30,12 @@ NSString * const CDSQLStoreMigrateSchemaOption=@"CDSQLStoreMigrateSchema";
 /* The value of Z_VERSION written by (and accepted from) this store. */
 enum { CDSQLStoreMetadataVersion=1 };
 
-/* PostgreSQL's parameter limit is 65535, far above anything a sensible IN
-   list holds; the cap is here so that a pathological collection is evaluated
-   in memory instead of building an enormous statement. */
-enum { CDSQLStoreMaxInListSize=900 };
+/* An IN list of primary keys is written out as literals rather than bound
+   parameters, so its size is bounded by the statement the server will
+   accept rather than by any parameter limit.  A hundred thousand keys is
+   about a megabyte of SQL, which both servers take; past that the predicate
+   is evaluated in memory, which is slower and always right. */
+enum { CDSQLStoreMaxInListLiterals=100000 };
 
 /* ------------------------------------------------------------------ */
 #pragma mark - Naming helpers (the SQLite store's schema names)
@@ -1507,7 +1509,11 @@ static NSString * const CDSQLOuterAlias=@"t0";
 
      if(count==0)
       return @"FALSE";
-     if(count>CDSQLStoreMaxInListSize)
+
+     /* Every element is one bound parameter, and a statement may carry
+        only so many - the rest of the predicate has used some of them
+        already. */
+     if(count+[bindings count]>[self maximumBoundParameters])
       return nil;
 
      NSMutableArray *placeholders=[NSMutableArray array];
@@ -1904,7 +1910,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
 
     if([keys count]==0)
      return negated?@"TRUE":@"FALSE";
-    if([keys count]>CDSQLStoreMaxInListSize)
+    if([keys count]>CDSQLStoreMaxInListLiterals)
      return nil;
 
     /* The list holds primary keys this store handed out, not user text. */
@@ -2256,11 +2262,119 @@ static NSString * const CDSQLOuterAlias=@"t0";
 /* An NSExpressionDescription asks for something computed: max:, sum: and
    friends over a key path.  Answers the SQL, or nil when this is not a
    shape the store can express. */
--(NSString *)_aggregateSQLForExpressionDescription:(NSExpressionDescription *)description entity:(NSEntityDescription *)entity {
-   return [self _aggregateSQLForExpression:[description expression] entity:entity];
+-(NSString *)_aggregateSQLForExpressionDescription:(NSExpressionDescription *)description
+                                            entity:(NSEntityDescription *)entity
+                                             query:(CDSQLQuery *)query
+                                             joins:(NSMutableDictionary *)joinState {
+   return [self _aggregateSQLForExpression:[description expression] entity:entity query:query joins:joinState];
 }
 
--(NSString *)_aggregateSQLForExpression:(NSExpression *)expression entity:(NSEntityDescription *)entity {
+/* The table an aggregate's key path reaches, joined into the outer query.
+
+   An aggregate over a related entity - sum:(employees.salary) - reads a
+   column of the far table, so the far table has to be in the query.  It is
+   joined with LEFT JOIN, so that an outer row with no related rows still
+   produces one (a count of nought rather than no row at all), and the joins
+   are cached by prefix, so several aggregates over the same relationship
+   share one.
+
+   Crossing a to-many multiplies the outer rows.  That is exactly right for
+   an aggregate over those rows and exactly wrong for anything counted
+   alongside it: COUNT of the outer entity would count the pairs.  So the
+   state carries the one to-many prefix a query is allowed, and a second
+   different one - or a local aggregate mixed in with one - declines the
+   whole projection and leaves the work to the framework, which is slower
+   and right.
+
+   `joinState` holds "aliases" (key path prefix -> table alias), "toMany"
+   (the prefix at which the one permitted to-many was crossed) and "local"
+   (whether an aggregate over the fetched entity's own columns was seen). */
+-(NSString *)_joinedAliasForSegments:(NSArray *)segments
+                              entity:(NSEntityDescription *)entity
+                               query:(CDSQLQuery *)query
+                               joins:(NSMutableDictionary *)joinState
+                          lastEntity:(NSEntityDescription **)lastEntity {
+   NSMutableDictionary *aliases=[joinState objectForKey:@"aliases"];
+   NSEntityDescription *current=entity;
+   NSString            *currentAlias=CDSQLOuterAlias;
+   NSMutableArray      *walked=[NSMutableArray array];
+
+   for(NSString *segment in segments){
+    NSRelationshipDescription *relationship=[propertiesForEntityChain(current) objectForKey:segment];
+
+    if(![relationship isKindOfClass:[NSRelationshipDescription class]])
+     return nil;
+
+    NSEntityDescription *destination=[relationship destinationEntity];
+
+    [walked addObject:segment];
+
+    NSString *prefix=[walked componentsJoinedByString:@"."];
+    NSString *cached=[aliases objectForKey:prefix];
+
+    if([relationship isToMany]){
+     NSString *permitted=[joinState objectForKey:@"toMany"];
+
+     if(permitted!=nil && ![permitted isEqualToString:prefix])
+      return nil;   /* two independent to-many joins would multiply each other */
+     if([[joinState objectForKey:@"local"] boolValue])
+      return nil;   /* an aggregate over the outer rows would count the pairs */
+
+     [joinState setObject:prefix forKey:@"toMany"];
+    }
+
+    if(cached!=nil){
+     currentAlias=cached;
+     current=destination;
+     continue;
+    }
+
+    NSString *alias=[query nextAliasWithPrefix:@"a"];
+
+    if(![relationship isToMany]){
+     /* The foreign key is on this side, pointing at the destination row. */
+     [query addJoin:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.\"Z_PK\" = %@.%@",
+                     quoted(tableNameForEntity(destination)),alias,
+                     alias,currentAlias,quoted(columnNameForProperty([relationship name]))]];
+    }
+    else if(relationshipUsesJoinTable(relationship)){
+     NSDictionary *join=[self _joinSpecForRelationship:relationship];
+     NSString     *joinAlias=[query nextAliasWithPrefix:@"a"];
+
+     [query addJoin:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.%@ = %@.\"Z_PK\"",
+                     quoted([join objectForKey:@"table"]),joinAlias,
+                     joinAlias,quoted([join objectForKey:@"ownerColumn"]),currentAlias]];
+     [query addJoin:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.\"Z_PK\" = %@.%@",
+                     quoted(tableNameForEntity(destination)),alias,
+                     alias,joinAlias,quoted([join objectForKey:@"destinationColumn"])]];
+    }
+    else {
+     /* The foreign key lives on the destination's row. */
+     NSRelationshipDescription *inverse=[relationship inverseRelationship];
+
+     if(inverse==nil)
+      return nil;
+
+     [query addJoin:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.%@ = %@.\"Z_PK\"",
+                     quoted(tableNameForEntity(destination)),alias,
+                     alias,quoted(columnNameForProperty([inverse name])),currentAlias]];
+    }
+
+    [aliases setObject:alias forKey:prefix];
+    currentAlias=alias;
+    current=destination;
+   }
+
+   if(lastEntity!=NULL)
+    *lastEntity=current;
+
+   return currentAlias;
+}
+
+-(NSString *)_aggregateSQLForExpression:(NSExpression *)expression
+                                 entity:(NSEntityDescription *)entity
+                                  query:(CDSQLQuery *)query
+                                  joins:(NSMutableDictionary *)joinState {
    if([expression expressionType]!=NSFunctionExpressionType)
     return nil;
 
@@ -2291,17 +2405,61 @@ static NSString * const CDSQLOuterAlias=@"t0";
    if([argument expressionType]!=NSKeyPathExpressionType)
     return nil;
 
-   NSString *keyPath=[argument keyPath];
+   NSArray             *segments=[[argument keyPath] componentsSeparatedByString:@"."];
+   NSString            *last=[segments lastObject];
+   NSEntityDescription *owner=entity;
+   NSString            *alias=CDSQLOuterAlias;
 
-   if([keyPath rangeOfString:@"."].location!=NSNotFound)
-    return nil;   /* an aggregate over another table would need its join */
+   /* Everything but the last segment names relationships to walk; the last
+      is what is aggregated. */
+   if([segments count]>1){
+    if(query==nil)
+     return nil;
 
-   NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:keyPath];
+    alias=[self _joinedAliasForSegments:[segments subarrayWithRange:NSMakeRange(0,[segments count]-1)]
+                                 entity:entity
+                                  query:query
+                                  joins:joinState
+                             lastEntity:&owner];
+
+    if(alias==nil)
+     return nil;
+   }
+
+   NSPropertyDescription *property=[propertiesForEntityChain(owner) objectForKey:last];
+
+   /* Counting a relationship itself - count:(employees) - counts the rows
+      it reaches, so it is the relationship that is joined and its primary
+      key that is counted. */
+   if([property isKindOfClass:[NSRelationshipDescription class]]){
+    if(query==nil)
+     return nil;
+
+    NSString *joined=[self _joinedAliasForSegments:[NSArray arrayWithObject:last]
+                                            entity:owner
+                                             query:query
+                                             joins:joinState
+                                        lastEntity:NULL];
+
+    if(joined==nil)
+     return nil;
+
+    return [NSString stringWithFormat:@"%@(%@.\"Z_PK\")",aggregate,joined];
+   }
 
    if(![property isKindOfClass:[NSAttributeDescription class]])
     return nil;
 
-   return [NSString stringWithFormat:@"%@(%@.%@)",aggregate,CDSQLOuterAlias,quoted(columnNameForProperty(keyPath))];
+   if([segments count]==1){
+    /* An aggregate over the fetched entity's own rows cannot be counted
+       alongside one that multiplies them. */
+    if([joinState objectForKey:@"toMany"]!=nil)
+     return nil;
+
+    [joinState setObject:[NSNumber numberWithBool:YES] forKey:@"local"];
+   }
+
+   return [NSString stringWithFormat:@"%@(%@.%@)",aggregate,alias,quoted(columnNameForProperty(last))];
 }
 
 /* A predicate over the select list rather than over columns: a HAVING
@@ -2311,13 +2469,15 @@ static NSString * const CDSQLOuterAlias=@"t0";
 -(NSString *)_translateProjectedPredicate:(NSPredicate *)predicate
                               expressions:(NSDictionary *)expressionsByName
                                    entity:(NSEntityDescription *)entity
+                                    query:(CDSQLQuery *)query
+                                    joins:(NSMutableDictionary *)joinState
                                  bindings:(NSMutableArray *)bindings {
    if([predicate isKindOfClass:[NSCompoundPredicate class]]){
     NSCompoundPredicate *compound=(NSCompoundPredicate *)predicate;
     NSMutableArray      *clauses=[NSMutableArray array];
 
     for(NSPredicate *subpredicate in [compound subpredicates]){
-     NSString *clause=[self _translateProjectedPredicate:subpredicate expressions:expressionsByName entity:entity bindings:bindings];
+     NSString *clause=[self _translateProjectedPredicate:subpredicate expressions:expressionsByName entity:entity query:query joins:joinState bindings:bindings];
 
      if(clause==nil)
       return nil;
@@ -2358,7 +2518,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
    if([lhs expressionType]==NSKeyPathExpressionType)
     expression=[expressionsByName objectForKey:[lhs keyPath]];
    else if([lhs expressionType]==NSFunctionExpressionType)
-    expression=[self _aggregateSQLForExpression:lhs entity:entity];
+    expression=[self _aggregateSQLForExpression:lhs entity:entity query:query joins:joinState];
 
    if(expression==nil)
     return nil;
@@ -2427,7 +2587,8 @@ static NSString * const CDSQLOuterAlias=@"t0";
                                  bindings:(NSArray *)bindings
                                     joins:(NSArray *)joins
                                orderBySQL:(NSString *)orderBySQL
-                                    names:(NSMutableArray *)names {
+                                    names:(NSMutableArray *)names
+                              resultTypes:(NSMutableDictionary *)resultTypesByName {
    NSArray *fetchProperties=[request propertiesToFetch];
 
    if([fetchProperties count]==0)
@@ -2436,21 +2597,40 @@ static NSString * const CDSQLOuterAlias=@"t0";
    CDSQLQuery          *query=[CDSQLQuery queryFromTable:quoted(tableNameForEntity(entity)) alias:CDSQLOuterAlias];
    NSMutableDictionary *expressionsByName=[NSMutableDictionary dictionary];
 
+   /* Carried through the select list and the HAVING clause: the joins an
+      aggregate over a relationship needs, and the rule that keeps them
+      countable (see -_joinedAliasForSegments:...). */
+   NSMutableDictionary *joinState=[NSMutableDictionary dictionaryWithObject:[NSMutableDictionary dictionary] forKey:@"aliases"];
+   NSMutableArray      *plainNames=[NSMutableArray array];
+   BOOL                 aggregated=NO;
+
    for(id fetchProperty in fetchProperties){
     NSString *name=nil;
     NSString *expression=nil;
 
     if([fetchProperty isKindOfClass:[NSExpressionDescription class]]){
      name=[(NSExpressionDescription *)fetchProperty name];
-     expression=[self _aggregateSQLForExpressionDescription:fetchProperty entity:entity];
+     expression=[self _aggregateSQLForExpressionDescription:fetchProperty entity:entity query:query joins:joinState];
+
+     /* What the request says the aggregate answers with.  Without it a
+        MAX over a text column would be read back as a number, which is
+        how "Globex" became 0. */
+     if(expression!=nil && name!=nil && resultTypesByName!=nil)
+      [resultTypesByName setObject:[NSNumber numberWithUnsignedInteger:[(NSExpressionDescription *)fetchProperty expressionResultType]]
+                            forKey:name];
+
+     if(expression!=nil)
+      aggregated=YES;
     }
     else {
      name=[fetchProperty isKindOfClass:[NSString class]]?fetchProperty:[(NSPropertyDescription *)fetchProperty name];
 
      NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:name];
 
-     if([property isKindOfClass:[NSAttributeDescription class]])
+     if([property isKindOfClass:[NSAttributeDescription class]]){
       expression=[NSString stringWithFormat:@"%@.%@",CDSQLOuterAlias,quoted(columnNameForProperty(name))];
+      [plainNames addObject:name];
+     }
     }
 
     if(name==nil || expression==nil)
@@ -2487,8 +2667,27 @@ static NSString * const CDSQLOuterAlias=@"t0";
     [query addGroupBy:expression];
    }
 
+   /* A column that is neither aggregated nor grouped has no single value
+      per row, and every dialect says so.  Rather than build a statement the
+      server will reject, decline and let the framework shape the rows. */
+   if(aggregated){
+    for(NSString *name in plainNames){
+     BOOL isGrouped=NO;
+
+     for(id groupedProperty in [request propertiesToGroupBy]){
+      NSString *groupedName=[groupedProperty isKindOfClass:[NSString class]]?groupedProperty:[(NSPropertyDescription *)groupedProperty name];
+
+      if([groupedName isEqualToString:name])
+       isGrouped=YES;
+     }
+
+     if(!isGrouped)
+      return nil;
+    }
+   }
+
    if([request havingPredicate]!=nil){
-    NSString *having=[self _translateProjectedPredicate:[request havingPredicate] expressions:expressionsByName entity:entity bindings:[query parameters]];
+    NSString *having=[self _translateProjectedPredicate:[request havingPredicate] expressions:expressionsByName entity:entity query:query joins:joinState bindings:[query parameters]];
 
     if(having==nil)
      return nil;
@@ -2523,8 +2722,9 @@ static NSString * const CDSQLOuterAlias=@"t0";
                                joins:(NSArray *)joins
                           orderBySQL:(NSString *)orderBySQL
                                error:(NSError **)error {
-   NSMutableArray *names=[NSMutableArray array];
-   CDSQLQuery     *query=[self _projectionQueryForRequest:request entity:entity whereSQL:whereSQL bindings:bindings joins:joins orderBySQL:orderBySQL names:names];
+   NSMutableArray      *names=[NSMutableArray array];
+   NSMutableDictionary *resultTypesByName=[NSMutableDictionary dictionary];
+   CDSQLQuery          *query=[self _projectionQueryForRequest:request entity:entity whereSQL:whereSQL bindings:bindings joins:joins orderBySQL:orderBySQL names:names resultTypes:resultTypesByName];
 
    if(query==nil)
     return nil;
@@ -2534,8 +2734,10 @@ static NSString * const CDSQLOuterAlias=@"t0";
    if(result==nil)
     return nil;
 
-   /* The values come back as the attributes they were selected from; an
-      aggregate has no attribute, and is read as a number. */
+   /* The values come back as the attributes they were selected from.  An
+      aggregate has no attribute, so it is read as the type its expression
+      description declared - MAX over a name is a name - and only when it
+      declared none is the text read as a number. */
    NSMutableArray *rows=[NSMutableArray array];
    NSUInteger      i,rowCount=[result rowCount];
 
@@ -2551,8 +2753,18 @@ static NSString * const CDSQLOuterAlias=@"t0";
      if([result isNullAtRow:i column:column])
       continue;
 
+     NSNumber *declaredType=[resultTypesByName objectForKey:name];
+
      if([property isKindOfClass:[NSAttributeDescription class]])
       value=attributeValueFromResult(result,(int)i,(int)column,(NSAttributeDescription *)property);
+     else if(declaredType!=nil && [declaredType unsignedIntegerValue]!=NSUndefinedAttributeType){
+      NSAttributeDescription *described=[[[NSAttributeDescription alloc] init] autorelease];
+
+      [described setName:name];
+      [described setAttributeType:[declaredType unsignedIntegerValue]];
+
+      value=attributeValueFromResult(result,(int)i,(int)column,described);
+     }
      else {
       NSString *text=[result stringAtRow:i column:column];
 
@@ -2631,7 +2843,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
      [sortJoins removeAllObjects];
    }
 
-   return [self _projectionQueryForRequest:request entity:entity whereSQL:whereSQL bindings:bindings joins:sortJoins orderBySQL:orderBySQL names:[NSMutableArray array]]!=nil;
+   return [self _projectionQueryForRequest:request entity:entity whereSQL:whereSQL bindings:bindings joins:sortJoins orderBySQL:orderBySQL names:[NSMutableArray array] resultTypes:nil]!=nil;
 }
 
 /* ------------------------------------------------------------------ */

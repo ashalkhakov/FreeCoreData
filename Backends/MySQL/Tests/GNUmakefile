@@ -18,7 +18,10 @@ GS_WITH_ARC = 1
 
 include $(GNUSTEP_MAKEFILES)/common.make
 
-CDMySQLStoreTests_OBJC_FILES = CDMySQLStoreTests.m
+# The tests themselves are shared with the other SQL backends: the fixture
+# is compiled in from Common/Tests, and the test bodies are #included by
+# CDMySQLStoreTests.m (see CDSQLStoreTestCase.h for why).
+CDMySQLStoreTests_OBJC_FILES = CDMySQLStoreTests.m ../../Common/Tests/CDSQLStoreTestCase.m
 
 # -I../../.. is the repository root (for <CoreData/CoreData.h>), -I.. the
 # backend's own header.
@@ -36,7 +39,7 @@ endif
 
 ADDITIONAL_INCLUDE_DIRS += $(MYSQL_CFLAGS)
 
-CDMySQLStoreTests_INCLUDE_DIRS = -I.. -I../../Common -I../../..
+CDMySQLStoreTests_INCLUDE_DIRS = -I.. -I../../Common -I../../Common/Tests -I../../..
 
 FRAMEWORK_BUILD_DIR = $(CURDIR)/../../../CoreData.framework/Versions/Current
 BACKEND_BUILD_DIR = $(CURDIR)/../$(GNUSTEP_OBJ_DIR_NAME)

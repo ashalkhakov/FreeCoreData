@@ -136,6 +136,11 @@ extern NSString * const CDSQLStoreMigrateSchemaOption;
 /* Values */
 - (NSString *)likeEscapeClause;                      /* ESCAPE '\', doubled on MySQL */
 
+/* How many bound parameters one statement may carry.  A predicate that
+   would need more than this - an IN list of a hundred thousand names - is
+   evaluated in memory instead. */
+- (NSUInteger)maximumBoundParameters;
+
 /* Comparisons */
 - (NSString *)caseInsensitiveLikeClauseForColumn:(NSString *)column placeholder:(NSString *)placeholder;
 - (NSString *)caseSensitiveLikeClauseForColumn:(NSString *)column placeholder:(NSString *)placeholder;

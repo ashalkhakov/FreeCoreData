@@ -70,8 +70,31 @@ false there.  `PostgreSQL` does exactly this, and reports history as an
 unsupported request type when built against Apple's framework.  See the individual backend's
 README for what it does and does not implement.
 
-Grouped and aggregated fetches
-------------------------------
+## What the backends share
+
+`Common/` holds the half of a SQL backend that does not depend on which
+server is at the other end: `CDSQLStore` (schema, object IDs, faulting,
+predicate and sort translation, saving, batch requests, optimistic locking,
+history, migration) and `CDSQLQuery` (the statement being built).  A backend
+subclasses `CDSQLStore` and supplies a driver and a dialect - a few hundred
+lines each.
+
+`Common/Tests/` holds the tests, for the same reason: the two backends have
+the same job, and a test that passes against one server and was never run
+against the other is worth little.  `CDSQLStoreTestCase` is the fixture and
+the hooks a backend fills in (which store class and type, which environment
+variable carries the URL, its option keys, and how to cut the store's
+connection); `CDSQLStoreTestBodies.inc` is the 67 tests themselves, which
+each backend's suite `#include`s inside its own `@implementation`.
+
+The include is not a style choice.  GNUstep's XCTest runner discovers only
+the test methods a class declares itself, so a concrete subclass of a base
+class full of tests runs nothing at all - silently, reporting success.
+Including the bodies gives each backend's class its own copy of every test,
+which both that runner and Apple's find.  What a backend adds to its own
+suite is what cannot be written against both servers.
+
+## Grouped and aggregated fetches
 
 A `NSDictionaryResultType` request that groups rows, or computes an aggregate
 over them, is one statement to a SQL database and a full table scan to anyone
@@ -88,13 +111,19 @@ answers `NO` - or is not asked, because several stores are affected - gets the
 in-memory shaping as before, now ordered after the rows are built rather than
 before.  `CDSQLStore` answers by building the very query the fetch would run
 and saying yes if it came out, so it never claims more than it can express;
-what it cannot express (an aggregate across a relationship, a predicate that
-does not translate exactly) it leaves to the framework.
+what it cannot express (a predicate that does not translate exactly, or a
+second to-many join) it leaves to the framework.
+
+An aggregate whose key path crosses a relationship is joined in with a LEFT
+JOIN, so `count:(employees)` and `sum:(employees.age)` are one statement and
+a company with no employees still answers, with nought.  Crossing a to-many
+multiplies the rows, so one such crossing is allowed per request and a second
+- or a local aggregate counted alongside one - is declined rather than
+answered with the product.
 
 Nothing here is needed on Apple's CoreData, which never sends the message.
 
-Continuous integration
-----------------------
+## Continuous integration
 
 `.github/workflows/backends.yml` is these backends' own workflow - the
 framework's CI does not build them, since they are an addon and need servers

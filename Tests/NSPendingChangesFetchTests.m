@@ -829,6 +829,74 @@ static NSExpressionDescription *expressionColumn(NSString *name,
     XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"headcount"] intValue], 1);
 }
 
+/* An aggregate whose key path crosses a relationship counts the rows it
+   reaches, not the collections it passes through.  The snapshot a row is
+   shaped from answers a to-many with an unfired fault, so the relationship
+   an aggregate names is resolved from the object - which is also why two
+   employees on the same salary count twice rather than folding into one
+   value, as -valueForKeyPath: over a set would. */
+- (void)testAggregatesAcrossARelationship
+{
+    self.ctx = [self contextWithStoreType:NSSQLiteStoreType];
+
+    NSManagedObject *engineering =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Department"
+                                      inManagedObjectContext:self.ctx];
+    NSManagedObject *sales =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Department"
+                                      inManagedObjectContext:self.ctx];
+    NSManagedObject *empty =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Department"
+                                      inManagedObjectContext:self.ctx];
+
+    [engineering setValue:@"Engineering" forKey:@"name"];
+    [sales setValue:@"Sales" forKey:@"name"];
+    [empty setValue:@"Empty" forKey:@"name"];
+
+    [[self insertEmployeeNamed:@"amy" salary:10 inContext:self.ctx]
+        setValue:engineering forKey:@"department"];
+    [[self insertEmployeeNamed:@"ben" salary:10 inContext:self.ctx]
+        setValue:engineering forKey:@"department"];
+    [[self insertEmployeeNamed:@"cal" salary:25 inContext:self.ctx]
+        setValue:sales forKey:@"department"];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"Department"
+                                 inManagedObjectContext:self.ctx]];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:[NSArray arrayWithObjects:
+        @"name",
+        expressionColumn(@"headcount", aggregateExpression(@"count", @"employees"),
+                         NSInteger64AttributeType),
+        expressionColumn(@"payroll", aggregateExpression(@"sum", @"employees.salary"),
+                         NSInteger64AttributeType),
+        nil]];
+    [fetch setPropertiesToGroupBy:[NSArray arrayWithObject:@"name"]];
+    [fetch setSortDescriptors:[NSArray arrayWithObject:
+        [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES]]];
+
+    NSArray *rows = [self.ctx executeFetchRequest:fetch error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([rows count], (NSUInteger)3);
+
+    /* Empty, Engineering, Sales. */
+    XCTAssertEqualObjects([[rows objectAtIndex:0] objectForKey:@"name"], @"Empty");
+    XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"headcount"] intValue], 0);
+
+    XCTAssertEqualObjects([[rows objectAtIndex:1] objectForKey:@"name"], @"Engineering");
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"headcount"] intValue], 2);
+    /* Both earn ten: twenty, not ten. */
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"payroll"] intValue], 20);
+
+    XCTAssertEqualObjects([[rows objectAtIndex:2] objectForKey:@"name"], @"Sales");
+    XCTAssertEqual([[[rows objectAtIndex:2] objectForKey:@"headcount"] intValue], 1);
+    XCTAssertEqual([[[rows objectAtIndex:2] objectForKey:@"payroll"] intValue], 25);
+}
+
 /* A to-one relationship in propertiesToFetch puts the related object's
    ID in the row. */
 - (void)testToOneRelationshipColumnYieldsObjectID

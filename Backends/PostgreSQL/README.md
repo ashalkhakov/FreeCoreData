@@ -272,7 +272,10 @@ Left to the in-memory evaluator: diacritic-insensitive and locale-sensitive
 matching (`[d]`, `[cd]`); ordering comparisons on transformable values;
 equality on transformable values (what is stored is whatever the value
 transformer produced, and two equal objects need not archive to the same
-bytes); aggregates other than `@count`; `IN` lists longer than 900;
+bytes); aggregates other than `@count`; an `IN` list longer than the statement's
+parameter budget (60000 on PostgreSQL, where the wire protocol counts them
+in sixteen bits; MySQL escapes values into the statement instead and so
+counts far higher);
 sort descriptors whose key path crosses a relationship or whose selector is
 neither `compare:` nor `caseInsensitiveCompare:`; and block predicates,
 which nothing could translate.
@@ -335,6 +338,28 @@ itself:
 SELECT MAX(t0."ZAGE") FROM "ZPERSON" t0 WHERE t0."Z_ENT" IN (3, 2)
 ```
 
+An aggregate whose key path crosses a relationship - `count:(employees)`,
+`sum:(employees.age)` - reads a column of another table, so that table is
+joined in.  The join is a `LEFT JOIN`, which is what makes a company with no
+employees a row with a count of nought rather than no row at all:
+
+```sql
+SELECT t0."ZNAME", COUNT(a0."Z_PK"), SUM(a0."ZAGE") FROM "ZCOMPANY" t0
+ LEFT JOIN "ZPERSON" a0 ON a0."ZEMPLOYER" = t0."Z_PK"
+ WHERE t0."Z_ENT" IN (1) GROUP BY t0."ZNAME"
+```
+
+Crossing a to-many multiplies the rows, which is right for an aggregate over
+those rows and wrong for anything counted alongside it - a `COUNT` of the
+fetched entity would count the pairs.  So one to-many crossing is allowed per
+request, and a second one, or a local aggregate mixed in with one, is
+declined rather than answered with the product.  Across a to-one there is no
+fan-out and no such restriction.
+
+An aggregate is read back as the type its expression description declares,
+so `max:` over a name answers a name; without a declared type the text is
+read as a number.
+
 **Grouping.**  `propertiesToGroupBy` becomes `GROUP BY`, `havingPredicate`
 becomes `HAVING`, and a grouped result can be sorted by its own aggregate:
 
@@ -346,18 +371,19 @@ SELECT t0."ZAGE", COUNT(t0."ZNAME") FROM "ZPERSON" t0 WHERE t0."Z_ENT" IN (3, 2)
 A having predicate may name a selected expression (`headcount > 1`) or write
 the aggregate out (`count:(name) > 1`); both translate.
 
-Anything the query cannot express - an aggregate across a relationship, a
-request whose predicate is partly evaluated in memory - falls back to reading
-the objects, which is what the store did for every dictionary result before.
+Anything the query cannot express - a second to-many join, a request whose
+predicate is only partly evaluated in SQL - falls back to reading the
+objects, which is what the store did for every dictionary result before.
 
-**On FreeCoreData none of this is reached.**  Its `NSManagedObjectContext`
-builds dictionary results itself, from snapshots, including grouping,
-aggregates and `HAVING`; the store is asked for objects and the context does
-the rest.  So the projection above is what runs against Apple's CoreData,
-and is ready for the day the framework hands dictionary requests to the
-store.  Two consequences show up in the tests: a having predicate must be
-written in the aggregate form there, and a grouped result cannot be sorted
-by an aggregate's name.
+**On FreeCoreData the store is asked first.**  Its `NSManagedObjectContext`
+can build dictionary results itself, from snapshots, including grouping,
+aggregates and `HAVING` - and used to do so for every store, which meant
+reading every object.  It now asks the store, by `respondsToSelector:`,
+whether it can shape the request (`-_canShapeDictionaryRequest:`); this one
+answers by building the very query it would run and saying yes if it came
+out, so it never claims more than it can express.  What it declines the
+framework still shapes in memory.  Against Apple's CoreData the request
+always arrives here, since Apple delegates it unconditionally.
 
 ## Optimistic locking
 

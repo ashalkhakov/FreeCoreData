@@ -664,6 +664,13 @@ static MYSQL *myConnect(CDMySQLStore *store,NSURL *url,NSDictionary *options,NSE
    [self command:[NSString stringWithFormat:@"SELECT RELEASE_LOCK('coredata_%lld')",[self creationLockKeyForName:[self _databaseName]]] parameters:nil error:NULL];
 }
 
+/* Values are escaped into the statement text rather than bound, so there
+   is no parameter count to run out of - only max_allowed_packet, which is
+   megabytes.  The number is a sanity bound, not a protocol limit. */
+-(NSUInteger)maximumBoundParameters {
+   return 200000;
+}
+
 -(BOOL)runsDDLInTransactions {
    return NO;
 }

@@ -431,6 +431,12 @@ static NSString *postgresParameterText(id parameter){
 -(void)releaseCreationLock {
 }
 
+/* The wire protocol carries a 16-bit parameter count, so 65535 is the
+   hard limit; the margin leaves room for the rest of the statement. */
+-(NSUInteger)maximumBoundParameters {
+   return 60000;
+}
+
 -(BOOL)runsDDLInTransactions {
    return YES;
 }

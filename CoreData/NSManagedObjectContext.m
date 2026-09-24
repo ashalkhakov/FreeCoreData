@@ -713,15 +713,37 @@ static id CDSnapshotValueForKeyPath(NSDictionary *snapshot,NSString *keyPath){
    return (value==[NSNull null])?nil:value;
 }
 
+/* Collects everything a key path reaches, one entry per row reached.
+
+   A key path that crosses a to-many fans out - count:(friends) is how many
+   friends there are, sum:(employees.age) adds up as many ages as there are
+   employees - so the walk is done by hand rather than with
+   -valueForKeyPath:, which answers a set for a set and would fold two
+   employees of the same age into one value. */
+static void CDCollectKeyPathValues(id value,NSArray *segments,NSUInteger index,NSMutableArray *into){
+   if(value==nil || value==[NSNull null])
+    return;
+
+   if([value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSArray class]] || [value isKindOfClass:[NSOrderedSet class]]){
+    for(id member in value)
+     CDCollectKeyPathValues(member,segments,index,into);
+    return;
+   }
+
+   if(index>=[segments count]){
+    [into addObject:value];
+    return;
+   }
+
+   CDCollectKeyPathValues([value valueForKey:[segments objectAtIndex:index]],segments,index+1,into);
+}
+
 static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapshots){
    NSMutableArray *values=[NSMutableArray array];
+   NSArray        *segments=[keyPath componentsSeparatedByString:@"."];
 
-   for(NSDictionary *snapshot in snapshots){
-    id value=CDSnapshotValueForKeyPath(snapshot,keyPath);
-
-    if(value!=nil)
-     [values addObject:value];
-   }
+   for(NSDictionary *snapshot in snapshots)
+    CDCollectKeyPathValues(snapshot,segments,0,values);
 
    if([function isEqualToString:@"count"])
     return [NSNumber numberWithUnsignedInteger:[values count]];
@@ -748,6 +770,53 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    case a row's keys - the grouped columns and the expression
    descriptions' names - are the only things it can be sorted by, and
    they do not exist until the rows are built. */
+/* The relationships an aggregate's key path starts with.
+
+   A raw row snapshot answers a to-many with an unfired fault and a to-one
+   with an object ID, and neither can be walked any further, so these are
+   filled in from the managed object - firing exactly the faults the request
+   needs and no others. */
+/* A row snapshot with the named relationships resolved to their objects,
+   so that a key path can be walked through them. */
+-(NSDictionary *)_snapshotOf:(NSManagedObject *)object relationships:(NSSet *)relationships {
+   NSDictionary *snapshot=[object _committedValues];
+
+   if([relationships count]==0)
+    return snapshot;
+
+   NSMutableDictionary *filled=[[snapshot mutableCopy] autorelease];
+
+   for(NSString *name in relationships){
+    id value=[object valueForKey:name];
+
+    [filled setObject:(value!=nil)?value:(id)[NSNull null] forKey:name];
+   }
+
+   return filled;
+}
+
+-(NSSet *)_relationshipsReachedByAggregates:(NSFetchRequest *)request {
+   NSMutableSet *names=[NSMutableSet set];
+   NSDictionary *relationships=[[request entity] relationshipsByName];
+
+   for(id property in [request propertiesToFetch]){
+    if(![property isKindOfClass:[NSExpressionDescription class]])
+     continue;
+
+    NSString *keyPath=nil;
+
+    if(CDAggregateFunction([(NSExpressionDescription *)property expression],&keyPath)==nil)
+     continue;
+
+    NSString *first=[[keyPath componentsSeparatedByString:@"."] objectAtIndex:0];
+
+    if([relationships objectForKey:first]!=nil)
+     [names addObject:first];
+   }
+
+   return names;
+}
+
 -(BOOL)_dictionaryRequestReshapesRows:(NSFetchRequest *)request {
    if([[request propertiesToGroupBy] count]>0)
     return YES;
@@ -1209,6 +1278,9 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
        The ordering therefore happens after shaping, and the stores are
        not asked for one they would have to raise on. */
     BOOL reshapes=(resultType==NSDictionaryResultType && [self _dictionaryRequestReshapesRows:fetchRequest]);
+    NSSet *aggregatedRelationships=(resultType==NSDictionaryResultType)
+        ?[self _relationshipsReachedByAggregates:fetchRequest]
+        :[NSSet set];
 
     for(NSPersistentStore *genericStore in affectedStores){
      if([genericStore isKindOfClass:[NSIncrementalStore class]]){
@@ -1232,9 +1304,9 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 
       for(NSManagedObject *check in fetched){
        [objects addObject:check];
-       /* Raw row snapshot - unfired to-many faults stay unfired (the
-          dictionary builder never reads to-many values). */
-       [savedSnapshots addObject:[check _committedValues]];
+       /* Raw row snapshot - unfired to-many faults stay unfired, except
+          for the relationships an aggregate has to read. */
+       [savedSnapshots addObject:[self _snapshotOf:check relationships:aggregatedRelationships]];
       }
       continue;
      }
@@ -1256,8 +1328,12 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
       if(predicate!=nil && ![predicate evaluateWithObject:node])
        continue;
 
-      [objects addObject:[self objectWithID:[node objectID]]];
-      [savedSnapshots addObject:[node propertyCache]];
+      NSManagedObject *cached=[self objectWithID:[node objectID]];
+
+      [objects addObject:cached];
+      [savedSnapshots addObject:([aggregatedRelationships count]>0)
+          ?[self _snapshotOf:cached relationships:aggregatedRelationships]
+          :(NSDictionary *)[node propertyCache]];
      }
     }
 
