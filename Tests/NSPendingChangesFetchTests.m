@@ -783,6 +783,160 @@ static NSExpressionDescription *expressionColumn(NSString *name,
 #endif
 }
 
+/* Sorting a grouped request by the aggregate's own name.  The name
+   belongs to the row, not to any object, so the ordering can only be
+   taken once the rows exist - the context used to sort the objects
+   first and raise NSUnknownKeyException on "headcount". */
+- (void)testGroupBySortedByAggregateName
+{
+    self.ctx = [self contextWithStoreType:NSSQLiteStoreType];
+    [self insertEmployeeNamed:@"amy" salary:10 inContext:self.ctx];
+    [self insertEmployeeNamed:@"ben" salary:10 inContext:self.ctx];
+    [self insertEmployeeNamed:@"cal" salary:20 inContext:self.ctx];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[NSEntityDescription entityForName:@"Employee"
+                                 inManagedObjectContext:self.ctx]];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:[NSArray arrayWithObjects:
+        @"salary",
+        expressionColumn(@"headcount", aggregateExpression(@"count", @"name"),
+                         NSInteger64AttributeType),
+        nil]];
+    [fetch setPropertiesToGroupBy:[NSArray arrayWithObject:@"salary"]];
+    [fetch setSortDescriptors:[NSArray arrayWithObject:
+        [NSSortDescriptor sortDescriptorWithKey:@"headcount" ascending:NO]]];
+
+    NSArray *rows = [self.ctx executeFetchRequest:fetch error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([rows count], (NSUInteger)2);
+    XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"headcount"] intValue], 2);
+    XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"salary"] intValue], 10);
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"headcount"] intValue], 1);
+
+    /* Ascending is the other way round, so the order is the sort's and
+       not the order the groups happened to be built in. */
+    [fetch setSortDescriptors:[NSArray arrayWithObject:
+        [NSSortDescriptor sortDescriptorWithKey:@"headcount" ascending:YES]]];
+
+    rows = [self.ctx executeFetchRequest:fetch error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"headcount"] intValue], 1);
+}
+
+/* An aggregate whose key path crosses a relationship counts the rows it
+   reaches, not the collections it passes through.  The snapshot a row is
+   shaped from answers a to-many with an unfired fault, so the relationship
+   an aggregate names is resolved from the object - which is also why two
+   employees on the same salary count twice rather than folding into one
+   value, as -valueForKeyPath: over a set would. */
+- (void)testAggregatesAcrossARelationship
+{
+    self.ctx = [self contextWithStoreType:NSSQLiteStoreType];
+
+    NSManagedObject *engineering =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Department"
+                                      inManagedObjectContext:self.ctx];
+    NSManagedObject *sales =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Department"
+                                      inManagedObjectContext:self.ctx];
+    NSManagedObject *empty =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Department"
+                                      inManagedObjectContext:self.ctx];
+
+    [engineering setValue:@"Engineering" forKey:@"name"];
+    [sales setValue:@"Sales" forKey:@"name"];
+    [empty setValue:@"Empty" forKey:@"name"];
+
+    [[self insertEmployeeNamed:@"amy" salary:10 inContext:self.ctx]
+        setValue:engineering forKey:@"department"];
+    [[self insertEmployeeNamed:@"ben" salary:10 inContext:self.ctx]
+        setValue:engineering forKey:@"department"];
+    [[self insertEmployeeNamed:@"cal" salary:25 inContext:self.ctx]
+        setValue:sales forKey:@"department"];
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+
+    NSFetchRequest *(^grouped)(NSArray *) = ^(NSArray *columns) {
+        NSFetchRequest *request = [[NSFetchRequest alloc] init];
+
+        [request setEntity:[NSEntityDescription entityForName:@"Department"
+                                      inManagedObjectContext:self.ctx]];
+        [request setResultType:NSDictionaryResultType];
+        [request setPropertiesToFetch:columns];
+        [request setPropertiesToGroupBy:[NSArray arrayWithObject:@"name"]];
+        [request setSortDescriptors:[NSArray arrayWithObject:
+            [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES]]];
+
+        return request;
+    };
+
+    /* Counting what a to-many reaches. */
+    NSArray *rows = [self.ctx executeFetchRequest:grouped([NSArray arrayWithObjects:
+        @"name",
+        expressionColumn(@"headcount", aggregateExpression(@"count", @"employees"),
+                         NSInteger64AttributeType),
+        nil]) error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([rows count], (NSUInteger)3);
+
+    /* Empty, Engineering, Sales. */
+    XCTAssertEqualObjects([[rows objectAtIndex:0] objectForKey:@"name"], @"Empty");
+    XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"headcount"] intValue], 0);
+    XCTAssertEqualObjects([[rows objectAtIndex:1] objectForKey:@"name"], @"Engineering");
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"headcount"] intValue], 2);
+    XCTAssertEqualObjects([[rows objectAtIndex:2] objectForKey:@"name"], @"Sales");
+    XCTAssertEqual([[[rows objectAtIndex:2] objectForKey:@"headcount"] intValue], 1);
+
+    /* Summing an attribute beyond it.  Both engineers earn ten, and the
+       two are added rather than folded into one value, which is what
+       -valueForKeyPath: over a set would have done. */
+    rows = [self.ctx executeFetchRequest:grouped([NSArray arrayWithObjects:
+        @"name",
+        expressionColumn(@"payroll", aggregateExpression(@"sum", @"employees.salary"),
+                         NSInteger64AttributeType),
+        nil]) error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"payroll"] intValue], 20);
+    XCTAssertEqual([[[rows objectAtIndex:2] objectForKey:@"payroll"] intValue], 25);
+
+    /* Both at once.  Apple's SQLite store joins the relationship once per
+       aggregate - two LEFT OUTER JOINs of ZEMPLOYEE onto ZDEPARTMENT -
+       so its rows multiply and Engineering comes back as four employees
+       earning forty (observed on macOS 2026-09-24).  The port shapes the
+       rows from the objects and counts each employee once; the SQL
+       backends in Backends/ share one join between the aggregates and
+       agree with the port. */
+    rows = [self.ctx executeFetchRequest:grouped([NSArray arrayWithObjects:
+        @"name",
+        expressionColumn(@"headcount", aggregateExpression(@"count", @"employees"),
+                         NSInteger64AttributeType),
+        expressionColumn(@"payroll", aggregateExpression(@"sum", @"employees.salary"),
+                         NSInteger64AttributeType),
+        nil]) error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+
+#if defined(__APPLE__)
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"headcount"] intValue], 4);
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"payroll"] intValue], 40);
+#else
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"headcount"] intValue], 2);
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"payroll"] intValue], 20);
+#endif
+
+    XCTAssertEqual([[[rows objectAtIndex:2] objectForKey:@"headcount"] intValue], 1);
+    XCTAssertEqual([[[rows objectAtIndex:2] objectForKey:@"payroll"] intValue], 25);
+}
+
 /* A to-one relationship in propertiesToFetch puts the related object's
    ID in the row. */
 - (void)testToOneRelationshipColumnYieldsObjectID

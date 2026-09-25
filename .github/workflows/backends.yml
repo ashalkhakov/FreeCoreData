@@ -1,0 +1,233 @@
+name: Backends
+
+# The SQL backends under Backends/ are an addon: they are not built by the
+# top-level makefile, they need a database server to say anything, and most
+# people working on the framework do not care about them. They therefore get
+# their own workflow rather than more steps in ci.yml.
+#
+# It runs when the backends change, and when the framework they link changes
+# -- a store is a client of CoreData's public API, so a change there can
+# break it without touching a file under Backends/.
+on:
+  push:
+    paths:
+      - 'Backends/**'
+      - 'CoreData/**'
+      - '.github/workflows/backends.yml'
+      - '.github/scripts/**'
+  pull_request:
+    paths:
+      - 'Backends/**'
+      - 'CoreData/**'
+      - '.github/workflows/backends.yml'
+      - '.github/scripts/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  ########################### GNUstep / Linux ###########################
+  # The backends against real servers: PostgreSQL, MySQL, and MariaDB
+  # through the MySQL backend, which is written for both.
+  #
+  # The suites skip themselves when no server is configured, which is right
+  # on a developer's machine and wrong here -- a database that failed to
+  # start would leave a green run that tested nothing. CD_TEST_REQUIRE_DATABASE
+  # turns that skip into a failure.
+  linux:
+    name: Ubuntu (GNUstep) against PostgreSQL, MySQL, MariaDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SRC_PATH: ${{ github.workspace }}/source
+      DEPS_PATH: ${{ github.workspace }}/dependencies
+      INSTALL_PATH: ${{ github.workspace }}/build
+      CC: clang
+      CXX: clang++
+      LIBRARY_COMBO: ng-gnu-gnu
+      RUNTIME_VERSION: gnustep-2.0
+      LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
+      # The GNUstep fixes come from the shared gnustep-patches repository.
+      # Pin this to a commit rather than a branch: it is what the cache key
+      # below is made of, so a moving branch would keep serving a prefix
+      # built from patches that have since changed.
+      GNUSTEP_PATCHES_REF: 5b7cea43e828d053d72078f6dd1ebeb8785d770c
+      CD_TEST_REQUIRE_DATABASE: 1
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}/source
+
+    # Reachable from the steps on 127.0.0.1 at the mapped ports. The MySQL
+    # backend asks its client library for TCP explicitly, so 127.0.0.1 means
+    # the port and not the unix socket.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: coredata
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: coredata
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: coredata
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: source
+
+      # The GNUstep stack's packages are the same list ci.yml installs, since
+      # a cache miss here builds the same stack from the same script; the two
+      # client libraries at the end are this workflow's own. MariaDB
+      # Connector/C speaks to MySQL servers too, so it serves both backends
+      # and libmysqlclient is not needed.
+      - name: Install packages
+        run: |
+          ./.github/scripts/apt-update.sh
+          sudo apt-get -q -y install \
+            pkg-config libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev \
+            libssl-dev libavahi-client-dev zlib1g-dev gnutls-bin libcurl4-gnutls-dev \
+            libgmp-dev libcairo2-dev libjpeg-dev libtiff-dev libpng-dev libicns-dev \
+            libpthread-workqueue-dev libsqlite3-dev \
+            libfreetype-dev libfontconfig1-dev libxrender-dev liblcms2-dev \
+            libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
+            libpq-dev libmariadb-dev
+          if [ -x /usr/bin/ld.gold ]; then
+            sudo update-alternatives --install /usr/bin/ld ld /usr/bin/ld.gold 10
+          else
+            sudo apt-get -q -y install lld
+            sudo update-alternatives --install /usr/bin/ld ld /usr/bin/ld.lld 10
+          fi
+          ld --version | head -1
+
+      # The same cache ci.yml fills, under the same key: whichever workflow
+      # runs first builds the stack, the other restores it.
+      - name: Restore GNUstep
+        id: gnustep-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.INSTALL_PATH }}
+          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+
+      - name: Build GNUstep
+        if: steps.gnustep-cache.outputs.cache-hit != 'true'
+        run: ./.github/scripts/dependencies.sh
+
+      - name: Save GNUstep
+        if: steps.gnustep-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.INSTALL_PATH }}
+          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+
+      # The backends link the framework built here in the tree, not an
+      # installed one, so it is built first and on its own -- a compile error
+      # in the framework then reads as that.
+      - name: Build CoreData
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make
+
+      - name: Build the backends
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C Backends/PostgreSQL
+          make -C Backends/MySQL
+
+      - name: PostgreSQL 16
+        env:
+          CD_TEST_POSTGRES_URL: postgresql://postgres:coredata@127.0.0.1:5432/postgres
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C Backends/PostgreSQL/Tests run-tests
+
+      - name: MySQL 8
+        env:
+          CD_TEST_MYSQL_URL: mysql://root:coredata@127.0.0.1:3306/cdtest
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C Backends/MySQL/Tests run-tests
+
+      # The same suite again, against the other server it is written for.
+      # The two disagree about enough -- collation names, the healthcheck,
+      # SSL defaults, how a dropped connection reads -- that running one is
+      # not evidence about the other.
+      - name: MariaDB 11
+        env:
+          CD_TEST_MYSQL_URL: mysql://root:coredata@127.0.0.1:3307/cdtest
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C Backends/MySQL/Tests run-tests
+
+  ########################### macOS / Apple's CoreData ###########################
+  # The backends are written against public Core Data API alone, so that the
+  # same sources build and run on Apple's framework. That rule is easy to
+  # break by accident -- one private method, one framework-only header -- and
+  # a compile against the real thing is what catches it.
+  #
+  # This job builds; it does not run the suites, which would need a
+  # PostgreSQL and a MySQL server on the runner, and macOS minutes bill at
+  # 10x on a private repository. To run them locally instead:
+  #
+  #   TEST_RUNNER_CD_TEST_POSTGRES_URL=postgresql://... \
+  #     xcodebuild test -project Backends/PostgreSQL/CDPostgreSQLStore.xcodeproj \
+  #       -scheme CDPostgreSQLStoreTests -destination 'platform=macOS'
+  #
+  # (xcodebuild does not pass the shell's environment to the test process;
+  # the TEST_RUNNER_ prefix is how a variable reaches it.)
+  macos:
+    name: macOS (builds against Apple's CoreData)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install client libraries
+        run: brew install libpq mariadb-connector-c
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      # build-for-testing rather than build: it compiles the test bundle too,
+      # which is the half that uses the most API.
+      - name: PostgreSQL backend
+        run: |
+          xcodebuild -project Backends/PostgreSQL/CDPostgreSQLStore.xcodeproj \
+            -scheme CDPostgreSQLStoreTests -destination 'platform=macOS' \
+            -configuration Debug -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            build-for-testing
+
+      - name: MySQL backend
+        run: |
+          xcodebuild -project Backends/MySQL/CDMySQLStore.xcodeproj \
+            -scheme CDMySQLStoreTests -destination 'platform=macOS' \
+            -configuration Debug -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            build-for-testing

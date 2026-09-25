@@ -66,4 +66,34 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 - (NSPersistentHistoryToken *)token;   /* the token anchor, when that is what was given */
 
+/* --- Reading the request (a FreeCoreData addition) ------------------
+ 
+   Apple publishes only -token, -fetchRequest and -resultType, which is
+   not enough for a persistent store to act on a history request: a store
+   also has to know whether it is being asked to fetch or to purge, and
+   what the request is anchored to when the anchor is not a token.  Apple's
+   own store reads that through API it does not publish, which leaves a
+   third-party store unable to implement history at all - running a purge
+   as a fetch would delete history the caller asked to read.
+ 
+   These three accessors close that gap for stores built against this
+   framework.  They are additions, not ports of something Apple has, so
+   code that must also build against Apple's CoreData should test for them
+   with -respondsToSelector: and treat their absence as "history is not
+   supported here". */
+
+/* YES when the request deletes history (deleteHistoryBefore...), NO when
+   it fetches (fetchHistoryAfter...).  The class and the request type are
+   the same either way. */
+- (BOOL)isPurgeRequest;
+
+/* The date anchor, or nil when the request was anchored by token or by
+   transaction.  Both directions are exclusive: a fetch returns strictly
+   newer transactions, a purge removes strictly older ones. */
+- (NSDate *)anchorDate;
+
+/* The transaction-number anchor, or -1 when the request was anchored by
+   date or by token.  (The token anchor is -token, above.) */
+- (int64_t)anchorTransactionNumber;
+
 @end

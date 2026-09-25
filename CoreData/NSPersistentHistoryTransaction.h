@@ -64,4 +64,21 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 - (NSNotification *)objectIDNotification;
 
+
+/* --- Building a transaction (a FreeCoreData addition) ---------------
+ 
+   The companion of +[NSPersistentHistoryChange changeWithID:...]: what a
+   store answers a history fetch with.  The changes are given here rather
+   than set afterwards, so that each one's -transaction back-pointer is
+   wired up as it is adopted.  See NSPersistentHistoryToken.h for the
+   compatibility note. */
++ (instancetype)transactionWithNumber:(int64_t)number
+                            timestamp:(NSDate *)timestamp
+                               author:(NSString *)author
+                          contextName:(NSString *)contextName
+                            processID:(NSString *)processID
+                             bundleID:(NSString *)bundleID
+                      storeIdentifier:(NSString *)storeIdentifier
+                              changes:(NSArray *)changes;
+
 @end

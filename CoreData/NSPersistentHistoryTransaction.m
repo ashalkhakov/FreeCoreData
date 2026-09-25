@@ -160,6 +160,24 @@ NSAttributeDescription *CDHistoryEntityAttribute(NSString *name,NSAttributeType 
 
 @implementation NSPersistentHistoryTransaction (CDPrivate)
 
++(instancetype)transactionWithNumber:(int64_t)number
+                           timestamp:(NSDate *)timestamp
+                              author:(NSString *)author
+                         contextName:(NSString *)contextName
+                           processID:(NSString *)processID
+                            bundleID:(NSString *)bundleID
+                     storeIdentifier:(NSString *)storeIdentifier
+                             changes:(NSArray *)changes {
+   return [[[self alloc] _initWithNumber:number
+                               timestamp:timestamp
+                                  author:author
+                             contextName:contextName
+                               processID:processID
+                                bundleID:bundleID
+                                 storeID:storeIdentifier
+                                 changes:changes] autorelease];
+}
+
 -(instancetype)_initWithNumber:(int64_t)number
                      timestamp:(NSDate *)timestamp
                         author:(NSString *)author

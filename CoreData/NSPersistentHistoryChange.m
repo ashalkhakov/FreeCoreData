@@ -101,6 +101,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @implementation NSPersistentHistoryChange (CDPrivate)
 
++(instancetype)changeWithID:(int64_t)changeID
+                       type:(NSPersistentHistoryChangeType)type
+                   objectID:(NSManagedObjectID *)objectID
+          updatedProperties:(NSSet *)updatedProperties
+                  tombstone:(NSDictionary *)tombstone {
+   return [[[self alloc] _initWithChangeID:changeID
+                                      type:type
+                                  objectID:objectID
+                         updatedProperties:updatedProperties
+                                 tombstone:tombstone] autorelease];
+}
+
 -(instancetype)_initWithChangeID:(int64_t)changeID
                             type:(NSPersistentHistoryChangeType)type
                         objectID:(NSManagedObjectID *)objectID
