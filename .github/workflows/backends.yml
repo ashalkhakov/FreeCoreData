@@ -49,6 +49,11 @@ jobs:
       LIBRARY_COMBO: ng-gnu-gnu
       RUNTIME_VERSION: gnustep-2.0
       LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
+      # The GNUstep fixes come from the shared gnustep-patches repository.
+      # Pin this to a commit rather than a branch: it is what the cache key
+      # below is made of, so a moving branch would keep serving a prefix
+      # built from patches that have since changed.
+      GNUSTEP_PATCHES_REF: 5b7cea43e828d053d72078f6dd1ebeb8785d770c
       CD_TEST_REQUIRE_DATABASE: 1
     defaults:
       run:
@@ -130,7 +135,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.INSTALL_PATH }}
-          key: gnustep-v1-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh', 'source/patches/gnustep/*.patch') }}
+          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
 
       - name: Build GNUstep
         if: steps.gnustep-cache.outputs.cache-hit != 'true'
@@ -141,7 +146,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ env.INSTALL_PATH }}
-          key: gnustep-v1-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh', 'source/patches/gnustep/*.patch') }}
+          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
 
       # The backends link the framework built here in the tree, not an
       # installed one, so it is built first and on its own -- a compile error
