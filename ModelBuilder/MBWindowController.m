@@ -696,7 +696,8 @@ static const CGFloat MBInspectorMinimum = 260.0;
   NSEntityDescription *entity = [self selectedEntity];
   NSMutableArray *attributes = [NSMutableArray array];
   NSMutableArray *relationships = [NSMutableArray array];
-  for (NSPropertyDescription *property in entity.properties) {
+  // The entity's own, as Xcode lists them; -properties includes inherited ones.
+  for (NSPropertyDescription *property in [CDModelCompiler declaredPropertiesOfEntity:entity]) {
     if ([property isKindOfClass:[NSAttributeDescription class]])
       [attributes addObject:property.name];
     else if ([property isKindOfClass:[NSRelationshipDescription class]])

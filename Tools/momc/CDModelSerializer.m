@@ -309,8 +309,9 @@ static NSXMLElement *elementForEntity(NSEntityDescription *entity){
 
    NSDictionary *attributes=[entity attributesByName];
    NSDictionary *relationships=[entity relationshipsByName];
-   NSDictionary *ownProperties=[NSDictionary dictionaryWithObjects:[entity properties]
-                                                           forKeys:[[entity properties] valueForKey:@"name"]];
+   NSArray      *declared=[CDModelCompiler declaredPropertiesOfEntity:entity];
+   NSDictionary *ownProperties=[NSDictionary dictionaryWithObjects:declared
+                                                           forKeys:[declared valueForKey:@"name"]];
 
    /* propertiesByName includes inherited properties; the XML lists only
       the entity's own.  Sorted for deterministic output. */

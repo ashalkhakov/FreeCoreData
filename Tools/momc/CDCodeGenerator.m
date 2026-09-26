@@ -219,8 +219,9 @@ static NSString *fileComment(NSString *filename,BOOL regenerated){
    NSString *codegen=[CDModelCompiler entityCodeGenerationType:entity];
    BOOL categoryOnly=[codegen isEqualToString:@"category"];
    NSString *class=className(entity);
-   NSArray *attributes=ownOfKind([entity properties],[NSAttributeDescription class]);
-   NSArray *relationships=ownOfKind([entity properties],[NSRelationshipDescription class]);
+   NSArray *declared=[CDModelCompiler declaredPropertiesOfEntity:entity];
+   NSArray *attributes=ownOfKind(declared,[NSAttributeDescription class]);
+   NSArray *relationships=ownOfKind(declared,[NSRelationshipDescription class]);
    NSMutableSet *forwardClasses=[NSMutableSet set];
    NSMutableArray *propertyLines=[NSMutableArray array];
    NSMutableArray *toMany=[NSMutableArray array];

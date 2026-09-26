@@ -92,6 +92,12 @@ extern NSString * const CDModelCompilerErrorDomain;
    Extension), or nil (Manual/None, absent from the XML).  Values other
    than the two known spellings are preserved verbatim. */
 + (NSString *)entityCodeGenerationType:(NSEntityDescription *)entity;
+
+/* The properties an entity declares itself, in -properties order: those
+   of -properties (which, on Apple and here, include what the entity
+   inherits) that its superentity does not have.  What a model file, a
+   generated class and an editor list for the entity. */
++ (NSArray *)declaredPropertiesOfEntity:(NSEntityDescription *)entity;
 + (void)setEntity:(NSEntityDescription *)entity
  codeGenerationType:(NSString *)type;
 

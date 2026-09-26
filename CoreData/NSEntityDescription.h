@@ -62,6 +62,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSDictionary *)propertiesByName;
 - (NSDictionary *)relationshipsByName;
 - (NSArray *)relationshipsWithDestinationEntity:(NSEntityDescription *)entity;
+/* Whether the receiver is entity or a subentity of it, by identity. */
+- (BOOL)isKindOfEntity:(NSEntityDescription *)entity;
 
 - (NSData *)versionHash;
 - (NSString *)versionHashModifier;

@@ -181,7 +181,7 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
                  atIndex:(NSUInteger)index
 {
   [self beginEdit:nil];
-  NSMutableArray *properties = [entity.properties mutableCopy];
+  NSMutableArray *properties = [[CDModelCompiler declaredPropertiesOfEntity:entity] mutableCopy];
   [properties insertObject:property atIndex:MIN(index, properties.count)];
   entity.properties = properties;
   /* A removed relationship kept its own inverse; its partner's pointer
@@ -199,7 +199,7 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
 - (void)removeProperty:(NSPropertyDescription *)property
 {
   NSEntityDescription *entity = property.entity;
-  NSUInteger index = [entity.properties indexOfObjectIdenticalTo:property];
+  NSUInteger index = [[CDModelCompiler declaredPropertiesOfEntity:entity] indexOfObjectIdenticalTo:property];
   if (!entity || index == NSNotFound) return;
   [self beginEdit:nil];
   if ([property isKindOfClass:[NSRelationshipDescription class]]) {
@@ -207,7 +207,7 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
     if (inverse.inverseRelationship == (NSRelationshipDescription *)property)
       inverse.inverseRelationship = nil;
   }
-  NSMutableArray *properties = [entity.properties mutableCopy];
+  NSMutableArray *properties = [[CDModelCompiler declaredPropertiesOfEntity:entity] mutableCopy];
   [properties removeObjectAtIndex:index];
   entity.properties = properties;
   [[self inverse] insertProperty:property intoEntity:entity atIndex:index];
@@ -221,10 +221,10 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
            withProperty:(NSPropertyDescription *)replacement
 {
   NSEntityDescription *entity = current.entity;
-  NSUInteger index = [entity.properties indexOfObjectIdenticalTo:current];
+  NSUInteger index = [[CDModelCompiler declaredPropertiesOfEntity:entity] indexOfObjectIdenticalTo:current];
   if (!entity || index == NSNotFound) return;
   [self beginEdit:nil];
-  NSMutableArray *properties = [entity.properties mutableCopy];
+  NSMutableArray *properties = [[CDModelCompiler declaredPropertiesOfEntity:entity] mutableCopy];
   [properties replaceObjectAtIndex:index withObject:replacement];
   entity.properties = properties;
   [[self inverse] replaceProperty:replacement withProperty:current];
