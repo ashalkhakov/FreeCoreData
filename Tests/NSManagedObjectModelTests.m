@@ -486,4 +486,130 @@ static NSManagedObjectModel *MBTAuthorArticleModel(NSString *authorName,
 #endif
 }
 
+/* A model with what a copy has to carry: an inverse pair, a sub-entity,
+   userInfo, a configuration, a fetch request template, version
+   identifiers. */
+static NSManagedObjectModel *CopyableModel(void)
+{
+    NSEntityDescription *department = [[NSEntityDescription alloc] init];
+    [department setName:@"Department"];
+    NSEntityDescription *employee = [[NSEntityDescription alloc] init];
+    [employee setName:@"Employee"];
+    NSEntityDescription *manager = [[NSEntityDescription alloc] init];
+    [manager setName:@"Manager"];
+    [employee setSubentities:@[ manager ]];
+
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    [name setName:@"name"];
+    [name setAttributeType:NSStringAttributeType];
+    [name setOptional:YES];
+    [name setUserInfo:@{ @"key": @"value" }];
+    NSRelationshipDescription *works = [[NSRelationshipDescription alloc] init];
+    [works setName:@"department"];
+    [works setDestinationEntity:department];
+    [works setMaxCount:1];
+    [works setOptional:YES];
+    NSRelationshipDescription *staff = [[NSRelationshipDescription alloc] init];
+    [staff setName:@"employees"];
+    [staff setDestinationEntity:employee];
+    [staff setMaxCount:0];
+    [staff setOptional:YES];
+    [works setInverseRelationship:staff];
+    [staff setInverseRelationship:works];
+    [employee setProperties:@[ name, works ]];
+    [department setProperties:@[ staff ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ department, employee, manager ]];
+    [model setVersionIdentifiers:[NSSet setWithObject:@"7"]];
+    [model setEntities:@[ employee ] forConfiguration:@"Staff"];
+    NSFetchRequest *template = [[NSFetchRequest alloc] init];
+    [template setEntity:employee];
+    [template setPredicate:[NSPredicate predicateWithFormat:@"name == $NAME"]];
+    [model setFetchRequestTemplate:template forName:@"ByName"];
+    return model;
+}
+
+- (void)testCopyIsDeepAndPointsIntoItself
+{
+    /* Apple's model conforms to NSCopying, and its copy is deep: new
+       entities and properties, each referring to the copy's. */
+    NSManagedObjectModel *model = CopyableModel();
+    XCTAssertTrue([model conformsToProtocol:@protocol(NSCopying)]);
+    NSManagedObjectModel *copy = [model copy];
+    XCTAssertNotNil(copy);
+    XCTAssertTrue(copy != model);
+
+    NSEntityDescription *employee = [[copy entitiesByName] objectForKey:@"Employee"];
+    NSEntityDescription *department = [[copy entitiesByName] objectForKey:@"Department"];
+    NSEntityDescription *manager = [[copy entitiesByName] objectForKey:@"Manager"];
+    XCTAssertEqual([[copy entities] count], (NSUInteger)3);
+    XCTAssertTrue(employee != [[model entitiesByName] objectForKey:@"Employee"]);
+    XCTAssertTrue([employee managedObjectModel] == copy);
+
+    NSRelationshipDescription *works = [[employee relationshipsByName] objectForKey:@"department"];
+    XCTAssertTrue([works destinationEntity] == department);
+    XCTAssertTrue([works inverseRelationship] == [[department relationshipsByName] objectForKey:@"employees"]);
+    XCTAssertTrue([[employee subentities] firstObject] == manager);
+    XCTAssertTrue([manager superentity] == employee);
+
+    NSAttributeDescription *name = [[employee attributesByName] objectForKey:@"name"];
+    XCTAssertTrue(name != [[[[model entitiesByName] objectForKey:@"Employee"] attributesByName] objectForKey:@"name"]);
+    XCTAssertEqualObjects([name userInfo], @{ @"key": @"value" });
+
+    XCTAssertEqualObjects([copy versionIdentifiers], [NSSet setWithObject:@"7"]);
+    XCTAssertEqualObjects([[copy entitiesForConfiguration:@"Staff"] valueForKey:@"name"], @[ @"Employee" ]);
+    NSFetchRequest *template = [copy fetchRequestTemplateForName:@"ByName"];
+    XCTAssertEqualObjects([[template predicate] predicateFormat],
+                          [[[model fetchRequestTemplateForName:@"ByName"] predicate] predicateFormat]);
+    XCTAssertTrue([template entity] == employee);
+    XCTAssertEqualObjects([copy entityVersionHashesByName], [model entityVersionHashesByName]);
+}
+
+- (void)testCopyOfAModelInUseCanBeEdited
+{
+    /* A model a coordinator uses can no longer be changed; its copy can,
+       and changing the copy leaves the original as it was. */
+    NSManagedObjectModel *model = CopyableModel();
+    NSPersistentStoreCoordinator *coordinator =
+        [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType
+                                              configuration:nil
+                                                        URL:nil
+                                                    options:nil
+                                                      error:&error], @"%@", error);
+
+    NSManagedObjectModel *copy = [model copy];
+    NSEntityDescription *employee = [[copy entitiesByName] objectForKey:@"Employee"];
+    XCTAssertNoThrow([employee setManagedObjectClassName:@"MBTEmployee"]);
+    XCTAssertEqualObjects([employee managedObjectClassName], @"MBTEmployee");
+    XCTAssertEqualObjects([[[model entitiesByName] objectForKey:@"Employee"] managedObjectClassName],
+                          @"NSManagedObject");
+}
+
+- (void)testCopyServesAStore
+{
+    NSManagedObjectModel *copy = [CopyableModel() copy];
+    NSPersistentStoreCoordinator *coordinator =
+        [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:copy];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType
+                                              configuration:nil
+                                                        URL:nil
+                                                    options:nil
+                                                      error:&error], @"%@", error);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc]
+        initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [context setPersistentStoreCoordinator:coordinator];
+    NSManagedObject *sales = [NSEntityDescription insertNewObjectForEntityForName:@"Department"
+                                                           inManagedObjectContext:context];
+    NSManagedObject *ann = [NSEntityDescription insertNewObjectForEntityForName:@"Manager"
+                                                         inManagedObjectContext:context];
+    [ann setValue:@"Ann" forKey:@"name"];
+    [ann setValue:sales forKey:@"department"];
+    XCTAssertTrue([context save:&error], @"%@", error);
+    XCTAssertEqualObjects([[sales valueForKey:@"employees"] valueForKey:@"name"], [NSSet setWithObject:@"Ann"]);
+}
+
 @end

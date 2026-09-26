@@ -9,7 +9,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @class NSFetchRequest;
 
-@interface NSManagedObjectModel : NSObject {
+@interface NSManagedObjectModel : NSObject <NSCoding, NSCopying> {
     NSMutableDictionary *_entities;
     NSMutableDictionary *_fetchRequestTemplates;
     NSSet *_versionIdentifiers;

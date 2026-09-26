@@ -149,6 +149,23 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
     [coder encodeObject:_versionIdentifiers forKey: @"NSVersionIdentifiers"];
 }
 
+/* Matching Apple: the copy is deep and editable, even when this model is
+   in use - new entities and properties, whose relationships, inverses,
+   sub- and super-entities and fetch request templates refer to the copy's
+   own.  The keyed archive a compiled model is read from carries exactly
+   that graph, so a round trip through it makes the copy. */
+-copyWithZone:(NSZone *)zone {
+   [NSPredicate class];   /* archive class aliases; see -initWithContentsOfURL: */
+   [NSExpression class];
+
+   NSData            *data=[NSKeyedArchiver archivedDataWithRootObject:self];
+   NSKeyedUnarchiver *unarchiver=[[NSKeyedUnarchiver alloc] initForReadingWithData:data];
+   NSManagedObjectModel *copy=[[unarchiver decodeObjectForKey:@"root"] retain];
+
+   [unarchiver release];
+   return copy;
+}
+
 -initWithContentsOfURL:(NSURL *)url {
    /* Replace self: release the alloc'd shell and return the unarchived model.
       The result is retained here so ownership is correctly transferred to
