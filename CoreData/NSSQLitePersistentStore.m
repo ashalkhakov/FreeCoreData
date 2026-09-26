@@ -35,6 +35,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/CoreDataErrors.h>
 #import "CoreDataUtilities.h"
+#import "CDObjectConstants-Private.h"
 #import <Foundation/Foundation.h>
 
 #import <sqlite3.h>
@@ -1083,6 +1084,21 @@ static NSString *patternMatchClause(NSString *column,NSString *constant,BOOL cas
    return [NSNumber numberWithLongLong:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID])];
 }
 
+/* The in-memory fallback filters the context's own objects, so a row named
+   in the predicate stands for the context's object for it. */
+typedef struct {
+   NSPersistentStore      *store;
+   NSManagedObjectContext *context;
+} CDRowsOfStore;
+
+static id CDContextObjectForObjectID(NSManagedObjectID *objectID,void *info){
+   CDRowsOfStore *rows=(CDRowsOfStore *)info;
+
+   if([objectID isTemporaryID] || [objectID persistentStore]!=rows->store)
+    return nil;
+   return [rows->context objectWithID:objectID];
+}
+
 /* Some NSPredicate implementations (e.g. GNUstep base) hand back constant
    values still wrapped in constant NSExpressions; unwrap them. */
 static id resolvedConstantValue(id value){
@@ -1519,8 +1535,11 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    for(NSManagedObjectID *objectID in objectIDs)
     [objects addObject:[context objectWithID:objectID]];
 
-   if([request predicate]!=nil && !predicateInSQL)
-    [objects filterUsingPredicate:[request predicate]];
+   if([request predicate]!=nil && !predicateInSQL){
+    CDRowsOfStore rows={ self,context };
+
+    [objects filterUsingPredicate:CDPredicateReplacingObjectIDs([request predicate],CDContextObjectForObjectID,&rows)];
+   }
 
    /* Filtering preserves order, so a SQL-applied sort survives in-memory
       predicate evaluation. */

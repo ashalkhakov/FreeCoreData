@@ -26,6 +26,7 @@ CoreDataTests_OBJC_FILES = \
 	NSTransformableAttributeTests.m \
 	NSDerivedAttributeTests.m \
 	NSCountAndExistingObjectTests.m \
+	NSManagedObjectPredicateTests.m \
 	NSPendingChangesFetchTests.m \
 	MomcCompiledModelTests.m \
 	MomcSerializerTests.m \
