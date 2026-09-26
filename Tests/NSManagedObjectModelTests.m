@@ -612,4 +612,81 @@ static NSManagedObjectModel *CopyableModel(void)
     XCTAssertEqualObjects([[sales valueForKey:@"employees"] valueForKey:@"name"], [NSSet setWithObject:@"Ann"]);
 }
 
+/* Employee, and Manager under it, with a shadowed property and an
+   inherited relationship. */
+static NSArray *InheritanceEntities(void)
+{
+    NSEntityDescription *employee = [[NSEntityDescription alloc] init];
+    [employee setName:@"Employee"];
+    NSEntityDescription *manager = [[NSEntityDescription alloc] init];
+    [manager setName:@"Manager"];
+    NSEntityDescription *department = [[NSEntityDescription alloc] init];
+    [department setName:@"Department"];
+
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    [name setName:@"name"];
+    [name setAttributeType:NSStringAttributeType];
+    NSAttributeDescription *title = [[NSAttributeDescription alloc] init];
+    [title setName:@"title"];
+    [title setAttributeType:NSStringAttributeType];
+    NSAttributeDescription *managerTitle = [[NSAttributeDescription alloc] init];
+    [managerTitle setName:@"title"];
+    [managerTitle setAttributeType:NSStringAttributeType];
+    NSAttributeDescription *budget = [[NSAttributeDescription alloc] init];
+    [budget setName:@"budget"];
+    [budget setAttributeType:NSDecimalAttributeType];
+    NSRelationshipDescription *works = [[NSRelationshipDescription alloc] init];
+    [works setName:@"department"];
+    [works setDestinationEntity:department];
+    [works setMaxCount:1];
+    NSRelationshipDescription *staff = [[NSRelationshipDescription alloc] init];
+    [staff setName:@"staff"];
+    [staff setDestinationEntity:employee];
+    [staff setMaxCount:0];
+    [works setInverseRelationship:staff];
+    [staff setInverseRelationship:works];
+
+    [employee setProperties:@[ name, title, works ]];
+    [manager setProperties:@[ budget, managerTitle ]];
+    [department setProperties:@[ staff ]];
+    [employee setSubentities:@[ manager ]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ employee, manager, department ]];
+    return @[ employee, manager, department, model ];
+}
+
+- (void)testSubentityPropertiesIncludeWhatItInherits
+{
+    /* Apple's -properties of a subentity includes its superentity's, each
+       once: a property the subentity declares again shadows the inherited
+       one. The order is unspecified. */
+    NSArray *entities = InheritanceEntities();
+    NSEntityDescription *manager = entities[1];
+    NSArray *names = [[manager properties] valueForKey:@"name"];
+    XCTAssertEqualObjects([NSSet setWithArray:names], ([NSSet setWithObjects:@"budget", @"title", @"name", @"department", nil]));
+    XCTAssertEqual([names count], (NSUInteger)4, @"each once");
+    XCTAssertEqual([[manager properties] count], [[manager propertiesByName] count]);
+    XCTAssertEqualObjects([NSSet setWithArray:[[entities[0] properties] valueForKey:@"name"]],
+                          ([NSSet setWithObjects:@"name", @"title", @"department", nil]), @"a superentity is unchanged");
+}
+
+- (void)testIsKindOfEntity
+{
+    NSArray *entities = InheritanceEntities();
+    NSEntityDescription *employee = entities[0], *manager = entities[1], *department = entities[2];
+    XCTAssertTrue([manager isKindOfEntity:employee]);
+    XCTAssertTrue([manager isKindOfEntity:manager]);
+    XCTAssertFalse([employee isKindOfEntity:manager]);
+    XCTAssertFalse([manager isKindOfEntity:department]);
+}
+
+- (void)testRelationshipsToADestinationIncludeInheritedOnes
+{
+    /* By destination: the relationships that lead to Department. */
+    NSArray *entities = InheritanceEntities();
+    XCTAssertEqualObjects([[entities[1] relationshipsWithDestinationEntity:entities[2]] valueForKey:@"name"], @[ @"department" ]);
+    XCTAssertEqualObjects([[entities[2] relationshipsWithDestinationEntity:entities[0]] valueForKey:@"name"], @[ @"staff" ]);
+    XCTAssertEqualObjects([entities[2] relationshipsWithDestinationEntity:entities[2]], @[]);
+}
+
 @end

@@ -183,4 +183,14 @@ static NSString *const kCodegenModelXML = @""
     [[NSFileManager defaultManager] removeItemAtPath:dir error:NULL];
 }
 
+- (void)testSubclassDeclaresOnlyItsOwnProperties
+{
+    /* Novel inherits Book's title and author; CDGBook declares them. */
+    NSDictionary *files = [CDCodeGenerator sourcesForEntity:[self entity:@"Novel"]];
+    NSString *h = [files objectForKey:@"CDGNovel+CoreDataProperties.h"];
+    XCTAssertTrue([h containsString:@"genre"], @"%@", h);
+    XCTAssertFalse([h containsString:@"title"], @"%@", h);
+    XCTAssertFalse([h containsString:@"author"], @"%@", h);
+}
+
 @end

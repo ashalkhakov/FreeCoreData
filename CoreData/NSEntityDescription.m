@@ -493,9 +493,25 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
 
 
 -(NSArray *)properties {
-   /* insertion order - a deterministic instance of Apple's
-      unspecified (dictionary-driven) order; see the header note */
-   return [[_properties copy] autorelease];
+   /* Apple includes inherited properties, each once: the entity's own,
+      then each superentity's it does not shadow.  Insertion order at
+      every level - a deterministic instance of Apple's unspecified
+      (dictionary-driven) order; see the header note. */
+   if(_superentity==nil)
+    return [[_properties copy] autorelease];
+
+   NSMutableArray *result=[NSMutableArray arrayWithArray:_properties];
+   NSMutableSet   *names=[NSMutableSet setWithArray:[_properties valueForKey:@"name"]];
+
+   for(NSEntityDescription *check=_superentity;check!=nil;check=check->_superentity){
+    for(NSPropertyDescription *property in check->_properties){
+     if([names containsObject:[property name]])
+      continue;
+     [names addObject:[property name]];
+     [result addObject:property];
+    }
+   }
+   return result;
 }
 
 
@@ -680,9 +696,11 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
 -(NSArray *)relationshipsWithDestinationEntity:(NSEntityDescription *)entity {
    NSMutableArray *result=[NSMutableArray array];
 
-   for(NSPropertyDescription *check in _properties){
+   /* Those that lead to entity - by their destination, not the entity
+      that holds them - inherited ones included, as on Apple. */
+   for(NSPropertyDescription *check in [self properties]){
     if([check isKindOfClass:[NSRelationshipDescription class]]){
-     if([[check entity] isEqual:entity])
+     if([[(NSRelationshipDescription *)check destinationEntity] isEqual:entity])
       [result addObject:check];
     }
    }
@@ -812,6 +830,10 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
    _renamingIdentifier=value;
 }
 
+
+-(BOOL)isKindOfEntity:(NSEntityDescription *)entity {
+   return [self _isKindOfEntity:entity];
+}
 
 -(BOOL)_isKindOfEntity:(NSEntityDescription *)other {
    NSEntityDescription *check=self;

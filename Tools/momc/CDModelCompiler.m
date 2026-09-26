@@ -775,6 +775,18 @@ static char CDCodeGenerationTypeKey;
    return objc_getAssociatedObject(entity,&CDCodeGenerationTypeKey);
 }
 
++ (NSArray *)declaredPropertiesOfEntity:(NSEntityDescription *)entity {
+   NSDictionary *inherited=[[entity superentity] propertiesByName];
+   if([inherited count]==0)
+    return [entity properties];
+
+   NSMutableArray *declared=[NSMutableArray array];
+   for(NSPropertyDescription *property in [entity properties])
+    if([inherited objectForKey:[property name]]==nil)
+     [declared addObject:property];
+   return declared;
+}
+
 + (void)setEntity:(NSEntityDescription *)entity
  codeGenerationType:(NSString *)type {
    objc_setAssociatedObject(entity,&CDCodeGenerationTypeKey,

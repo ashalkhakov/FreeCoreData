@@ -353,4 +353,23 @@ static NSString *const kRichModelXML = @""
     XCTAssertTrue(found);
 }
 
+- (void)testSubentityListsOnlyItsOwnProperties
+{
+    /* -properties includes what an entity inherits (on Apple, and here);
+       the model file lists only what it declares. */
+    NSManagedObjectModel *original = [self compileXML:kRichModelXML named:@"original"];
+    NSError *error = nil;
+    NSString *serialized = [CDModelSerializer contentsXMLForModel:original error:&error];
+    NSRange start = [serialized rangeOfString:@"<entity name=\"FeaturedArticle\""];
+    XCTAssertTrue(start.location != NSNotFound);
+    NSRange end = [serialized rangeOfString:@"</entity>" options:0 range:NSMakeRange(start.location, serialized.length - start.location)];
+    NSString *featured = [serialized substringWithRange:NSMakeRange(start.location, NSMaxRange(end) - start.location)];
+    XCTAssertTrue([featured containsString:@"name=\"badge\""], @"%@", featured);
+    NSEntityDescription *article = [[original entitiesByName] objectForKey:@"Article"];
+    for (NSString *inherited in [[article propertiesByName] allKeys]) {
+        NSString *declaration = [NSString stringWithFormat:@"name=\"%@\"", inherited];
+        XCTAssertFalse([featured containsString:declaration], @"%@ is Article's, not FeaturedArticle's: %@", inherited, featured);
+    }
+}
+
 @end

@@ -271,7 +271,7 @@ static BOOL MBValuesEqual(id a, id b)
   attribute.name = name;
   attribute.attributeType = NSStringAttributeType;
   attribute.optional = YES;
-  [_document insertProperty:attribute intoEntity:entity atIndex:entity.properties.count];
+  [_document insertProperty:attribute intoEntity:entity atIndex:[CDModelCompiler declaredPropertiesOfEntity:entity].count];
   return name;
 }
 
@@ -297,7 +297,7 @@ static BOOL MBValuesEqual(id a, id b)
   for (NSEntityDescription *other in [_document sortedEntities])
     if (other != entity) { destination = other; break; }
   relationship.destinationEntity = destination;
-  [_document insertProperty:relationship intoEntity:entity atIndex:entity.properties.count];
+  [_document insertProperty:relationship intoEntity:entity atIndex:[CDModelCompiler declaredPropertiesOfEntity:entity].count];
   return name;
 }
 
