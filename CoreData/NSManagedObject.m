@@ -897,6 +897,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         [collection addObject:[self objectID]];
       }
       else{
+       /* As on Apple, an object that joins the receiver leaves the one
+          its to-one inverse named before: a product added to a category
+          is no longer among its old category's products, a partner's
+          old partner has none. */
+       NSManagedObjectID *ownerID=[relValue primitiveValueForKey:inverseName];
+
+       if(ownerID!=nil && ![ownerID isEqual:[self objectID]]){
+        NSManagedObject *owner=[_context objectWithID:ownerID];
+
+        [owner willChangeValueForKey:propertyName];
+        if([relationship isToMany])
+         [[owner primitiveValueForKey:propertyName] removeObject:valueID];
+        else
+         [owner setPrimitiveValue:nil forKey:propertyName];
+        [owner didChangeValueForKey:propertyName];
+       }
+
        [relValue setPrimitiveValue:[self objectID] forKey:inverseName];
       }
      
