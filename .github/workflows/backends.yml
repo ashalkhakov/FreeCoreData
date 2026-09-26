@@ -53,7 +53,7 @@ jobs:
       # Pin this to a commit rather than a branch: it is what the cache key
       # below is made of, so a moving branch would keep serving a prefix
       # built from patches that have since changed.
-      GNUSTEP_PATCHES_REF: 5b7cea43e828d053d72078f6dd1ebeb8785d770c
+      GNUSTEP_PATCHES_REF: 44b9f3d8b750c0c2c128a14718a265b83a9a797c
       CD_TEST_REQUIRE_DATABASE: 1
     defaults:
       run:
