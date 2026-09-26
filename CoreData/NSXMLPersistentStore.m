@@ -368,7 +368,19 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
    NSArray      *objects=[database elementsForName:@"object"];
    NSInteger     i,count=[objects count];
    NSMutableSet *newNodes=[NSMutableSet set];
-   
+
+   /* Every object's node first, of the object's own entity: a relationship
+      names only its destination entity, a superentity of the object's when
+      it refers to one of a subentity's before its element is loaded. */
+   for(i=0;i<count;i++){
+    NSXMLElement        *element=[objects objectAtIndex:i];
+    NSString            *reference=[[element attributeForName:@"id"] stringValue];
+    NSEntityDescription *entity=entityInModelWithName(model,[[element attributeForName:@"type"] stringValue]);
+
+    if(entity!=nil && reference!=nil)
+     [self cacheNodeForEntity:entity referenceObject:reference];
+   }
+
    for(i=0;i<count;i++){
     NSXMLElement *element=[objects objectAtIndex:i];
     NSAtomicStoreCacheNode *node=[self loadEntityElement:element model:model];
@@ -557,7 +569,9 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
      
      [idrefArray addObject:referenceObject];
      
-     NSAtomicStoreCacheNode *relNode=[self cacheNodeForEntity:destinationEntity referenceObject:referenceObject];
+     /* Of the destination's own entity, which may be a subentity of the
+        relationship's. */
+     NSAtomicStoreCacheNode *relNode=[self cacheNodeForEntity:[objectID entity] referenceObject:referenceObject];
 
      [cacheNodeSet addObject:relNode];
     }
@@ -592,7 +606,9 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
    NSEntityDescription    *entity=[managedObject entity];
    NSManagedObjectID      *objectID=[managedObject objectID];
    id                      reference=[self referenceObjectForObjectID:objectID];
-   NSAtomicStoreCacheNode *cacheNode=[[NSAtomicStoreCacheNode alloc] initWithObjectID:objectID];
+   /* The node relationships to the object hold, when they are saved first:
+      one node per object. */
+   NSAtomicStoreCacheNode *cacheNode=[[self cacheNodeForEntity:entity referenceObject:reference] retain];
    
    NSXMLElement           *entityElement=[[NSXMLElement alloc] initWithName:@"object"];
    NSXMLNode              *nameAttribute=[NSXMLNode attributeWithName:@"type" stringValue:[[entity name] uppercaseString]];

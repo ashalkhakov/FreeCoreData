@@ -149,4 +149,128 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                   @"executing with an unknown entity name must raise");
 }
 
+static NSAttributeDescription *EntityTestAttribute(NSString *name, NSAttributeType type)
+{
+    NSAttributeDescription *attribute = [[NSAttributeDescription alloc] init];
+    [attribute setName:name];
+    [attribute setAttributeType:type];
+    [attribute setOptional:YES];
+    return attribute;
+}
+
+/* Employee > Manager > Executive; a Department with a head and staff. */
+static NSManagedObjectModel *EntityTestModel(void)
+{
+    NSEntityDescription *employee = [[NSEntityDescription alloc] init];
+    [employee setName:@"Employee"];
+    NSEntityDescription *manager = [[NSEntityDescription alloc] init];
+    [manager setName:@"Manager"];
+    NSEntityDescription *executive = [[NSEntityDescription alloc] init];
+    [executive setName:@"Executive"];
+    NSEntityDescription *department = [[NSEntityDescription alloc] init];
+    [department setName:@"Department"];
+    for (NSEntityDescription *entity in @[ employee, manager, executive, department ]) {
+        [entity setManagedObjectClassName:@"NSManagedObject"];
+    }
+    NSRelationshipDescription *works = [[NSRelationshipDescription alloc] init];
+    [works setName:@"department"];
+    [works setDestinationEntity:department];
+    [works setMaxCount:1];
+    [works setOptional:YES];
+    NSRelationshipDescription *staff = [[NSRelationshipDescription alloc] init];
+    [staff setName:@"staff"];
+    [staff setDestinationEntity:employee];
+    [staff setMaxCount:0];
+    [staff setOptional:YES];
+    [works setInverseRelationship:staff];
+    [staff setInverseRelationship:works];
+    NSRelationshipDescription *head = [[NSRelationshipDescription alloc] init];
+    [head setName:@"head"];
+    [head setDestinationEntity:employee];
+    [head setMaxCount:1];
+    [head setOptional:YES];
+    [employee setProperties:@[ EntityTestAttribute(@"name", NSStringAttributeType), works ]];
+    [manager setProperties:@[ EntityTestAttribute(@"budget", NSInteger64AttributeType) ]];
+    [executive setProperties:@[ EntityTestAttribute(@"bonus", NSInteger64AttributeType) ]];
+    [department setProperties:@[ EntityTestAttribute(@"title", NSStringAttributeType), staff, head ]];
+    [manager setSubentities:@[ executive ]];
+    [employee setSubentities:@[ manager ]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ employee, manager, executive, department ]];
+    return model;
+}
+
+- (void)testPredicatesTestAnObjectsEntityInEveryStore
+{
+    /* Apple's stores all answer "entity" in a predicate, of the fetched
+       object or one it reaches, so a fetch can pick objects by type; with
+       it first, a subentity's property can follow it in an AND. */
+    NSManagedObjectModel *model = EntityTestModel();
+    NSDictionary *entities = [model entitiesByName];
+    NSArray *managers = @[ entities[@"Manager"], entities[@"Executive"] ];
+    NSArray *probes = @[
+        @[ @"Employee", [NSPredicate predicateWithFormat:@"entity == %@", entities[@"Manager"]], @"m" ],
+        @[ @"Employee", [NSPredicate predicateWithFormat:@"entity IN %@", managers], @"m,x" ],
+        @[ @"Employee", [NSPredicate predicateWithFormat:@"name == 'e' OR (entity IN %@ AND budget > 15)", managers], @"e,x" ],
+        @[ @"Department", [NSPredicate predicateWithFormat:@"head.entity IN %@", managers], @"D" ],
+        @[ @"Department", [NSPredicate predicateWithFormat:@"head.entity IN %@ AND head.budget > 5", managers], @"D" ],
+        @[ @"Department", [NSPredicate predicateWithFormat:@"SUBQUERY(staff, $s, $s.entity IN %@ AND $s.budget > 15).@count > 0", managers], @"D2" ],
+        @[ @"Department", [NSPredicate predicateWithFormat:@"SUBQUERY(staff, $s, $s.entity == %@).@count > 0", entities[@"Executive"]], @"D2" ],
+    ];
+    for (NSString *type in @[ NSInMemoryStoreType, NSXMLStoreType, NSSQLiteStoreType ]) {
+        NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
+        NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+        NSError *error = nil;
+        XCTAssertNotNil([psc addPersistentStoreWithType:type configuration:nil URL:[NSURL fileURLWithPath:path] options:nil error:&error], @"%@", error);
+        NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+        [context setPersistentStoreCoordinator:psc];
+        [context performBlockAndWait:^{
+            NSManagedObject *d = [NSEntityDescription insertNewObjectForEntityForName:@"Department" inManagedObjectContext:context];
+            [d setValue:@"D" forKey:@"title"];
+            NSManagedObject *d2 = [NSEntityDescription insertNewObjectForEntityForName:@"Department" inManagedObjectContext:context];
+            [d2 setValue:@"D2" forKey:@"title"];
+            NSManagedObject *e = [NSEntityDescription insertNewObjectForEntityForName:@"Employee" inManagedObjectContext:context];
+            [e setValue:@"e" forKey:@"name"];
+            [e setValue:d forKey:@"department"];
+            NSManagedObject *m = [NSEntityDescription insertNewObjectForEntityForName:@"Manager" inManagedObjectContext:context];
+            [m setValue:@"m" forKey:@"name"];
+            [m setValue:@10 forKey:@"budget"];
+            [m setValue:d forKey:@"department"];
+            NSManagedObject *x = [NSEntityDescription insertNewObjectForEntityForName:@"Executive" inManagedObjectContext:context];
+            [x setValue:@"x" forKey:@"name"];
+            [x setValue:@20 forKey:@"budget"];
+            [x setValue:d2 forKey:@"department"];
+            [d setValue:m forKey:@"head"];
+            [d2 setValue:e forKey:@"head"];
+            NSError *saveError = nil;
+            XCTAssertTrue([context save:&saveError], @"%@", saveError);
+            [context reset];
+        }];
+        /* Then again from the file, but for the in-memory store: a store
+           that loads a head before its element must know it as a Manager. */
+        NSUInteger rounds = [type isEqualToString:NSInMemoryStoreType] ? 1 : 2;
+        for (NSUInteger round = 0; round < rounds; round++) {
+            if (round == 1) {
+                psc = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+                XCTAssertNotNil([psc addPersistentStoreWithType:type configuration:nil URL:[NSURL fileURLWithPath:path] options:nil error:&error], @"%@", error);
+                context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+                [context setPersistentStoreCoordinator:psc];
+            }
+            [context performBlockAndWait:^{
+                for (NSArray *probe in probes) {
+                    NSFetchRequest *request = [NSFetchRequest fetchRequestWithEntityName:probe[0]];
+                    [request setPredicate:probe[1]];
+                    NSError *fetchError = nil;
+                    NSArray *found = [context executeFetchRequest:request error:&fetchError];
+                    NSString *key = [probe[0] isEqualToString:@"Department"] ? @"title" : @"name";
+                    NSArray *names = [[found valueForKey:key] sortedArrayUsingSelector:@selector(compare:)];
+                    NSString *joined = [names componentsJoinedByString:@","];
+                    XCTAssertEqualObjects(joined, probe[2], @"%@ (round %lu): %@ (%@)", type, (unsigned long)round, probe[1], fetchError);
+                }
+            }];
+        }
+        [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+    }
+}
+
 @end

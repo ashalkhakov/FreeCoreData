@@ -65,7 +65,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -valueForKey:(NSString *)key {
-   return [_propertyCache objectForKey:key];
+   id value=[_propertyCache objectForKey:key];
+
+   /* As on Apple, a node answers its entity, so a fetch can test an
+      object's type: "entity IN %@", "head.entity == %@", SUBQUERY(staff,
+      $s, $s.entity == %@).  No property can be named entity. */
+   if(value==nil && [key isEqualToString:@"entity"])
+    return [_objectID entity];
+   return value;
 }
 
 @end
