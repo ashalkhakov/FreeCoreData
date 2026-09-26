@@ -139,4 +139,111 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [[NSNotificationCenter defaultCenter] removeObserver:observer];
 }
 
+/* Category <-> products (one-to-many), person <-> partner (one-to-one). */
+static NSManagedObjectContext *InverseTestContext(void)
+{
+    NSEntityDescription *category = [[NSEntityDescription alloc] init];
+    [category setName:@"InverseCategory"];
+    [category setManagedObjectClassName:@"NSManagedObject"];
+    NSEntityDescription *product = [[NSEntityDescription alloc] init];
+    [product setName:@"InverseProduct"];
+    [product setManagedObjectClassName:@"NSManagedObject"];
+    NSEntityDescription *person = [[NSEntityDescription alloc] init];
+    [person setName:@"InversePerson"];
+    [person setManagedObjectClassName:@"NSManagedObject"];
+    NSMutableArray *names = [NSMutableArray array];
+    for (int i = 0; i < 3; i++) {
+        NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+        [name setName:@"name"];
+        [name setAttributeType:NSStringAttributeType];
+        [name setOptional:YES];
+        [names addObject:name];
+    }
+    NSRelationshipDescription *products = [[NSRelationshipDescription alloc] init];
+    [products setName:@"products"];
+    [products setDestinationEntity:product];
+    [products setMaxCount:0];
+    [products setOptional:YES];
+    NSRelationshipDescription *owner = [[NSRelationshipDescription alloc] init];
+    [owner setName:@"category"];
+    [owner setDestinationEntity:category];
+    [owner setMaxCount:1];
+    [owner setOptional:YES];
+    [products setInverseRelationship:owner];
+    [owner setInverseRelationship:products];
+    NSRelationshipDescription *partner = [[NSRelationshipDescription alloc] init];
+    [partner setName:@"partner"];
+    [partner setDestinationEntity:person];
+    [partner setMaxCount:1];
+    [partner setOptional:YES];
+    [partner setInverseRelationship:partner];
+    [category setProperties:@[ names[0], products ]];
+    [product setProperties:@[ names[1], owner ]];
+    [person setProperties:@[ names[2], partner ]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ category, product, person ]];
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    [psc addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:NULL];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [context setPersistentStoreCoordinator:psc];
+    return context;
+}
+
+static NSManagedObject *InverseTestObject(NSManagedObjectContext *context, NSString *entity, NSString *name)
+{
+    NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entity inManagedObjectContext:context];
+    [object setValue:name forKey:@"name"];
+    return object;
+}
+
+static NSArray *InverseTestNames(id objects)
+{
+    return [[[objects valueForKey:@"name"] allObjects] sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (void)testAnObjectAddedToAToManyLeavesItsOldOwner
+{
+    /* Apple: a product added to a category's products, by setting the set
+       or through -mutableSetValueForKey:, is no longer among the products
+       of the category it had, before a save and after it. */
+    for (NSString *how in @[ @"set", @"mutable" ]) {
+        NSManagedObjectContext *context = InverseTestContext();
+        NSManagedObject *drinks = InverseTestObject(context, @"InverseCategory", @"drinks");
+        NSManagedObject *sauces = InverseTestObject(context, @"InverseCategory", @"sauces");
+        NSManagedObject *chai = InverseTestObject(context, @"InverseProduct", @"chai");
+        NSManagedObject *syrup = InverseTestObject(context, @"InverseProduct", @"syrup");
+        [chai setValue:drinks forKey:@"category"];
+        [syrup setValue:sauces forKey:@"category"];
+        NSError *error = nil;
+        XCTAssertTrue([context save:&error], @"%@", error);
+
+        if ([how isEqualToString:@"set"])
+            [drinks setValue:[NSSet setWithObjects:chai, syrup, nil] forKey:@"products"];
+        else
+            [[drinks mutableSetValueForKey:@"products"] addObject:syrup];
+        XCTAssertEqualObjects([syrup valueForKey:@"category"], drinks, @"%@", how);
+        XCTAssertEqualObjects(InverseTestNames([sauces valueForKey:@"products"]), @[], @"%@", how);
+        XCTAssertTrue([[context updatedObjects] containsObject:sauces], @"%@: the old owner changed", how);
+
+        XCTAssertTrue([context save:&error], @"%@", error);
+        [context reset];
+        NSFetchRequest *request = [NSFetchRequest fetchRequestWithEntityName:@"InverseCategory"];
+        [request setPredicate:[NSPredicate predicateWithFormat:@"name == 'sauces'"]];
+        NSManagedObject *saved = [[context executeFetchRequest:request error:NULL] firstObject];
+        XCTAssertEqualObjects(InverseTestNames([saved valueForKey:@"products"]), @[], @"%@: after a save", how);
+    }
+}
+
+- (void)testAOneToOnePartnersOldPartnerHasNone
+{
+    NSManagedObjectContext *context = InverseTestContext();
+    NSManagedObject *ann = InverseTestObject(context, @"InversePerson", @"ann");
+    NSManagedObject *bob = InverseTestObject(context, @"InversePerson", @"bob");
+    NSManagedObject *cy = InverseTestObject(context, @"InversePerson", @"cy");
+    [ann setValue:bob forKey:@"partner"];
+    [cy setValue:bob forKey:@"partner"];
+    XCTAssertEqualObjects([bob valueForKey:@"partner"], cy);
+    XCTAssertNil([ann valueForKey:@"partner"]);
+}
+
 @end
