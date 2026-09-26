@@ -357,7 +357,14 @@ static NSString *serializeModel(NSManagedObjectModel *model,NSDictionary *entity
    setAttr(root,@"systemVersion",@"11.0");
    setAttr(root,@"minimumToolsVersion",@"Automatic");
    setAttr(root,@"sourceLanguage",@"Objective-C");
-   setAttr(root,@"userDefinedModelVersionIdentifier",@"");
+   /* An .xcdatamodel holds one identifier; with several, the first by
+      name, so the output stays deterministic. */
+   NSArray *versionIdentifiers=[[[model versionIdentifiers] allObjects]
+       sortedArrayUsingSelector:@selector(compare:)];
+   id versionIdentifier=[versionIdentifiers count]>0?[versionIdentifiers objectAtIndex:0]:@"";
+
+   setAttr(root,@"userDefinedModelVersionIdentifier",
+       [versionIdentifier isKindOfClass:[NSString class]]?versionIdentifier:[versionIdentifier description]);
 
    NSArray *entities=[[model entities] sortedArrayUsingComparator:
        ^NSComparisonResult(NSEntityDescription *a,NSEntityDescription *b){

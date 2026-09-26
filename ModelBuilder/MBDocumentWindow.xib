@@ -41,6 +41,7 @@
                 <outlet property="entityInspectorContainer" destination="Cak-vL-Utb" id="3Xi-qV-sAl"/>
                 <outlet property="entityNameField" destination="OAa-Ki-db3" id="dcl-sxH-Kif"/>
                 <outlet property="entityRenamingField" destination="5A9-gR-EpB" id="xi5-CvQ-USH"/>
+                <outlet property="modelIdentifierField" destination="MdI-fi-eld" id="MdI-ou-tlt"/>
                 <outlet property="entitySegmentedControl" destination="uBb-TQ-RNu" id="L8i-Lc7-bE6"/>
                 <outlet property="entityUserInfoSegmentedControl" destination="MSF-uS-kRa" id="wSt-9cb-MOe"/>
                 <outlet property="entityUserInfoTable" destination="nHG-qq-A1g" id="EeU-tui-eeC"/>
@@ -408,6 +409,44 @@
                                                                     <view key="view" id="rfQ-cJ-VOP">
                                                                         <rect key="frame" x="0.0" y="0.0" width="267" height="680"/>
                                                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                        <subviews>
+                                                                            <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="MdI-se-ctn">
+                                                                                <rect key="frame" x="-4" y="617" width="264" height="45"/>
+                                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                <subviews>
+                                                                                    <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="MdI-he-adr">
+                                                                                        <rect key="frame" x="8" y="29" width="200" height="16"/>
+                                                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                        <textFieldCell key="cell" controlSize="large" lineBreakMode="clipping" title="Core Data Model" id="MdI-he-cel">
+                                                                                            <font key="font" metaFont="system"/>
+                                                                                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                        </textFieldCell>
+                                                                                    </textField>
+                                                                                    <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="MdI-la-bel">
+                                                                                        <rect key="frame" x="-2" y="4" width="89" height="14"/>
+                                                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Identifier" id="MdI-la-cel">
+                                                                                            <font key="font" metaFont="smallSystem"/>
+                                                                                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                        </textFieldCell>
+                                                                                    </textField>
+                                                                                    <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="MdI-fi-eld">
+                                                                                        <rect key="frame" x="93" y="2" width="171" height="19"/>
+                                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                        <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="MdI-fi-cel">
+                                                                                            <font key="font" metaFont="smallSystem"/>
+                                                                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                        </textFieldCell>
+                                                                                        <connections>
+                                                                                            <action selector="inspectorChanged:" target="-2" id="MdI-ac-tn1"/>
+                                                                                        </connections>
+                                                                                    </textField>
+                                                                                </subviews>
+                                                                            </customView>
+                                                                        </subviews>
                                                                     </view>
                                                                 </tabViewItem>
                                                                 <tabViewItem label="Data Model Inspector" identifier="" id="o7G-6C-FrW">

@@ -486,6 +486,28 @@ int main(void)
     CHECK(rowEntity.length && [wc.entityNameField.stringValue isEqualToString:rowEntity],
           "selecting an entity row inspects that entity");
 
+    SCENARIO("The Identity page edits the model version's Identifier");
+    /* GIVEN the window over a version with no Identifier
+       WHEN the Identity page's Identifier field is set and sends its
+            action, as ending editing does
+       THEN the model's version identifier is what was typed, as one
+            undo step, and the field shows what the model holds */
+    CHECK(wc.modelIdentifierField != nil, "modelIdentifierField outlet");
+    CHECK([wc.modelIdentifierField.stringValue isEqualToString:@""], "a blank Identifier shows blank");
+    [wc.modelIdentifierField setStringValue:@"probe-2"];
+    /* Through the xib's wiring, not a direct call: the connection is what
+       is under test. */
+    CHECK([NSApp sendAction:wc.modelIdentifierField.action
+                         to:wc.modelIdentifierField.target
+                       from:wc.modelIdentifierField], "the field's action is wired");
+    CHECK([doc.model.versionIdentifiers isEqual:[NSSet setWithObject:@"probe-2"]],
+          "the field's action sets the model's version identifier");
+    [doc.undoManager undo];
+    CHECK(doc.model.versionIdentifiers.count == 0, "one undo takes it back");
+    [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)defaultRow]
+               byExtendingSelection:NO];
+    CHECK([wc.modelIdentifierField.stringValue isEqualToString:@""], "the field shows the model's value again");
+
     printf("---\n%d passed, %d failed\n", passed, failed);
     exit(failed ? 1 : 0);   /* skip pool teardown */
   }

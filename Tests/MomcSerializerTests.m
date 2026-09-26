@@ -280,6 +280,26 @@ static NSString *const kRichModelXML = @""
     XCTAssertFalse([template returnsObjectsAsFaults]);
 }
 
+/* A model's version identifier is written as the version's Identifier
+   (userDefinedModelVersionIdentifier) and compiled back into the one
+   version identifier; a model without one gets a blank Identifier and
+   compiles back to none. */
+- (void)testVersionIdentifierRoundTrips
+{
+    NSManagedObjectModel *original = [self compileXML:kRichModelXML named:@"unidentified"];
+    XCTAssertEqual([[original versionIdentifiers] count], (NSUInteger)0);
+
+    [original setVersionIdentifiers:[NSSet setWithObject:@"odata:0123456789abcdef"]];
+    NSError *error = nil;
+    NSString *serialized = [CDModelSerializer contentsXMLForModel:original error:&error];
+    XCTAssertNotNil(serialized, @"serialize failed: %@", error);
+    XCTAssertTrue([serialized rangeOfString:@"userDefinedModelVersionIdentifier=\"odata:0123456789abcdef\""].location != NSNotFound,
+                  @"%@", serialized);
+
+    NSManagedObjectModel *reparsed = [self compileXML:serialized named:@"identified"];
+    XCTAssertEqualObjects([reparsed versionIdentifiers], [NSSet setWithObject:@"odata:0123456789abcdef"]);
+}
+
 /* serialize(compile(serialize(m))) == serialize(m): the output is
    deterministic and stable, so saving an unmodified document rewrites
    the identical file. */

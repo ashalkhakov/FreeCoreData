@@ -438,6 +438,53 @@ int main(void)
 
     }
 
+    {
+    SCENARIO("The model version's Identifier is edited, undone and saved");
+    /* GIVEN a package whose version has a blank Identifier
+       WHEN the Identifier is set, as Xcode's File inspector sets it
+       THEN it is the model's one version identifier, one undo step takes
+            it back and redo restores it, and saving writes it as
+            userDefinedModelVersionIdentifier, which momc compiles back */
+    MBDocument *v = [[MBDocument alloc] init];
+    [v readFromURL:[NSURL fileURLWithPath:writeSamplePackage()] ofType:@"xcdatamodeld" error:NULL];
+    MBModelEditor *me = [MBModelEditor editorForDocument:v];
+    CHECK([me.versionIdentifier isEqualToString:@""] && v.model.versionIdentifiers.count == 0,
+          "a blank Identifier is no version identifier");
+    [v beginEdit:@"Edit Model Identifier"];
+    me.versionIdentifier = @" odata:0123456789abcdef ";
+    [v endEdit];
+    CHECK([v.model.versionIdentifiers isEqual:[NSSet setWithObject:@"odata:0123456789abcdef"]],
+          "the Identifier, trimmed, is the model's version identifier");
+    CHECK(v.isDocumentEdited, "setting it edits the document");
+    [v.undoManager undo];
+    CHECK(v.model.versionIdentifiers.count == 0, "undo takes it back");
+    [v.undoManager redo];
+    CHECK([[MBModelEditor editorForDocument:v].versionIdentifier isEqualToString:@"odata:0123456789abcdef"],
+          "redo restores it");
+
+    NSString *identifiedPath = [NSTemporaryDirectory()
+        stringByAppendingPathComponent:@"MBSmokeIdentified.xcdatamodeld"];
+    [[NSFileManager defaultManager] removeItemAtPath:identifiedPath error:NULL];
+    CHECK([v writeToURL:[NSURL fileURLWithPath:identifiedPath] ofType:@"xcdatamodeld"
+          forSaveOperation:NSSaveAsOperation originalContentsURL:nil error:&error], "save");
+    NSString *contents = [NSString stringWithContentsOfFile:
+        [identifiedPath stringByAppendingPathComponent:@"MBSmoke.xcdatamodel/contents"]
+                                                   encoding:NSUTF8StringEncoding error:NULL];
+    CHECK([contents rangeOfString:@"userDefinedModelVersionIdentifier=\"odata:0123456789abcdef\""].location != NSNotFound,
+          "saved as userDefinedModelVersionIdentifier");
+    MBDocument *reopened = [[MBDocument alloc] init];
+    [reopened readFromURL:[NSURL fileURLWithPath:identifiedPath] ofType:@"xcdatamodeld" error:NULL];
+    CHECK([reopened.model.versionIdentifiers isEqual:[NSSet setWithObject:@"odata:0123456789abcdef"]],
+          "reopened, the model has it again");
+    [reopened setFileURL:[NSURL fileURLWithPath:identifiedPath]];
+    NSString *identifiedMomd = nil;
+    CHECK([reopened compileToMomd:&error momdPath:&identifiedMomd], "compile to momd");
+    NSManagedObjectModel *compiled = identifiedMomd
+        ? [[NSManagedObjectModel alloc] initWithContentsOfURL:[NSURL fileURLWithPath:identifiedMomd]] : nil;
+    CHECK([compiled.versionIdentifiers isEqual:[NSSet setWithObject:@"odata:0123456789abcdef"]],
+          "the compiled model carries it");
+    }
+
     printf("---\n%d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;
   }
