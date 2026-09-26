@@ -465,6 +465,15 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
 
    [model setEntities:[entitiesByName allValues]];
 
+   /* The version's Identifier in Xcode's model inspector.  Apple's momc
+      makes it the model's one version identifier, and leaves the set
+      empty when it is blank; code picking a model version by identifier
+      depends on it surviving compilation. */
+   NSString *versionIdentifier=attr(root,@"userDefinedModelVersionIdentifier");
+
+   if([versionIdentifier length]>0)
+    [model setVersionIdentifiers:[NSSet setWithObject:versionIdentifier]];
+
    /* Configurations. */
    for(NSXMLElement *configurationElement in [root elementsForName:@"configuration"]){
     NSString       *configurationName=attr(configurationElement,@"name");

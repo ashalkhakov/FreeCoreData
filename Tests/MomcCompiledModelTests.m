@@ -52,6 +52,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                     @"the CURRENT version (2) must have been loaded");
 }
 
+/* The version's Identifier (userDefinedModelVersionIdentifier) is the
+   compiled model's one version identifier, with either compiler. */
+- (void)testVersionIdentifierSurvivesCompilation
+{
+    XCTAssertEqualObjects([self.model versionIdentifiers], [NSSet setWithObject:@"2"]);
+}
+
 - (void)testAttributeTypesAndDefaults
 {
     NSDictionary *attributes =
