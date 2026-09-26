@@ -80,6 +80,8 @@
 @property (nonatomic, strong) IBOutlet NSSegmentedControl *entityUserInfoSegmentedControl;
 @property (nonatomic, strong) IBOutlet NSTextField *entityHashModifierField;
 @property (nonatomic, strong) IBOutlet NSTextField *entityRenamingField;
+/* Identity page: the model version's Identifier. */
+@property (nonatomic, strong) IBOutlet NSTextField *modelIdentifierField;
 
 /* Fetch request inspector */
 @property (nonatomic, strong) IBOutlet NSTextField *fetchNameField;

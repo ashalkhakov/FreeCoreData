@@ -62,6 +62,10 @@ static BOOL MBValuesEqual(id a, id b)
 
 + (MBEditor *)editorForSubject:(id)subject document:(MBDocument *)document
 {
+  /* The document's model, whichever object it is now: graph surgery
+     replaces it. */
+  if ([subject isKindOfClass:[NSManagedObjectModel class]])
+    return [MBModelEditor editorForDocument:document];
   if ([subject isKindOfClass:[NSEntityDescription class]])
     return [MBEntityEditor editorForEntityNamed:[subject name] document:document];
   if ([subject isKindOfClass:[NSAttributeDescription class]])
@@ -85,6 +89,41 @@ static BOOL MBValuesEqual(id a, id b)
 {
   _lastError = [NSError errorWithDomain:@"MBEditors" code:1
       userInfo:@{ NSLocalizedDescriptionKey : message }];
+}
+
+@end
+
+/* ---------------------------------------------------------------- */
+
+@implementation MBModelEditor
+
++ (instancetype)editorForDocument:(MBDocument *)document
+{
+  if (!document.model) return nil;
+  MBModelEditor *editor = [[self alloc] init];
+  editor->_document = document;
+  return editor;
+}
+
+- (id)undoSubject { return _document.model; }
+
+/* One identifier per version, as an .xcdatamodel holds one; with several
+   (set in code), the first by name, as the serializer writes. */
+- (NSString *)versionIdentifier
+{
+  NSArray *identifiers = [[_document.model.versionIdentifiers allObjects]
+      sortedArrayUsingSelector:@selector(compare:)];
+  id first = identifiers.firstObject;
+  return [first isKindOfClass:[NSString class]] ? first : ([first description] ?: @"");
+}
+
+- (void)setVersionIdentifier:(NSString *)versionIdentifier
+{
+  NSString *wanted = [versionIdentifier stringByTrimmingCharactersInSet:
+      [NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+  id old = self.versionIdentifier;
+  _document.model.versionIdentifiers = wanted.length ? [NSSet setWithObject:wanted] : [NSSet set];
+  [self didChange:@"versionIdentifier" from:old];
 }
 
 @end

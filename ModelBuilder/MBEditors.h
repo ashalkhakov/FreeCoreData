@@ -34,6 +34,20 @@
 
 /* ---------------------------------------------------------------- */
 
+/* The model version itself - what Xcode's File inspector shows for a
+   selected .xcdatamodel under "Core Data Model". */
+@interface MBModelEditor : MBEditor
+
++ (instancetype)editorForDocument:(MBDocument *)document;
+
+/* The version's Identifier (userDefinedModelVersionIdentifier): the
+   model's one version identifier; empty -> none. */
+@property (nonatomic, copy) NSString *versionIdentifier;
+
+@end
+
+/* ---------------------------------------------------------------- */
+
 @interface MBEntityEditor : MBEditor
 
 + (instancetype)editorForEntityNamed:(NSString *)name document:(MBDocument *)document;

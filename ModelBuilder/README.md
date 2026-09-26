@@ -30,7 +30,7 @@ panes in a split view, like Xcode's editor:
 |---|---|
 | Left | Source list — ENTITIES, FETCH REQUESTS, CONFIGURATIONS (headed by the implicit, read-only **Default**) — with "+/− Entity" and "+/− Attribute" segmented controls in the bottom bar |
 | Center | The selected item's editor: Attributes and Relationships tables in collapsible sections (JUInspectorView) for an entity, with Xcode's popup columns for Type, Destination and Inverse; "Fetch all" popup and predicate editor (with a T/S source toggle) for a fetch request; the entity membership checklist for a configuration, where selecting an entity shows it in the inspector |
-| Right | DMTabBar (Identity / Data Model tabs) over the inspector — the Data Model page for the selection (entity, attribute, relationship or fetch request), with per-type attribute pages, validation, uniqueness constraints, `userInfo` tables and versioning fields |
+| Right | DMTabBar (Identity / Data Model tabs) over the inspector — the Identity page for the model version (its Identifier), the Data Model page for the selection (entity, attribute, relationship or fetch request), with per-type attribute pages, validation, uniqueness constraints, `userInfo` tables and versioning fields |
 
 The vendored `ThirdParty/` controls (DMTabBar, JUInspectorView — both
 MIT) supply the Xcode-style inspector chrome.  The side panes keep their
@@ -68,7 +68,10 @@ shows the edited version.
   type, the include / return flags, predicate
 - Configuration name and entity membership (the implicit Default
   configuration lists every entity and is not editable)
-- Model versions (add, switch, set current)
+- Model versions (add, switch, set current), and each version's
+  Identifier — Xcode's File inspector field, written as
+  `userDefinedModelVersionIdentifier` and compiled into the model's
+  `versionIdentifiers` — on the Identity page when no entity is selected
 
 Structural changes with graph-wide consequences — deleting an entity,
 changing an entity's parent — are applied to the XML and recompiled, so

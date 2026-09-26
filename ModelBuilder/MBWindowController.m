@@ -1066,6 +1066,9 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
 - (void)fillInspector
 {
   _updating = YES;
+  /* The Identity page describes the model version, whatever is selected:
+     the tab bar can show it at any time. */
+  self.modelIdentifierField.stringValue = [MBModelEditor editorForDocument:self.modelDocument].versionIdentifier ?: @"";
   switch (_kind) {
     case MBInspectEntity:
       [self selectInspectorPage:MBInspectorPageDataModel kindPage:MBKindPageEntity];
@@ -1656,6 +1659,12 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   /* An apply sets every field of the page; the ones that changed are one
      undo step. */
   MBDocument *document = self.modelDocument;
+  if (sender == self.modelIdentifierField) {
+    [document beginEdit:@"Edit Model Identifier"];
+    [MBModelEditor editorForDocument:document].versionIdentifier = self.modelIdentifierField.stringValue;
+    [document endEdit];
+    return;
+  }
   switch (_kind) {
     case MBInspectEntity:
       [document beginEdit:@"Edit Entity"]; [self applyEntityInspector]; break;

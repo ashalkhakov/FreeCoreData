@@ -23,6 +23,7 @@ exit non-zero on any failure.
 | Reparenting an entity is graph surgery | mutator + momc renormalization |
 | Saving and reopening preserves everything | write/read round trip |
 | Compile to momd produces a loadable artifact | in-process momc |
+| The model version's Identifier is edited, undone and saved | `MBModelEditor`, `userDefinedModelVersionIdentifier` through serializer, momc and compiled model |
 
 **MBWindowProbe** — the real window: loads `MBDocumentWindow.xib`
 through `MBWindowController` on the headless backend and drives the
@@ -38,6 +39,7 @@ dispatch, cell-based table edits).
 | A type flip through Transformable leaves no transformer residue | the Apple `setValueTransformerName:nil` crash class |
 | Center-pane popup columns list and apply their choices | NSPopUpButtonCell columns: Type / Destination / Inverse (index in, name applied) |
 | The xib's delete-rule items match momc's vocabulary | IB-authored items pinned against `CDModelCompiler` |
+| The Identity page edits the model version's Identifier | the xib field, its action wiring, one undo step |
 | Renaming, scalar, validation and fetch-template controls are live | inspector enablement + fill/apply for the newly round-tripped features |
 | The Codegen popup is live and round-trips codeGenerationType | codegen metadata: popup ↔ compiler carry ↔ serialized XML |
 | Date pickers load their fields and date from the nib | xib date picker decoding: elements, current date, style/mode (patches/gnustep) |
