@@ -57,6 +57,24 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqual([copy fetchLimit], (NSUInteger)7);
 }
 
+- (void)testCopySharesThePredicate
+{
+    /* Apple's copy keeps the same predicate object, so a predicate whose
+       constants cannot be copied (a managed object) survives the copy
+       that -countForFetchRequest:error: makes. */
+    NSObject *constant = [[NSObject alloc] init];
+    NSFetchRequest *req = [NSFetchRequest fetchRequestWithEntityName:@"Employee"];
+    [req setPredicate:[NSComparisonPredicate
+        predicateWithLeftExpression:[NSExpression expressionForKeyPath:@"department"]
+                    rightExpression:[NSExpression expressionForConstantValue:constant]
+                           modifier:NSDirectPredicateModifier
+                               type:NSEqualToPredicateOperatorType
+                            options:0]];
+    NSFetchRequest *copy = nil;
+    XCTAssertNoThrow(copy = [req copy]);
+    XCTAssertTrue([copy predicate] == [req predicate]);
+}
+
 - (void)testFetchRequestWithEntityNameStoresOnlyTheName
 {
     NSFetchRequest *req = [NSFetchRequest fetchRequestWithEntityName:

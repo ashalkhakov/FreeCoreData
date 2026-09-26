@@ -123,7 +123,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    
    result->_entity=[_entity retain];
    result->_entityName=[_entityName copy];
-   result->_predicate=[_predicate copy];
+   /* Shared, as Apple's copy shares it: predicates are immutable, and
+      copying one copies its constants, which a managed object cannot be. */
+   result->_predicate=[_predicate retain];
    result->_sortDescriptors=[_sortDescriptors copy];
    result->_affectedStores=[_affectedStores copy];
    result->_propertiesToFetch=[_propertiesToFetch copy];

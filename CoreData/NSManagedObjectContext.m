@@ -36,6 +36,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSAtomicStoreCacheNode.h>
 #import <Foundation/NSExpression.h>
 #import "NSPersistentStoreCoordinator-Private.h"
+#import "CDObjectConstants-Private.h"
 #import <Foundation/NSUndoManager.h>
 #import <Foundation/NSNull.h>
 #import "CoreDataUtilities.h"
@@ -694,6 +695,14 @@ static NSString *CDAggregateFunction(NSExpression *expression,NSString **keyPath
    return name;
 }
 
+/* An atomic store evaluates a fetch's predicate against its cache nodes,
+   where a relationship's value is a node: a row there is its node. */
+static id CDCacheNodeForObjectID(NSManagedObjectID *objectID,void *store){
+   if([objectID persistentStore]!=(NSPersistentStore *)store)
+    return nil;
+   return [(NSAtomicStore *)store cacheNodeForObjectID:objectID];
+}
+
 /* A relationship value in a snapshot may be a managed object (committed
    values), a cache node (atomic property caches), or already an object
    ID; dictionary rows carry the object ID, as on Apple. */
@@ -1314,6 +1323,8 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
      if(![genericStore isKindOfClass:[NSAtomicStore class]])
       continue;
 
+     NSPredicate *nodePredicate=CDPredicateReplacingObjectIDs(predicate,CDCacheNodeForObjectID,genericStore);
+
      for(NSAtomicStoreCacheNode *node in [(NSAtomicStore *)genericStore cacheNodes]){
       NSEntityDescription *nodeEntity=[[node objectID] entity];
 
@@ -1325,7 +1336,7 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 
       /* Saved membership: the predicate is evaluated against the cache
          node (KVC over the node's property cache). */
-      if(predicate!=nil && ![predicate evaluateWithObject:node])
+      if(nodePredicate!=nil && ![nodePredicate evaluateWithObject:node])
        continue;
 
       NSManagedObject *cached=[self objectWithID:[node objectID]];
@@ -1449,6 +1460,8 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     if(![genericStore isKindOfClass:[NSAtomicStore class]])
      continue;
 
+    NSPredicate *nodePredicate=CDPredicateReplacingObjectIDs(predicate,CDCacheNodeForObjectID,genericStore);
+
     for(NSAtomicStoreCacheNode *node in [(NSAtomicStore *)genericStore cacheNodes]){
      NSEntityDescription *nodeEntity=[[node objectID] entity];
 
@@ -1457,7 +1470,7 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
      if(![fetchRequest includesSubentities] &&
         ![[nodeEntity name] isEqualToString:[[fetchRequest entity] name]])
       continue;
-     if(predicate!=nil && ![predicate evaluateWithObject:node])
+     if(nodePredicate!=nil && ![nodePredicate evaluateWithObject:node])
       continue;
 
      NSManagedObject *check=[self objectWithID:[node objectID]];

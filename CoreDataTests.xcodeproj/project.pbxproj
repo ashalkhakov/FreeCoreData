@@ -14,6 +14,7 @@
 		CE9446BA30371F9600D23BA1 /* NSTransformableAttributeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */; };
 		CE9446BC30373B5C00D23BA1 /* NSDerivedAttributeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */; };
 		CE9446BE30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */; };
+		CE9400000000000000AD0001 /* NSManagedObjectPredicateTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9400000000000000AD0002 /* NSManagedObjectPredicateTests.m */; };
 		CE9446C0303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */; };
 		CE9446C2303B0C0000D23BA1 /* MomcCompiledModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C1303B0C0000D23BA1 /* MomcCompiledModelTests.m */; };
 		CE9446C6303B0C0000D23BA1 /* MomcFixture.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C3303B0C0000D23BA1 /* MomcFixture.xcdatamodeld */; };
@@ -60,6 +61,7 @@
 		CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSTransformableAttributeTests.m; path = Tests/NSTransformableAttributeTests.m; sourceTree = "<group>"; };
 		CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSDerivedAttributeTests.m; path = Tests/NSDerivedAttributeTests.m; sourceTree = "<group>"; };
 		CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSCountAndExistingObjectTests.m; path = Tests/NSCountAndExistingObjectTests.m; sourceTree = "<group>"; };
+		CE9400000000000000AD0002 /* NSManagedObjectPredicateTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectPredicateTests.m; path = Tests/NSManagedObjectPredicateTests.m; sourceTree = "<group>"; };
 		CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPendingChangesFetchTests.m; path = Tests/NSPendingChangesFetchTests.m; sourceTree = "<group>"; };
 		CE9446C1303B0C0000D23BA1 /* MomcCompiledModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MomcCompiledModelTests.m; path = Tests/MomcCompiledModelTests.m; sourceTree = "<group>"; };
 		CE9446C4303B0C0000D23BA1 /* MomcFixture.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = MomcFixture.xcdatamodel; sourceTree = "<group>"; };
@@ -134,6 +136,7 @@
 				CEFAB81C3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m */,
 				CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */,
 				CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */,
+				CE9400000000000000AD0002 /* NSManagedObjectPredicateTests.m */,
 				CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */,
 				CE9446C1303B0C0000D23BA1 /* MomcCompiledModelTests.m */,
 				CE9446C3303B0C0000D23BA1 /* MomcFixture.xcdatamodeld */,
@@ -267,6 +270,7 @@
 				CEFAB8253062DA0B00CDADDD /* NSBatchRequestTests.m in Sources */,
 				CE9446BC30373B5C00D23BA1 /* NSDerivedAttributeTests.m in Sources */,
 				CE9446BE30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m in Sources */,
+				CE9400000000000000AD0001 /* NSManagedObjectPredicateTests.m in Sources */,
 				CE9446C0303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m in Sources */,
 				CE9446C2303B0C0000D23BA1 /* MomcCompiledModelTests.m in Sources */,
 				CEFAB81F3062C8DA00CDADDD /* NSManagedObjectContextParentingTests.m in Sources */,
