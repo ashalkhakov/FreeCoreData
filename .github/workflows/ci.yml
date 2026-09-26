@@ -116,7 +116,7 @@ jobs:
       # Pin this to a commit rather than a branch: it is what the cache key
       # below is made of, so a moving branch would keep serving a prefix
       # built from patches that have since changed.
-      GNUSTEP_PATCHES_REF: 44b9f3d8b750c0c2c128a14718a265b83a9a797c
+      GNUSTEP_PATCHES_REF: e4fffd5eef8c9c13252fc6e7aa2fb75771a96769
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
