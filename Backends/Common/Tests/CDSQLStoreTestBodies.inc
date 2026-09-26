@@ -2132,6 +2132,71 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
     }
 }
 
+/* A predicate names a row with a managed object or its object ID:
+   SELF == object, SELF IN objects, employer == objectID.  The store
+   translates each of those to a primary key, so they work whichever of the
+   two the caller had to hand.
+
+   The exception is a predicate the store cannot translate at all, which it
+   evaluates over the objects it fetched: there an object ID equals nothing,
+   so the row is not matched.  Apple's CoreData does the same for a store
+   like this one (checked 2026-09-26) - its own SQLite store normalises such
+   a predicate first, but that happens inside the store, and a store outside
+   the framework does not get it.  The last case below is that behaviour,
+   asserted so it is a decision rather than a surprise. */
+- (void)testObjectsAndObjectIDsInPredicates
+{
+    if (![self databaseAvailable]) return;
+
+    NSManagedObject *acme = [NSEntityDescription insertNewObjectForEntityForName:@"Company"
+                                                         inManagedObjectContext:self.context];
+    [acme setValue:@"Acme" forKey:@"name"];
+    [[self insertPersonNamed:@"Ada" age:41] setValue:acme forKey:@"employer"];
+    [[self insertPersonNamed:@"Grace" age:45] setValue:acme forKey:@"employer"];
+    [self insertPersonNamed:@"Edsger" age:50];
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSManagedObject *ada = [self personNamed:@"Ada" inContext:reopened];
+    NSManagedObjectID *adaID = [ada objectID];
+    NSManagedObjectID *companyID = [[ada valueForKey:@"employer"] objectID];
+
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Person"]];
+
+    NSError *error = nil;
+
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"SELF == %@", adaID]];
+    XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)1,
+        "SELF == an object ID names that row: %@", error);
+    XCTAssertEqual([reopened countForFetchRequest:fetch error:&error], (NSUInteger)1,
+        "and counts it: %@", error);
+
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"SELF == %@", ada]];
+    XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)1,
+        "SELF == a managed object names that row: %@", error);
+
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"SELF IN %@", @[ adaID ]]];
+    XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)1,
+        "SELF IN a list of object IDs names those rows: %@", error);
+
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"employer == %@", companyID]];
+    XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)2,
+        "a relationship compared with an object ID: %@", error);
+
+    [fetch setPredicate:[NSPredicate predicateWithFormat:@"employer == %@", [ada valueForKey:@"employer"]]];
+    XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)2,
+        "a relationship compared with a managed object: %@", error);
+
+    /* Untranslatable, so evaluated over the fetched objects, where an object
+       ID equals none of them.  Apple answers the same here. */
+    [fetch setPredicate:[NSCompoundPredicate orPredicateWithSubpredicates:@[
+        [NSPredicate predicateWithFormat:@"employer == %@", companyID],
+        [self namedPredicate:@"nobody"] ]]];
+    XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)0,
+        "a row named in a predicate the store cannot translate is not matched: %@", error);
+}
+
 /* -- optimistic locking ------------------------------------------------ */
 
 /* Two clients read the same row; the second one to save is writing over a
