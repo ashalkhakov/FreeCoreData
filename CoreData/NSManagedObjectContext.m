@@ -804,23 +804,50 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    return filled;
 }
 
--(NSSet *)_relationshipsReachedByAggregates:(NSFetchRequest *)request {
+/* The relationships a dictionary request's key paths go through - those
+   of its aggregates, and those it groups by or fetches (manager.name) -
+   whose snapshot values have to be the related objects for the key path
+   to be read on. */
+-(NSSet *)_relationshipsReachedByKeyPaths:(NSFetchRequest *)request {
    NSMutableSet *names=[NSMutableSet set];
    NSDictionary *relationships=[[request entity] relationshipsByName];
+   NSMutableArray *keyPaths=[NSMutableArray array];
 
    for(id property in [request propertiesToFetch]){
+    if([property isKindOfClass:[NSString class]]){
+     [keyPaths addObject:property];
+     continue;
+    }
     if(![property isKindOfClass:[NSExpressionDescription class]])
      continue;
 
-    NSString *keyPath=nil;
+    NSExpression *expression=[(NSExpressionDescription *)property expression];
+    NSString     *keyPath=nil;
 
-    if(CDAggregateFunction([(NSExpressionDescription *)property expression],&keyPath)==nil)
-     continue;
+    if([expression expressionType]==NSKeyPathExpressionType)
+     [keyPaths addObject:[expression keyPath]];
+    else if(CDAggregateFunction(expression,&keyPath)!=nil){
+     /* count:(reports) reads the relationship itself. */
+     NSString *first=[[keyPath componentsSeparatedByString:@"."] objectAtIndex:0];
 
-    NSString *first=[[keyPath componentsSeparatedByString:@"."] objectAtIndex:0];
+     if([relationships objectForKey:first]!=nil)
+      [names addObject:first];
+    }
+   }
 
-    if([relationships objectForKey:first]!=nil)
-     [names addObject:first];
+   for(id property in [request propertiesToGroupBy]){
+    if([property isKindOfClass:[NSString class]])
+     [keyPaths addObject:property];
+    else if([property isKindOfClass:[NSExpressionDescription class]] &&
+            [[(NSExpressionDescription *)property expression] expressionType]==NSKeyPathExpressionType)
+     [keyPaths addObject:[[(NSExpressionDescription *)property expression] keyPath]];
+   }
+
+   for(NSString *keyPath in keyPaths){
+    NSArray *segments=[keyPath componentsSeparatedByString:@"."];
+
+    if([segments count]>1 && [relationships objectForKey:[segments objectAtIndex:0]]!=nil)
+     [names addObject:[segments objectAtIndex:0]];
    }
 
    return names;
@@ -1288,7 +1315,7 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
        not asked for one they would have to raise on. */
     BOOL reshapes=(resultType==NSDictionaryResultType && [self _dictionaryRequestReshapesRows:fetchRequest]);
     NSSet *aggregatedRelationships=(resultType==NSDictionaryResultType)
-        ?[self _relationshipsReachedByAggregates:fetchRequest]
+        ?[self _relationshipsReachedByKeyPaths:fetchRequest]
         :[NSSet set];
 
     for(NSPersistentStore *genericStore in affectedStores){
