@@ -207,17 +207,77 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    [super dealloc];
 }
 
+/* As on Apple, identity: a context has one object for a row, and an
+   inserted object's ID changes when it is saved (see _setObjectID:). */
 -(NSUInteger)hash {
-   return [_objectID hash];
+   return [super hash];
 }
 
 -(BOOL)isEqual:otherX {
-   if(![otherX isKindOfClass:[NSManagedObject class]])
-    return NO;
-   
-   NSManagedObject *other=otherX;
-   
-   return [_objectID isEqual:other->_objectID];
+   return otherX==self;
+}
+
+/* The permanent ID its store gave, for the temporary one it had. */
+-(void)_setObjectID:(NSManagedObjectID *)objectID {
+   objectID=[objectID copy];
+   [_objectID release];
+   _objectID=objectID;
+}
+
+/* A relationship value with each ID in replacements (temporary ID ->
+   permanent ID) replaced; the value itself when it holds none. */
+static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
+   if([value isKindOfClass:[NSManagedObjectID class]]){
+    id replacement=NSMapGet(replacements,value);
+    return (replacement!=nil)?replacement:value;
+   }
+   if([value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSArray class]] || [value isKindOfClass:[NSOrderedSet class]]){
+    BOOL changed=NO;
+    for(id member in value)
+     if([member isKindOfClass:[NSManagedObjectID class]] && NSMapGet(replacements,member)!=nil){
+      changed=YES;
+      break;
+     }
+    if(!changed)
+     return value;
+
+    NSMutableArray *members=[NSMutableArray array];
+    for(id member in value)
+     [members addObject:CDValueReplacingObjectIDs(member,replacements)];
+    if([value isKindOfClass:[NSOrderedSet class]])
+     return [NSMutableOrderedSet orderedSetWithArray:members];
+    if([value isKindOfClass:[NSArray class]])
+     return members;
+    return [NSMutableSet setWithArray:members];
+   }
+   return value;
+}
+
+/* Relationship values name related objects by ID: those an inserted
+   object had are the permanent ones once saved. */
+-(void)_replaceObjectIDs:(NSMapTable *)replacements {
+   for(NSString *key in [_changedValues allKeys]){
+    id value=[_changedValues objectForKey:key];
+    id replaced=CDValueReplacingObjectIDs(value,replacements);
+    if(replaced!=value)
+     [_changedValues setObject:replaced forKey:key];
+   }
+   if(_committedValues!=nil){
+    NSMutableDictionary *committed=nil;
+    for(NSString *key in _committedValues){
+     id value=[_committedValues objectForKey:key];
+     id replaced=CDValueReplacingObjectIDs(value,replacements);
+     if(replaced!=value){
+      if(committed==nil)
+       committed=[[_committedValues mutableCopy] autorelease];
+      [committed setObject:replaced forKey:key];
+     }
+    }
+    if(committed!=nil){
+     [_committedValues release];
+     _committedValues=[committed copy];
+    }
+   }
 }
 
 -(NSEntityDescription *)entity {

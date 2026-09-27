@@ -2083,54 +2083,59 @@ static id CDUndoRestoredValue(id value){
 }
 
 -(BOOL)_coordinatorLocked_obtainPermanentIDsForObjects:(NSArray *)objects error:(NSError **)error {
+   /* As on Apple, an object takes the permanent ID its store gives it,
+      and the temporary one it had stays temporary.  Relationship values
+      of the context's objects that named it by its temporary ID name it by
+      the permanent one after. */
+   NSMapTable *replacements=NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,NSObjectMapValueCallBacks,0);
+   BOOL        ok=YES;
 
    for(NSManagedObject *check in objects){
     NSManagedObjectID *checkID=[check objectID];
         
-    if([checkID isTemporaryID]){
-     NSPersistentStore *genericStore=[checkID persistentStore];
-     
-     NSMapRemove(_objectIdToObject,checkID);
+    if(![checkID isTemporaryID])
+     continue;
 
-     if(genericStore==nil)
-      NSLog(@"internal inconsistency , object had no store %@",check);
+    NSPersistentStore *genericStore=[checkID persistentStore];
+    NSManagedObjectID *permanentID=nil;
 
-     if([genericStore isKindOfClass:[NSIncrementalStore class]]){
-      NSIncrementalStore *store=(NSIncrementalStore *)genericStore;
-      NSError            *idError=nil;
-      NSArray            *permanentIDs=[store obtainPermanentIDsForObjects:[NSArray arrayWithObject:check] error:&idError];
+    if(genericStore==nil)
+     NSLog(@"internal inconsistency , object had no store %@",check);
 
-      if([permanentIDs count]==0){
-       if(error!=NULL)
-        *error=idError;
+    if([genericStore isKindOfClass:[NSIncrementalStore class]]){
+     NSIncrementalStore *store=(NSIncrementalStore *)genericStore;
+     NSError            *idError=nil;
+     NSArray            *permanentIDs=[store obtainPermanentIDsForObjects:[NSArray arrayWithObject:check] error:&idError];
 
-       NSMapInsert(_objectIdToObject,checkID,check);
-       return NO;
-      }
-
-      NSManagedObjectID *permanentID=[permanentIDs objectAtIndex:0];
-      id                 referenceObject=[store referenceObjectForObjectID:permanentID];
-
-      /* Object IDs are uniqued by pointer in this port, so convert the
-         existing temporary ID to a permanent one in place and re-register
-         it in the store's uniquing table. */
-      [checkID setReferenceObject:referenceObject];
-      [store _uniqueObjectID:checkID];
+     if([permanentIDs count]==0){
+      if(error!=NULL)
+       *error=idError;
+      ok=NO;
+      break;
      }
-     else {
-      NSAtomicStore *store=(NSAtomicStore *)genericStore;
-      id referenceObject=[store newReferenceObjectForManagedObject:check];
-     
-      [checkID setReferenceObject:referenceObject];
-     
-      [store _uniqueObjectID:checkID];
-     }
-     
-     NSMapInsert(_objectIdToObject,checkID,check);
+     permanentID=[permanentIDs objectAtIndex:0];
     }
+    else {
+     NSAtomicStore *store=(NSAtomicStore *)genericStore;
+     id referenceObject=[store newReferenceObjectForManagedObject:check];
+
+     permanentID=[store objectIDForEntity:[check entity] referenceObject:referenceObject];
+     [referenceObject release];
+    }
+
+    NSMapRemove(_objectIdToObject,checkID);
+    NSMapInsert(replacements,checkID,permanentID);
+    [check _setObjectID:permanentID];
+    NSMapInsert(_objectIdToObject,permanentID,check);
    }
+
+   if(NSCountMapTable(replacements)>0){
+    for(NSManagedObject *registered in NSAllMapTableValues(_objectIdToObject))
+     [registered _replaceObjectIDs:replacements];
+   }
+   NSFreeMapTable(replacements);
    
-   return YES;
+   return ok;
 }
 
 /* Applies NSCascadeDeleteRule by deleting destination objects of cascade

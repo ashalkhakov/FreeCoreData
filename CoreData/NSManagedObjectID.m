@@ -33,10 +33,35 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    [super dealloc];
 }
 
-/* NSManagedObjectID is hashed/equal by ptr value, they are uniqued per persistent store and should be the same instance for all
-   references to the same underlying NSManagedObject
- */
- 
+/* As on Apple, a permanent object ID is equal to another for the same
+   row: of the same entity, in the same store, with an equal reference
+   object - whichever instance a store gave.  A temporary ID is equal only
+   to itself.  An ID never changes once made: an inserted object takes the
+   permanent ID its store gives it (see NSManagedObjectContext), so the hash
+   stays what it was when the ID went into a set or a dictionary. */
+-(NSUInteger)hash {
+   if(_isTemporaryID || _referenceObject==nil)
+    return [super hash];
+   return [_referenceObject hash] ^ [[_entity name] hash];
+}
+
+-(BOOL)isEqual:other {
+   if(other==self)
+    return YES;
+   if(![other isKindOfClass:[NSManagedObjectID class]])
+    return NO;
+
+   NSManagedObjectID *check=other;
+
+   if(_isTemporaryID || check->_isTemporaryID || _referenceObject==nil)
+    return NO;
+   if(_entity!=check->_entity && ![[_entity name] isEqualToString:[check->_entity name]])
+    return NO;
+   if(_persistentStore!=check->_persistentStore && ![_storeIdentifier isEqual:check->_storeIdentifier])
+    return NO;
+   return [_referenceObject isEqual:check->_referenceObject];
+}
+
 -copyWithZone:(NSZone *)zone {
    return [self retain];
 }
