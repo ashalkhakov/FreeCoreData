@@ -571,7 +571,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSError *error = nil;
     XCTAssertFalse([self.ctx save:&error], @"the error policy");
     XCTAssertEqualObjects([error domain], NSCocoaErrorDomain);
-    XCTAssertEqual([error code], (NSInteger)NSPersistentStoreSaveConflictsError);
+    // The store's error, or on some Apple releases the error policy's
+    // NSManagedObjectMergeError; both carry the conflicts under one key.
+    XCTAssertTrue([error code] == NSPersistentStoreSaveConflictsError
+                  || [error code] == NSManagedObjectMergeError,
+                  @"%ld", (long)[error code]);
     NSArray *conflicts = [[error userInfo] objectForKey:NSPersistentStoreSaveConflictsErrorKey];
     XCTAssertEqual([conflicts count], (NSUInteger)1);
     XCTAssertEqual([[conflicts lastObject] sourceObject], alice);
