@@ -37,6 +37,9 @@ extern NSString * const MemoryIncrementalStoreType;
 @property (nonatomic) NSUInteger lastUpdatedCount;
 @property (nonatomic) NSUInteger lastDeletedCount;
 @property (nonatomic) long long nextReferenceNumber;
+/* Set, a save request, or obtaining permanent IDs, fails with it. */
+@property (nonatomic, strong) NSError *saveError;
+@property (nonatomic, strong) NSError *permanentIDsError;
 
 - (NSMutableDictionary *)tableForEntityName:(NSString *)entityName;
 

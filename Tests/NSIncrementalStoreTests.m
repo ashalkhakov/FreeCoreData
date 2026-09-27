@@ -699,4 +699,33 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                           @"Boss");
 }
 
+- (void)testAStoresSaveErrorIsTheSavesError
+{
+    /* Apple's -save: gives the error the store failed with, as it is,
+       when one store fails: the application reads its domain, code and
+       userInfo (a validation failure's object and key, say). */
+    NSManagedObject *person = [[NSManagedObject alloc] initWithEntity:self.entity insertIntoManagedObjectContext:self.ctx];
+    [person setValue:@"Ann" forKey:@"name"];
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"%@", error);
+
+    NSError *refusal = [NSError errorWithDomain:@"org.example.store" code:42 userInfo:@{ NSLocalizedDescriptionKey: @"Refused" }];
+    self.store.saveError = refusal;
+    [person setValue:@"Bob" forKey:@"name"];
+    error = nil;
+    XCTAssertFalse([self.ctx save:&error]);
+    XCTAssertEqualObjects(error.domain, @"org.example.store", @"%@", error);
+    XCTAssertEqual(error.code, 42);
+    self.store.saveError = nil;
+    [self.ctx rollback];
+
+    self.store.permanentIDsError = refusal;
+    NSManagedObject *cy = [[NSManagedObject alloc] initWithEntity:self.entity insertIntoManagedObjectContext:self.ctx];
+    [cy setValue:@"Cy" forKey:@"name"];
+    error = nil;
+    XCTAssertFalse([self.ctx save:&error]);
+    XCTAssertEqualObjects(error.domain, @"org.example.store", @"obtaining the new object's ID failed: %@", error);
+    XCTAssertEqual(error.code, 42);
+}
+
 @end

@@ -174,6 +174,10 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
     }
 
     if ([request requestType] == NSSaveRequestType) {
+        if (self.saveError) {
+            if (error) *error = self.saveError;
+            return nil;
+        }
         self.saveRequestCount++;
         NSSaveChangesRequest *save = (NSSaveChangesRequest *)request;
         self.lastInsertedCount = [[save insertedObjects] count];
@@ -264,6 +268,10 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
 - (NSArray *)obtainPermanentIDsForObjects:(NSArray *)array error:(NSError **)error
 {
     self.obtainPermanentIDsCallCount++;
+    if (self.permanentIDsError) {
+        if (error) *error = self.permanentIDsError;
+        return nil;
+    }
     NSMutableArray *result = [NSMutableArray array];
     for (NSManagedObject *object in array) {
         self.nextReferenceNumber++;
