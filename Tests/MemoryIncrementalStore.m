@@ -180,6 +180,25 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
         }
         self.saveRequestCount++;
         NSSaveChangesRequest *save = (NSSaveChangesRequest *)request;
+        if (self.conflictingSaves > 0 && [[save updatedObjects] count] > 0) {
+            self.conflictingSaves--;
+            NSMutableArray *conflicts = [NSMutableArray array];
+            for (NSManagedObject *object in [save updatedObjects]) {
+                id ref = [self referenceObjectForObjectID:[object objectID]];
+                NSDictionary *row = [[self tableForEntityName:[[object entity] name]] objectForKey:ref];
+                [conflicts addObject:[[NSMergeConflict alloc] initWithSource:object
+                                                                  newVersion:2
+                                                                  oldVersion:1
+                                                              cachedSnapshot:row
+                                                           persistedSnapshot:row]];
+            }
+            if (error)
+                *error = [NSError errorWithDomain:NSCocoaErrorDomain
+                                             code:NSPersistentStoreSaveConflictsError
+                                         userInfo:[NSDictionary dictionaryWithObject:conflicts
+                                                                              forKey:NSPersistentStoreSaveConflictsErrorKey]];
+            return nil;
+        }
         self.lastInsertedCount = [[save insertedObjects] count];
         self.lastUpdatedCount = [[save updatedObjects] count];
         self.lastDeletedCount = [[save deletedObjects] count];

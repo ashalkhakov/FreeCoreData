@@ -2413,16 +2413,46 @@ static id CDUndoRestoredValue(id value){
    BOOL result=NO;
    NSPersistentStoreCoordinator *lockedCoordinator=
        (_parentContext==nil)?[self persistentStoreCoordinator]:nil;
+   NSUInteger attempts;
 
-   [lockedCoordinator lock];
-   NS_DURING
-    result=[self _coordinatorLocked_save:errorp];
-   NS_HANDLER
+   /* A store that finds the rows changed under the save (an incremental
+      store whose service refuses a stale version) fails it with the
+      conflicts, NSPersistentStoreSaveConflictsError; as on Apple, the
+      merge policy settles them and the save is tried again. */
+   for(attempts=0;;attempts++){
+    NSError *error=nil;
+
+    [lockedCoordinator lock];
+    NS_DURING
+     result=[self _coordinatorLocked_save:&error];
+    NS_HANDLER
+     [lockedCoordinator unlock];
+     [localException raise];
+    NS_ENDHANDLER
     [lockedCoordinator unlock];
-    [localException raise];
-   NS_ENDHANDLER
-   [lockedCoordinator unlock];
-   return result;
+
+    if(result || attempts>=2 || ![self _resolveStoreConflictsOf:error]){
+     if(!result && errorp!=NULL)
+      *errorp=error;
+     return result;
+    }
+   }
+}
+
+/* The conflicts a store reported, settled by the merge policy; NO for the
+   error policy, for another error, or for conflicts it cannot settle. */
+-(BOOL)_resolveStoreConflictsOf:(NSError *)error {
+   if(![[error domain] isEqualToString:NSCocoaErrorDomain] ||
+      ([error code]!=NSPersistentStoreSaveConflictsError && [error code]!=NSManagedObjectMergeError))
+    return NO;
+
+   NSArray *conflicts=[[error userInfo] objectForKey:NSPersistentStoreSaveConflictsErrorKey];
+
+   if([conflicts count]==0 || _mergePolicy==nil)
+    return NO;
+   if([_mergePolicy isKindOfClass:[NSMergePolicy class]] && [(NSMergePolicy *)_mergePolicy mergeType]==NSErrorMergePolicyType)
+    return NO;
+   return [_mergePolicy resolveConflicts:conflicts error:NULL];
 }
 
 /* --- Nested-context machinery --------------------------------------

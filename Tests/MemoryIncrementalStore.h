@@ -40,6 +40,10 @@ extern NSString * const MemoryIncrementalStoreType;
 /* Set, a save request, or obtaining permanent IDs, fails with it. */
 @property (nonatomic, strong) NSError *saveError;
 @property (nonatomic, strong) NSError *permanentIDsError;
+/* The next so many save requests find their updated rows changed under
+   them, and fail with NSPersistentStoreSaveConflictsError, a conflict
+   for each updated object carrying the row as the store has it. */
+@property (nonatomic) NSUInteger conflictingSaves;
 
 - (NSMutableDictionary *)tableForEntityName:(NSString *)entityName;
 
