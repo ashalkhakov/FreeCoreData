@@ -510,6 +510,48 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                           @"key%20with/slash");
 }
 
+#if GNUSTEP
+/* Grouping by a key path through a to-one relationship (manager.name).
+   Apple hands a grouped dictionary fetch to an incremental store to
+   shape; the port shapes it in the context for a store that does not say
+   it does (-_canShapeDictionaryRequest:), and reads the key path on the
+   row's related object, not on the object ID the row holds. */
+- (void)testGroupingThroughAToOneRelationship
+{
+    [self seedRow:[NSDictionary dictionaryWithObject:@"Boss" forKey:@"name"]
+        forReference:@"p1"];
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Worker", @"name", @"p1", @"manager", nil]
+        forReference:@"p2"];
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Helper", @"name", @"p1", @"manager", nil]
+        forReference:@"p3"];
+
+    NSExpressionDescription *headcount = [[NSExpressionDescription alloc] init];
+    [headcount setName:@"headcount"];
+    [headcount setExpression:[NSExpression expressionForFunction:@"count:"
+        arguments:[NSArray arrayWithObject:[NSExpression expressionForKeyPath:@"name"]]]];
+    [headcount setExpressionResultType:NSInteger64AttributeType];
+
+    NSFetchRequest *fetch = [self personFetchRequest];
+    [fetch setResultType:NSDictionaryResultType];
+    [fetch setPropertiesToFetch:[NSArray arrayWithObjects:@"manager.name", headcount, nil]];
+    [fetch setPropertiesToGroupBy:[NSArray arrayWithObject:@"manager.name"]];
+    [fetch setSortDescriptors:[NSArray arrayWithObject:
+        [NSSortDescriptor sortDescriptorWithKey:@"headcount" ascending:YES]]];
+
+    NSError *error = nil;
+    NSArray *rows = [self.ctx executeFetchRequest:fetch error:&error];
+
+    XCTAssertNotNil(rows, @"fetch failed: %@", error);
+    XCTAssertEqual([rows count], (NSUInteger)2);
+    XCTAssertNil([[rows objectAtIndex:0] objectForKey:@"manager.name"], @"Boss has no manager");
+    XCTAssertEqual([[[rows objectAtIndex:0] objectForKey:@"headcount"] intValue], 1);
+    XCTAssertEqualObjects([[rows objectAtIndex:1] objectForKey:@"manager.name"], @"Boss");
+    XCTAssertEqual([[[rows objectAtIndex:1] objectForKey:@"headcount"] intValue], 2);
+}
+#endif
+
 - (void)testDictionaryFetchIsShapedByTheStore
 {
     /* On a clean context the store itself answers a dictionary fetch,
