@@ -728,4 +728,29 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqual(error.code, 42);
 }
 
+- (void)testObjectIDsAreEqualByWhatTheyName
+{
+    /* Apple: permanent IDs of one row are equal (and hash alike) whatever
+       instance a store gave; a temporary one is equal only to itself; a
+       saved object has the permanent ID its store gave, and the objects
+       related to it name it by that ID. */
+    NSManagedObject *ann = [[NSManagedObject alloc] initWithEntity:self.entity insertIntoManagedObjectContext:self.ctx];
+    [ann setValue:@"Ann" forKey:@"name"];
+    NSManagedObjectID *temporary = [ann objectID];
+    XCTAssertTrue([temporary isTemporaryID]);
+    XCTAssertEqualObjects(temporary, temporary);
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"%@", error);
+    NSManagedObjectID *permanent = [ann objectID];
+    XCTAssertFalse([permanent isTemporaryID]);
+    XCTAssertTrue([temporary isTemporaryID], @"the temporary ID stays temporary");
+    XCTAssertFalse([temporary isEqual:permanent]);
+
+    NSManagedObjectID *again = [self.psc managedObjectIDForURIRepresentation:[permanent URIRepresentation]];
+    XCTAssertEqualObjects(again, permanent);
+    XCTAssertEqual([again hash], [permanent hash]);
+    XCTAssertTrue([[NSSet setWithObject:permanent] containsObject:again]);
+    XCTAssertEqual([self.ctx objectWithID:again], ann, @"one object for the row");
+}
+
 @end

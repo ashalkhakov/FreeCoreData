@@ -12,6 +12,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSManagedObject.h>
 
 @interface NSManagedObject (private)
+/* The permanent ID its store gave, for its temporary one. */
+-(void)_setObjectID:(NSManagedObjectID *)objectID;
+/* Relationship values naming a temporary ID (a key of replacements) name
+   its permanent one (its value) after. */
+-(void)_replaceObjectIDs:(NSMapTable *)replacements;
 - initWithObjectID:(NSManagedObjectID *)objectID managedObjectContext:(NSManagedObjectContext *)context;
 - (NSDictionary *)_committedValues;
 - (NSDictionary *)_cachedCommittedValues;

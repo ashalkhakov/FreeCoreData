@@ -229,17 +229,15 @@ static BOOL CDPWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
     XCTAssertFalse([parentID isTemporaryID],
         @"the root save mints the permanent ID");
 
-#if !defined(__APPLE__)
-    /* Port guarantee (IDs are uniqued by pointer across the chain and
-       converted in place): the child's object carries the permanent ID
-       the moment the root saves.  Apple's child-side timing here is
-       deliberately not asserted. */
-    __block BOOL childPermanent = NO;
+    /* As on Apple, the child's object keeps the temporary ID it has: the
+       root's save gives the root's object its permanent ID, and a fetch in
+       the child finds the object the child has. */
+    __block BOOL childTemporary = NO;
     [child performBlockAndWait:^{
-        childPermanent = ![[note objectID] isTemporaryID];
+        [child executeFetchRequest:[self noteFetch] error:NULL];
+        childTemporary = [[note objectID] isTemporaryID];
     }];
-    XCTAssertTrue(childPermanent);
-#endif
+    XCTAssertTrue(childTemporary);
 }
 
 - (void)testChildFetchSeesParentsUnsavedChanges
