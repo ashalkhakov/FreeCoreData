@@ -2785,8 +2785,9 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
    
     [userInfo setObject:@"obtainPermanentIDsForObjects failed" forKey:NSLocalizedDescriptionKey];
    
+    /* As on Apple, the store's own error, when it gave one. */
     if(errorp!=NULL)
-     *errorp=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreIncompleteSaveError userInfo:userInfo];
+     *errorp=(idError!=nil)?idError:[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreIncompleteSaveError userInfo:userInfo];
      
     return NO;
    }
@@ -2900,6 +2901,15 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
     return YES;
    }
   
+   /* As on Apple, one store's error is the save's, as it is: its domain,
+      code and userInfo are what the application reads.  Errors of several
+      stores are gathered under one. */
+   if([errors count]==1){
+    if(errorp!=NULL)
+     *errorp=[errors objectAtIndex:0];
+    return NO;
+   }
+
    NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
    
    [userInfo setObject:@"Unable to save managed object context" forKey:NSLocalizedDescriptionKey];
