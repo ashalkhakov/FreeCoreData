@@ -552,6 +552,40 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 #endif
 
+/* A store that finds a row changed under a save reports the conflict
+   (NSPersistentStoreSaveConflictsError); the context's merge policy
+   settles it and the save is tried again. With the error policy, the
+   conflicts are the save's error. */
+- (void)testStoreReportedConflictsGoThroughTheMergePolicy
+{
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Alice", @"name", [NSNumber numberWithInt:30], @"age", nil]
+        forReference:@"a"];
+    NSManagedObjectID *aliceID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"a"];
+    NSManagedObject *alice = [self.ctx objectWithID:aliceID];
+    XCTAssertEqualObjects([alice valueForKey:@"name"], @"Alice");
+
+    [alice setValue:@"Alicia" forKey:@"name"];
+    self.store.conflictingSaves = 1;
+    NSError *error = nil;
+    XCTAssertFalse([self.ctx save:&error], @"the error policy");
+    XCTAssertEqualObjects([error domain], NSCocoaErrorDomain);
+    XCTAssertEqual([error code], (NSInteger)NSPersistentStoreSaveConflictsError);
+    NSArray *conflicts = [[error userInfo] objectForKey:NSPersistentStoreSaveConflictsErrorKey];
+    XCTAssertEqual([conflicts count], (NSUInteger)1);
+    XCTAssertEqual([[conflicts lastObject] sourceObject], alice);
+
+    [self.ctx setMergePolicy:NSMergeByPropertyObjectTrumpMergePolicy];
+    self.store.conflictingSaves = 1;
+    NSUInteger savesBefore = [self.store saveRequestCount];
+    error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"settled and saved again: %@", error);
+    XCTAssertEqual([self.store saveRequestCount], savesBefore + 2);
+    NSDictionary *row = [[self.store tableForEntityName:@"Person"] objectForKey:@"a"];
+    XCTAssertEqualObjects([row objectForKey:@"name"], @"Alicia");
+}
+
 - (void)testDictionaryFetchIsShapedByTheStore
 {
     /* On a clean context the store itself answers a dictionary fetch,
