@@ -65,6 +65,12 @@ extern NSString * const CDSQLStoreMigrateSchemaOption;
 /* into.                                                               */
 /* ------------------------------------------------------------------ */
 
+/* Regular expression syntaxes an ICU pattern can be written in. */
+typedef enum {
+    CDSQLRegularExpressionPostgreSQL,   /* PostgreSQL's advanced regular expressions */
+    CDSQLRegularExpressionPCRE          /* PCRE2, as MariaDB's REGEXP */
+} CDSQLRegularExpressionSyntax;
+
 @interface CDSQLStore (CDSQLStatements)
 
 /* Run a statement, with `$1`-style placeholders filled from `parameters`
@@ -78,6 +84,12 @@ extern NSString * const CDSQLStoreMigrateSchemaOption;
 /* An identifier, quoted the way both dialects accept (MySQL is asked for
    ANSI_QUOTES when it connects). */
 - (NSString *)quoted:(NSString *)identifier;
+
+/* An ICU pattern, matched against the whole string as MATCHES matches it,
+   rewritten in another syntax so that it matches exactly the same strings;
+   nil for a pattern outside the part of ICU's syntax this can rewrite
+   exactly (see the implementation for which part that is). */
+- (NSString *)wholeStringRegularExpression:(NSString *)pattern syntax:(CDSQLRegularExpressionSyntax)syntax;
 
 /* The schema (in MySQL, the database) this store was confined to, or nil. */
 - (NSString *)schemaName;
@@ -145,6 +157,17 @@ extern NSString * const CDSQLStoreMigrateSchemaOption;
 - (NSString *)caseInsensitiveLikeClauseForColumn:(NSString *)column placeholder:(NSString *)placeholder;
 - (NSString *)caseSensitiveLikeClauseForColumn:(NSString *)column placeholder:(NSString *)placeholder;
 - (NSString *)codePointOrderedColumn:(NSString *)column isText:(BOOL)isText;
+
+/* MATCHES, as a regular expression the server evaluates.  The pattern is
+   the predicate's own (ICU's syntax, matched against the whole string);
+   the first method answers what to bind for it, or nil where this server
+   cannot match it exactly - a pattern outside what it translates, or a
+   case-insensitive match it cannot express - which leaves the comparison
+   to be evaluated in memory.  The second is the clause, over what the
+   first answered.  Optional: a backend without them evaluates every
+   MATCHES in memory. */
+- (NSString *)regularExpressionForPattern:(NSString *)pattern caseInsensitive:(BOOL)caseInsensitive;
+- (NSString *)regularExpressionClauseForColumn:(NSString *)column placeholder:(NSString *)placeholder caseInsensitive:(BOOL)caseInsensitive;
 
 /* Statements that differ */
 - (NSString *)upsertClauseForColumns:(NSArray *)columns keyColumns:(NSArray *)keyColumns;

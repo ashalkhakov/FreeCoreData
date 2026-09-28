@@ -27,6 +27,11 @@ make                          # the framework, from the repository root
 make -C Backends/MySQL
 ```
 
+This builds `libCDMySQLStore` and `libCDSQLStore`, the part every SQL
+backend shares, which it links (see [Backends](../README.md#what-the-backends-share)).
+Link both into an application: on GNUstep `-lCDMySQLStore -lCDSQLStore`; on
+macOS the project's `CDMySQLStore` and `CDSQLStore` static libraries.
+
 The makefile finds the library through `mariadb_config` or `mysql_config`.
 
 ## Using it
@@ -70,6 +75,7 @@ asked for, which is not what a URL naming a server means.
 | Schema | a namespace inside a database | *is* a database |
 | Text ordering | `COLLATE "C"` per comparison | `COLLATE utf8mb4_bin` on the column |
 | Case-insensitive match | `ILIKE` | `LOWER(x) LIKE LOWER(y)` |
+| `MATCHES` | `~`, over the pattern rewritten | MySQL: `REGEXP_LIKE`, whose regular expressions are ICU's, so the pattern is the predicate's own, `[c]` included; MariaDB: `REGEXP`, over the pattern rewritten for PCRE2 as for PostgreSQL |
 | Upsert | `ON CONFLICT … DO UPDATE` | `ON DUPLICATE KEY UPDATE` |
 | Reading a new key back | `UPDATE … RETURNING` | `UPDATE … SET x = LAST_INSERT_ID(x + 1)` |
 | Creation lock | `pg_advisory_xact_lock`, released by the transaction | `GET_LOCK`, held by the session and released by hand |

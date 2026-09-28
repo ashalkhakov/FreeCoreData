@@ -2197,6 +2197,115 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
         "a row named in a predicate the store cannot translate is not matched: %@", error);
 }
 
+/* -- regular expressions ----------------------------------------------- */
+
+/* MATCHES runs in the server where the pattern can be said exactly in its
+   syntax, and in memory where it cannot; either way it has to select what
+   NSPredicate itself selects.  The strings are the awkward ones: line
+   terminators at the end and inside, \r\n, accents, a character outside
+   the Basic Multilingual Plane, a tab. */
+static NSArray *CDRegexSubjects(void)
+{
+    return @[ @"Chai", @"chai", @"Chang", @"ab", @"ab\n", @"ab\r\n", @"a\nb", @"a\rb", @"ab ",
+              @"Côte", @"x.y", @"xzy", @"a b", @"tab\there", @"\U0001D11Eclef", @"", @"aab", @"ba" ];
+}
+
+/* Patterns the backends write in their own syntax. */
+static NSArray *CDRegexTranslatable(void)
+{
+    return @[ @"Ch.*", @".*ai", @"a.b", @"(?s)a.b", @"ab\\Z", @"ab\\z", @"\\Aab\\z", @"a\\nb",
+              @"[a-c]+", @"[^a]a", @"x\\.y", @"C.te", @"(a|x).*", @"(?:(?!a).){1}b",
+              @"a{1,2}b\\n?", @"a+?b", @".{4}", @"(?s).*(?:ai).*", @"a b", @"tab\\there", @".*",
+              @".clef", @"(ab|a)(\\r\\n)?", @"[\\n\\r]*ab[\\n\\r]*",
+              @".{3}", @"ab.", @"ab.\\n", @"ab\\r.", @"a..", @"a[^x]b", @"ab[^x]\\n" ];
+}
+
+/* Patterns outside that part of ICU's syntax: evaluated in memory, where
+   the server's syntax might not mean the same.  (^ and $ are multiline in
+   Apple's MATCHES and not in gnustep-base's, so only patterns on which the
+   two agree are here.) */
+static NSArray *CDRegexUntranslatable(void)
+{
+    return @[ @"\\w+", @"\\d*", @"\\s*ab", @"[[:alpha:]]+", @"(?<=a)b", @"(a)\\1b", @"(?i)chai", @"a++b", @"\\p{L}+", @"ab\\b",
+              @"ab$", @"^ab$", @"^a.*" ];
+}
+
+- (void)assertMatchesAgreeWithMemoryForPatterns:(NSArray *)patterns caseInsensitive:(BOOL)caseInsensitive
+{
+    NSArray *subjects = CDRegexSubjects();
+    int age = 0;
+
+    for (NSString *subject in subjects)
+        [self insertPersonNamed:subject age:age++];
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+
+    for (NSString *pattern in patterns) {
+        NSString *format = caseInsensitive ? @"name MATCHES[c] %@" : @"name MATCHES %@";
+        NSPredicate *predicate = [NSPredicate predicateWithFormat:format, pattern];
+        NSMutableArray *expected = [NSMutableArray array];
+
+        for (NSString *subject in subjects) {
+            if ([predicate evaluateWithObject:@{ @"name" : subject }])
+                [expected addObject:subject];
+        }
+
+        NSArray *found = [[self fetchPeopleWithPredicate:predicate sortDescriptors:nil context:reopened] valueForKey:@"name"];
+
+        XCTAssertEqualObjects([NSSet setWithArray:found], [NSSet setWithArray:expected],
+                              @"%@ %@: found %@, NSPredicate %@", format, pattern, found, expected);
+    }
+}
+
+- (id)storeForRegularExpressions
+{
+    return [[[self.context persistentStoreCoordinator] persistentStores] firstObject];
+}
+
+- (void)testMatchesAgreesWithMemoryWhereTranslated
+{
+    if (![self databaseAvailable]) return;
+
+    for (NSString *pattern in CDRegexTranslatable())
+        XCTAssertNotNil([[self storeForRegularExpressions] regularExpressionForPattern:pattern caseInsensitive:NO],
+                        @"%@ should be matched by the server", pattern);
+    [self assertMatchesAgreeWithMemoryForPatterns:CDRegexTranslatable() caseInsensitive:NO];
+}
+
+- (void)testMatchesAgreesWithMemoryWhereNotTranslated
+{
+    if (![self databaseAvailable]) return;
+
+    [self assertMatchesAgreeWithMemoryForPatterns:[CDRegexUntranslatable() arrayByAddingObject:@""] caseInsensitive:NO];
+}
+
+- (void)testMatchesCaseInsensitive
+{
+    if (![self databaseAvailable]) return;
+
+    [self assertMatchesAgreeWithMemoryForPatterns:@[ @"chai", @"CH.*", @"cÔte", @"[A-C]+" ] caseInsensitive:YES];
+}
+
+/* A pattern the server cannot say exactly is not passed to it: the parts
+   of ICU's syntax whose meaning differs elsewhere. */
+- (void)testUntranslatablePatternsStayInMemory
+{
+    if (![self databaseAvailable]) return;
+
+    id store = [self storeForRegularExpressions];
+    BOOL icu = ([store regularExpressionForPattern:@"\\w+" caseInsensitive:NO] != nil);
+
+    /* MySQL 8's are ICU's own, so it takes them all; the others take none
+       of these. */
+    for (NSString *pattern in CDRegexUntranslatable()) {
+        if (icu)
+            XCTAssertNotNil([store regularExpressionForPattern:pattern caseInsensitive:NO], @"%@", pattern);
+        else
+            XCTAssertNil([store regularExpressionForPattern:pattern caseInsensitive:NO], @"%@", pattern);
+    }
+}
+
 /* -- optimistic locking ------------------------------------------------ */
 
 /* Two clients read the same row; the second one to save is writing over a

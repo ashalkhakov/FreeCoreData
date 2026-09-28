@@ -15,6 +15,7 @@
 		BB0000000000000000000022 /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000015 /* CoreData.framework */; };
 		BB0000000000000000000023 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000016 /* XCTest.framework */; };
 		BB0000000000000000000024 /* libCDMySQLStore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000013 /* libCDMySQLStore.a */; };
+		BB0000000000000000000081 /* libCDSQLStore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000082 /* libCDSQLStore.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -24,6 +25,20 @@
 			proxyType = 1;
 			remoteGlobalIDString = BB0000000000000000000040;
 			remoteInfo = CDMySQLStore;
+		};
+		BB000000000000000000008A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BB0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BB0000000000000000000084;
+			remoteInfo = CDSQLStore;
+		};
+		BB000000000000000000008C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BB0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BB0000000000000000000084;
+			remoteInfo = CDSQLStore;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -43,6 +58,7 @@
 		BB0000000000000000000015 /* CoreData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreData.framework; path = System/Library/Frameworks/CoreData.framework; sourceTree = SDKROOT; };
 		BB0000000000000000000016 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/MacOSX.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
 		BB0000000000000000000017 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		BB0000000000000000000082 /* libCDSQLStore.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libCDSQLStore.a; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,8 +74,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB0000000000000000000024 /* libCDMySQLStore.a in Frameworks */,
+				BB0000000000000000000081 /* libCDSQLStore.a in Frameworks */,
 				BB0000000000000000000022 /* CoreData.framework in Frameworks */,
 				BB0000000000000000000023 /* XCTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB0000000000000000000083 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -86,6 +110,7 @@
 			isa = PBXGroup;
 			children = (
 				BB0000000000000000000013 /* libCDMySQLStore.a */,
+				BB0000000000000000000082 /* libCDSQLStore.a */,
 				BB0000000000000000000014 /* CDMySQLStoreTests.xctest */,
 			);
 			name = Products;
@@ -124,6 +149,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				BB000000000000000000008B /* PBXTargetDependency */,
 			);
 			name = CDMySQLStore;
 			productName = CDMySQLStore;
@@ -141,11 +167,28 @@
 			);
 			dependencies = (
 				BB0000000000000000000050 /* PBXTargetDependency */,
+				BB0000000000000000000089 /* PBXTargetDependency */,
 			);
 			name = CDMySQLStoreTests;
 			productName = CDMySQLStoreTests;
 			productReference = BB0000000000000000000014 /* CDMySQLStoreTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		BB0000000000000000000084 /* CDSQLStore */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB0000000000000000000085 /* Build configuration list for PBXNativeTarget "CDSQLStore" */;
+			buildPhases = (
+				BB0000000000000000000088 /* Sources */,
+				BB0000000000000000000083 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CDSQLStore;
+			productName = CDSQLStore;
+			productReference = BB0000000000000000000082 /* libCDSQLStore.a */;
+			productType = "com.apple.product-type.library.static";
 		};
 /* End PBXNativeTarget section */
 
@@ -172,6 +215,7 @@
 			targets = (
 				BB0000000000000000000040 /* CDMySQLStore */,
 				BB0000000000000000000041 /* CDMySQLStoreTests */,
+				BB0000000000000000000084 /* CDSQLStore */,
 			);
 		};
 /* End PBXProject section */
@@ -182,8 +226,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB0000000000000000000020 /* CDMySQLStore.m in Sources */,
-				BB0000000000000000000025 /* CDSQLStore.m in Sources */,
-				BB0000000000000000000028 /* CDSQLQuery.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -196,6 +238,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BB0000000000000000000088 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB0000000000000000000025 /* CDSQLStore.m in Sources */,
+				BB0000000000000000000028 /* CDSQLQuery.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -203,6 +254,16 @@
 			isa = PBXTargetDependency;
 			target = BB0000000000000000000040 /* CDMySQLStore */;
 			targetProxy = BB0000000000000000000051 /* PBXContainerItemProxy */;
+		};
+		BB0000000000000000000089 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BB0000000000000000000084 /* CDSQLStore */;
+			targetProxy = BB000000000000000000008A /* PBXContainerItemProxy */;
+		};
+		BB000000000000000000008B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BB0000000000000000000084 /* CDSQLStore */;
+			targetProxy = BB000000000000000000008C /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -315,6 +376,26 @@
 			};
 			name = Release;
 		};
+		BB0000000000000000000086 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_ARC = NO;
+				EXECUTABLE_PREFIX = lib;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		BB0000000000000000000087 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_ARC = NO;
+				EXECUTABLE_PREFIX = lib;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -341,6 +422,15 @@
 			buildConfigurations = (
 				BB0000000000000000000067 /* Debug */,
 				BB0000000000000000000068 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BB0000000000000000000085 /* Build configuration list for PBXNativeTarget "CDSQLStore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB0000000000000000000086 /* Debug */,
+				BB0000000000000000000087 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
