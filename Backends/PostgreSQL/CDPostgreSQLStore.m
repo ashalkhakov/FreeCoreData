@@ -337,6 +337,22 @@ static NSString *postgresParameterText(id parameter){
    return [NSString stringWithFormat:@"%@ LIKE %@%@",column,placeholder,[self likeEscapeClause]];
 }
 
+/* MATCHES as ~, PostgreSQL's regular expression match, over the pattern
+   rewritten in its syntax (CDSQLStore's "Regular expressions" says which
+   patterns can be).  Case-insensitive matching is ~* there, whose idea of
+   case is the database's locale rather than ICU's, so MATCHES[c] stays in
+   memory. */
+-(NSString *)regularExpressionForPattern:(NSString *)pattern caseInsensitive:(BOOL)caseInsensitive {
+   if(caseInsensitive)
+    return nil;
+
+   return [self wholeStringRegularExpression:pattern syntax:CDSQLRegularExpressionPostgreSQL];
+}
+
+-(NSString *)regularExpressionClauseForColumn:(NSString *)column placeholder:(NSString *)placeholder caseInsensitive:(BOOL)caseInsensitive {
+   return [NSString stringWithFormat:@"%@ ~ %@",column,placeholder];
+}
+
 /* NSString's -compare: orders by code point.  A database created with a
    language collation (en_US.utf8, say) orders "alan" before "Grace"
    instead, so an ordered comparison on text asks for the C collation. */

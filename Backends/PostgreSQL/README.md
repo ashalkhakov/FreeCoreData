@@ -19,6 +19,11 @@ make                              # the framework, from the repository root
 make -C Backends/PostgreSQL
 ```
 
+This builds `libCDPostgreSQLStore` and `libCDSQLStore`, the part every SQL
+backend shares, which it links (see [Backends](../README.md#what-the-backends-share)).
+Link both into an application: on GNUstep `-lCDPostgreSQLStore -lCDSQLStore`; on
+macOS the project's `CDPostgreSQLStore` and `CDSQLStore` static libraries.
+
 `pg_config` is used to locate libpq when it is on PATH; otherwise the
 compiler's default search paths are used.  Homebrew keeps libpq off PATH, so
 on macOS point at it explicitly:
@@ -234,10 +239,22 @@ Translated: comparisons against a constant on integer, floating-point,
 decimal, boolean, date and string columns; `==`/`!=`/`IN` on UUID and binary
 columns as well (a byte comparison is exact, even though ordering those
 would mean nothing); `== nil` and `!= nil` on **any** column, whatever it
-holds; `BEGINSWITH`, `ENDSWITH`, `CONTAINS`, `LIKE` and `MATCHES`-free
-string matching, case-sensitive or `[c]`; `BETWEEN`, `IN`; `SELF` against
-object IDs; key paths across relationships, with `ANY`/`ALL` where they
-cross a to-many; and `AND`/`OR`/`NOT` of any of those.
+holds; `BEGINSWITH`, `ENDSWITH`, `CONTAINS` and `LIKE`, case-sensitive or
+`[c]`; `MATCHES`, case-sensitive, where the pattern can be said exactly in
+PostgreSQL's syntax (below); `BETWEEN`, `IN`; `SELF` against object IDs; key
+paths across relationships, with `ANY`/`ALL` where they cross a to-many;
+and `AND`/`OR`/`NOT` of any of those.
+
+`MATCHES` is ICU's regular expression, matched against the whole string,
+and PostgreSQL's `~` is not ICU: it differs on what `.` does at a line
+terminator and on what `\d`, `\s` and `\w` mean outside ASCII.  So the
+pattern is rewritten rather than passed on, from the part of ICU's syntax
+whose meaning can be spelled out exactly - literals, `.`, bracket
+expressions of literals and ranges, quantifiers, groups, lookahead,
+alternation, `\A`, `\z` and `\Z` - and anything else stays in memory
+(`CDSQLStore.m`, "Regular expressions", has the details, among them that
+ICU's `.` takes a `\r\n` whole).  `MATCHES[c]` stays in memory: `~*`
+folds case by the database's locale, not as ICU does.
 
 A conjunction is translated **piece by piece**: the parts that translate go
 into the `WHERE` clause and only the remainder is evaluated in memory.  So

@@ -244,6 +244,297 @@ static id transformableValueFromData(NSAttributeDescription *attribute,NSData *d
 #pragma clang diagnostic pop
 
 /* ------------------------------------------------------------------ */
+#pragma mark - Regular expressions
+/* ------------------------------------------------------------------ */
+
+/* MATCHES is ICU's regular expression, matched against the whole string,
+   with "." matching line terminators too and ^ and $ matching at line
+   boundaries (Apple's NSPredicate, observed on macOS 2026-09-28: ".*^b"
+   matches "a\nb").  An empty pattern matches nothing.
+
+   PostgreSQL's (ARE) and PCRE2 (MariaDB's REGEXP) agree with ICU on most of
+   the syntax and differ on details that change which strings match: what
+   "." does at a line terminator, and what \d, \s and \w mean outside ASCII.
+   So a pattern is not passed through but rewritten, from a part of ICU's
+   syntax whose meaning can be spelled out exactly in the other two:
+
+     literal characters, and punctuation escaped with a backslash; \n \t \r \f
+     .  (any character, and \r\n as one)
+     [...] and [^...] of literal characters and ranges between them
+     * + ? {n} {n,} {n,m}, and their lazy forms (a trailing ?)
+     ( ), (?: ), (?= ) and (?! )
+     |
+     \A, \z, and \Z (the end, or before a final line terminator)
+     a leading (?s), which changes nothing
+
+   Anything else makes the whole pattern untranslatable, and the comparison
+   is evaluated in memory, which is what happened to every MATCHES before:
+   \d \s \w \b \p{...}, lookbehind, backreferences, possessive quantifiers,
+   nested sets and set operations, other inline flags - and ^ and $, whose
+   multiline meaning is fiddly at a \r\n and not what gnustep-base's
+   NSPredicate gives them, which is not multiline. */
+
+/* ICU's line terminators, which \Z may stand before at the end.  \r\n
+   counts as one. */
+static NSString *CDSQLLineTerminatorClass(CDSQLRegularExpressionSyntax syntax){
+   if(syntax==CDSQLRegularExpressionPostgreSQL)
+    return @"[\\n\\v\\f\\r\\u0085\\u2028\\u2029]";
+
+   return @"[\\n\\x{0B}\\f\\r\\x{85}\\x{2028}\\x{2029}]";
+}
+
+typedef struct {
+   unichar                      *characters;
+   NSUInteger                    length;
+   NSUInteger                    position;
+   CDSQLRegularExpressionSyntax  syntax;
+   NSUInteger                    maximumRepeat;
+} CDSQLPatternReader;
+
+static NSString *CDSQLRewriteAlternation(CDSQLPatternReader *reader);
+
+static BOOL CDSQLAtEnd(CDSQLPatternReader *reader){
+   return reader->position>=reader->length;
+}
+
+static unichar CDSQLPeek(CDSQLPatternReader *reader,NSUInteger ahead){
+   return (reader->position+ahead<reader->length)?reader->characters[reader->position+ahead]:0;
+}
+
+/* A character as a literal in the output, outside brackets or inside. */
+static NSString *CDSQLLiteral(unichar c,BOOL inBrackets){
+   NSString *specials=inBrackets?@"\\]^-[":@"\\.^$|?*+()[]{}";
+
+   if(c=='\n') return @"\\n";
+   if(c=='\t') return @"\\t";
+   if(c=='\r') return @"\\r";
+   if(c=='\f') return @"\\f";
+   /* Other control characters, and half of a character outside the Basic
+      Multilingual Plane, which a quantifier after it would split. */
+   if(c<0x20 || c==0x7F || (c>=0xD800 && c<=0xDFFF)) return nil;
+   if([specials rangeOfString:[NSString stringWithCharacters:&c length:1]].location!=NSNotFound)
+    return [NSString stringWithFormat:@"\\%C",c];
+   return [NSString stringWithCharacters:&c length:1];
+}
+
+/* The character an escape names as a literal: \n and the like, or
+   punctuation; 0 for any other escape. */
+static unichar CDSQLEscapedLiteral(unichar c){
+   switch(c){
+    case 'n': return '\n';
+    case 't': return '\t';
+    case 'r': return '\r';
+    case 'f': return '\f';
+   }
+   if(c<0x80 && !isalnum((int)c) && c>=0x21 && c!=0x7F)
+    return c;
+   return 0;
+}
+
+/* One member of a bracket expression, as the character it stands for; 0
+   when it is not a plain one. */
+static unichar CDSQLBracketCharacter(CDSQLPatternReader *reader){
+   unichar c=CDSQLPeek(reader,0);
+
+   if(c=='\\'){
+    unichar literal=CDSQLEscapedLiteral(CDSQLPeek(reader,1));
+
+    if(literal!=0)
+     reader->position+=2;
+    return literal;
+   }
+   /* Characters ICU gives a meaning inside a set, or might. */
+   if(c==0 || c=='[' || c==']' || c=='-' || c=='&' || c=='^' || c=='$' || c=='{' || c=='}' || c==':')
+    return 0;
+   reader->position++;
+   return c;
+}
+
+static NSString *CDSQLRewriteBrackets(CDSQLPatternReader *reader){
+   NSMutableString *result=[NSMutableString stringWithString:@"["];
+
+   reader->position++;   /* [ */
+   if(CDSQLPeek(reader,0)=='^'){
+    [result appendString:@"^"];
+    reader->position++;
+   }
+   if(CDSQLPeek(reader,0)==']')
+    return nil;
+
+   while(!CDSQLAtEnd(reader) && CDSQLPeek(reader,0)!=']'){
+    unichar low=CDSQLBracketCharacter(reader);
+
+    NSString *lowLiteral=(low!=0)?CDSQLLiteral(low,YES):nil;
+
+    if(lowLiteral==nil)
+     return nil;
+    [result appendString:lowLiteral];
+
+    if(CDSQLPeek(reader,0)=='-' && CDSQLPeek(reader,1)!=']'){
+     reader->position++;
+     unichar high=CDSQLBracketCharacter(reader);
+
+     NSString *highLiteral=(high!=0 && high>=low)?CDSQLLiteral(high,YES):nil;
+
+     if(highLiteral==nil)
+      return nil;
+     [result appendFormat:@"-%@",highLiteral];
+    }
+   }
+   if(CDSQLAtEnd(reader))
+    return nil;
+   reader->position++;   /* ] */
+   [result appendString:@"]"];
+   return result;
+}
+
+/* {n}, {n,}, {n,m}; NO for anything else, or bounds past what the target
+   takes. */
+static BOOL CDSQLReadBounds(CDSQLPatternReader *reader,NSMutableString *into){
+   NSUInteger start=reader->position;
+   NSUInteger low=0,high=0;
+   BOOL       sawComma=NO,sawHigh=NO,sawLow=NO;
+
+   reader->position++;   /* { */
+   while(!CDSQLAtEnd(reader) && isdigit((int)CDSQLPeek(reader,0)) && CDSQLPeek(reader,0)<0x80){
+    low=low*10+(CDSQLPeek(reader,0)-'0');
+    sawLow=YES;
+    reader->position++;
+    if(low>reader->maximumRepeat) return NO;
+   }
+   if(CDSQLPeek(reader,0)==','){
+    sawComma=YES;
+    reader->position++;
+    while(!CDSQLAtEnd(reader) && isdigit((int)CDSQLPeek(reader,0)) && CDSQLPeek(reader,0)<0x80){
+     high=high*10+(CDSQLPeek(reader,0)-'0');
+     sawHigh=YES;
+     reader->position++;
+     if(high>reader->maximumRepeat) return NO;
+    }
+   }
+   if(!sawLow || CDSQLPeek(reader,0)!='}' || (sawHigh && high<low))
+    return NO;
+   reader->position++;   /* } */
+   [into appendString:[NSString stringWithCharacters:reader->characters+start length:reader->position-start]];
+   return YES;
+}
+
+/* An atom, and the quantifier after it if any. */
+static NSString *CDSQLRewritePiece(CDSQLPatternReader *reader){
+   unichar          c=CDSQLPeek(reader,0);
+   NSString        *atom=nil;
+   BOOL             quantifiable=YES;
+   CDSQLRegularExpressionSyntax syntax=reader->syntax;
+   NSString        *end=(syntax==CDSQLRegularExpressionPostgreSQL)?@"\\Z":@"\\z";
+
+   if(c=='('){
+    NSString *opening=@"(";
+
+    reader->position++;
+    if(CDSQLPeek(reader,0)=='?'){
+     unichar kind=CDSQLPeek(reader,1);
+
+     if(kind==':') opening=@"(?:";
+     else if(kind=='='){ opening=@"(?="; quantifiable=NO; }
+     else if(kind=='!'){ opening=@"(?!"; quantifiable=NO; }
+     else return nil;
+     reader->position+=2;
+    }
+    NSString *inner=CDSQLRewriteAlternation(reader);
+
+    if(inner==nil || CDSQLPeek(reader,0)!=')')
+     return nil;
+    reader->position++;
+    atom=[NSString stringWithFormat:@"%@%@)",opening,inner];
+   }
+   else if(c=='['){
+    atom=CDSQLRewriteBrackets(reader);
+   }
+   else if(c=='.'){
+    reader->position++;
+    /* Any character, and \r\n as one: ICU's "." takes both halves of a
+       \r\n or neither ("a.\n" does not match "a\r\n", "a.." does).  Both
+       targets' [^\r] matches a newline, PostgreSQL's in its default mode
+       and PCRE2's always. */
+    atom=@"(?:\\r\\n|\\r(?!\\n)|[^\\r])";
+   }
+   else if(c=='^' || c=='$'){
+    return nil;
+   }
+   else if(c=='\\'){
+    unichar next=CDSQLPeek(reader,1);
+
+    reader->position+=2;
+    if(next=='A'){ atom=@"\\A"; quantifiable=NO; }
+    else if(next=='z'){ atom=end; quantifiable=NO; }
+    else if(next=='Z'){
+     atom=[NSString stringWithFormat:@"(?=(?:\\r\\n|%@)?%@)",CDSQLLineTerminatorClass(syntax),end];
+     quantifiable=NO;
+    }
+    else {
+     unichar literal=CDSQLEscapedLiteral(next);
+
+     atom=(literal!=0)?CDSQLLiteral(literal,NO):nil;
+    }
+   }
+   else if(c=='*' || c=='+' || c=='?' || c=='{' || c=='}' || c==']'){
+    return nil;
+   }
+   else {
+    reader->position++;
+    atom=CDSQLLiteral(c,NO);
+   }
+
+   if(atom==nil)
+    return nil;
+
+   unichar q=CDSQLPeek(reader,0);
+
+   if(q!='*' && q!='+' && q!='?' && q!='{')
+    return atom;
+   if(!quantifiable)
+    return nil;
+
+   NSMutableString *result=[NSMutableString stringWithString:atom];
+
+   if(q=='{'){
+    if(!CDSQLReadBounds(reader,result))
+     return nil;
+   }
+   else {
+    [result appendFormat:@"%C",q];
+    reader->position++;
+   }
+   if(CDSQLPeek(reader,0)=='?'){
+    [result appendString:@"?"];
+    reader->position++;
+   }
+   /* Possessive, or a quantifier on a quantifier. */
+   q=CDSQLPeek(reader,0);
+   if(q=='+' || q=='*' || q=='?' || q=='{')
+    return nil;
+   return result;
+}
+
+static NSString *CDSQLRewriteAlternation(CDSQLPatternReader *reader){
+   NSMutableString *result=[NSMutableString string];
+
+   while(YES){
+    while(!CDSQLAtEnd(reader) && CDSQLPeek(reader,0)!='|' && CDSQLPeek(reader,0)!=')'){
+     NSString *piece=CDSQLRewritePiece(reader);
+
+     if(piece==nil)
+      return nil;
+     [result appendString:piece];
+    }
+    if(CDSQLPeek(reader,0)!='|')
+     return result;
+    reader->position++;
+    [result appendString:@"|"];
+   }
+}
+
+/* ------------------------------------------------------------------ */
 #pragma mark - Running statements
 /* ------------------------------------------------------------------ */
 
@@ -328,6 +619,44 @@ static id transformableValueFromData(NSAttributeDescription *attribute,NSData *d
 
 -(NSString *)quoted:(NSString *)identifier {
    return quoted(identifier);
+}
+
+-(NSString *)wholeStringRegularExpression:(NSString *)pattern syntax:(CDSQLRegularExpressionSyntax)syntax {
+   NSUInteger          length=[pattern length];
+
+   if(length==0)
+    return nil;   /* matches nothing, which is not what an empty pattern elsewhere does */
+
+   unichar            *characters=malloc(sizeof(unichar)*(length+1));
+   CDSQLPatternReader  reader;
+   NSString           *body;
+
+   [pattern getCharacters:characters range:NSMakeRange(0,length)];
+   reader.characters=characters;
+   reader.length=length;
+   reader.position=0;
+   reader.syntax=syntax;
+   /* PostgreSQL's RE_DUP_MAX; PCRE2 takes up to 65535. */
+   reader.maximumRepeat=(syntax==CDSQLRegularExpressionPostgreSQL)?255:65535;
+
+   if(length>=4 && characters[0]=='(' && characters[1]=='?' && characters[2]=='s' && characters[3]==')')
+    reader.position=4;
+
+   body=CDSQLRewriteAlternation(&reader);
+   if(body!=nil && !CDSQLAtEnd(&reader))
+    body=nil;   /* an unbalanced ) */
+   free(characters);
+
+   if(body==nil)
+    return nil;
+
+   /* The whole string, as MATCHES matches it.  PCRE2's flags are reset
+      first, since a server may set defaults of its own (MariaDB's
+      default_regex_flags): x would make spaces insignificant, i case
+      insignificant. */
+   if(syntax==CDSQLRegularExpressionPostgreSQL)
+    return [NSString stringWithFormat:@"\\A(?:%@)\\Z",body];
+   return [NSString stringWithFormat:@"(?-imsx)\\A(?:%@)\\z",body];
 }
 
 -(NSString *)schemaName {
@@ -1445,6 +1774,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
    /* String matching applies to text columns only. */
    switch(operator){
     case NSLikePredicateOperatorType:
+    case NSMatchesPredicateOperatorType:
     case NSBeginsWithPredicateOperatorType:
     case NSEndsWithPredicateOperatorType:
     case NSContainsPredicateOperatorType:
@@ -1561,6 +1891,22 @@ static NSString * const CDSQLOuterAlias=@"t0";
      return caseInsensitive
          ?[self caseInsensitiveLikeClauseForColumn:column placeholder:placeholder]
          :[self caseSensitiveLikeClauseForColumn:column placeholder:placeholder];
+    }
+
+    case NSMatchesPredicateOperatorType: {
+     /* The server's own regular expressions, where the dialect can say
+        exactly the same thing in them (see "Regular expressions"). */
+     if(![self respondsToSelector:@selector(regularExpressionForPattern:caseInsensitive:)])
+      return nil;
+
+     NSString *pattern=[self regularExpressionForPattern:constant caseInsensitive:caseInsensitive];
+
+     if(pattern==nil)
+      return nil;
+
+     NSString *placeholder=placeholderForBinding(bindings,attribute,pattern);
+
+     return [self regularExpressionClauseForColumn:column placeholder:placeholder caseInsensitive:caseInsensitive];
     }
 
     default:

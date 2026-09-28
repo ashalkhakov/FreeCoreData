@@ -569,6 +569,42 @@ static MYSQL *myConnect(CDMySQLStore *store,NSURL *url,NSDictionary *options,NSE
    return [NSString stringWithFormat:@"%@ LIKE %@%@",column,placeholder,[self likeEscapeClause]];
 }
 
+/* MATCHES.  MySQL 8's regular expressions are ICU's, as NSPredicate's
+   are, so the pattern is the predicate's own, anchored to the whole string
+   and matched with REGEXP_LIKE under the flags NSPredicate uses: "."
+   matching line terminators ('n') and ^ and $ at line boundaries ('m');
+   case-sensitively ('c'), or not ('i'), which is ICU's case folding either
+   way.  An empty pattern matches nothing there, and stays in memory.  MariaDB's are PCRE2's: the
+   pattern is rewritten in that syntax where it can be (CDSQLStore's
+   "Regular expressions" says which patterns can), matched with REGEXP,
+   whose case follows the column's binary collation; MATCHES[c] stays in
+   memory there. */
+-(BOOL)_isMariaDB {
+   const char *version=(_connection!=NULL)?mysql_get_server_info((MYSQL *)_connection):NULL;
+
+   return (version!=NULL && strstr(version,"MariaDB")!=NULL);
+}
+
+-(NSString *)regularExpressionForPattern:(NSString *)pattern caseInsensitive:(BOOL)caseInsensitive {
+   if([pattern length]==0)
+    return nil;
+
+   if(![self _isMariaDB])
+    return [NSString stringWithFormat:@"\\A(?:%@)\\z",pattern];
+
+   if(caseInsensitive)
+    return nil;
+
+   return [self wholeStringRegularExpression:pattern syntax:CDSQLRegularExpressionPCRE];
+}
+
+-(NSString *)regularExpressionClauseForColumn:(NSString *)column placeholder:(NSString *)placeholder caseInsensitive:(BOOL)caseInsensitive {
+   if([self _isMariaDB])
+    return [NSString stringWithFormat:@"%@ REGEXP %@",column,placeholder];
+
+   return [NSString stringWithFormat:@"REGEXP_LIKE(%@, %@, '%@mn')",column,placeholder,caseInsensitive?@"i":@"c"];
+}
+
 /* Nothing to add: the column's own collation is already binary, so an
    ordered comparison follows code points.  Where the PostgreSQL store asks
    for the C collation at each site, this one asks once, in the schema. */
