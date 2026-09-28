@@ -14,7 +14,7 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 LIBRARY_NAME = libCDMySQLStore
 
-libCDMySQLStore_OBJC_FILES = CDMySQLStore.m ../Common/CDSQLStore.m ../Common/CDSQLQuery.m
+libCDMySQLStore_OBJC_FILES = CDMySQLStore.m
 
 libCDMySQLStore_HEADER_FILES = CDMySQLStore.h ../Common/CDSQLStore.h ../Common/CDSQLQuery.h
 libCDMySQLStore_HEADER_FILES_DIR = .
@@ -40,17 +40,28 @@ ADDITIONAL_INCLUDE_DIRS += $(MYSQL_CFLAGS)
 # -I../.. is the repository root, so that <CoreData/CoreData.h> resolves to
 # the headers of the framework built in this tree.
 FRAMEWORK_BUILD_DIR = $(CURDIR)/../../CoreData.framework/Versions/Current
+# CDSQLStore, the part every SQL backend shares: a library of its own
+# (Common/GNUmakefile says why), built first.
+COMMON_BUILD_DIR = $(CURDIR)/../Common/$(GNUSTEP_OBJ_DIR_NAME)
 
 ADDITIONAL_INCLUDE_DIRS += -I../.. -I../Common
-ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR)
+ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(COMMON_BUILD_DIR)
 
-libCDMySQLStore_LIBRARIES_DEPEND_UPON += -lCoreData $(MYSQL_LIBS)
+libCDMySQLStore_LIBRARIES_DEPEND_UPON += -lCDSQLStore -lCoreData $(MYSQL_LIBS)
 
 -include GNUmakefile.preamble
 
 include $(GNUSTEP_MAKEFILES)/library.make
 
 -include GNUmakefile.postamble
+
+# CDSQLStore first: this library links it.
+before-all::
+	$(MAKE) -C ../Common
+
+# Installing a backend installs the library it links.
+after-install::
+	$(MAKE) -C ../Common install
 
 .PHONY: framework
 framework:

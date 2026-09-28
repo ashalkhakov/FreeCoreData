@@ -79,6 +79,17 @@ history, migration) and `CDSQLQuery` (the statement being built).  A backend
 subclasses `CDSQLStore` and supplies a driver and a dialect - a few hundred
 lines each.
 
+`Common/` is a library of its own, `libCDSQLStore`, which every backend
+links (on GNUstep a shared library, which `make -C Backends/PostgreSQL`
+builds and installs along with the backend; on macOS the `CDSQLStore`
+static library target in each backend's project, linked next to the
+backend's). It used to be compiled into each backend, which left a process
+that loaded both with two classes named `CDSQLStore`: the runtime kept one,
+and the other backend's store class answered with `NSIncrementalStore`'s
+abstract methods. `Common/Tests/CDSQLBackendsTogetherTests.m` loads both
+backends into one process and, given both servers, opens a store of each
+(`make -C Backends/Common/Tests run-tests`).
+
 `Common/Tests/` holds the tests, for the same reason: the two backends have
 the same job, and a test that passes against one server and was never run
 against the other is worth little.  `CDSQLStoreTestCase` is the fixture and

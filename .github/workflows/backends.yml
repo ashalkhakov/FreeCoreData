@@ -187,6 +187,16 @@ jobs:
           . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
           make -C Backends/MySQL/Tests run-tests
 
+      # Both backends in one process, which works only because they share
+      # one libCDSQLStore: each store opened side by side with the other.
+      - name: PostgreSQL and MySQL in one process
+        env:
+          CD_TEST_POSTGRES_URL: postgresql://postgres:coredata@127.0.0.1:5432/postgres
+          CD_TEST_MYSQL_URL: mysql://root:coredata@127.0.0.1:3306/cdtest
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C Backends/Common/Tests run-tests
+
   ########################### macOS / Apple's CoreData ###########################
   # The backends are written against public Core Data API alone, so that the
   # same sources build and run on Apple's framework. That rule is easy to
