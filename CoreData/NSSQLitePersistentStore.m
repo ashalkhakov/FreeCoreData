@@ -26,6 +26,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSManagedObjectContext.h>
 #import <CoreData/NSManagedObject.h>
+#import "NSManagedObject-Private.h"
+#import <CoreData/NSMergePolicy.h>
 #import <CoreData/NSManagedObjectID.h>
 #import <CoreData/NSEntityDescription.h>
 #import "NSEntityDescription-Private.h"
@@ -1747,7 +1749,8 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     [boundProperties addObject:property];
    }
 
-   NSString *sql;
+   NSString           *sql;
+   unsigned long long  expectedVersion=0;
 
    if(isInsert){
     NSMutableArray *columns=[NSMutableArray arrayWithObjects:@"Z_PK",@"Z_ENT",@"Z_OPT",nil];
@@ -1766,7 +1769,15 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     for(NSString *name in names)
      [assignments addObject:[NSString stringWithFormat:@"\"%@\" = ?",name]];
 
-    sql=[NSString stringWithFormat:@"UPDATE \"%@\" SET %@ WHERE Z_PK = %lld",tableNameForEntity(entity),[assignments componentsJoinedByString:@", "],primaryKey];
+    /* Optimistic locking: an object that holds the row's version writes
+       only over that version.  (Read after the values above, which may
+       have realized the object's committed values -- and with them the
+       version -- just now.) */
+    expectedVersion=[object _storeVersion];
+    if(expectedVersion!=0)
+     sql=[NSString stringWithFormat:@"UPDATE \"%@\" SET %@ WHERE Z_PK = %lld AND Z_OPT = %llu",tableNameForEntity(entity),[assignments componentsJoinedByString:@", "],primaryKey,expectedVersion];
+    else
+     sql=[NSString stringWithFormat:@"UPDATE \"%@\" SET %@ WHERE Z_PK = %lld",tableNameForEntity(entity),[assignments componentsJoinedByString:@", "],primaryKey];
    }
 
    sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
@@ -1806,6 +1817,12 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     return NO;
    }
 
+   if(!isInsert && expectedVersion!=0 && sqlite3_changes(DATABASE)==0){
+    if(error!=NULL)
+     *error=[self _conflictErrorForObject:object expectedVersion:expectedVersion];
+    return NO;
+   }
+
    /* To-many relationships (join rows and ordered Z_FOK columns) are
       written by _executeSaveRequest AFTER every row exists - an owner
       saved before its members would otherwise UPDATE rows that are not
@@ -1813,13 +1830,65 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    return YES;
 }
 
+/* The conflict a write met: the row moved on from the version the object
+   holds, or is gone (a new version of 0).  Reported as a merge conflict,
+   for the context's merge policy. */
+-(NSError *)_conflictErrorForObject:(NSManagedObject *)object expectedVersion:(unsigned long long)expectedVersion {
+   NSManagedObjectID      *objectID=[object objectID];
+   NSIncrementalStoreNode *node=[self newValuesForObjectWithID:objectID withContext:nil error:NULL];
+   NSMutableDictionary    *row=nil;
+
+   if(node!=nil){
+    NSDictionary *attributes=[[objectID entity] attributesByName];
+
+    row=[NSMutableDictionary dictionary];
+    for(NSString *name in attributes){
+     id value=[node valueForPropertyDescription:[attributes objectForKey:name]];
+
+     if(value!=nil && value!=[NSNull null])
+      [row setObject:value forKey:name];
+    }
+   }
+
+   NSMergeConflict *conflict=[[[NSMergeConflict alloc] initWithSource:object
+                                                           newVersion:(NSUInteger)((node!=nil)?[node version]:0)
+                                                           oldVersion:(NSUInteger)expectedVersion
+                                                       cachedSnapshot:row
+                                                    persistedSnapshot:row] autorelease];
+   [node release];
+
+   NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+   [userInfo setObject:@"The row changed since it was read." forKey:NSLocalizedDescriptionKey];
+   [userInfo setObject:[NSArray arrayWithObject:conflict] forKey:NSPersistentStoreSaveConflictsErrorKey];
+   return [NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreSaveConflictsError userInfo:userInfo];
+}
+
 -(BOOL)_deleteRowForObject:(NSManagedObject *)object error:(NSError **)error {
-   return [self _deleteRowWithEntity:[object entity]
-                          primaryKey:primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]])
-                               error:error];
+   unsigned long long expectedVersion=[object _storeVersion];
+
+   if(![self _deleteRowWithEntity:[object entity]
+                       primaryKey:primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]])
+                  expectedVersion:expectedVersion
+                            error:error])
+    return NO;
+
+   /* Optimistic locking: a delete of a version the row no longer has
+      deleted nothing, and is a conflict. */
+   if(expectedVersion!=0 && sqlite3_changes(DATABASE)==0){
+    if(error!=NULL)
+     *error=[self _conflictErrorForObject:object expectedVersion:expectedVersion];
+    return NO;
+   }
+   return YES;
 }
 
 -(BOOL)_deleteRowWithEntity:(NSEntityDescription *)entity primaryKey:(long long)primaryKey error:(NSError **)error {
+   return [self _deleteRowWithEntity:entity primaryKey:primaryKey expectedVersion:0 error:error];
+}
+
+/* expectedVersion 0 deletes whatever version the row has. */
+-(BOOL)_deleteRowWithEntity:(NSEntityDescription *)entity primaryKey:(long long)primaryKey expectedVersion:(unsigned long long)expectedVersion error:(NSError **)error {
    NSDictionary *properties=propertiesForEntityChain(entity);
 
    /* Clean up any join-table rows referencing the deleted row.  Rows
@@ -1859,7 +1928,9 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     }
    }
 
-   NSString *sql=[NSString stringWithFormat:@"DELETE FROM \"%@\" WHERE Z_PK = %lld",tableNameForEntity(entity),primaryKey];
+   NSString *sql=(expectedVersion!=0)
+      ?[NSString stringWithFormat:@"DELETE FROM \"%@\" WHERE Z_PK = %lld AND Z_OPT = %llu",tableNameForEntity(entity),primaryKey,expectedVersion]
+      :[NSString stringWithFormat:@"DELETE FROM \"%@\" WHERE Z_PK = %lld",tableNameForEntity(entity),primaryKey];
 
    return executeSQL(DATABASE,sql,error);
 }

@@ -372,6 +372,10 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
    [[_context persistentStoreCoordinator] lock];
    node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
    [[_context persistentStoreCoordinator] unlock];
+   /* The version these values are, for the optimistic lock of the next
+      save. */
+   if(node!=nil)
+    _storeVersion=[node version];
    NSMutableDictionary    *storedValues=[[NSMutableDictionary alloc] init];
 
    /* propertiesByName includes inherited properties, [entity properties]
@@ -699,6 +703,16 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
 -(void)_invalidateCommittedValues {
    [_committedValues release];
    _committedValues=nil;
+   /* Whatever is read next is the row as it then stands. */
+   _storeVersion=0;
+}
+
+-(unsigned long long)_storeVersion {
+   return _storeVersion;
+}
+
+-(void)_setStoreVersion:(unsigned long long)version {
+   _storeVersion=version;
 }
 
 /* Post-save reset: the committed snapshot re-realizes from the store,

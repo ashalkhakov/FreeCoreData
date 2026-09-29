@@ -2451,6 +2451,39 @@ static NSArray *CDRegexUntranslatable(void)
     XCTAssertEqual([error code], (NSInteger)NSPersistentStoreSaveConflictsError);
 }
 
+/* Two contexts on one coordinator read through one store, so the store
+   cannot tell their saves apart: the context's own check does, comparing
+   the version each context read with the row's. */
+- (void)testContextsSharingACoordinatorConflict
+{
+    if (![self databaseAvailable]) return;
+
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" age:36];
+    if (![self save]) return;
+
+    NSManagedObjectContext *first = [self newContext];
+    NSManagedObjectContext *second = [[NSManagedObjectContext alloc]
+        initWithConcurrencyType:NSConfinementConcurrencyType];
+    [second setPersistentStoreCoordinator:[first persistentStoreCoordinator]];
+
+    NSManagedObject *inFirst = [self personNamed:@"Ada" inContext:first];
+    NSManagedObject *inSecond = [self personNamed:@"Ada" inContext:second];
+    XCTAssertEqualObjects([inFirst valueForKey:@"age"], @36);
+    XCTAssertEqualObjects([inSecond valueForKey:@"age"], @36);
+
+    NSError *error = nil;
+    [inFirst setValue:@40 forKey:@"age"];
+    XCTAssertTrue([first save:&error], @"the first save should succeed: %@", error);
+
+    [inSecond setValue:@50 forKey:@"age"];
+    error = nil;
+    XCTAssertFalse([second save:&error], @"the second save should have been refused");
+    XCTAssertEqual([error code], (NSInteger)NSManagedObjectMergeError);
+
+    XCTAssertEqualObjects([[self personNamed:@"Ada" inContext:[self newContext]] valueForKey:@"age"], @40);
+    XCTAssertEqualObjects([ada valueForKey:@"name"], @"Ada");
+}
+
 /* An update through the same store that read the row is not a conflict -
    the common case must not regress. */
 - (void)testOrdinaryUpdateIsNotAConflict

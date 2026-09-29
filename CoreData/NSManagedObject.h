@@ -15,6 +15,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     BOOL _isFault;
     NSDictionary *_committedValues;
     NSMutableDictionary *_changedValues;
+    unsigned long long _storeVersion;
 }
 
 - initWithEntity:(NSEntityDescription *)entity insertIntoManagedObjectContext:(NSManagedObjectContext *)context;
