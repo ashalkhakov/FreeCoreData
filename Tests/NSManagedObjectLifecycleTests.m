@@ -810,4 +810,32 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertTrue(personListed);
 }
 
+/* An object inserted and deleted before any save never reaches a store:
+   Apple takes it out of its context when it processes pending changes.  Relating another object to
+   it afterwards is relating objects in different contexts, which Apple
+   refuses with NSInvalidArgumentException rather than saving a
+   relationship to a row that will never exist. */
+- (void)testDeletingAnUnsavedObjectTakesItOutOfItsContext
+{
+    NSManagedObject *person =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:self.ctx];
+    [person setValue:@"Ann" forKey:@"name"];
+
+    [self.ctx deleteObject:person];
+    [self.ctx processPendingChanges];
+
+    XCTAssertNil([person managedObjectContext]);
+    XCTAssertFalse([[self.ctx registeredObjects] containsObject:person]);
+    XCTAssertFalse([[self.ctx insertedObjects] containsObject:person]);
+    XCTAssertFalse([[self.ctx deletedObjects] containsObject:person]);
+
+    NSManagedObject *pet =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Pet"
+                                      inManagedObjectContext:self.ctx];
+    [pet setValue:@"Rex" forKey:@"name"];
+    XCTAssertThrowsSpecificNamed([pet setValue:person forKey:@"owner"],
+                                 NSException, NSInvalidArgumentException);
+}
+
 @end
