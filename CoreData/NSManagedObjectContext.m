@@ -1708,6 +1708,8 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    [[object objectID] setStoreIdentifier:[store identifier]];
    [[object objectID] setPersistentStore:store];
 
+   [object _setManagedObjectContext:self];
+
    [_insertedObjects addObject:object];
    [_updatedObjects addObject:object];
    [self _registerObject:object];
@@ -1814,6 +1816,34 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    }
 }
 
+-(void)_releaseObjectsInsertedAndDeleted {
+   NSMutableArray *leaving=nil;
+
+   for(NSManagedObject *object in _deletedObjects){
+    if([_insertedObjects containsObject:object]){
+     if(leaving==nil)
+      leaving=[NSMutableArray array];
+     [leaving addObject:object];
+    }
+   }
+
+   for(NSManagedObject *object in leaving){
+    [[object retain] autorelease];   /* the sets below may hold the last reference */
+
+    for(NSString *key in [[[object entity] propertiesByName] allKeys])
+     [object removeObserver:self forKeyPath:key];
+
+    [_registeredObjects removeObject:object];
+    NSMapRemove(_objectIdToObject,[object objectID]);
+
+    [_insertedObjects removeObject:object];
+    [_updatedObjects removeObject:object];
+    [_deletedObjects removeObject:object];
+
+    [object _setManagedObjectContext:nil];
+   }
+}
+
 -(void)_processPendingChanges {
     _requestedProcessPendingChanges = NO;
 
@@ -1822,6 +1852,14 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
        pending sets but must still be captured (its undo resurrects and
        re-removes, arriving back at nothing). */
     [self _registerUndoEventIfNeeded];
+
+    /* An object inserted and deleted with no save in between never
+       reached a store, so nothing is left for the context to hold: Apple
+       takes it out altogether - no context, in none of the context's
+       sets, and refused as the destination of a relationship thereafter.
+       Before the early return, because the pair cancels out of the
+       pending sets and may leave nothing to notify about. */
+    [self _releaseObjectsInsertedAndDeleted];
 
     if([_pendingInsertedObjects count]==0 && [_pendingUpdatedObjects count]==0 &&
        [_pendingDeletedObjects count]==0 && [_pendingRefreshedObjects count]==0)

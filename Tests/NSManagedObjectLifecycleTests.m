@@ -810,4 +810,81 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertTrue(personListed);
 }
 
+/* An object inserted and deleted before any save never reaches a store:
+   Apple takes it out of its context when it processes pending changes.  Relating another object to
+   it afterwards is relating objects in different contexts, which Apple
+   refuses with NSInvalidArgumentException rather than saving a
+   relationship to a row that will never exist. */
+- (void)testDeletingAnUnsavedObjectTakesItOutOfItsContext
+{
+    NSManagedObject *person =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:self.ctx];
+    [person setValue:@"Ann" forKey:@"name"];
+
+    [self.ctx deleteObject:person];
+    [self.ctx processPendingChanges];
+
+    XCTAssertNil([person managedObjectContext]);
+    XCTAssertFalse([[self.ctx registeredObjects] containsObject:person]);
+    XCTAssertFalse([[self.ctx insertedObjects] containsObject:person]);
+    XCTAssertFalse([[self.ctx deletedObjects] containsObject:person]);
+
+    NSManagedObject *pet =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Pet"
+                                      inManagedObjectContext:self.ctx];
+    [pet setValue:@"Rex" forKey:@"name"];
+    XCTAssertThrowsSpecificNamed([pet setValue:person forKey:@"owner"],
+                                 NSException, NSInvalidArgumentException);
+}
+
+/* Apple refuses a relationship between objects of different contexts
+   however it is established, not only through -setValue:forKey:.  An
+   object deleted before it was ever saved has left its context, so it is
+   refused the same way. */
+- (void)testRelatingAcrossContextsIsRefusedThroughEveryMutator
+{
+    NSManagedObject *person =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:self.ctx];
+    NSManagedObject *gone =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Pet"
+                                      inManagedObjectContext:self.ctx];
+    [self.ctx deleteObject:gone];
+    [self.ctx processPendingChanges];
+    XCTAssertNil([gone managedObjectContext]);
+
+    XCTAssertThrowsSpecificNamed([person setValue:[NSSet setWithObject:gone] forKey:@"pets"],
+                                 NSException, NSInvalidArgumentException);
+    XCTAssertThrowsSpecificNamed([[person mutableSetValueForKey:@"pets"] addObject:gone],
+                                 NSException, NSInvalidArgumentException);
+
+    /* And an object of another live context, which is the general rule. */
+    NSManagedObjectContext *other = [[NSManagedObjectContext alloc] init];
+    [other setPersistentStoreCoordinator:[self.ctx persistentStoreCoordinator]];
+
+    NSManagedObject *stranger =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Pet"
+                                      inManagedObjectContext:other];
+
+    XCTAssertThrowsSpecificNamed([person setValue:[NSSet setWithObject:stranger] forKey:@"pets"],
+                                 NSException, NSInvalidArgumentException);
+    XCTAssertThrowsSpecificNamed([[person mutableSetValueForKey:@"pets"] addObject:stranger],
+                                 NSException, NSInvalidArgumentException);
+    XCTAssertThrowsSpecificNamed([stranger setValue:person forKey:@"owner"],
+                                 NSException, NSInvalidArgumentException);
+
+    /* Relating objects of one context still works.  Only membership is
+       asserted, not the count: Apple raises but leaves the refused
+       objects in the set (three members here, observed on macOS
+       2026-09-29), where this framework refuses before mutating and has
+       one.  Letting bad data in and complaining afterwards is not worth
+       copying. */
+    NSManagedObject *pet =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Pet"
+                                      inManagedObjectContext:self.ctx];
+    XCTAssertNoThrow([[person mutableSetValueForKey:@"pets"] addObject:pet]);
+    XCTAssertTrue([[person valueForKey:@"pets"] containsObject:pet]);
+}
+
 @end
