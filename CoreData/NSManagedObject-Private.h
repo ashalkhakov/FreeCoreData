@@ -18,6 +18,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    its permanent one (its value) after. */
 -(void)_replaceObjectIDs:(NSMapTable *)replacements;
 - initWithObjectID:(NSManagedObjectID *)objectID managedObjectContext:(NSManagedObjectContext *)context;
+
+/* Set when the object joins a context, and cleared when it leaves one -
+   an object inserted and deleted before any save is taken out of its
+   context entirely, as on Apple. */
+- (void)_setManagedObjectContext:(NSManagedObjectContext *)context;
 - (NSDictionary *)_committedValues;
 - (NSDictionary *)_cachedCommittedValues;
 - (void)_invalidateCommittedValues;

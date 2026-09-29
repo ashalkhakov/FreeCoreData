@@ -845,6 +845,7 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
    }
    else if([property isKindOfClass:[NSRelationshipDescription class]]){
     NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
+
     
     [self willAccessValueForKey:propertyName];
 
@@ -882,6 +883,28 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
 }
 
 
+/* A relationship holds a row of the same context.  An object of another
+   context, or one that has left its context - deleted before it was ever
+   saved - is refused, as on Apple, rather than saved as a relationship to
+   a row that will never exist. */
+-(void)_requireSameContextAs:(id)object forRelationship:(NSString *)name {
+   /* A relationship value may arrive as an object or, from the framework's
+      own paths, as an object ID; only an object carries a context to
+      check. */
+   if(![object isKindOfClass:[NSManagedObject class]])
+    return;
+   if([(NSManagedObject *)object managedObjectContext]==_context)
+    return;
+
+   [NSException raise:NSInvalidArgumentException
+               format:@"Illegal attempt to establish a relationship '%@' between objects in different contexts (source = %@, destination = %@)",
+                      name,self,object];
+}
+
+-(void)_setManagedObjectContext:(NSManagedObjectContext *)context {
+   _context=context;
+}
+
 -(void)setValue:value forKey:(NSString *) key {
    NSPropertyDescription *property= [[self entity] _propertyForSelector:NSSelectorFromString(key)];
    NSString              *propertyName=[property name];
@@ -895,6 +918,14 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
    else if([property isKindOfClass:[NSRelationshipDescription class]]){
     NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
     NSRelationshipDescription *inverse=[relationship inverseRelationship];
+
+    if([relationship isToMany]){
+     for(NSManagedObject *object in value)
+      [self _requireSameContextAs:object forRelationship:propertyName];
+    }
+    else
+     [self _requireSameContextAs:value forRelationship:propertyName];
+
     NSString                  *inverseName=[inverse name];
     id                         valueByID;
         
