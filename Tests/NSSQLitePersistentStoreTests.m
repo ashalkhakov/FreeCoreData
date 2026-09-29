@@ -536,4 +536,253 @@ static NSManagedObjectModel *manyToManyAndInheritanceModel(void)
                    (NSUInteger)1);
 }
 
+/* -- optimistic locking --------------------------------------------------
+
+   Every row carries a version.  A context that saves an object is writing
+   over the version it read; when another save has moved the row on since,
+   the save is a merge conflict rather than a silent overwrite, settled by
+   the context's merge policy.  Two contexts on one coordinator are the
+   case that matters most in one process: both read through the same store,
+   so nothing but the version each context read tells their saves apart. */
+
+/* A coordinator with the SQLite store at storeURL, shared by the contexts
+   made from it. */
+- (NSPersistentStoreCoordinator *)sharedCoordinator
+{
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+        initWithManagedObjectModel:VersioningTestModelV1()];
+    NSError *error = nil;
+    XCTAssertNotNil([psc addPersistentStoreWithType:NSSQLiteStoreType
+                                      configuration:nil
+                                                URL:self.storeURL
+                                            options:nil
+                                              error:&error],
+                    @"failed to add SQLite store: %@", error);
+    return psc;
+}
+
+- (NSManagedObjectContext *)contextOn:(NSPersistentStoreCoordinator *)psc
+{
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc]
+        initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    [ctx setPersistentStoreCoordinator:psc];
+    return ctx;
+}
+
+/* Alice, read in ctx: her values are realized, so the context holds the
+   version it read. */
+- (NSManagedObject *)aliceIn:(NSManagedObjectContext *)ctx
+{
+    __block NSManagedObject *alice = nil;
+    [ctx performBlockAndWait:^{
+        alice = [[self fetchEntityNamed:@"Employee"
+                              inContext:ctx
+                              predicate:[NSPredicate predicateWithFormat:@"name == %@", @"Alice"]
+                        sortDescriptors:nil] lastObject];
+        (void)[alice valueForKey:@"salary"];
+    }];
+    return alice;
+}
+
+- (BOOL)setSalary:(int)salary of:(NSManagedObject *)employee error:(NSError **)error
+{
+    __block BOOL ok = NO;
+    __block NSError *saveError = nil;
+    NSManagedObjectContext *ctx = [employee managedObjectContext];
+    [ctx performBlockAndWait:^{
+        [employee setValue:[NSNumber numberWithInt:salary] forKey:@"salary"];
+        NSError *localError = nil;
+        ok = [ctx save:&localError];
+        saveError = localError;
+    }];
+    if (error != NULL) {
+        *error = saveError;
+    }
+    return ok;
+}
+
+- (int)storedSalaryOfAlice
+{
+    NSManagedObjectContext *fresh = [self contextOn:[self sharedCoordinator]];
+    __block int salary = 0;
+    NSManagedObject *alice = [self aliceIn:fresh];
+    [fresh performBlockAndWait:^{
+        salary = [[alice valueForKey:@"salary"] intValue];
+    }];
+    return salary;
+}
+
+- (void)testSecondContextOnOneCoordinatorGetsAMergeConflict
+{
+    [self populateStore];
+    NSPersistentStoreCoordinator *psc = [self sharedCoordinator];
+    /* An object does not keep its context alive: the test does. */
+    NSManagedObjectContext *firstContext = [self contextOn:psc];
+    NSManagedObjectContext *secondContext = [self contextOn:psc];
+    NSManagedObject *first = [self aliceIn:firstContext];
+    NSManagedObject *second = [self aliceIn:secondContext];
+
+    NSError *error = nil;
+    XCTAssertTrue([self setSalary:10 of:first error:&error], @"first save failed: %@", error);
+    error = nil;
+    XCTAssertFalse([self setSalary:11 of:second error:&error],
+                   @"the second save wrote over a version it never read");
+    XCTAssertEqualObjects([error domain], NSCocoaErrorDomain);
+    XCTAssertEqual([error code], (NSInteger)NSManagedObjectMergeError);
+
+    NSArray *conflicts = [[error userInfo] objectForKey:NSPersistentStoreSaveConflictsErrorKey];
+    XCTAssertEqual([conflicts count], (NSUInteger)1);
+    NSMergeConflict *conflict = [conflicts firstObject];
+    XCTAssertEqual([conflict sourceObject], second);
+    XCTAssertEqual([conflict oldVersionNumber], (NSUInteger)1);
+    XCTAssertEqual([conflict newVersionNumber], (NSUInteger)2);
+
+    XCTAssertEqual([self storedSalaryOfAlice], 10, @"the row keeps the first save");
+}
+
+- (void)testSavingTwiceFromOneContextIsNotAConflict
+{
+    [self populateStore];
+    NSManagedObjectContext *ctx = [self contextOn:[self sharedCoordinator]];
+    NSManagedObject *alice = [self aliceIn:ctx];
+    NSError *error = nil;
+    XCTAssertTrue([self setSalary:10 of:alice error:&error], @"%@", error);
+    XCTAssertTrue([self setSalary:11 of:alice error:&error], @"%@", error);
+    XCTAssertTrue([self setSalary:12 of:alice error:&error], @"%@", error);
+    XCTAssertEqual([self storedSalaryOfAlice], 12);
+}
+
+- (void)testObjectTrumpPolicyWritesOverTheOtherSave
+{
+    [self populateStore];
+    NSPersistentStoreCoordinator *psc = [self sharedCoordinator];
+    NSManagedObjectContext *firstContext = [self contextOn:psc];
+    NSManagedObject *first = [self aliceIn:firstContext];
+    NSManagedObjectContext *secondContext = [self contextOn:psc];
+    [secondContext setMergePolicy:NSMergeByPropertyObjectTrumpMergePolicy];
+    NSManagedObject *second = [self aliceIn:secondContext];
+
+    NSError *error = nil;
+    XCTAssertTrue([self setSalary:10 of:first error:&error], @"%@", error);
+    XCTAssertTrue([self setSalary:11 of:second error:&error],
+                  @"object trump should settle the conflict: %@", error);
+    XCTAssertEqual([self storedSalaryOfAlice], 11);
+    /* Settled means the context now holds the row's version. */
+    XCTAssertTrue([self setSalary:13 of:second error:&error], @"%@", error);
+    XCTAssertEqual([self storedSalaryOfAlice], 13);
+}
+
+- (void)testStoreTrumpPolicyKeepsTheOtherSave
+{
+    [self populateStore];
+    NSPersistentStoreCoordinator *psc = [self sharedCoordinator];
+    NSManagedObjectContext *firstContext = [self contextOn:psc];
+    NSManagedObject *first = [self aliceIn:firstContext];
+    NSManagedObjectContext *secondContext = [self contextOn:psc];
+    [secondContext setMergePolicy:NSMergeByPropertyStoreTrumpMergePolicy];
+    NSManagedObject *second = [self aliceIn:secondContext];
+
+    NSError *error = nil;
+    XCTAssertTrue([self setSalary:10 of:first error:&error], @"%@", error);
+    XCTAssertTrue([self setSalary:11 of:second error:&error],
+                  @"store trump should settle the conflict: %@", error);
+    XCTAssertEqual([self storedSalaryOfAlice], 10);
+}
+
+- (void)testDeletingARowChangedMeanwhileConflicts
+{
+    [self populateStore];
+    NSPersistentStoreCoordinator *psc = [self sharedCoordinator];
+    NSManagedObjectContext *firstContext = [self contextOn:psc];
+    NSManagedObject *first = [self aliceIn:firstContext];
+    NSManagedObjectContext *secondContext = [self contextOn:psc];
+    NSManagedObject *second = [self aliceIn:secondContext];
+
+    NSError *error = nil;
+    XCTAssertTrue([self setSalary:10 of:first error:&error], @"%@", error);
+    __block BOOL deleted = NO;
+    __block NSError *deleteError = nil;
+    [secondContext performBlockAndWait:^{
+        [secondContext deleteObject:second];
+        NSError *localError = nil;
+        deleted = [secondContext save:&localError];
+        deleteError = localError;
+    }];
+    XCTAssertFalse(deleted, @"the delete was of a version it never read");
+    XCTAssertEqual([deleteError code], (NSInteger)NSManagedObjectMergeError);
+    XCTAssertEqual([self storedSalaryOfAlice], 10, @"the row is still there");
+}
+
+- (void)testUpdatingARowDeletedMeanwhileFails
+{
+    [self populateStore];
+    NSPersistentStoreCoordinator *psc = [self sharedCoordinator];
+    NSManagedObjectContext *firstContext = [self contextOn:psc];
+    NSManagedObject *first = [self aliceIn:firstContext];
+    NSManagedObjectContext *secondContext = [self contextOn:psc];
+    NSManagedObject *second = [self aliceIn:secondContext];
+
+    __block BOOL deleted = NO;
+    [firstContext performBlockAndWait:^{
+        [firstContext deleteObject:first];
+        deleted = [firstContext save:NULL];
+    }];
+    XCTAssertTrue(deleted);
+    NSError *error = nil;
+    XCTAssertFalse([self setSalary:11 of:second error:&error],
+                   @"the row it would update is gone");
+    XCTAssertNotNil(error);
+    NSManagedObjectContext *fresh = [self contextOn:[self sharedCoordinator]];
+    XCTAssertNil([self aliceIn:fresh], @"the update did not bring the row back");
+    (void)secondContext;
+}
+
+- (void)testContextsOnSeparateCoordinatorsConflict
+{
+    [self populateStore];
+    NSManagedObjectContext *firstContext = [self contextOn:[self sharedCoordinator]];
+    NSManagedObjectContext *secondContext = [self contextOn:[self sharedCoordinator]];
+    NSManagedObject *first = [self aliceIn:firstContext];
+    NSManagedObject *second = [self aliceIn:secondContext];
+
+    NSError *error = nil;
+    XCTAssertTrue([self setSalary:10 of:first error:&error], @"%@", error);
+    XCTAssertFalse([self setSalary:11 of:second error:&error]);
+    XCTAssertEqual([error code], (NSInteger)NSManagedObjectMergeError);
+    XCTAssertEqual([self storedSalaryOfAlice], 10);
+}
+
+/* Both contexts read, then both save at once: whatever the interleaving,
+   one save wins and the other is refused. */
+- (void)testConcurrentSavesOnOneCoordinatorLetOneWin
+{
+    [self populateStore];
+    NSPersistentStoreCoordinator *psc = [self sharedCoordinator];
+    for (int round = 0; round < 20; round++) {
+        NSArray *contexts = @[ [self contextOn:psc], [self contextOn:psc] ];
+        NSManagedObject *employees[2] = {
+            [self aliceIn:contexts[0]], [self aliceIn:contexts[1]]
+        };
+        __block int wins = 0;
+        dispatch_group_t group = dispatch_group_create();
+        for (int i = 0; i < 2; i++) {
+            NSManagedObject *employee = employees[i];
+            int salary = 100 * round + i;
+            dispatch_group_async(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                if ([self setSalary:salary of:employee error:NULL]) {
+                    @synchronized (self) {
+                        wins += 1;
+                    }
+                }
+            });
+        }
+        dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+#if !OS_OBJECT_USE_OBJC
+        dispatch_release(group);
+#endif
+        XCTAssertEqual(wins, 1, @"round %d", round);
+        (void)contexts;
+    }
+}
+
 @end

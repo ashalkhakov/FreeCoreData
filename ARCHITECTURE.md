@@ -204,6 +204,30 @@ objects' committed values are refreshed, change sets cleared, and
 sets; `mergeChangesFromContextDidSaveNotification:` applies them to
 another context.
 
+### Optimistic locking
+
+Every row of an incremental store has a version (`NSIncrementalStoreNode`'s
+`version`; `Z_OPT` in the SQL stores), and every object remembers the
+version its committed values were read from (`_storeVersion`, reset to 0
+when the values are invalidated, which means "the row as it stands"). A
+save checks it in two places:
+
+- **The context**, under the coordinator's lock, re-reads the version of
+  each updated or deleted row whose object holds one. A row that moved on
+  (or is gone, version 0) is an `NSMergeConflict` carrying the version
+  read and the row's, and the merge policy settles it like the atomic
+  stores' conflicts; the error policy fails the save with
+  `NSManagedObjectMergeError`. This is what separates two contexts on one
+  coordinator, which read through the same store.
+- **The store**, as the backstop for writers the context cannot see
+  (another process between check and write): the SQLite store updates
+  and deletes `WHERE Z_PK = ? AND Z_OPT = ?` and reports a row it did not
+  match as `NSPersistentStoreSaveConflictsError`; the SQL backends check
+  the version they handed out.
+
+After a save the saved objects are re-read, which advances their versions.
+Apple's context arbitrates: `NSSQLitePersistentStoreTests` holds the cases.
+
 ## Faulting and relationships
 
 Objects materialize lazily. A registered object with `_isFault` YES has

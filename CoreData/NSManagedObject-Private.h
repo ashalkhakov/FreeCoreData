@@ -21,6 +21,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSDictionary *)_committedValues;
 - (NSDictionary *)_cachedCommittedValues;
 - (void)_invalidateCommittedValues;
+/* The version of the incremental store's row this object's committed
+   values were read from (NSIncrementalStoreNode's), or 0 when it holds
+   none: never read, or invalidated since.  A save is checked against it
+   -- optimistic locking -- and 0 means the row is taken as it stands. */
+- (unsigned long long)_storeVersion;
+- (void)_setStoreVersion:(unsigned long long)version;
 - (void)_resetCommittedValuesAfterSavePreservingTransients;
 - (void)_discardChangedValues;
 - (void)_discardChangedValueForKey:(NSString *)key;

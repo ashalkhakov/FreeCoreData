@@ -2260,8 +2260,77 @@ static id CDUndoRestoredValue(id value){
 
 /* Optimistic locking: detects rows whose persisted attribute values in an
    atomic store no longer match the snapshot this context last read. */
+/* The attribute values of a store node, as a conflict's snapshot. */
+static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescription *entity) {
+   NSMutableDictionary *snapshot=[NSMutableDictionary dictionary];
+   NSDictionary        *attributes=[entity attributesByName];
+
+   for(NSString *name in attributes){
+    NSAttributeDescription *attribute=[attributes objectForKey:name];
+
+    if([attribute isTransient])
+     continue;
+
+    id value=[node valueForPropertyDescription:attribute];
+
+    if(value!=nil && value!=[NSNull null])
+     [snapshot setObject:value forKey:name];
+   }
+   return snapshot;
+}
+
+/* Optimistic locking for incremental stores, as Apple's context does it:
+   an object about to be written over or deleted is checked against the
+   row's version now.  A row moved on since the object read it -- another
+   context, another coordinator, another process -- is a conflict for the
+   merge policy, never a silent overwrite.  The save holds the
+   coordinator's lock, so no other save on this coordinator comes between
+   this check and the write; the store's own version check covers writers
+   outside it. */
+-(void)_detectIncrementalStoreConflictsInto:(NSMutableArray *)conflicts {
+   NSMutableSet *checked=[NSMutableSet setWithSet:_updatedObjects];
+
+   [checked unionSet:_deletedObjects];
+
+   for(NSManagedObject *object in checked){
+    unsigned long long version=[object _storeVersion];
+
+    if(version==0 || [_insertedObjects containsObject:object] || [[object objectID] isTemporaryID])
+     continue;
+
+    NSPersistentStore *store=[[object objectID] persistentStore];
+
+    if(![store isKindOfClass:[NSIncrementalStore class]])
+     continue;
+
+    NSError                *nodeError=nil;
+    NSIncrementalStoreNode *node=[(NSIncrementalStore *)store newValuesForObjectWithID:[object objectID] withContext:self error:&nodeError];
+    unsigned long long      current=(node!=nil)?[node version]:0;
+
+    if(node!=nil && current==version){
+     [node release];
+     continue;
+    }
+
+    /* Changed under us, or deleted (a new version of 0). */
+    NSDictionary    *row=(node!=nil)?CDSnapshotOfNode(node,[object entity]):nil;
+    NSMergeConflict *conflict=[[[NSMergeConflict alloc] initWithSource:object
+                                                            newVersion:(NSUInteger)current
+                                                            oldVersion:(NSUInteger)version
+                                                        cachedSnapshot:row
+                                                     persistedSnapshot:row] autorelease];
+    NSDictionary    *read=[object _cachedCommittedValues];
+
+    [conflict _setObjectSnapshot:(read!=nil)?read:[NSDictionary dictionary]];
+    [conflicts addObject:conflict];
+    [node release];
+   }
+}
+
 -(NSArray *)_detectSaveConflicts {
    NSMutableArray *conflicts=[NSMutableArray array];
+
+   [self _detectIncrementalStoreConflictsInto:conflicts];
 
    for(NSManagedObject *updated in _updatedObjects){
     if([_insertedObjects containsObject:updated] || [_deletedObjects containsObject:updated])
@@ -2380,7 +2449,10 @@ static id CDUndoRestoredValue(id value){
      return YES;
 
     case NSOverwriteMergePolicyType:
-     /* The in-memory object is written over the persisted version. */
+     /* The in-memory object is written over the persisted version,
+        whichever version that now is. */
+     for(NSMergeConflict *conflict in conflicts)
+      [[conflict sourceObject] _setStoreVersion:0];
      return YES;
 
     case NSRollbackMergePolicyType:
