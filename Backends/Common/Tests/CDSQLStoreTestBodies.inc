@@ -2484,6 +2484,178 @@ static NSArray *CDRegexUntranslatable(void)
     XCTAssertEqualObjects([ada valueForKey:@"name"], @"Ada");
 }
 
+/* Private-queue contexts for the locking tests below: on the coordinator
+   given, or on a coordinator (and connection) of their own. */
+- (NSManagedObjectContext *)lockingContextOn:(NSPersistentStoreCoordinator *)coordinator
+{
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc]
+        initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    [context setPersistentStoreCoordinator:coordinator ?: [[self newContext] persistentStoreCoordinator]];
+    return context;
+}
+
+/* Ada as the context reads her, realized, so it holds the row's version. */
+- (NSManagedObject *)lockingAdaIn:(NSManagedObjectContext *)context
+{
+    __block NSManagedObject *ada = nil;
+    [context performBlockAndWait:^{
+        ada = [self personNamed:@"Ada" inContext:context];
+        (void)[ada valueForKey:@"age"];
+    }];
+    return ada;
+}
+
+- (BOOL)lockingSetAge:(int)age of:(NSManagedObject *)person error:(NSError **)error
+{
+    __block BOOL saved = NO;
+    __block NSError *saveError = nil;
+    NSManagedObjectContext *context = [person managedObjectContext];
+    [context performBlockAndWait:^{
+        [person setValue:@(age) forKey:@"age"];
+        NSError *localError = nil;
+        saved = [context save:&localError];
+        saveError = localError;
+    }];
+    if (error != NULL)
+        *error = saveError;
+    return saved;
+}
+
+- (int)lockingStoredAge
+{
+    NSManagedObjectContext *fresh = [self lockingContextOn:nil];
+    NSManagedObject *ada = [self lockingAdaIn:fresh];
+    __block int age = 0;
+    [fresh performBlockAndWait:^{
+        age = [[ada valueForKey:@"age"] intValue];
+    }];
+    return age;
+}
+
+/* Two contexts read Ada, then both save at once, again and again: whatever
+   the interleaving, one save wins and the other is refused.  shared puts
+   both on one coordinator, where the context's check under the
+   coordinator's lock decides; otherwise each has its own connection, as
+   two processes would, and only the store's own check can. */
+- (void)lockingRaceShared:(BOOL)shared
+{
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" age:36];
+    if (![self save]) return;
+
+    NSPersistentStoreCoordinator *coordinator =
+        shared ? [[self newContext] persistentStoreCoordinator] : nil;
+
+    for (int round = 0; round < 10; round++) {
+        NSArray *contexts = @[ [self lockingContextOn:coordinator],
+                               [self lockingContextOn:coordinator] ];
+        NSArray *people = @[ [self lockingAdaIn:contexts[0]], [self lockingAdaIn:contexts[1]] ];
+        __block int wins = 0;
+        __block int conflicts = 0;
+        dispatch_group_t group = dispatch_group_create();
+
+        for (int i = 0; i < 2; i++) {
+            NSManagedObject *person = people[i];
+            int age = 100 * round + i;
+
+            dispatch_group_async(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                NSError *error = nil;
+                BOOL saved = [self lockingSetAge:age of:person error:&error];
+
+                @synchronized (self) {
+                    if (saved)
+                        wins += 1;
+                    else if ([error code] == NSManagedObjectMergeError
+                             || [error code] == NSPersistentStoreSaveConflictsError)
+                        conflicts += 1;
+                }
+            });
+        }
+        dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+#if !OS_OBJECT_USE_OBJC
+        dispatch_release(group);
+#endif
+        XCTAssertEqual(wins, 1, @"round %d", round);
+        XCTAssertEqual(conflicts, 1, @"round %d: the loser is told of a conflict", round);
+        (void)contexts;
+    }
+    XCTAssertEqualObjects([ada valueForKey:@"name"], @"Ada");
+}
+
+- (void)testConcurrentSavesOnASharedCoordinatorLetOneWin
+{
+    if (![self databaseAvailable]) return;
+    [self lockingRaceShared:YES];
+}
+
+- (void)testConcurrentSavesOverSeparateConnectionsLetOneWin
+{
+    if (![self databaseAvailable]) return;
+    [self lockingRaceShared:NO];
+}
+
+/* The merge policies that let a conflicting save through, on a shared
+   coordinator.  Each answers the second save's age as stored, or 0 if the
+   save was refused. */
+- (int)lockingSecondSaveUnder:(id)mergePolicy
+{
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" age:36];
+    if (![self save]) return 0;
+
+    NSPersistentStoreCoordinator *coordinator = [[self newContext] persistentStoreCoordinator];
+    NSManagedObjectContext *firstContext = [self lockingContextOn:coordinator];
+    NSManagedObjectContext *secondContext = [self lockingContextOn:coordinator];
+    [secondContext setMergePolicy:mergePolicy];
+    NSManagedObject *first = [self lockingAdaIn:firstContext];
+    NSManagedObject *second = [self lockingAdaIn:secondContext];
+
+    NSError *error = nil;
+    XCTAssertTrue([self lockingSetAge:40 of:first error:&error], @"first save: %@", error);
+    error = nil;
+    BOOL saved = [self lockingSetAge:50 of:second error:&error];
+    XCTAssertTrue(saved, @"the policy should settle the conflict: %@", error);
+
+    if (saved) {
+        /* Settled: the second context now holds the row's version. */
+        XCTAssertTrue([self lockingSetAge:60 of:second error:&error], @"a later save: %@", error);
+    }
+    XCTAssertEqualObjects([ada valueForKey:@"name"], @"Ada");
+    return saved ? [self lockingStoredAge] : 0;
+}
+
+- (void)testObjectTrumpWritesOverAConflict
+{
+    if (![self databaseAvailable]) return;
+    XCTAssertEqual([self lockingSecondSaveUnder:NSMergeByPropertyObjectTrumpMergePolicy], 60);
+}
+
+- (void)testOverwriteWritesOverAConflict
+{
+    if (![self databaseAvailable]) return;
+    XCTAssertEqual([self lockingSecondSaveUnder:NSOverwriteMergePolicy], 60);
+}
+
+- (void)testStoreTrumpKeepsTheOtherSaveThenSaves
+{
+    if (![self databaseAvailable]) return;
+
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" age:36];
+    if (![self save]) return;
+
+    NSPersistentStoreCoordinator *coordinator = [[self newContext] persistentStoreCoordinator];
+    NSManagedObjectContext *firstContext = [self lockingContextOn:coordinator];
+    NSManagedObjectContext *secondContext = [self lockingContextOn:coordinator];
+    [secondContext setMergePolicy:NSMergeByPropertyStoreTrumpMergePolicy];
+    NSManagedObject *first = [self lockingAdaIn:firstContext];
+    NSManagedObject *second = [self lockingAdaIn:secondContext];
+
+    NSError *error = nil;
+    XCTAssertTrue([self lockingSetAge:40 of:first error:&error], @"first save: %@", error);
+    XCTAssertTrue([self lockingSetAge:50 of:second error:&error],
+                  @"store trump should settle the conflict: %@", error);
+    XCTAssertEqual([self lockingStoredAge], 40, @"the store's value trumps");
+    XCTAssertEqualObjects([ada valueForKey:@"name"], @"Ada");
+}
+
 /* An update through the same store that read the row is not a conflict -
    the common case must not regress. */
 - (void)testOrdinaryUpdateIsNotAConflict
