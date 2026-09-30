@@ -97,7 +97,13 @@ jobs:
   # the AppImage Linux users run it from.
   gnustep:
     name: Ubuntu (GNUstep, clang, gnustep-2.0)
-    runs-on: ubuntu-latest
+    # Built on the oldest Ubuntu LTS still in support, not ubuntu-latest:
+    # an AppImage carries its own libraries but not glibc, so it runs only
+    # on a system at least as new as the one it was linked on. Built on a
+    # current runner it fails to start on that LTS, which is what
+    # appimage.github.io tests with (PR 9036). Raise this only when that
+    # release leaves support.
+    runs-on: ubuntu-22.04
     # The dependency build is the long pole; everything after it is minutes.
     timeout-minutes: 90
     env:
@@ -161,7 +167,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.INSTALL_PATH }}
-          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+          key: gnustep-v3-ubuntu-22.04-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
 
       - name: Build GNUstep
         if: steps.gnustep-cache.outputs.cache-hit != 'true'
@@ -172,7 +178,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ env.INSTALL_PATH }}
-          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+          key: gnustep-v3-ubuntu-22.04-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
 
       # CoreData's queue-confined contexts sit on libdispatch, which
       # dependencies.sh builds (with its private headers) before
@@ -245,7 +251,7 @@ jobs:
       # it.
       - name: Smoke-test the AppImage
         run: |
-          image=$(ls FreeCoreData-Linux-*.AppImage)
+          image=$(ls FreeCoreData-*.AppImage)
           chmod +x "$image"
           # "" is the no-argument case, which is what opening the image does.
           for mode in "" Tests/MomcFixture.xcdatamodeld staffbook employeedirectory bulletin; do            log="$RUNNER_TEMP/smoke.log"
@@ -273,6 +279,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FreeCoreData-Linux-${{ github.sha }}
-          path: ${{ env.SRC_PATH }}/FreeCoreData-Linux-*.AppImage
+          name: FreeCoreData-${{ github.sha }}
+          path: ${{ env.SRC_PATH }}/FreeCoreData-*.AppImage
           retention-days: 14

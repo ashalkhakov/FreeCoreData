@@ -153,8 +153,8 @@ The AppImage carries the three samples as well, behind a launcher: run it with
 no arguments to choose, or name one directly.
 
 ```sh
-./FreeCoreData-Linux-*.AppImage staffbook      # or employeedirectory, bulletin
-./FreeCoreData-Linux-*.AppImage MyModel.xcdatamodeld   # a path opens the editor
+./FreeCoreData-*.AppImage staffbook      # or employeedirectory, bulletin
+./FreeCoreData-*.AppImage MyModel.xcdatamodeld   # a path opens the editor
 ```
 
 ## Porting notes

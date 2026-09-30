@@ -26,7 +26,7 @@ done
 # 3. Run the linuxdeploy process.
 # The suite, not one app: it carries the launcher, Model Builder and the
 # samples, so the image is named after the project.
-export OUTPUT="FreeCoreData-Linux-${APP_VERSION:-dev}-$(uname -m).AppImage"
+export OUTPUT="FreeCoreData-${APP_VERSION:-dev}-$(uname -m).AppImage"
 export APPIMAGE_EXTRACT_AND_RUN=1
 export NO_VALIDATE=1
 # Keep the symbol tables: Objective-C methods are named only in .symtab, which
