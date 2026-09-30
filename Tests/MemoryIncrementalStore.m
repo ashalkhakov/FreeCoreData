@@ -13,6 +13,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    shared by the incremental store test cases. */
 
 #import "MemoryIncrementalStore.h"
+#import <dispatch/dispatch.h>
 
 NSString * const MemoryIncrementalStoreType = @"MemoryIncrementalStoreType";
 NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
@@ -257,12 +258,32 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
                                                     version:1];
 }
 
+/* The coordinator's lock is recursive, so only another thread can tell
+   whether this one holds it: it cannot take a lock held here. */
+- (BOOL)coordinatorIsLockedByThisThread
+{
+    NSPersistentStoreCoordinator *coordinator = [self persistentStoreCoordinator];
+    __block BOOL taken = NO;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{
+        taken = [coordinator tryLock];
+        if (taken)
+            [coordinator unlock];
+        dispatch_semaphore_signal(done);
+    });
+    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+    return !taken;
+}
+
 - (id)newValueForRelationship:(NSRelationshipDescription *)relationship
               forObjectWithID:(NSManagedObjectID *)objectID
                   withContext:(NSManagedObjectContext *)context
                         error:(NSError **)error
 {
     self.relationshipCallCount++;
+    if (![self coordinatorIsLockedByThisThread])
+        self.unlockedRelationshipCallCount++;
 
     id ref = [self referenceObjectForObjectID:objectID];
     NSDictionary *row = [[self.rows objectForKey:[[objectID entity] name]]

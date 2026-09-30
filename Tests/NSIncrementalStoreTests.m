@@ -687,6 +687,24 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqual([self.store relationshipCallCount], callsBefore + 2);
 }
 
+/* Firing a row fault resolves a to-one the node left out through the
+   store, and that round trip is serialized like every other: a context
+   on another queue may be using the store at the same moment, and a
+   store with one connection to a server cannot take two requests at
+   once. */
+- (void)testResolvingAMissingToOneHoldsTheCoordinatorLock
+{
+    [self seedManagedPair];
+
+    NSManagedObjectID *bossID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"p1"];
+    NSManagedObject *boss = [self.ctx objectWithID:bossID];
+
+    XCTAssertEqualObjects([boss valueForKey:@"name"], @"Boss");
+    XCTAssertTrue([self.store relationshipCallCount] > 0);
+    XCTAssertEqual([self.store unlockedRelationshipCallCount], (NSUInteger)0);
+}
+
 - (void)testToManyRelationshipGoesThroughNewValueForRelationship
 {
     [self seedManagedPair];
