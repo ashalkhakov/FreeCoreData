@@ -18,7 +18,13 @@ jobs:
   ############################ Linux AppImage ############################
   appimage:
     name: Linux AppImage
-    runs-on: ubuntu-latest
+    # Built on the oldest Ubuntu LTS still in support, not ubuntu-latest:
+    # an AppImage carries its own libraries but not glibc, so it runs only
+    # on a system at least as new as the one it was linked on. Built on a
+    # current runner it fails to start on that LTS, which is what
+    # appimage.github.io tests with (PR 9036). Raise this only when that
+    # release leaves support.
+    runs-on: ubuntu-22.04
     timeout-minutes: 120
     env:
       SRC_PATH: ${{ github.workspace }}/source
@@ -81,7 +87,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.INSTALL_PATH }}
-          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+          key: gnustep-v3-ubuntu-22.04-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
 
       - name: Build GNUstep
         if: steps.gnustep-cache.outputs.cache-hit != 'true'
@@ -107,7 +113,7 @@ jobs:
       - name: Smoke-test the AppImage
         run: |
           sudo apt-get -q -y install xvfb
-          image=$(ls FreeCoreData-Linux-*.AppImage)
+          image=$(ls FreeCoreData-*.AppImage)
           chmod +x "$image"
           for mode in "" Tests/MomcFixture.xcdatamodeld staffbook employeedirectory bulletin; do            log="$RUNNER_TEMP/smoke.log"
             timeout 90 xvfb-run -a ./"$image" $mode > "$log" 2>&1 &
@@ -134,14 +140,14 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FreeCoreData-Linux-${{ env.APP_VERSION }}
-          path: ${{ env.SRC_PATH }}/FreeCoreData-Linux-*.AppImage
+          name: FreeCoreData-${{ env.APP_VERSION }}
+          path: ${{ env.SRC_PATH }}/FreeCoreData-*.AppImage
 
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.SRC_PATH }}/FreeCoreData-Linux-*.AppImage
+          files: ${{ env.SRC_PATH }}/FreeCoreData-*.AppImage
 
   ############################ macOS ############################
   macos:

@@ -38,7 +38,10 @@ jobs:
   # turns that skip into a failure.
   linux:
     name: Ubuntu (GNUstep) against PostgreSQL, MySQL, MariaDB
-    runs-on: ubuntu-latest
+    # The same baseline the AppImage is built on (see release.yml), because
+    # this shares that cached prefix and a prefix built against one glibc
+    # cannot be handed to a runner with an older one.
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
       SRC_PATH: ${{ github.workspace }}/source
@@ -135,7 +138,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.INSTALL_PATH }}
-          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+          key: gnustep-v3-ubuntu-22.04-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
 
       - name: Build GNUstep
         if: steps.gnustep-cache.outputs.cache-hit != 'true'
@@ -146,7 +149,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ env.INSTALL_PATH }}
-          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+          key: gnustep-v3-ubuntu-22.04-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
 
       # The backends link the framework built here in the tree, not an
       # installed one, so it is built first and on its own -- a compile error
