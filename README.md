@@ -128,6 +128,29 @@ own window and `transactionAuthor`.  A save in one window is invisible to the
 other until it notices the transaction and merges it, which is what an
 app-plus-extension setup looks like from the inside.
 
+## Models in a gnustep-make project
+
+`coredata-model.make` compiles a target's models into its resources, as
+Xcode does:
+
+```make
+include $(GNUSTEP_MAKEFILES)/common.make
+APP_NAME = MyApp
+MyApp_XCDATAMODELD_FILES = Model.xcdatamodeld
+MyApp_COREDATA_CODEGEN = yes      # optional: generate the entities' classes
+include $(GNUSTEP_MAKEFILES)/coredata-model.make
+include $(GNUSTEP_MAKEFILES)/application.make
+```
+
+With `<target>_COREDATA_CODEGEN = yes`, entities whose Codegen is Class
+Definition or Category/Extension get their `NSManagedObject` sources
+generated as the target builds, the same ones Xcode generates, and compiled
+with it: `#import "Book+CoreDataProperties.h"`. A Category/Extension
+entity's class is the project's own, and its header forwards the classes
+its relationships name (`@class Author;`), as Xcode expects. It is opt-in
+because Xcode marks new entities Class Definition, and a project that keeps
+its classes by hand would get them twice.
+
 ## Model editor
 
 ![ModelBuilder on GNUstep/Linux with the Eau theme](Screenshots/ModelBuilder-Linux.png)

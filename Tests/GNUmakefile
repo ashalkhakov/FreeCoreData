@@ -31,6 +31,8 @@ CoreDataTests_OBJC_FILES = \
 	MomcCompiledModelTests.m \
 	MomcSerializerTests.m \
 	CodeGeneratorTests.m \
+	CodegenBuildTests.m \
+	CGBBook.m \
 	../Tools/momc/CDModelCompiler.m \
 	../Tools/momc/CDModelSerializer.m \
 	../Tools/momc/CDCodeGenerator.m \
@@ -68,13 +70,15 @@ XCTEST ?= xctest
 # whatever the surrounding environment prepended (a CI shell that puts
 # a prefix's bare lib/ directory first would otherwise hand momc any
 # stale copies living there).
-CoreDataTests_XCDATAMODELD_FILES = MomcFixture.xcdatamodeld
+CoreDataTests_XCDATAMODELD_FILES = MomcFixture.xcdatamodeld CodegenFixture.xcdatamodeld
+# CodegenFixture's classes are generated as the bundle builds.
+CoreDataTests_COREDATA_CODEGEN = yes
 MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" \
        ../Tools/momc/obj/momc
 
 include ../coredata-model.make
 
-MomcFixture.momd: ../Tools/momc/obj/momc
+MomcFixture.momd CodegenFixture.momd _cd-codegen: ../Tools/momc/obj/momc
 
 .PHONY: momc-tool
 momc-tool:
