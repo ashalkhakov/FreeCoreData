@@ -412,7 +412,10 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
       if(value==nil || value==[NSNull null]){
        NSError *relationshipError=nil;
 
+       /* A round trip like the one above, serialized the same way. */
+       [[_context persistentStoreCoordinator] lock];
        value=[store newValueForRelationship:relationship forObjectWithID:[self objectID] withContext:_context error:&relationshipError];
+       [[_context persistentStoreCoordinator] unlock];
        [value autorelease];
       }
 

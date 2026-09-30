@@ -32,6 +32,10 @@ extern NSString * const MemoryIncrementalStoreType;
 @property (nonatomic) NSUInteger saveRequestCount;
 @property (nonatomic) NSUInteger newValuesCallCount;
 @property (nonatomic) NSUInteger relationshipCallCount;
+/* Of those, the calls made without the coordinator's lock held: contexts
+   on different queues share the store, so every round trip to it has to
+   be serialized. */
+@property (nonatomic) NSUInteger unlockedRelationshipCallCount;
 @property (nonatomic) NSUInteger obtainPermanentIDsCallCount;
 @property (nonatomic) NSUInteger lastInsertedCount;
 @property (nonatomic) NSUInteger lastUpdatedCount;

@@ -687,6 +687,34 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqual([self.store relationshipCallCount], callsBefore + 2);
 }
 
+/* Firing a row fault resolves a to-one the node left out through the
+   store, and that round trip is serialized like every other: a context
+   on another queue may be using the store at the same moment, and a
+   store with one connection to a server cannot take two requests at
+   once. */
+- (void)testResolvingAMissingToOneHoldsTheCoordinatorLock
+{
+    [self seedManagedPair];
+
+    NSManagedObjectID *bossID =
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"p1"];
+    NSManagedObject *boss = [self.ctx objectWithID:bossID];
+
+    XCTAssertEqualObjects([boss valueForKey:@"name"], @"Boss");
+    XCTAssertTrue([self.store relationshipCallCount] > 0);
+
+    /* How the round trip is serialized is the framework's own business,
+       and only this one's is observable from here: Apple's coordinator
+       serializes store access on a queue of its own, where -lock and
+       -tryLock are legacy API that nothing takes, so the probe sees an
+       unlocked coordinator however careful the framework is being
+       (checked on macOS 2026-09-30).  The deadlock this guards against
+       is real on either, but only here can a test say so. */
+#if !defined(__APPLE__)
+    XCTAssertEqual([self.store unlockedRelationshipCallCount], (NSUInteger)0);
+#endif
+}
+
 - (void)testToManyRelationshipGoesThroughNewValueForRelationship
 {
     [self seedManagedPair];
