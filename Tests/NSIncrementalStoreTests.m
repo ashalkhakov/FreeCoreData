@@ -702,7 +702,17 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
     XCTAssertEqualObjects([boss valueForKey:@"name"], @"Boss");
     XCTAssertTrue([self.store relationshipCallCount] > 0);
+
+    /* How the round trip is serialized is the framework's own business,
+       and only this one's is observable from here: Apple's coordinator
+       serializes store access on a queue of its own, where -lock and
+       -tryLock are legacy API that nothing takes, so the probe sees an
+       unlocked coordinator however careful the framework is being
+       (checked on macOS 2026-09-30).  The deadlock this guards against
+       is real on either, but only here can a test say so. */
+#if !defined(__APPLE__)
     XCTAssertEqual([self.store unlockedRelationshipCallCount], (NSUInteger)0);
+#endif
 }
 
 - (void)testToManyRelationshipGoesThroughNewValueForRelationship
