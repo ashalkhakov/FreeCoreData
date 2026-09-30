@@ -15,7 +15,7 @@ LIBRARY_NAME = libCDPostgreSQLStore
 
 libCDPostgreSQLStore_OBJC_FILES = CDPostgreSQLStore.m
 
-libCDPostgreSQLStore_HEADER_FILES = CDPostgreSQLStore.h ../Common/CDSQLStore.h ../Common/CDSQLQuery.h
+libCDPostgreSQLStore_HEADER_FILES = CDPostgreSQLStore.h
 libCDPostgreSQLStore_HEADER_FILES_DIR = .
 libCDPostgreSQLStore_HEADER_FILES_INSTALL_DIR = CDPostgreSQLStore
 
