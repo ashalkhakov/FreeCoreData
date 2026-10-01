@@ -137,7 +137,8 @@ Xcode does:
 include $(GNUSTEP_MAKEFILES)/common.make
 APP_NAME = MyApp
 MyApp_XCDATAMODELD_FILES = Model.xcdatamodeld
-MyApp_COREDATA_CODEGEN = yes      # optional: generate the entities' classes
+# optional: generate the classes of the entities marked for it
+MyApp_COREDATA_CODEGEN = yes
 include $(GNUSTEP_MAKEFILES)/coredata-model.make
 include $(GNUSTEP_MAKEFILES)/application.make
 ```

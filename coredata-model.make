@@ -57,7 +57,7 @@ $(foreach _cd_target,$(_CD_MODEL_TARGETS),\
 # read the target's file list, so the target compiles one file of a known
 # name that imports them all.
 define _cd_codegen_template
-ifeq ($$($(1)_COREDATA_CODEGEN),yes)
+ifeq ($$(strip $$($(1)_COREDATA_CODEGEN)),yes)
 $(1)_CODEGEN_DIR = $$(GNUSTEP_OBJ_DIR)/CoreDataGenerated/$(1)
 $(1)_OBJC_FILES += $$($(1)_CODEGEN_DIR)/$(1)+CoreDataGenerated.m
 $(1)_INCLUDE_DIRS += -I$$($(1)_CODEGEN_DIR)
@@ -85,9 +85,6 @@ _cd-codegen-$(1): _cd-codegen
 endif
 endef
 
-$(foreach _cd_target,$(_CD_MODEL_TARGETS),\
-    $(eval $(call _cd_codegen_template,$(_cd_target))))
-
 # This file is documented to be included BEFORE the target's
 # {application,tool,framework,bundle}.make - but in that position our
 # first explicit rule would become make's default goal, so a plain
@@ -97,6 +94,13 @@ $(foreach _cd_target,$(_CD_MODEL_TARGETS),\
 # canonical 'all' (defined later by the target makefile - naming a
 # not-yet-defined goal is fine).
 _CD_SAVED_DEFAULT_GOAL := $(.DEFAULT_GOAL)
+# Saved before the codegen template is expanded, not after: that
+# template's own rule would otherwise be what gets saved and restored,
+# which is the same bug one step further along.
+
+$(foreach _cd_target,$(_CD_MODEL_TARGETS),\
+    $(eval $(call _cd_codegen_template,$(_cd_target))))
+
 
 # Models are recompiled on every build: a directory's own mtime does
 # not change when a file inside it is edited, and Xcode's version names
