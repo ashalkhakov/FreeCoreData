@@ -251,11 +251,12 @@ static BOOL CDAFWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
 
 - (void)testCancelBeforeExecutionDeliversEmptyResult
 {
-    /* Arbitrated on macOS: cancelling the result before the fetch
-       event runs does NOT surface NSUserCancelledError (an earlier
-       version of this test asserted that and failed) - Apple delivers
-       the completion with an EMPTY finalResult and a nil
-       operationError. */
+    /* Arbitrated on macOS: cancelling the result does NOT surface
+       NSUserCancelledError (an earlier version of this test asserted
+       that and failed) - the completion arrives with a finalResult and
+       a nil operationError.  Whether that result is empty depends on
+       whether the cancel reached the fetch in time, which is only
+       decidable on one of the two frameworks; see below. */
     NSManagedObjectContext *ctx = [self privateContext];
     [self seedContext:ctx withTexts:[NSArray arrayWithObject:@"x"]];
 
@@ -275,17 +276,30 @@ static BOOL CDAFWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
         NSAsynchronousFetchResult *result =
             (NSAsynchronousFetchResult *)[ctx executeRequest:request error:&err];
         XCTAssertNotNil(result, @"%@", err);
-        /* the fetch event is queued behind this block on the context's
-           serial queue, so this cancel deterministically precedes it */
         [result cancel];
     }];
 
     XCTAssertTrue(CDAFWaitFor(5.0, ^BOOL{ return done; }),
         @"a cancelled request still delivers its completion");
-    XCTAssertNotNil(rows, @"cancellation delivers an empty result, not a nil one");
+    XCTAssertNotNil(rows, @"a cancelled request delivers a result, not a nil one");
+    XCTAssertNil(operationError, @"cancellation is not an operation error");
+
+    /* The port runs the fetch as a later event on the context's own
+       serial queue, so the cancel above - made from inside a block on
+       that queue - precedes it, and the empty result is a fact about
+       the cancellation rather than about how fast the two raced.  Apple
+       starts the fetch elsewhere: the cancel landed first on every run
+       of a workstation and lost on a macOS CI runner, which fetched the
+       seeded row.  So only the port can be held to the stronger
+       claim, and the weaker one - a completion, a result, no error - is
+       what Core Data guarantees on both. */
+#if !defined(__APPLE__)
     XCTAssertEqual([rows count], (NSUInteger)0,
         @"the seeded row is not fetched once the request is cancelled");
-    XCTAssertNil(operationError, @"cancellation is not an operation error");
+#else
+    XCTAssertLessThanOrEqual([rows count], (NSUInteger)1,
+        @"a cancelled fetch either runs or does not; it cannot overrun");
+#endif
 }
 
 - (void)testConfinementContextsCannotExecuteAsynchronousFetches
