@@ -17,7 +17,19 @@ if [ ! -x "$dest/AppRun" ]; then
   chmod +x /tmp/linuxdeploy.AppImage
   (cd /tmp && ./linuxdeploy.AppImage --appimage-extract > /dev/null)
   sudo mkdir -p "$dest"
-  sudo cp -r /tmp/squashfs-root/. "$dest/"
+  # -a, not -r: the extracted tree has symlinks and relies on its exec
+  # bits, and -r preserves neither reliably.
+  sudo cp -a /tmp/squashfs-root/. "$dest/"
+  sudo chmod -R a+rX "$dest"
+fi
+
+# A tree installed without its exec bits used to fail much later, in the
+# packaging script, as "AppRun: Permission denied" -- which reads as a bug
+# in packaging.  Fail here instead, where the cause is.
+if [ ! -x "$dest/AppRun" ]; then
+  echo "install-linuxdeploy: $dest/AppRun is not executable after install" >&2
+  ls -l "$dest" >&2 || true
+  exit 1
 fi
 
 mkdir -p "$runtime_dir"
@@ -25,5 +37,5 @@ if [ ! -s "$runtime_dir/runtime-$arch" ]; then
   curl -fsSL -o "$runtime_dir/runtime-$arch" \
     "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-${arch}"
 fi
-echo "linuxdeploy: $dest/AppRun"
+echo "linuxdeploy: $(ls -l "$dest/AppRun")"
 echo "runtime:     $runtime_dir/runtime-$arch"
