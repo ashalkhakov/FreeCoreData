@@ -1610,9 +1610,61 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
     XCTAssertEqualObjects([[sociable firstObject] valueForKey:@"name"], @"Ada");
 }
 
+/* A relationship that is its own inverse is symmetric, and both sides of
+   its join table are that one relationship - so a store naming those
+   columns after the relationship names them both the same thing, which
+   no SQL dialect allows. */
+- (void)testReflexiveRelationshipIsSymmetricAcrossReopen
+{
+    if (![self databaseAvailable]) return;
+
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" age:36];
+    NSManagedObject *grace = [self insertPersonNamed:@"Grace" age:45];
+    [self insertPersonNamed:@"alan" age:41];
+
+    /* set from one side only */
+    [ada setValue:[NSSet setWithObject:grace] forKey:@"peers"];
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+
+    XCTAssertEqualObjects([[[self personNamed:@"Ada" inContext:reopened]
+        valueForKey:@"peers"] valueForKey:@"name"],
+        [NSSet setWithObject:@"Grace"]);
+    XCTAssertEqualObjects([[[self personNamed:@"Grace" inContext:reopened]
+        valueForKey:@"peers"] valueForKey:@"name"],
+        [NSSet setWithObject:@"Ada"],
+        @"the store answers a reflexive relationship from both sides");
+    XCTAssertEqual([[[self personNamed:@"alan" inContext:reopened]
+        valueForKey:@"peers"] count], (NSUInteger)0);
+
+    /* And it is a join the SQL can walk. */
+    NSArray *peersOfAda = [self fetchPeopleWithPredicate:
+        [NSPredicate predicateWithFormat:@"ANY peers.name == %@", @"Ada"]
+                                        sortDescriptors:nil
+                                                context:reopened];
+
+    XCTAssertEqual([peersOfAda count], (NSUInteger)1);
+    XCTAssertEqualObjects([[peersOfAda firstObject] valueForKey:@"name"], @"Grace");
+
+    /* Dropping it from one side drops it from both. */
+    [[self personNamed:@"Grace" inContext:reopened] setValue:[NSSet set] forKey:@"peers"];
+
+    NSError *error = nil;
+    XCTAssertTrue([reopened save:&error], @"save failed: %@", error);
+
+    NSManagedObjectContext *third = [self newContext];
+
+    XCTAssertEqual([[[self personNamed:@"Ada" inContext:third]
+        valueForKey:@"peers"] count], (NSUInteger)0);
+    XCTAssertEqual([[[self personNamed:@"Grace" inContext:third]
+        valueForKey:@"peers"] count], (NSUInteger)0);
+}
+
 /* SUBQUERY narrows the rows before counting them.  A Foundation that
-   cannot parse SUBQUERY cannot ask the question at all - gnustep-base could
-   not until the patch this project carries in patches/gnustep/ - so this
+   cannot parse SUBQUERY cannot ask the question at all - gnustep-base
+   could not until the patch in the shared gnustep-patches repository - so
+   this
    checks the translation where the framework can express it, and skips
    where it cannot. */
 - (void)testFilteredCountOfARelationship

@@ -70,8 +70,8 @@ NSManagedObjectModel *CDSQLTestModel(void)
     [employees setInverseRelationship:employer];
 
     /* Many-to-many: both sides are to-many, so this lives in a join table.
-       The two sides are named differently because a relationship that is its
-       own inverse is not something Core Data models. */
+       The two sides are named differently here; `peers`, below, is the
+       other shape - one relationship that is its own inverse. */
     NSRelationshipDescription *friends = [[NSRelationshipDescription alloc] init];
     [friends setName:@"friends"];
     [friends setDestinationEntity:person];
@@ -89,9 +89,21 @@ NSManagedObjectModel *CDSQLTestModel(void)
     [friends setInverseRelationship:friendOf];
     [friendOf setInverseRelationship:friends];
 
+    /* A relationship that is its own inverse, which makes it symmetric:
+       both sides of its join table are this one relationship, so a store
+       that names those columns after it has to tell them apart somehow. */
+    NSRelationshipDescription *peers = [[NSRelationshipDescription alloc] init];
+    [peers setName:@"peers"];
+    [peers setDestinationEntity:person];
+    [peers setMinCount:0];
+    [peers setMaxCount:0];
+    [peers setOptional:YES];
+    [peers setInverseRelationship:peers];
+
     [personProperties addObject:employer];
     [personProperties addObject:friends];
     [personProperties addObject:friendOf];
+    [personProperties addObject:peers];
     [person setProperties:personProperties];
 
     /* A subentity, so that the root-table/Z_ENT machinery is exercised:

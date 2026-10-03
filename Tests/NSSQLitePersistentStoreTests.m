@@ -438,6 +438,144 @@ static NSManagedObjectModel *manyToManyAndInheritanceModel(void)
     return model;
 }
 
+/* A relationship can be its own inverse: "friends" whose inverse is
+   "friends", which makes it symmetric - putting B in A's set puts A in
+   B's.  Core Data models this, and its store has to, because the obvious
+   naming gives both sides of the join table one name. */
+static NSManagedObjectModel *reflexiveModel(BOOL ordered)
+{
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    [name setName:@"name"];
+    [name setAttributeType:NSStringAttributeType];
+    [name setOptional:YES];
+
+    NSEntityDescription *person = [[NSEntityDescription alloc] init];
+    [person setName:@"Person"];
+    [person setManagedObjectClassName:@"NSManagedObject"];
+
+    NSRelationshipDescription *friends = [[NSRelationshipDescription alloc] init];
+    [friends setName:@"friends"];
+    [friends setDestinationEntity:person];
+    [friends setMinCount:0];
+    [friends setMaxCount:0];
+    [friends setOptional:YES];
+    [friends setOrdered:ordered];
+    [friends setInverseRelationship:friends];
+
+    [person setProperties:[NSArray arrayWithObjects:name, friends, nil]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObject:person]];
+    return model;
+}
+
+- (NSManagedObject *)insertPersonNamed:(NSString *)name
+                             inContext:(NSManagedObjectContext *)ctx
+{
+    NSManagedObject *person =
+        [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                      inManagedObjectContext:ctx];
+    [person setValue:name forKey:@"name"];
+    return person;
+}
+
+- (NSManagedObject *)personNamed:(NSString *)name
+                       inContext:(NSManagedObjectContext *)ctx
+{
+    NSArray *found = [self fetchEntityNamed:@"Person"
+                                  inContext:ctx
+                                  predicate:[NSPredicate predicateWithFormat:
+                                                @"name == %@", name]
+                            sortDescriptors:nil];
+
+    XCTAssertEqual([found count], (NSUInteger)1, @"no one named %@", name);
+    return [found lastObject];
+}
+
+- (void)testReflexiveManyToManyPersistsAcrossReopen
+{
+    NSManagedObjectContext *ctx =
+        [self contextWithModel:reflexiveModel(NO) options:nil];
+
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" inContext:ctx];
+    NSManagedObject *grace = [self insertPersonNamed:@"Grace" inContext:ctx];
+    [self insertPersonNamed:@"Bob" inContext:ctx];
+
+    /* Written from one side only; the other side is the same relationship. */
+    [[ada mutableSetValueForKey:@"friends"] addObject:grace];
+    XCTAssertEqualObjects([[grace valueForKey:@"friends"] anyObject], ada,
+        @"a reflexive relationship is symmetric before it is even saved");
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    ctx = [self contextWithModel:reflexiveModel(NO) options:nil];
+
+    XCTAssertEqualObjects([[[self personNamed:@"Ada" inContext:ctx]
+        valueForKey:@"friends"] valueForKey:@"name"],
+        [NSSet setWithObject:@"Grace"]);
+    XCTAssertEqualObjects([[[self personNamed:@"Grace" inContext:ctx]
+        valueForKey:@"friends"] valueForKey:@"name"],
+        [NSSet setWithObject:@"Ada"],
+        @"the store answers the relationship from both sides");
+    XCTAssertEqual([[[self personNamed:@"Bob" inContext:ctx]
+        valueForKey:@"friends"] count], (NSUInteger)0);
+
+    /* And a fetch reaches across it. */
+    NSArray *friendsOfAda = [self fetchEntityNamed:@"Person"
+                                         inContext:ctx
+                                         predicate:[NSPredicate predicateWithFormat:
+                                                       @"ANY friends.name == %@", @"Ada"]
+                                   sortDescriptors:nil];
+    XCTAssertEqual([friendsOfAda count], (NSUInteger)1);
+    XCTAssertEqualObjects([[friendsOfAda lastObject] valueForKey:@"name"], @"Grace");
+
+    /* Removing it from one side removes it from both. */
+    [[[self personNamed:@"Ada" inContext:ctx] mutableSetValueForKey:@"friends"]
+        removeObject:[self personNamed:@"Grace" inContext:ctx]];
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    ctx = [self contextWithModel:reflexiveModel(NO) options:nil];
+    XCTAssertEqual([[[self personNamed:@"Ada" inContext:ctx]
+        valueForKey:@"friends"] count], (NSUInteger)0);
+    XCTAssertEqual([[[self personNamed:@"Grace" inContext:ctx]
+        valueForKey:@"friends"] count], (NSUInteger)0);
+}
+
+- (void)testOrderedReflexiveManyToManyKeepsEachSidesOrder
+{
+    NSManagedObjectContext *ctx =
+        [self contextWithModel:reflexiveModel(YES) options:nil];
+
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" inContext:ctx];
+    NSManagedObject *grace = [self insertPersonNamed:@"Grace" inContext:ctx];
+    NSManagedObject *bob = [self insertPersonNamed:@"Bob" inContext:ctx];
+
+    /* Ada's order is Grace then Bob; each of them has an order of their
+       own, in the same column pair, which is why both sides need a
+       column and not just one. */
+    [[ada mutableOrderedSetValueForKey:@"friends"] addObject:grace];
+    [[ada mutableOrderedSetValueForKey:@"friends"] addObject:bob];
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    ctx = [self contextWithModel:reflexiveModel(YES) options:nil];
+
+    /* Through -array, not valueForKey: on the ordered set itself: Apple
+       answers that with an ordered set and GNUstep with a plain one, and
+       the order is the whole point here. */
+    XCTAssertEqualObjects([[[[self personNamed:@"Ada" inContext:ctx]
+        valueForKey:@"friends"] array] valueForKey:@"name"],
+        ([NSArray arrayWithObjects:@"Grace", @"Bob", nil]));
+    XCTAssertEqualObjects([[[[self personNamed:@"Grace" inContext:ctx]
+        valueForKey:@"friends"] array] valueForKey:@"name"],
+        [NSArray arrayWithObject:@"Ada"]);
+    XCTAssertEqualObjects([[[[self personNamed:@"Bob" inContext:ctx]
+        valueForKey:@"friends"] array] valueForKey:@"name"],
+        [NSArray arrayWithObject:@"Ada"]);
+}
+
 - (void)testManyToManyAndSubentitiesPersistAcrossReopen
 {
     NSManagedObjectContext *ctx =

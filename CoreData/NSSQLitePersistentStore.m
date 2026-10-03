@@ -150,6 +150,31 @@ static NSString *orderColumnForRelationship(NSRelationshipDescription *relations
    return [NSString stringWithFormat:@"Z_FOK_%@",[[relationship name] uppercaseString]];
 }
 
+/* Whether a relationship is its own inverse: "friends" whose inverse is
+   "friends", which Core Data models and Xcode's editor offers.  Both
+   sides of its join table are then the same relationship, so the names
+   below, which are made from the relationship's, would collide. */
+static BOOL relationshipIsReflexive(NSRelationshipDescription *relationship){
+   NSRelationshipDescription *inverse=[relationship inverseRelationship];
+
+   if(inverse==nil)
+    return NO;
+
+   return [[inverse name] isEqualToString:[relationship name]] &&
+          [[[inverse entity] name] isEqualToString:[[relationship entity] name]];
+}
+
+/* The order column belonging to the side the member of a join row is on.
+   That is the inverse relationship's column - except when a relationship
+   is its own inverse, where Apple's name for the second column is
+   FOK_REFLEXIVE, matching the REFLEXIVE it holds the order of. */
+static NSString *memberOrderColumnForRelationship(NSRelationshipDescription *relationship){
+   if(relationshipIsReflexive(relationship))
+    return @"FOK_REFLEXIVE";
+
+   return orderColumnForRelationship([relationship inverseRelationship]);
+}
+
 /* The SQL column type used in CREATE TABLE, mirroring Apple's choices. */
 static NSString *sqlTypeForAttribute(NSAttributeDescription *attribute){
    switch([attribute attributeType]){
@@ -553,6 +578,14 @@ static void collectPropertiesOfEntitySubtree(NSEntityDescription *entity,NSMutab
 
    destinationColumn=[NSString stringWithFormat:@"Z_%lld%@",destinationID,[[relationship name] uppercaseString]];
 
+   /* A reflexive relationship has just computed the same name twice, the
+      entity and the relationship being the same on both sides.  Apple
+      calls the second column REFLEXIVE, so the pair reads
+      (Z_1FRIENDS, REFLEXIVE) and a row still names an owner and a
+      member. */
+   if(relationshipIsReflexive(relationship))
+    destinationColumn=@"REFLEXIVE";
+
    return [NSDictionary dictionaryWithObjectsAndKeys:table,@"table",ownerColumn,@"ownerColumn",destinationColumn,@"destinationColumn",nil];
 }
 
@@ -685,7 +718,7 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
      if([relationship isOrdered])
       [joinColumns appendFormat:@", \"%@\" INTEGER",orderColumnForRelationship(relationship)];
      if([[relationship inverseRelationship] isOrdered])
-      [joinColumns appendFormat:@", \"%@\" INTEGER",orderColumnForRelationship([relationship inverseRelationship])];
+      [joinColumns appendFormat:@", \"%@\" INTEGER",memberOrderColumnForRelationship(relationship)];
 
      NSString *sql=[NSString stringWithFormat:@"CREATE TABLE \"%@\" (%@, PRIMARY KEY (\"%@\", \"%@\"))",table,joinColumns,[join objectForKey:@"ownerColumn"],[join objectForKey:@"destinationColumn"]];
 
@@ -1667,7 +1700,7 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
        id        memberSide=[member valueForKey:[inverse name]];
        NSUInteger inversePosition=(memberSide!=nil)?[memberSide indexOfObject:object]:NSNotFound;
 
-       [columns appendFormat:@", \"%@\"",orderColumnForRelationship(inverse)];
+       [columns appendFormat:@", \"%@\"",memberOrderColumnForRelationship(relationship)];
        if(inversePosition!=NSNotFound)
         [values appendFormat:@", %llu",(unsigned long long)inversePosition];
        else

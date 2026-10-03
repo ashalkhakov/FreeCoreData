@@ -72,6 +72,30 @@ static NSString *orderColumnForRelationship(NSRelationshipDescription *relations
    return [NSString stringWithFormat:@"Z_FOK_%@",[[relationship name] uppercaseString]];
 }
 
+/* Whether a relationship is its own inverse - "friends" whose inverse is
+   "friends".  Both sides of its join table are then the same
+   relationship, so the column names made from it, below, would collide;
+   the names that avoid that are the ones Apple's own store uses. */
+static BOOL relationshipIsReflexive(NSRelationshipDescription *relationship){
+   NSRelationshipDescription *inverse=[relationship inverseRelationship];
+
+   if(inverse==nil)
+    return NO;
+
+   return [[inverse name] isEqualToString:[relationship name]] &&
+          [[[inverse entity] name] isEqualToString:[[relationship entity] name]];
+}
+
+/* The order column of the side a join row's member is on: the inverse
+   relationship's, or FOK_REFLEXIVE where the inverse is the relationship
+   itself and that name is already taken. */
+static NSString *memberOrderColumnForRelationship(NSRelationshipDescription *relationship){
+   if(relationshipIsReflexive(relationship))
+    return @"FOK_REFLEXIVE";
+
+   return orderColumnForRelationship([relationship inverseRelationship]);
+}
+
 static long long primaryKeyFromReferenceObject(id referenceObject){
    NSString *string=[referenceObject description];
 
@@ -1263,6 +1287,13 @@ static BOOL historySupportedByFramework(void){
 
    destinationColumn=[NSString stringWithFormat:@"Z_%lld%@",destinationID,[[relationship name] uppercaseString]];
 
+   /* Both names just came out the same, the entity and the relationship
+      being the same on both sides of a reflexive relationship.  The
+      second column is REFLEXIVE, as it is on Apple, so a row still names
+      an owner and a member. */
+   if(relationshipIsReflexive(relationship))
+    destinationColumn=@"REFLEXIVE";
+
    return [NSDictionary dictionaryWithObjectsAndKeys:table,@"table",ownerColumn,@"ownerColumn",destinationColumn,@"destinationColumn",nil];
 }
 
@@ -1398,7 +1429,7 @@ static BOOL historySupportedByFramework(void){
      if([relationship isOrdered])
       [joinColumns appendFormat:@", %@ %@",quoted(orderColumnForRelationship(relationship)),[self _bigIntegerType]];
      if([[relationship inverseRelationship] isOrdered])
-      [joinColumns appendFormat:@", %@ %@",quoted(orderColumnForRelationship([relationship inverseRelationship])),[self _bigIntegerType]];
+      [joinColumns appendFormat:@", %@ %@",quoted(memberOrderColumnForRelationship(relationship)),[self _bigIntegerType]];
 
      NSString *sql=[NSString stringWithFormat:@"CREATE TABLE IF NOT EXISTS %@ (%@, PRIMARY KEY (%@, %@))",
                                               quoted(table),joinColumns,
@@ -3551,7 +3582,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
       }
 
       if([inverse isOrdered]){
-       NSString  *column=quoted(orderColumnForRelationship(inverse));
+       NSString  *column=quoted(memberOrderColumnForRelationship(relationship));
        id         memberSide=[member valueForKey:[inverse name]];
        NSUInteger inversePosition=(memberSide!=nil)?[memberSide indexOfObject:object]:NSNotFound;
 
@@ -4580,7 +4611,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
      if([relationship isOrdered])
       [columns appendFormat:@", %@ %@",quoted(orderColumnForRelationship(relationship)),[self _bigIntegerType]];
      if([[relationship inverseRelationship] isOrdered])
-      [columns appendFormat:@", %@ %@",quoted(orderColumnForRelationship([relationship inverseRelationship])),[self _bigIntegerType]];
+      [columns appendFormat:@", %@ %@",quoted(memberOrderColumnForRelationship(relationship)),[self _bigIntegerType]];
 
      if(![self _command:[NSString stringWithFormat:@"CREATE TABLE IF NOT EXISTS %@ (%@, PRIMARY KEY (%@, %@))",
                                                    quoted(table),columns,
