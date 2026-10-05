@@ -1745,15 +1745,16 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
     for (NSManagedObject *person in byEmployer)
         [names addObject:[person valueForKey:@"name"]];
 
-    /* Whether a missing value sorts first or last is the database's
-       business; what matters is that all three came back and the two with
-       employers are in employer order. */
-    NSUInteger acmeIndex = [names indexOfObject:@"Worker at Acme"];
-    NSUInteger zenithIndex = [names indexOfObject:@"Worker at Zenith"];
+    /* A missing value sorts as Core Data's SQLite store sorts it: less
+       than any value, so first ascending - whatever the server's own
+       order (PostgreSQL's is the other way). */
+    XCTAssertEqualObjects(names, (@[ @"Unemployed", @"Worker at Acme", @"Worker at Zenith" ]));
 
-    XCTAssertNotEqual(acmeIndex, (NSUInteger)NSNotFound);
-    XCTAssertNotEqual(zenithIndex, (NSUInteger)NSNotFound);
-    XCTAssertLessThan(acmeIndex, zenithIndex, @"Acme sorts before Zenith");
+    /* And last descending. */
+    NSArray *descending = [self fetchPeopleWithPredicate:nil
+                                         sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"employer.name" ascending:NO] ]
+                                                 context:reopened];
+    XCTAssertEqualObjects([[descending lastObject] valueForKey:@"name"], @"Unemployed");
 
     /* Descending, and combined with a predicate and a limit - which are
        only pushed into SQL when the sort is. */

@@ -2671,10 +2671,19 @@ static NSString * const CDSQLOuterAlias=@"t0";
     /* Both orderings are code-point orderings, as NSString's are. */
     term=[self codePointOrderedColumn:term isText:([(NSAttributeDescription *)property attributeType]==NSStringAttributeType)];
 
-    [terms addObject:[NSString stringWithFormat:@"%@ %@",term,[descriptor ascending]?@"ASC":@"DESC"]];
+    [terms addObject:[self _orderTerm:term ascending:[descriptor ascending]]];
    }
 
    return [terms componentsJoinedByString:@", "];
+}
+
+/* An ORDER BY term, nothing sorting as Core Data's SQLite store sorts it:
+   less than any value. */
+-(NSString *)_orderTerm:(NSString *)term ascending:(BOOL)ascending {
+   NSString *nulls=[self respondsToSelector:@selector(nullsOrderingForAscending:)]
+                   ?[self nullsOrderingForAscending:ascending]:@"";
+
+   return [NSString stringWithFormat:@"%@ %@%@",term,ascending?@"ASC":@"DESC",nulls?:@""];
 }
 
 /* ------------------------------------------------------------------ */
@@ -2989,7 +2998,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
     if(selectorName!=nil && ![selectorName isEqualToString:@"compare:"])
      return nil;
 
-    [terms addObject:[NSString stringWithFormat:@"%@ %@",expression,[descriptor ascending]?@"ASC":@"DESC"]];
+    [terms addObject:[self _orderTerm:expression ascending:[descriptor ascending]]];
    }
 
    return [terms componentsJoinedByString:@", "];

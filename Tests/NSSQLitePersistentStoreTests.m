@@ -185,6 +185,26 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects([[members anyObject] valueForKey:@"name"], @"Alice");
 }
 
+/* Nothing (NULL) sorts as less than any value: first ascending, last
+   descending - Bob, hired on no date and in no department.  The SQL
+   backends answer the same (CDSQLStore's nullsOrderingForAscending:). */
+- (void)testNothingSortsFirstAscendingAndLastDescending
+{
+    [self populateStore];
+    NSManagedObjectContext *ctx = [self contextWithModel:VersioningTestModelV1()
+                                                 options:nil];
+
+    for (NSString *key in @[ @"hireDate", @"department.name" ]) {
+        NSArray *ascending = [self fetchEntityNamed:@"Employee" inContext:ctx predicate:nil
+                                    sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:key ascending:YES] ]];
+        NSArray *descending = [self fetchEntityNamed:@"Employee" inContext:ctx predicate:nil
+                                     sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:key ascending:NO] ]];
+
+        XCTAssertEqualObjects([ascending valueForKey:@"name"], (@[ @"Bob", @"Alice" ]), @"%@", key);
+        XCTAssertEqualObjects([descending valueForKey:@"name"], (@[ @"Alice", @"Bob" ]), @"%@", key);
+    }
+}
+
 - (void)testUpdateAndDeletePersistAcrossReopen
 {
     [self populateStore];

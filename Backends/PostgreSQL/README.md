@@ -112,6 +112,10 @@ Three differences from the SQLite store are worth knowing about:
   PostgreSQL database created with a language collation would sort `alan`
   before `Grace`.  Every ordered comparison and `ORDER BY` on a text column
   therefore asks for `COLLATE "C"` explicitly.
+- **NULL sorts first ascending, last descending,** as in the SQLite store,
+  where it is less than any value.  PostgreSQL has it greater, so every
+  `ORDER BY` term says `NULLS FIRST` or `NULLS LAST` (the dialect's
+  `nullsOrderingForAscending:`).  MySQL already agrees and adds nothing.
 
 Dates are stored as the `timeIntervalSinceReferenceDate` in a `double
 precision` column, matching what the SQLite store persists, rather than as a
