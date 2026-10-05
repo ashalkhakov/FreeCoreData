@@ -363,6 +363,11 @@ static NSString *postgresParameterText(id parameter){
    return [NSString stringWithFormat:@"%@ COLLATE \"C\"",column];
 }
 
+/* PostgreSQL has NULL greater than any value; Core Data, less. */
+-(NSString *)nullsOrderingForAscending:(BOOL)ascending {
+   return ascending?@" NULLS FIRST":@" NULLS LAST";
+}
+
 -(NSString *)upsertClauseForColumns:(NSArray *)columns keyColumns:(NSArray *)keyColumns {
    if([columns count]==0)
     return [NSString stringWithFormat:@" ON CONFLICT (%@) DO NOTHING",[keyColumns componentsJoinedByString:@", "]];

@@ -158,6 +158,13 @@ typedef enum {
 - (NSString *)caseSensitiveLikeClauseForColumn:(NSString *)column placeholder:(NSString *)placeholder;
 - (NSString *)codePointOrderedColumn:(NSString *)column isText:(BOOL)isText;
 
+/* Where nothing (NULL) sorts.  Core Data's SQLite store has it less than
+   any value - first ascending, last descending - and so does every store
+   here: a backend whose server orders it otherwise answers the clause that
+   says so (PostgreSQL's " NULLS FIRST"), or "" when its server already
+   agrees.  Optional: without it, the server's own order. */
+- (NSString *)nullsOrderingForAscending:(BOOL)ascending;
+
 /* MATCHES, as a regular expression the server evaluates.  The pattern is
    the predicate's own (ICU's syntax, matched against the whole string);
    the first method answers what to bind for it, or nil where this server
