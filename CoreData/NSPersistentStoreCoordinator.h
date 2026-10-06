@@ -89,9 +89,12 @@ COREDATA_EXPORT NSString *const NSPersistentHistoryTokenKey;
 + (BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url error:(NSError **)error;
 + (NSDictionary *)metadataForPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url error:(NSError **)error;
 /* The same, as Apple has had them since macOS 10.11 and iOS 9 (and
-   recommends over the two above). The options are those the store would be
-   opened with; this port's stores read and write their metadata the same
-   whatever they are, so they change nothing here. */
+   recommends over the two above).  The options are those the store would
+   be opened with, and they are handed to the store class, which for a
+   store whose URL names a database rather than a store - a SQL backend,
+   told its schema in its options - is what decides which store is
+   answered about.  The forms without options mean "with no options",
+   which for such a backend is the connection's default schema. */
 + (NSDictionary *)metadataForPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
 + (BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
 

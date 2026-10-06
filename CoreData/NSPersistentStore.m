@@ -24,6 +24,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return 0;
 }
 
++(NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error {
+   return [self metadataForPersistentStoreWithURL:url error:error];
+}
+
++(BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error {
+   return [self setMetadata:metadata forPersistentStoreWithURL:url error:error];
+}
+
 +(Class)migrationManagerClass {
    return NSClassFromString(@"NSMigrationManager");
 }

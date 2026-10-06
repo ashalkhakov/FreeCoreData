@@ -1140,8 +1140,13 @@ static BOOL historySupportedByFramework(void){
    return store;
 }
 
-+(NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url error:(NSError **)error {
-   CDSQLStore *store=[self _temporaryStoreForURL:url options:nil error:error];
+/* A URL names a database here, not a store: which store inside it is in
+   the options, as CDSQLStoreSchemaNameOption.  So these take them, and the
+   pair without them - all Apple's coordinator can call - reads and writes
+   whatever the connection's default schema holds, which is the best it can
+   do with the address it was given. */
++(NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error {
+   CDSQLStore *store=[self _temporaryStoreForURL:url options:options error:error];
 
    if(store==nil)
     return nil;
@@ -1153,8 +1158,8 @@ static BOOL historySupportedByFramework(void){
    return metadata;
 }
 
-+(BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreWithURL:(NSURL *)url error:(NSError **)error {
-   CDSQLStore *store=[self _temporaryStoreForURL:url options:nil error:error];
++(BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error {
+   CDSQLStore *store=[self _temporaryStoreForURL:url options:options error:error];
 
    if(store==nil)
     return NO;
@@ -1164,6 +1169,14 @@ static BOOL historySupportedByFramework(void){
    [store closeConnection];
 
    return result;
+}
+
++(NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url error:(NSError **)error {
+   return [self metadataForPersistentStoreWithURL:url options:nil error:error];
+}
+
++(BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreWithURL:(NSURL *)url error:(NSError **)error {
+   return [self setMetadata:metadata forPersistentStoreWithURL:url options:nil error:error];
 }
 
 -(void)setMetadata:(NSDictionary *)value {
