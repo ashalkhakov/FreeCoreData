@@ -189,7 +189,7 @@ static NSXMLElement *elementForAttribute(NSAttributeDescription *attribute,NSStr
    if([attribute isTransient])
     setAttr(element,@"transient",@"YES");
    if([attribute preservesValueInHistoryOnDeletion])
-    setAttr(element,@"preserveValueOnDeletion",@"YES");
+    setAttr(element,@"preserveAfterDeletion",@"YES");
    if([attribute versionHashModifier]!=nil)
     setAttr(element,@"versionHashModifier",[attribute versionHashModifier]);
    if([[attribute valueTransformerName] length]>0 &&

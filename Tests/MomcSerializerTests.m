@@ -35,7 +35,7 @@ static NSString *const kRichModelXML = @""
 "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
 "<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\" sourceLanguage=\"Objective-C\">\n"
 "  <entity name=\"Article\" representedClassName=\"NSManagedObject\" versionHashModifier=\"v2\" elementID=\"Post\" syncable=\"YES\">\n"
-"    <attribute name=\"title\" attributeType=\"String\" defaultValueString=\"Untitled\" preserveValueOnDeletion=\"YES\" minValueString=\"1\" maxValueString=\"80\" regularExpressionString=\".+\"/>\n"
+"    <attribute name=\"title\" attributeType=\"String\" defaultValueString=\"Untitled\" preserveAfterDeletion=\"YES\" minValueString=\"1\" maxValueString=\"80\" regularExpressionString=\".+\"/>\n"
 "    <attribute name=\"titleUpper\" optional=\"YES\" attributeType=\"String\" derived=\"YES\" derivationExpression=\"uppercase:(title)\"/>\n"
 "    <attribute name=\"titleCopy\" optional=\"YES\" attributeType=\"String\" derived=\"YES\" derivationExpression=\"title\"/>\n"
 "    <attribute name=\"stamp\" optional=\"YES\" attributeType=\"Date\" derived=\"YES\" derivationExpression=\"now()\"/>\n"
@@ -176,7 +176,7 @@ static NSString *const kRichModelXML = @""
     NSAttributeDescription *titleB = [[articleB attributesByName] objectForKey:@"title"];
     XCTAssertEqualObjects([titleB defaultValue], @"Untitled");
     XCTAssertTrue([titleB preservesValueInHistoryOnDeletion],
-                  @"preserveValueOnDeletion round-trips (history tombstones)");
+                  @"preserveAfterDeletion round-trips (history tombstones)");
     XCTAssertEqualObjects([[[articleB attributesByName] objectForKey:@"published"] defaultValue],
                           [NSNumber numberWithBool:YES]);
     XCTAssertEqualObjects([[[articleB attributesByName] objectForKey:@"createdAt"] defaultValue],
@@ -278,6 +278,42 @@ static NSString *const kRichModelXML = @""
     XCTAssertFalse([template includesPendingChanges]);
     XCTAssertTrue([template returnsDistinctResults]);
     XCTAssertFalse([template returnsObjectsAsFaults]);
+}
+
+/* "Preserve After Deletion" is preserveAfterDeletion, which is what
+   Xcode's modeler writes and the only spelling Apple's momc reads: a
+   model written by one toolchain means the same thing to the other.
+   preserveValueOnDeletion, which this project invented and wrote for a
+   while, means nothing to either - checked here so it cannot come back
+   as a second, private spelling. */
+- (void)testPreserveAfterDeletionIsXcodesSpelling
+{
+    NSString *head = @"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        "<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\" sourceLanguage=\"Objective-C\">\n"
+        "  <entity name=\"Item\" representedClassName=\"NSManagedObject\" syncable=\"YES\">\n";
+    NSString *tail = @"  </entity>\n</model>\n";
+    NSDictionary *isRead = [NSDictionary dictionaryWithObjectsAndKeys:
+        [NSNumber numberWithBool:YES], @"preserveAfterDeletion",
+        [NSNumber numberWithBool:NO], @"preserveValueOnDeletion", nil];
+
+    for (NSString *spelling in isRead) {
+        NSString *xml = [NSString stringWithFormat:@"%@    <attribute name=\"key\" attributeType=\"String\" %@=\"YES\"/>\n"
+                         "    <attribute name=\"other\" optional=\"YES\" attributeType=\"String\"/>\n%@", head, spelling, tail];
+        NSManagedObjectModel *model = [self compileXML:xml named:spelling];
+        NSDictionary *attributes = [[[model entitiesByName] objectForKey:@"Item"] attributesByName];
+        BOOL read = [[isRead objectForKey:spelling] boolValue];
+
+        XCTAssertEqual((BOOL)[[attributes objectForKey:@"key"] preservesValueInHistoryOnDeletion], read,
+                       @"%@ %@ be read", spelling, read ? @"should" : @"should not");
+        XCTAssertFalse([[attributes objectForKey:@"other"] preservesValueInHistoryOnDeletion]);
+
+        /* And the flag is written back under the one name, or not at all. */
+        NSString *written = [CDModelSerializer contentsXMLForModel:model error:NULL];
+        XCTAssertNotNil(written);
+        XCTAssertEqual((BOOL)([written rangeOfString:@"preserveAfterDeletion=\"YES\""].location != NSNotFound), read,
+                       @"written as Xcode writes it: %@", written);
+        XCTAssertTrue([written rangeOfString:@"preserveValueOnDeletion"].location == NSNotFound);
+    }
 }
 
 /* A model's version identifier is written as the version's Identifier

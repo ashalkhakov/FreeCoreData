@@ -516,18 +516,22 @@ targets - `CDPostgreSQLStore` (a static library) and `CDPostgreSQLStoreTests`
 ```sh
 brew install libpq
 
-xcodebuild -project Backends/PostgreSQL/CDPostgreSQLStore.xcodeproj \
-    -scheme CDPostgreSQLStoreTests -destination 'platform=macOS' \
-    TEST_RUNNER_CD_TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5432/coredata_test \
-    test
+TEST_RUNNER_CD_TEST_POSTGRES_URL=postgresql://postgres:test@localhost:5432/coredata_test \
+    xcodebuild -project Backends/PostgreSQL/CDPostgreSQLStore.xcodeproj \
+    -scheme CDPostgreSQLStoreTests -destination 'platform=macOS' test
 ```
 
 The `TEST_RUNNER_` prefix matters: **xcodebuild does not pass the shell's
-environment to the test process**, and it strips that prefix when handing the
-variable over.  Setting plain `CD_TEST_POSTGRES_URL` in the shell leaves the
-suite skipping every test while still reporting success - which is exactly
-what it did the first time this was run.  Running from the Xcode UI instead,
-put `CD_TEST_POSTGRES_URL` in the scheme's Test action environment.
+environment to the test process**, but it passes on its own environment's
+`TEST_RUNNER_` variables, the prefix stripped.  Setting plain
+`CD_TEST_POSTGRES_URL` in the shell leaves the suite skipping every test while
+still reporting success - which is exactly what it did the first time this
+was run.  So does giving the variable as an argument after `xcodebuild`
+(`... TEST_RUNNER_CD_TEST_POSTGRES_URL=... test`): xcodebuild takes that for a
+build setting, which the test process never sees.  To be sure a run used the
+database, add `TEST_RUNNER_CD_TEST_REQUIRE_DATABASE=1`: with no reachable
+server, every test then fails instead of skipping.  Running from the Xcode UI
+instead, put `CD_TEST_POSTGRES_URL` in the scheme's Test action environment.
 
 Debug builds set `ONLY_ACTIVE_ARCH`, because Homebrew's libpq is built for
 the host architecture alone and a universal build cannot link the other

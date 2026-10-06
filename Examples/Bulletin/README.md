@@ -27,7 +27,7 @@ Every part of the persistent-history API has one home here:
 | `currentPersistentHistoryTokenFromStores:` | same method — advancing the merge position |
 | `NSPersistentHistoryToken` as `NSSecureCoding` | `-saveMergePosition` / `-restoreMergePosition` archive it to user defaults, so a relaunch resumes where it stopped |
 | `fetchHistoryAfterDate:`, transactions + changes, `updatedProperties` | `-[BLHistoryWindowController reloadHistory]` renders the log |
-| tombstones (`preserveValueOnDeletion` on `Post.text`) | delete a post, then look at its history row: the text survives in the tombstone |
+| tombstones (`preserveAfterDeletion` on `Post.text`) | delete a post, then look at its history row: the text survives in the tombstone |
 | `NSPersistentHistoryResultTypeCount` | `-transactionCount` |
 | `deleteHistoryBeforeDate:` | **Compact History** — and the *safe purge floor*: only history that every consumer has merged may go, so the floor is the oldest merged-through moment across the boards |
 
