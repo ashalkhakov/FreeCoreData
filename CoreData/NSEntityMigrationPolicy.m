@@ -96,23 +96,33 @@ NSString * const NSMigrationEntityPolicyKey=@"entityPolicy";
    for(NSPropertyMapping *propertyMapping in [mapping relationshipMappings]){
     NSString                  *name=[propertyMapping name];
     NSRelationshipDescription *relationship=[destinationRelationships objectForKey:name];
-    id                         sourceValue=[self _valueForPropertyMapping:propertyMapping sourceInstance:sInstance entityMapping:mapping manager:manager];
+    id                         value=[self _valueForPropertyMapping:propertyMapping sourceInstance:sInstance entityMapping:mapping manager:manager];
 
-    if(sourceValue==nil)
+    if(value==nil)
      continue;
+
+    /* A mapping model written in Xcode fills a relationship with an
+       expression that has already done the crossing over - it asks the
+       manager for the destination instances of the source objects, as
+       FUNCTION($manager, "destinationInstancesForEntityMappingNamed:sourceInstances:",
+       "TagToTag", $source.tags) - so what comes back belongs to the
+       destination and is used as it is.  Without an expression the value
+       is the source's own related objects, and each has to be crossed
+       over here. */
+    BOOL alreadyDestination=([propertyMapping valueExpression]!=nil);
 
     if([relationship isToMany]){
      NSMutableSet *destinationSet=[dInstance mutableSetValueForKey:name];
 
-     for(NSManagedObject *related in sourceValue){
-      NSManagedObject *destinationRelated=[manager _destinationInstanceForSourceInstance:related];
+     for(NSManagedObject *related in value){
+      NSManagedObject *destinationRelated=alreadyDestination?related:[manager _destinationInstanceForSourceInstance:related];
 
       if(destinationRelated!=nil)
        [destinationSet addObject:destinationRelated];
      }
     }
     else {
-     NSManagedObject *destinationRelated=[manager _destinationInstanceForSourceInstance:sourceValue];
+     NSManagedObject *destinationRelated=alreadyDestination?value:[manager _destinationInstanceForSourceInstance:value];
 
      if(destinationRelated!=nil)
       [dInstance setValue:destinationRelated forKey:name];

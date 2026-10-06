@@ -85,6 +85,161 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects([[[readNotes attributeMappings] lastObject] name], @"text");
 }
 
+/* The mapping model in the bundle was authored in Xcode's editor and
+   compiled with its mapc: MappingFixture.xcdatamodeld's two versions, and
+   between them a NoteToNote mapping whose source expression fetches only
+   the notes whose text begins with "keep", an attribute mapping that puts
+   the old author in the new writer, relationship mappings that go through
+   the migration manager, and an Add mapping for an entity that is new in
+   the second version.
+
+   So this is the whole of it: a mapping model this port never wrote,
+   read and then followed. */
+- (NSManagedObjectModel *)fixtureModelNamed:(NSString *)version
+{
+    NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+    NSURL *momd = [bundle URLForResource:@"MappingFixture" withExtension:@"momd"];
+
+    XCTAssertNotNil(momd, @"MappingFixture.momd missing from the test bundle");
+
+    NSURL *mom = [momd URLByAppendingPathComponent:
+        [version stringByAppendingPathExtension:@"mom"]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] initWithContentsOfURL:mom];
+
+    XCTAssertNotNil(model, @"%@ missing from MappingFixture.momd", version);
+    return model;
+}
+
+- (void)testAMappingModelMadeInXcodeIsReadAndFollowed
+{
+    NSError *error = nil;
+    NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+    NSURL *cdm = [bundle URLForResource:@"MappingFixture" withExtension:@"cdm"];
+
+    XCTAssertNotNil(cdm, @"MappingFixture.cdm missing from the test bundle");
+
+    NSMappingModel *mapping = [[NSMappingModel alloc] initWithContentsOfURL:cdm];
+
+    XCTAssertNotNil(mapping, @"a mapping model compiled by Xcode");
+    XCTAssertEqual([[mapping entityMappings] count], (NSUInteger)3);
+
+    NSEntityMapping *notes = [[mapping entityMappingsByName] objectForKey:@"NoteToNote"];
+
+    XCTAssertNotNil(notes, @"%@", [[mapping entityMappingsByName] allKeys]);
+    XCTAssertEqual([notes mappingType], (NSEntityMappingType)NSTransformEntityMappingType);
+    XCTAssertNotNil([notes sourceExpression], @"the mapping says what to fetch");
+
+    /* An attribute that changed its name, and one entity added whole. */
+    NSMutableDictionary *byDestination = [NSMutableDictionary dictionary];
+
+    for (NSPropertyMapping *property in [notes attributeMappings])
+        [byDestination setObject:property forKey:[property name]];
+
+    XCTAssertNotNil([byDestination objectForKey:@"writer"]);
+    XCTAssertNotNil([[byDestination objectForKey:@"writer"] valueExpression]);
+    XCTAssertEqual([[[mapping entityMappingsByName] objectForKey:@"Fresh"] mappingType],
+                   (NSEntityMappingType)NSAddEntityMappingType);
+
+    /* Now migrate a store with it. */
+    NSManagedObjectModel *v1 = [self fixtureModelNamed:@"MappingFixture"];
+    NSManagedObjectModel *v2 = [self fixtureModelNamed:@"MappingFixture 2"];
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [[NSProcessInfo processInfo] globallyUniqueString]];
+
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:NULL];
+
+    NSURL *sourceURL = [NSURL fileURLWithPath:
+        [directory stringByAppendingPathComponent:@"source.sqlite"]];
+    NSPersistentStoreCoordinator *sourcePSC = [[NSPersistentStoreCoordinator alloc]
+                                                  initWithManagedObjectModel:v1];
+
+    XCTAssertNotNil([sourcePSC addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+                                                      URL:sourceURL options:nil error:&error],
+                    @"open: %@", error);
+
+    NSManagedObjectContext *sourceCtx = [[NSManagedObjectContext alloc] init];
+    [sourceCtx setPersistentStoreCoordinator:sourcePSC];
+
+    NSManagedObject *red = [NSEntityDescription insertNewObjectForEntityForName:@"Tag"
+                                                        inManagedObjectContext:sourceCtx];
+    [red setValue:@"red" forKey:@"label"];
+
+    NSManagedObject *kept = [NSEntityDescription insertNewObjectForEntityForName:@"Note"
+                                                         inManagedObjectContext:sourceCtx];
+    [kept setValue:@"keep me" forKey:@"text"];
+    [kept setValue:@"Ada" forKey:@"author"];
+    [[kept mutableSetValueForKey:@"tags"] addObject:red];
+
+    NSManagedObject *dropped = [NSEntityDescription insertNewObjectForEntityForName:@"Note"
+                                                            inManagedObjectContext:sourceCtx];
+    [dropped setValue:@"drop him" forKey:@"text"];
+    [dropped setValue:@"Bob" forKey:@"author"];
+
+    NSManagedObject *obsolete = [NSEntityDescription insertNewObjectForEntityForName:@"Obsolete"
+                                                             inManagedObjectContext:sourceCtx];
+    [obsolete setValue:@"junk" forKey:@"junk"];
+
+    XCTAssertTrue([sourceCtx save:&error], @"save: %@", error);
+    XCTAssertTrue([sourcePSC removePersistentStore:[[sourcePSC persistentStores] lastObject]
+                                             error:&error], @"remove: %@", error);
+
+    NSURL *destinationURL = [NSURL fileURLWithPath:
+        [directory stringByAppendingPathComponent:@"destination.sqlite"]];
+    NSMigrationManager *manager = [[NSMigrationManager alloc] initWithSourceModel:v1
+                                                                destinationModel:v2];
+
+    XCTAssertTrue([manager migrateStoreFromURL:sourceURL type:NSSQLiteStoreType options:nil
+                              withMappingModel:mapping toDestinationURL:destinationURL
+                               destinationType:NSSQLiteStoreType destinationOptions:nil
+                                         error:&error], @"migrate: %@", error);
+    [manager reset];
+
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+                                            initWithManagedObjectModel:v2];
+
+    XCTAssertNotNil([psc addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+                                                URL:destinationURL options:nil error:&error],
+                    @"open the migrated store: %@", error);
+
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+
+    /* The predicate in the mapping chose one of the two notes. */
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Note"];
+    NSArray *migrated = [ctx executeFetchRequest:fetch error:&error];
+
+    XCTAssertEqual([migrated count], (NSUInteger)1,
+                   @"only the note the source expression fetched: %@",
+                   [migrated valueForKey:@"text"]);
+
+    NSManagedObject *note = [migrated lastObject];
+
+    XCTAssertEqualObjects([note valueForKey:@"text"], @"keep me");
+    XCTAssertEqualObjects([note valueForKey:@"writer"], @"Ada",
+                          @"the attribute mapping put the author in the writer");
+
+    /* The relationship was rebuilt through the manager, both ways. */
+    NSSet *tags = [note valueForKey:@"tags"];
+
+    XCTAssertEqual([tags count], (NSUInteger)1, @"%@", tags);
+    XCTAssertEqualObjects([[tags anyObject] valueForKey:@"label"], @"red");
+    XCTAssertEqualObjects([[[[tags anyObject] valueForKey:@"notes"] anyObject] valueForKey:@"text"],
+                          @"keep me", @"and the inverse came with it");
+
+    /* The entity added in the second version is there, and empty; the one
+       the second version drops has no mapping, so nothing of it came. */
+    XCTAssertNotNil([[v2 entitiesByName] objectForKey:@"Fresh"]);
+    XCTAssertEqual([ctx countForFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Fresh"]
+                                       error:NULL], (NSUInteger)0);
+    XCTAssertNil([[v2 entitiesByName] objectForKey:@"Obsolete"]);
+
+    [psc removePersistentStore:[[psc persistentStores] lastObject] error:NULL];
+    [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* A mapping model written in Xcode says which objects a mapping applies to
    in the mapping's source expression - a fetch request this manager builds,
    narrowed by a predicate, run against the source context.  That is how a

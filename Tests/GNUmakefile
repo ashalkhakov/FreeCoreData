@@ -70,7 +70,12 @@ XCTEST ?= xctest
 # whatever the surrounding environment prepended (a CI shell that puts
 # a prefix's bare lib/ directory first would otherwise hand momc any
 # stale copies living there).
-CoreDataTests_XCDATAMODELD_FILES = MomcFixture.xcdatamodeld CodegenFixture.xcdatamodeld
+CoreDataTests_XCDATAMODELD_FILES = MomcFixture.xcdatamodeld CodegenFixture.xcdatamodeld \
+	MappingFixture.xcdatamodeld
+# The mapping model between MappingFixture's two versions, compiled by
+# Xcode's mapc and checked in: there is no mapc here, and a mapping model
+# can only be authored in Xcode's editor anyway.
+CoreDataTests_RESOURCE_FILES += MappingFixture.cdm
 # CodegenFixture's classes are generated as the bundle builds.
 CoreDataTests_COREDATA_CODEGEN = yes
 MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" \
@@ -78,7 +83,7 @@ MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUS
 
 include ../coredata-model.make
 
-MomcFixture.momd CodegenFixture.momd _cd-codegen: ../Tools/momc/obj/momc
+MomcFixture.momd CodegenFixture.momd MappingFixture.momd _cd-codegen: ../Tools/momc/obj/momc
 
 .PHONY: momc-tool
 momc-tool:
