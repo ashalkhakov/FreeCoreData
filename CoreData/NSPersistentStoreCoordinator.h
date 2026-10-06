@@ -88,5 +88,11 @@ COREDATA_EXPORT NSString *const NSPersistentHistoryTokenKey;
 - (void)setMetadata:(NSDictionary *)metadata forPersistentStore:(NSPersistentStore *)store;
 + (BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url error:(NSError **)error;
 + (NSDictionary *)metadataForPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url error:(NSError **)error;
+/* The same, as Apple has had them since macOS 10.11 and iOS 9 (and
+   recommends over the two above). The options are those the store would be
+   opened with; this port's stores read and write their metadata the same
+   whatever they are, so they change nothing here. */
++ (NSDictionary *)metadataForPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
++ (BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
 
 @end

@@ -352,6 +352,14 @@ static NSMutableDictionary *_storeTypes=nil;
    return [check setMetadata:metadata forPersistentStoreWithURL:url error:error];
 }
 
++(NSDictionary *)metadataForPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error {
+   return [self metadataForPersistentStoreOfType:storeType URL:url error:error];
+}
+
++(BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error {
+   return [self setMetadata:metadata forPersistentStoreOfType:storeType URL:url error:error];
+}
+
 +(NSDictionary *)metadataForPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url error:(NSError **)error {
    Class check=[[self registeredStoreTypes] objectForKey:storeType];
    
