@@ -26,6 +26,7 @@
 		CE9446CC303C0D0000D23BA1 /* MomcSerializerTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446CB303C0D0000D23BA1 /* MomcSerializerTests.m */; };
 		CE9446CE303C0D0000D23BA1 /* CDModelCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446CD303C0D0000D23BA1 /* CDModelCompiler.m */; };
 		CEAA10003077AA0000AAAAAA /* CDMappingCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = CEAA10013077AA0000AAAAAA /* CDMappingCompiler.m */; };
+		CEAA20003077BB0000BBBBBB /* CDMappingSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = CEAA20013077BB0000BBBBBB /* CDMappingSerializer.m */; };
 		CE9446D0303C0D0000D23BA1 /* CDModelSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446CF303C0D0000D23BA1 /* CDModelSerializer.m */; };
 		CECF115030755D22002C292E /* MappingFixture.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = CECF114E30755D22002C292E /* MappingFixture.xcdatamodeld */; };
 		CECF115730756465002C292E /* MappingFixture.xcmappingmodel in Sources */ = {isa = PBXBuildFile; fileRef = CECF115630756465002C292E /* MappingFixture.xcmappingmodel */; };
@@ -81,6 +82,8 @@
 		CE9446CB303C0D0000D23BA1 /* MomcSerializerTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MomcSerializerTests.m; path = Tests/MomcSerializerTests.m; sourceTree = "<group>"; };
 		CE9446CD303C0D0000D23BA1 /* CDModelCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelCompiler.m; path = Tools/momc/CDModelCompiler.m; sourceTree = "<group>"; };
 		CEAA10013077AA0000AAAAAA /* CDMappingCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDMappingCompiler.m; path = Tools/mapc/CDMappingCompiler.m; sourceTree = "<group>"; };
+		CEAA20013077BB0000BBBBBB /* CDMappingSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDMappingSerializer.m; path = Tools/mapc/CDMappingSerializer.m; sourceTree = "<group>"; };
+		CEAA20023077BB0000BBBBBB /* CDMappingSerializer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDMappingSerializer.h; path = Tools/mapc/CDMappingSerializer.h; sourceTree = "<group>"; };
 		CEAA10023077AA0000AAAAAA /* CDMappingCompiler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDMappingCompiler.h; path = Tools/mapc/CDMappingCompiler.h; sourceTree = "<group>"; };
 		CE9446CF303C0D0000D23BA1 /* CDModelSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelSerializer.m; path = Tools/momc/CDModelSerializer.m; sourceTree = "<group>"; };
 		CEB4D298303E0B2600A2DCCB /* CDModelCompiler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelCompiler.h; path = Tools/momc/CDModelCompiler.h; sourceTree = "<group>"; };
@@ -162,6 +165,8 @@
 				CEB4D298303E0B2600A2DCCB /* CDModelCompiler.h */,
 				CE9446CD303C0D0000D23BA1 /* CDModelCompiler.m */,
 				CEAA10023077AA0000AAAAAA /* CDMappingCompiler.h */,
+				CEAA20023077BB0000BBBBBB /* CDMappingSerializer.h */,
+				CEAA20013077BB0000BBBBBB /* CDMappingSerializer.m */,
 				CEAA10013077AA0000AAAAAA /* CDMappingCompiler.m */,
 				CEB4D299303E0B2600A2DCCB /* CDModelSerializer.h */,
 				CE9446CF303C0D0000D23BA1 /* CDModelSerializer.m */,
@@ -308,6 +313,7 @@
 				CEFAB8213062CC1800CDADDD /* NSPersistentContainerTests.m in Sources */,
 				CE9446CE303C0D0000D23BA1 /* CDModelCompiler.m in Sources */,
 				CEAA10003077AA0000AAAAAA /* CDMappingCompiler.m in Sources */,
+				CEAA20003077BB0000BBBBBB /* CDMappingSerializer.m in Sources */,
 				CE9446D0303C0D0000D23BA1 /* CDModelSerializer.m in Sources */,
 				CED014C13032FF59009517DE /* NSManagedObjectValidationTests.m in Sources */,
 				CEFAB81D3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m in Sources */,

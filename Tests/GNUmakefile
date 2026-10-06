@@ -35,6 +35,7 @@ CoreDataTests_OBJC_FILES = \
 	CGBBook.m \
 	../Tools/momc/CDModelCompiler.m \
 	../Tools/mapc/CDMappingCompiler.m \
+	../Tools/mapc/CDMappingSerializer.m \
 	../Tools/momc/CDModelSerializer.m \
 	../Tools/momc/CDCodeGenerator.m \
 	NSUUIDAndOrderedRelationshipTests.m \

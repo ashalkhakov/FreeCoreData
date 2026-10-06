@@ -6,7 +6,7 @@ GS_WITH_ARC = 1
 
 include $(GNUSTEP_MAKEFILES)/common.make
 
-mapc_OBJC_FILES = mapc.m CDMappingCompiler.m ../momc/CDModelCompiler.m
+mapc_OBJC_FILES = mapc.m CDMappingCompiler.m CDMappingSerializer.m ../momc/CDModelCompiler.m
 
 mapc_INCLUDE_DIRS = -I../.. -I../../CoreData -I../momc
 

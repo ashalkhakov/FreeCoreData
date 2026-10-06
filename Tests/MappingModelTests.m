@@ -15,6 +15,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/CoreData.h>
 #import "VersioningTestModels.h"
 #import "CDMappingCompiler.h"
+#import "CDMappingSerializer.h"
 
 @interface MappingModelTests : XCTestCase
 @end
@@ -138,6 +139,68 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
     XCTAssertNotNil(mapping, @"compiling %@: %@", source, error);
     return mapping;
+}
+
+/* Written back out as a mapping model's source and compiled again: what
+   an author chose survives the trip - which entity maps to which, the
+   predicate that narrows one, and the one expression written by hand -
+   and what the compiler works out for itself is worked out again.
+   (Xcode's editor opens such a file: that is what the source form is
+   for.) */
+- (void)testAMappingModelWrittenHereCompilesBackToWhatItWas
+{
+    NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+    NSMappingModel *original = [[NSMappingModel alloc] initWithContentsOfURL:
+        [bundle URLForResource:@"MappingFixture" withExtension:@"cdm"]];
+
+    XCTAssertNotNil(original);
+
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [[NSProcessInfo processInfo] globallyUniqueString]];
+    NSString *source = [directory stringByAppendingPathComponent:@"Written.xcmappingmodel"];
+    NSError *error = nil;
+
+    XCTAssertTrue([CDMappingSerializer writeMappingModel:original
+                                                  toPath:source
+                                         sourceModelPath:@"MappingFixture.xcdatamodeld/MappingFixture.xcdatamodel"
+                                    destinationModelPath:@"MappingFixture.xcdatamodeld/MappingFixture 2.xcdatamodel"
+                                                   error:&error],
+                  @"write: %@", error);
+
+    NSMappingModel *again = [CDMappingCompiler
+        mappingModelAtPath:source
+               sourceModel:[self fixtureModelNamed:@"MappingFixture"]
+          destinationModel:[self fixtureModelNamed:@"MappingFixture 2"]
+                     error:&error];
+
+    XCTAssertNotNil(again, @"compile: %@", error);
+    XCTAssertEqual([[again entityMappings] count], [[original entityMappings] count]);
+
+    NSDictionary *byName = [again entityMappingsByName];
+
+    for (NSEntityMapping *was in [original entityMappings]) {
+        NSEntityMapping *is = [byName objectForKey:[was name]];
+
+        XCTAssertNotNil(is, @"%@ came back", [was name]);
+        XCTAssertEqual([is mappingType], [was mappingType], @"%@", [was name]);
+        XCTAssertEqualObjects([is sourceEntityName], [was sourceEntityName], @"%@", [was name]);
+        XCTAssertEqualObjects([is destinationEntityName], [was destinationEntityName], @"%@", [was name]);
+        XCTAssertEqual([[is attributeMappings] count], [[was attributeMappings] count], @"%@", [was name]);
+        XCTAssertEqual([[is relationshipMappings] count], [[was relationshipMappings] count], @"%@", [was name]);
+    }
+
+    /* The predicate an author wrote is the one thing a source file keeps
+       that nothing else could put back. */
+    NSExpression *fetch = [[byName objectForKey:@"NoteToNote"] sourceExpression];
+    NSExpression *request = [(NSFetchRequestExpression *)fetch requestExpression];
+
+    XCTAssertEqualObjects([[[request arguments] lastObject] constantValue],
+                          @"text BEGINSWITH \"keep\"");
+
+    /* And it still migrates the same way. */
+    [self migrateWithMappingModel:again];
+
+    [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
 - (void)testTheMappingModelCompiledHereIsTheOneXcodeCompiled
