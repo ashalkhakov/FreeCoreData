@@ -961,6 +961,151 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
    return primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID]);
 }
 
+/* The source store's history, adopted by this one (just made by
+   NSMigrationManager, which recorded its copying as a transaction of
+   inserts): what this store recorded is dropped, the source's transactions
+   come over under their own numbers - a history token taken from the
+   source reads the same here - with each change's entity and key made this
+   store's, and a transaction marks the migration, as Apple's does. */
+-(BOOL)_adoptHistoryOfStoreAtURL:(NSURL *)sourceURL
+                     entityNames:(NSDictionary *)entityNames
+                     primaryKeys:(NSDictionary *)primaryKeys
+                          author:(NSString *)author
+                           error:(NSError **)error {
+   if(!_historyTracking)
+    return YES;
+
+   NSDictionary        *entities=[[[self persistentStoreCoordinator] managedObjectModel] entitiesByName];
+   NSMutableDictionary *orphans=[NSMutableDictionary dictionary];
+   BOOL                 attached=NO,ok=NO;
+
+   if(!executeSQL(DATABASE,@"BEGIN",error))
+    return NO;
+
+   do {
+    if(!executeSQL(DATABASE,@"DELETE FROM Z_ACHANGE",error) ||
+       !executeSQL(DATABASE,@"DELETE FROM Z_ATRANSACTION",error))
+     break;
+    if(tableExists(DATABASE,@"sqlite_sequence") &&
+       !executeSQL(DATABASE,@"DELETE FROM sqlite_sequence WHERE name IN ('Z_ATRANSACTION', 'Z_ACHANGE')",error))
+     break;
+
+    sqlite3_stmt *attach=prepareStatement(DATABASE,@"ATTACH DATABASE ? AS cd_source",error);
+
+    if(attach==NULL)
+     break;
+    sqlite3_bind_text(attach,1,[[sourceURL path] UTF8String],-1,SQLITE_TRANSIENT);
+    attached=(sqlite3_step(attach)==SQLITE_DONE);
+    sqlite3_finalize(attach);
+    if(!attached){
+     if(error!=NULL)
+      *error=sqliteError(DATABASE,NSPersistentStoreOperationError,@"unable to read the migrated store's history");
+     break;
+    }
+
+    sqlite3_stmt *tables=prepareStatement(DATABASE,@"SELECT COUNT(*) FROM cd_source.sqlite_master WHERE type = 'table' AND name IN ('Z_ATRANSACTION', 'Z_ACHANGE')",error);
+    int           found=0;
+
+    if(tables==NULL)
+     break;
+    if(sqlite3_step(tables)==SQLITE_ROW)
+     found=sqlite3_column_int(tables,0);
+    sqlite3_finalize(tables);
+
+    if(found==2){
+     if(!executeSQL(DATABASE,@"INSERT INTO Z_ATRANSACTION (Z_PK, ZTIMESTAMP, ZAUTHOR, ZCONTEXTNAME, ZPROCESSID, ZBUNDLEID) SELECT Z_PK, ZTIMESTAMP, ZAUTHOR, ZCONTEXTNAME, ZPROCESSID, ZBUNDLEID FROM cd_source.Z_ATRANSACTION",error))
+      break;
+
+     sqlite3_stmt *changes=prepareStatement(DATABASE,@"SELECT Z_PK, ZTRANSACTIONID, ZCHANGETYPE, ZENTITY, ZENTITYPK, ZUPDATEDPROPERTIES, ZTOMBSTONE FROM cd_source.Z_ACHANGE ORDER BY Z_PK",error);
+     sqlite3_stmt *insert=prepareStatement(DATABASE,@"INSERT INTO Z_ACHANGE (Z_PK, ZTRANSACTIONID, ZCHANGETYPE, ZENTITY, ZENTITYPK, ZUPDATEDPROPERTIES, ZTOMBSTONE) VALUES (?, ?, ?, ?, ?, ?, ?)",error);
+     BOOL          failed=(changes==NULL || insert==NULL);
+
+     while(!failed && sqlite3_step(changes)==SQLITE_ROW){
+      const char *entityText=(const char *)sqlite3_column_text(changes,3);
+      NSString   *name=[entityNames objectForKey:entityText?[NSString stringWithUTF8String:entityText]:@""];
+      NSEntityDescription *entity=(name!=nil)?[entities objectForKey:name]:nil;
+
+      /* An entity the destination has not: its history goes with it. */
+      if(entity==nil)
+       continue;
+
+      NSNumber *sourceKey=[NSNumber numberWithLongLong:sqlite3_column_int64(changes,4)];
+      NSNumber *key=[[primaryKeys objectForKey:name] objectForKey:sourceKey];
+
+      /* An object not migrated (deleted before): a key of its own, never
+         one a migrated object has, the same for each of its changes. */
+      if(key==nil){
+       NSMutableDictionary *mine=[orphans objectForKey:name];
+
+       if(mine==nil){
+        mine=[NSMutableDictionary dictionary];
+        [orphans setObject:mine forKey:name];
+       }
+       key=[mine objectForKey:sourceKey];
+       if(key==nil){
+        long long fresh=[self _nextPrimaryKeyForEntity:entity error:error];
+
+        if(fresh==0){
+         failed=YES;
+         break;
+        }
+        key=[NSNumber numberWithLongLong:fresh];
+        [mine setObject:key forKey:sourceKey];
+       }
+      }
+
+      sqlite3_reset(insert);
+      sqlite3_clear_bindings(insert);
+      sqlite3_bind_int64(insert,1,sqlite3_column_int64(changes,0));
+      sqlite3_bind_int64(insert,2,sqlite3_column_int64(changes,1));
+      sqlite3_bind_int(insert,3,sqlite3_column_int(changes,2));
+      sqlite3_bind_text(insert,4,[name UTF8String],-1,SQLITE_TRANSIENT);
+      sqlite3_bind_int64(insert,5,[key longLongValue]);
+      if(sqlite3_column_type(changes,5)!=SQLITE_NULL)
+       sqlite3_bind_text(insert,6,(const char *)sqlite3_column_text(changes,5),-1,SQLITE_TRANSIENT);
+      if(sqlite3_column_type(changes,6)!=SQLITE_NULL)
+       sqlite3_bind_blob(insert,7,sqlite3_column_blob(changes,6),sqlite3_column_bytes(changes,6),SQLITE_TRANSIENT);
+      if(sqlite3_step(insert)!=SQLITE_DONE){
+       if(error!=NULL)
+        *error=sqliteError(DATABASE,NSPersistentStoreOperationError,@"unable to carry a history change over");
+       failed=YES;
+      }
+     }
+     if(changes!=NULL)
+      sqlite3_finalize(changes);
+     if(insert!=NULL)
+      sqlite3_finalize(insert);
+     if(failed)
+      break;
+    }
+
+    /* The migration itself: a transaction of its own, with no changes. */
+    sqlite3_stmt *marker=prepareStatement(DATABASE,@"INSERT INTO Z_ATRANSACTION (ZTIMESTAMP, ZAUTHOR, ZPROCESSID, ZBUNDLEID) VALUES (?, ?, ?, ?)",error);
+    NSString     *processID=[NSString stringWithFormat:@"%d",(int)[[NSProcessInfo processInfo] processIdentifier]];
+    NSString     *bundleID=[[NSBundle mainBundle] bundleIdentifier]?:[[NSProcessInfo processInfo] processName];
+
+    if(marker==NULL)
+     break;
+    sqlite3_bind_double(marker,1,[[NSDate date] timeIntervalSinceReferenceDate]);
+    sqlite3_bind_text(marker,2,[author UTF8String],-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(marker,3,[processID UTF8String],-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(marker,4,[bundleID UTF8String],-1,SQLITE_TRANSIENT);
+    ok=(sqlite3_step(marker)==SQLITE_DONE);
+    sqlite3_finalize(marker);
+    if(!ok && error!=NULL)
+     *error=sqliteError(DATABASE,NSPersistentStoreOperationError,@"unable to record the migration in history");
+   } while(0);
+
+   if(ok)
+    ok=executeSQL(DATABASE,@"COMMIT",error);
+   if(!ok)
+    executeSQL(DATABASE,@"ROLLBACK",NULL);
+   if(attached)
+    executeSQL(DATABASE,@"DETACH DATABASE cd_source",NULL);
+
+   return ok;
+}
+
 /* The tombstone for a deletion: the last values of the entity's
    attributes marked preservesValueInHistoryOnDeletion, as a binary
    plist keyed by attribute name; nil when the entity flags none. */

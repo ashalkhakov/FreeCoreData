@@ -679,4 +679,126 @@ static BOOL CDWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
     XCTAssertNil([[transactions objectAtIndex:0] changes]);
 }
 
+#pragma mark - Migration
+
+/* The model a migration goes to: a Note with one attribute more. */
+- (NSManagedObjectModel *)makeModelWithMood
+{
+    NSManagedObjectModel *model = [self makeModel];
+    NSEntityDescription *note = [[model entitiesByName] objectForKey:@"Note"];
+    NSAttributeDescription *mood = [[NSAttributeDescription alloc] init];
+    [mood setName:@"mood"];
+    [mood setAttributeType:NSStringAttributeType];
+    [mood setOptional:YES];
+    [note setProperties:[[note properties] arrayByAddingObject:mood]];
+    return model;
+}
+
+static NSUInteger CDChangeCount(NSArray *transactions)
+{
+    NSUInteger count = 0;
+    for (NSPersistentHistoryTransaction *transaction in transactions)
+        count += [[transaction changes] count];
+    return count;
+}
+
+/* Migrated by NSMigrationManager, a store stays the store it was: its
+   metadata and UUID, and its history under the same transaction numbers -
+   a token taken before the migration reads nothing new after it - with one
+   transaction more, marking the migration. Its changes name the migrated
+   objects; a deleted one's names none. */
+- (void)testMigrationKeepsMetadataAndHistory
+{
+    NSError *err = nil;
+    NSManagedObject *kept = [self insertNoteWithText:@"kept"];
+    [kept setValue:@"Kept" forKey:@"title"];
+    NSManagedObject *gone = [self insertNoteWithText:@"gone"];
+    [gone setValue:@"Gone" forKey:@"title"];
+    XCTAssertTrue([self.ctx save:&err], @"save: %@", err);
+    [kept setValue:@"kept, changed" forKey:@"text"];
+    [self.ctx deleteObject:gone];
+
+    NSPersistentStore *store = [[self.psc persistentStores] lastObject];
+    NSMutableDictionary *metadata = [[self.psc metadataForPersistentStore:store] mutableCopy];
+    [metadata setObject:@"kept across" forKey:@"CDTestApplicationKey"];
+    [self.psc setMetadata:metadata forPersistentStore:store];
+    XCTAssertTrue([self.ctx save:&err], @"save: %@", err);
+
+    NSString *uuid = [metadata objectForKey:NSStoreUUIDKey];
+    NSPersistentHistoryToken *before = [self.psc currentPersistentHistoryTokenFromStores:nil];
+    NSArray *sourceTransactions = [self fetchAllTransactions];
+    NSURL *sourceURL = [store URL];
+    self.ctx = nil;
+    XCTAssertTrue([self.psc removePersistentStore:store error:&err], @"remove: %@", err);
+
+    NSManagedObjectModel *migratedModel = [self makeModelWithMood];
+    NSMappingModel *mapping = [NSMappingModel inferredMappingModelForSourceModel:self.model
+                                                               destinationModel:migratedModel
+                                                                          error:&err];
+    XCTAssertNotNil(mapping, @"mapping: %@", err);
+    NSString *destinationPath = [self.storePath stringByAppendingString:@"-migrated"];
+    NSURL *destinationURL = [NSURL fileURLWithPath:destinationPath];
+    NSDictionary *options = [NSDictionary dictionaryWithObject:[NSNumber numberWithBool:YES]
+                                                        forKey:NSPersistentHistoryTrackingKey];
+    NSMigrationManager *manager = [[NSMigrationManager alloc] initWithSourceModel:self.model
+                                                                 destinationModel:migratedModel];
+    XCTAssertTrue([manager migrateStoreFromURL:sourceURL type:NSSQLiteStoreType options:options
+                              withMappingModel:mapping toDestinationURL:destinationURL
+                               destinationType:NSSQLiteStoreType destinationOptions:options error:&err],
+                  @"migrate: %@", err);
+
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+                                            initWithManagedObjectModel:migratedModel];
+    NSPersistentStore *migrated = [psc addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+                                                              URL:destinationURL options:options error:&err];
+    XCTAssertNotNil(migrated, @"open the migrated store: %@", err);
+    NSDictionary *after = [psc metadataForPersistentStore:migrated];
+    XCTAssertEqualObjects([after objectForKey:@"CDTestApplicationKey"], @"kept across",
+                          @"what the application kept in the metadata");
+    XCTAssertEqualObjects([after objectForKey:NSStoreUUIDKey], uuid, @"the same store");
+    XCTAssertTrue([migratedModel isConfiguration:nil compatibleWithStoreMetadata:after],
+                  @"stamped with the model migrated to");
+
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc]
+                                      initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [ctx setPersistentStoreCoordinator:psc];
+    NSPersistentHistoryChangeRequest *all = [NSPersistentHistoryChangeRequest fetchHistoryAfterDate:[NSDate distantPast]];
+    NSArray *transactions = [(NSPersistentHistoryResult *)[ctx executeRequest:all error:&err] result];
+    XCTAssertEqual([transactions count], [sourceTransactions count] + 1, @"%@", transactions);
+    XCTAssertEqual(CDChangeCount(transactions), CDChangeCount(sourceTransactions));
+    NSPersistentHistoryTransaction *marker = [transactions lastObject];
+    XCTAssertTrue([[marker author] hasPrefix:@"com.apple.coredata.schemamigrator"], @"%@", [marker author]);
+    XCTAssertEqual([[marker changes] count], (NSUInteger)0);
+
+    NSPersistentHistoryChangeRequest *since = [NSPersistentHistoryChangeRequest fetchHistoryAfterToken:before];
+    NSArray *newer = [(NSPersistentHistoryResult *)[ctx executeRequest:since error:&err] result];
+    XCTAssertEqual(CDChangeCount(newer), (NSUInteger)0, @"a token from before reads nothing new");
+
+    for (NSPersistentHistoryTransaction *transaction in transactions) {
+        for (NSPersistentHistoryChange *change in [transaction changes]) {
+            NSManagedObject *object = [ctx existingObjectWithID:[change changedObjectID] error:NULL];
+            if ([change changeType] == NSPersistentHistoryChangeTypeDelete) {
+                XCTAssertNil(object, @"a deleted object's change names no migrated one");
+                XCTAssertEqualObjects([[change tombstone] objectForKey:@"title"], @"Gone");
+            } else if (object != nil) {
+                XCTAssertEqualObjects([object valueForKey:@"text"], @"kept, changed");
+            }
+        }
+    }
+    NSFetchRequest *notes = [NSFetchRequest fetchRequestWithEntityName:@"Note"];
+    XCTAssertEqual([ctx countForFetchRequest:notes error:NULL], (NSUInteger)1);
+
+    /* And it goes on recording. */
+    NSManagedObject *fresh = [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:ctx];
+    [fresh setValue:@"fresh" forKey:@"text"];
+    XCTAssertTrue([ctx save:&err], @"save: %@", err);
+    newer = [(NSPersistentHistoryResult *)[ctx executeRequest:[NSPersistentHistoryChangeRequest fetchHistoryAfterToken:before] error:&err] result];
+    XCTAssertEqual(CDChangeCount(newer), (NSUInteger)1, @"the insert after the migration");
+
+    [psc removePersistentStore:migrated error:NULL];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *suffix in [NSArray arrayWithObjects:@"", @"-wal", @"-shm", nil])
+        [fm removeItemAtPath:[destinationPath stringByAppendingString:suffix] error:NULL];
+}
+
 @end

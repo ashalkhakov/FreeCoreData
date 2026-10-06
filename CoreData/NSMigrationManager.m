@@ -19,6 +19,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSFetchRequest.h>
 #import <CoreData/NSPersistentStoreCoordinator.h>
 #import <CoreData/CoreDataErrors.h>
+#import <CoreData/NSPersistentStore.h>
+#import "NSPersistentHistory-Private.h"
 
 @implementation NSMigrationManager
 
@@ -202,6 +204,71 @@ static BOOL cancelledError(NSMigrationManager *self,NSError *migrationError,NSEr
    return NO;
 }
 
+/* The store comes through a migration as the same store, as on Apple: the
+   destination takes the source's metadata - its UUID, and what an
+   application keeps there - with the version stamps of its own model; and,
+   between two SQLite stores tracking history, the source's history, its
+   objects' keys made the destination's, and a transaction marking the
+   migration (under the author Apple's migrations write as). */
+-(BOOL)_carryOverStoreTo:(NSURL *)destinationURL error:(NSError **)error {
+   NSPersistentStore *source=[[_sourceCoordinator persistentStores] lastObject];
+   NSPersistentStore *destination=[[_destinationCoordinator persistentStores] lastObject];
+
+   if(source==nil || destination==nil)
+    return YES;
+
+   NSDictionary        *own=[_destinationCoordinator metadataForPersistentStore:destination];
+   NSMutableDictionary *metadata=[NSMutableDictionary dictionaryWithDictionary:[_sourceCoordinator metadataForPersistentStore:source]];
+
+   for(NSString *key in [metadata allKeys])
+    if([key hasPrefix:@"NSStoreModelVersion"])
+     [metadata removeObjectForKey:key];
+   for(NSString *key in own)
+    if([key hasPrefix:@"NSStoreModelVersion"] || [key isEqualToString:NSStoreTypeKey])
+     [metadata setObject:[own objectForKey:key] forKey:key];
+   [_destinationCoordinator setMetadata:metadata forPersistentStore:destination];
+
+   if(![source isKindOfClass:[NSSQLitePersistentStore class]] || ![destination isKindOfClass:[NSSQLitePersistentStore class]])
+    return YES;
+
+   /* Each migrated object's key, from the source's to the destination's,
+      by the destination entity; and each source entity's name there. */
+   NSMutableDictionary *entityNames=[NSMutableDictionary dictionary];
+   NSMutableDictionary *primaryKeys=[NSMutableDictionary dictionary];
+
+   for(NSEntityMapping *mapping in [_mappingModel entityMappings])
+    if([mapping sourceEntityName]!=nil && [mapping destinationEntityName]!=nil && [mapping mappingType]!=NSRemoveEntityMappingType)
+     [entityNames setObject:[mapping destinationEntityName] forKey:[mapping sourceEntityName]];
+
+   for(NSString *mappingName in _associationsByMappingName){
+    NSDictionary *association=[_associationsByMappingName objectForKey:mappingName];
+    NSArray      *sources=[association objectForKey:@"sources"];
+    NSArray      *destinations=[association objectForKey:@"destinations"];
+    NSUInteger    i,count=[sources count];
+
+    for(i=0;i<count;i++){
+     NSManagedObject     *s=[sources objectAtIndex:i];
+     NSManagedObject     *d=[destinations objectAtIndex:i];
+     NSString            *name=[[d entity] name];
+     NSMutableDictionary *keys=[primaryKeys objectForKey:name];
+
+     if(keys==nil){
+      keys=[NSMutableDictionary dictionary];
+      [primaryKeys setObject:keys forKey:name];
+     }
+     [entityNames setObject:name forKey:[[s entity] name]];
+     [keys setObject:[NSNumber numberWithLongLong:[(NSSQLitePersistentStore *)destination _primaryKeyOfObjectID:[d objectID]]]
+              forKey:[NSNumber numberWithLongLong:[(NSSQLitePersistentStore *)source _primaryKeyOfObjectID:[s objectID]]]];
+    }
+   }
+
+   return [(NSSQLitePersistentStore *)destination _adoptHistoryOfStoreAtURL:[source URL]
+                                                                entityNames:entityNames
+                                                                primaryKeys:primaryKeys
+                                                                     author:@"com.apple.coredata.schemamigrator: NSMigrationManager"
+                                                                      error:error];
+}
+
 -(BOOL)migrateStoreFromURL:(NSURL *)sourceURL type:(NSString *)sStoreType options:(NSDictionary *)sOptions withMappingModel:(NSMappingModel *)mappings toDestinationURL:(NSURL *)dURL destinationType:(NSString *)dStoreType destinationOptions:(NSDictionary *)dOptions error:(NSError **)error {
    [self reset];
 
@@ -312,6 +379,9 @@ static BOOL cancelledError(NSMigrationManager *self,NSError *migrationError,NSEr
    _currentEntityMapping=nil;
 
    if(![_destinationContext save:error])
+    return NO;
+
+   if(![self _carryOverStoreTo:dURL error:error])
     return NO;
 
    /* Apple resets the migration progress once the migration completes. */
