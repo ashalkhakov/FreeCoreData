@@ -321,12 +321,6 @@ static id attributeValueFromColumn(sqlite3_stmt *statement,int index,NSAttribute
    bundles, which is what every store written before this had. */
 static NSString * const CDModelCacheTable=@"Z_CDMODELCACHE";
 
-/* Encoding a model means encoding the predicates in its fetch request
-   templates and validations, which gnustep-base up to 1.31.1 answers with
-   -subclassResponsibility:.  The exception leaves the archiver's state
-   torn, and deallocating it afterwards segfaults - momc documents the same
-   trap - so the archiver is driven by hand and, having failed, parked
-   rather than released.  A store simply goes without a cache then. */
 static NSData *archivedModel(NSManagedObjectModel *model){
    if(model==nil)
     return nil;
@@ -334,23 +328,7 @@ static NSData *archivedModel(NSManagedObjectModel *model){
    [NSPredicate class];   /* register the archive class aliases */
    [NSExpression class];
 
-   static NSMutableArray *tornArchivers=nil;
-   NSMutableData   *buffer=[NSMutableData data];
-   NSKeyedArchiver *archiver=[[NSKeyedArchiver alloc] initForWritingWithMutableData:buffer];
-
-   @try {
-    [archiver encodeObject:model forKey:@"root"];
-    [archiver finishEncoding];
-   }
-   @catch(NSException *exception){
-    if(tornArchivers==nil)
-     tornArchivers=[[NSMutableArray alloc] init];
-    [tornArchivers addObject:archiver];   /* deliberate leak; see above */
-    return nil;
-   }
-   [archiver release];
-
-   return buffer;
+   return [NSKeyedArchiver archivedDataWithRootObject:model];
 }
 
 static NSManagedObjectModel *modelFromCache(sqlite3 *database){
@@ -370,7 +348,6 @@ static NSManagedObjectModel *modelFromCache(sqlite3 *database){
     [NSPredicate class];
     [NSExpression class];
 
-    static NSMutableArray *tornUnarchivers=nil;
     NSKeyedUnarchiver *unarchiver=[[NSKeyedUnarchiver alloc] initForReadingWithData:data];
 
     @try {
@@ -379,12 +356,8 @@ static NSManagedObjectModel *modelFromCache(sqlite3 *database){
      model=[[[unarchiver decodeObjectForKey:@"root"] retain] autorelease];
     }
     @catch(NSException *exception){
-     /* Someone else's archive, or one this library cannot read: no cache. */
-     if(tornUnarchivers==nil)
-      tornUnarchivers=[[NSMutableArray alloc] init];
-     [tornUnarchivers addObject:unarchiver];
+     /* A blob this library cannot read is simply no cache. */
      model=nil;
-     unarchiver=nil;
     }
     [unarchiver release];
 

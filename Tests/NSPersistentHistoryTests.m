@@ -919,6 +919,166 @@ static NSUInteger CDChangeCount(NSArray *transactions)
     [psc removePersistentStore:migrated error:NULL];
 }
 
+/* Two source entities mapped into one destination entity - a merge, which
+   no inferred mapping model produces, so this one is built by hand.  Each
+   source entity counts its primary keys from 1, so the history's keys only
+   mean anything together with the entity they came from: carried over by
+   the destination entity's name, the two key spaces would be one and each
+   entity's history would land on the other's objects. */
+- (void)testMergingTwoEntitiesKeepsEachOnesHistory
+{
+    NSError *err = nil;
+
+    /* The source: two entities that know nothing of each other. */
+    NSManagedObjectModel *sourceModel = [[NSManagedObjectModel alloc] init];
+    NSMutableArray *sourceEntities = [NSMutableArray array];
+
+    for (NSString *name in [NSArray arrayWithObjects:@"Employee", @"Contractor", nil]) {
+        NSAttributeDescription *who = [[NSAttributeDescription alloc] init];
+        [who setName:@"name"];
+        [who setAttributeType:NSStringAttributeType];
+        [who setOptional:YES];
+        NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+        [entity setName:name];
+        [entity setManagedObjectClassName:@"NSManagedObject"];
+        [entity setProperties:[NSArray arrayWithObject:who]];
+        [sourceEntities addObject:entity];
+    }
+    [sourceModel setEntities:sourceEntities];
+
+    /* The destination: one entity for both. */
+    NSAttributeDescription *who = [[NSAttributeDescription alloc] init];
+    [who setName:@"name"];
+    [who setAttributeType:NSStringAttributeType];
+    [who setOptional:YES];
+    NSEntityDescription *person = [[NSEntityDescription alloc] init];
+    [person setName:@"Person"];
+    [person setManagedObjectClassName:@"NSManagedObject"];
+    [person setProperties:[NSArray arrayWithObject:who]];
+    NSManagedObjectModel *destinationModel = [[NSManagedObjectModel alloc] init];
+    [destinationModel setEntities:[NSArray arrayWithObject:person]];
+
+    /* One of each, so both are row 1 of their own table, then both
+       changed - whichever way round a collision fell, one of these two
+       changes would name the wrong object. */
+    NSString *sourcePath = [self.storePath stringByAppendingString:@"-merge-source"];
+    NSURL *sourceURL = [NSURL fileURLWithPath:sourcePath];
+    NSDictionary *options = [NSDictionary dictionaryWithObject:[NSNumber numberWithBool:YES]
+                                                        forKey:NSPersistentHistoryTrackingKey];
+    NSPersistentStoreCoordinator *sourcePSC = [[NSPersistentStoreCoordinator alloc]
+                                                  initWithManagedObjectModel:sourceModel];
+
+    XCTAssertNotNil([sourcePSC addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+                                                      URL:sourceURL options:options error:&err],
+                    @"open: %@", err);
+
+    NSManagedObjectContext *sourceCtx = [[NSManagedObjectContext alloc] init];
+    [sourceCtx setPersistentStoreCoordinator:sourcePSC];
+
+    NSManagedObject *employee = [NSEntityDescription insertNewObjectForEntityForName:@"Employee"
+                                                             inManagedObjectContext:sourceCtx];
+    [employee setValue:@"Ada" forKey:@"name"];
+    NSManagedObject *contractor = [NSEntityDescription insertNewObjectForEntityForName:@"Contractor"
+                                                               inManagedObjectContext:sourceCtx];
+    [contractor setValue:@"Grace" forKey:@"name"];
+    XCTAssertTrue([sourceCtx save:&err], @"save: %@", err);
+
+    [employee setValue:@"Ada, employed" forKey:@"name"];
+    [contractor setValue:@"Grace, contracted" forKey:@"name"];
+    XCTAssertTrue([sourceCtx save:&err], @"save: %@", err);
+
+    /* The mapping model: one entity mapping per source entity, both
+       landing in Person. */
+    NSMutableArray *entityMappings = [NSMutableArray array];
+
+    for (NSString *name in [NSArray arrayWithObjects:@"Employee", @"Contractor", nil]) {
+        NSPropertyMapping *nameMapping = [[NSPropertyMapping alloc] init];
+        [nameMapping setName:@"name"];
+        [nameMapping setValueExpression:[NSExpression expressionWithFormat:@"$source.name"]];
+
+        NSEntityMapping *mapping = [[NSEntityMapping alloc] init];
+        [mapping setName:[@"Merge" stringByAppendingString:name]];
+        [mapping setMappingType:NSTransformEntityMappingType];
+        [mapping setSourceEntityName:name];
+        [mapping setSourceEntityVersionHash:[[[sourceModel entitiesByName] objectForKey:name] versionHash]];
+        [mapping setDestinationEntityName:@"Person"];
+        [mapping setDestinationEntityVersionHash:[[[destinationModel entitiesByName] objectForKey:@"Person"] versionHash]];
+        [mapping setAttributeMappings:[NSArray arrayWithObject:nameMapping]];
+#if defined(__APPLE__)
+        /* Apple's migration policy fetches the instances to migrate
+           through the mapping's sourceExpression, which an inferred
+           mapping carries and a hand-built one has to; without it nothing
+           is migrated at all.  This port fetches by the mapping's source
+           entity name instead and ignores the expression - just as well,
+           since gnustep-base has no FUNCTION() to parse this with. */
+        [mapping setSourceExpression:[NSExpression expressionWithFormat:
+            @"FETCH(FUNCTION($manager, 'fetchRequestForSourceEntityNamed:predicateString:', %@, 'TRUEPREDICATE'), $manager.sourceContext, NO)",
+            name]];
+#endif
+        [entityMappings addObject:mapping];
+    }
+
+    NSMappingModel *mapping = [[NSMappingModel alloc] init];
+    [mapping setEntityMappings:entityMappings];
+
+    self.ctx = nil;
+    XCTAssertTrue([sourcePSC removePersistentStore:[[sourcePSC persistentStores] lastObject] error:&err],
+                  @"remove: %@", err);
+
+    NSString *destinationPath = [self.storePath stringByAppendingString:@"-merge"];
+    NSURL *destinationURL = [NSURL fileURLWithPath:destinationPath];
+    NSMigrationManager *manager = [[NSMigrationManager alloc] initWithSourceModel:sourceModel
+                                                                destinationModel:destinationModel];
+
+    XCTAssertTrue([manager migrateStoreFromURL:sourceURL type:NSSQLiteStoreType options:options
+                              withMappingModel:mapping toDestinationURL:destinationURL
+                               destinationType:NSSQLiteStoreType destinationOptions:options error:&err],
+                  @"migrate: %@", err);
+    [manager reset];
+
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+                                            initWithManagedObjectModel:destinationModel];
+
+    XCTAssertNotNil([psc addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+                                                URL:destinationURL options:options error:&err],
+                    @"open the migrated store: %@", err);
+
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+
+    NSFetchRequest *people = [NSFetchRequest fetchRequestWithEntityName:@"Person"];
+    XCTAssertEqual([ctx countForFetchRequest:people error:NULL], (NSUInteger)2, @"both came over");
+
+    /* Every change that names an object must name the one it belonged to:
+       the names travelled with the objects, so each change's object
+       carries the name whose entity the change came from. */
+    NSMutableSet *changed = [NSMutableSet set];
+    NSArray *transactions = [(NSPersistentHistoryResult *)[ctx executeRequest:
+        [NSPersistentHistoryChangeRequest fetchHistoryAfterDate:[NSDate distantPast]] error:&err] result];
+
+    XCTAssertNotNil(transactions, @"%@", err);
+    for (NSPersistentHistoryTransaction *transaction in transactions) {
+        for (NSPersistentHistoryChange *change in [transaction changes]) {
+            NSManagedObject *object = [ctx existingObjectWithID:[change changedObjectID] error:NULL];
+
+            if (object != nil)
+                [changed addObject:[object valueForKey:@"name"]];
+        }
+    }
+
+    XCTAssertEqualObjects(changed,
+        ([NSSet setWithObjects:@"Ada, employed", @"Grace, contracted", nil]),
+        @"each entity's history landed on its own objects");
+
+    [psc removePersistentStore:[[psc persistentStores] lastObject] error:NULL];
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *suffix in [NSArray arrayWithObjects:@"", @"-wal", @"-shm", nil]) {
+        [fm removeItemAtPath:[sourcePath stringByAppendingString:suffix] error:NULL];
+        [fm removeItemAtPath:[destinationPath stringByAppendingString:suffix] error:NULL];
+    }
+}
+
 /* History that has been purged leaves its numbering spent: the rows are
    gone, but the numbers are not to be handed out again, since a consumer
    may still hold a token naming one of them.  Arbitrated on macOS, where
