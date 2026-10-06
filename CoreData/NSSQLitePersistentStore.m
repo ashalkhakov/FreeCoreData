@@ -312,6 +312,117 @@ static id attributeValueFromColumn(sqlite3_stmt *statement,int index,NSAttribute
 
 /* Reads the store metadata from the Z_METADATA table of an open database.
    Returns nil (with error set) when the table is missing or unreadable. */
+/* The model a store's data conforms to, kept in the store itself, so a
+   migration can find the model to migrate from when no bundle holds it -
+   a model built in code is in no bundle at all.  Apple keeps one too, in
+   Z_MODELCACHE, but its content is a private format of its own, so this
+   is a table of this port's with an archive this port can read; neither
+   framework reads the other's, and a store without one falls back to the
+   bundles, which is what every store written before this had. */
+static NSString * const CDModelCacheTable=@"Z_CDMODELCACHE";
+
+/* Encoding a model means encoding the predicates in its fetch request
+   templates and validations, which gnustep-base up to 1.31.1 answers with
+   -subclassResponsibility:.  The exception leaves the archiver's state
+   torn, and deallocating it afterwards segfaults - momc documents the same
+   trap - so the archiver is driven by hand and, having failed, parked
+   rather than released.  A store simply goes without a cache then. */
+static NSData *archivedModel(NSManagedObjectModel *model){
+   if(model==nil)
+    return nil;
+
+   [NSPredicate class];   /* register the archive class aliases */
+   [NSExpression class];
+
+   static NSMutableArray *tornArchivers=nil;
+   NSMutableData   *buffer=[NSMutableData data];
+   NSKeyedArchiver *archiver=[[NSKeyedArchiver alloc] initForWritingWithMutableData:buffer];
+
+   @try {
+    [archiver encodeObject:model forKey:@"root"];
+    [archiver finishEncoding];
+   }
+   @catch(NSException *exception){
+    if(tornArchivers==nil)
+     tornArchivers=[[NSMutableArray alloc] init];
+    [tornArchivers addObject:archiver];   /* deliberate leak; see above */
+    return nil;
+   }
+   [archiver release];
+
+   return buffer;
+}
+
+static NSManagedObjectModel *modelFromCache(sqlite3 *database){
+   if(!tableExists(database,CDModelCacheTable))
+    return nil;
+
+   sqlite3_stmt         *statement=prepareStatement(database,[NSString stringWithFormat:@"SELECT Z_CONTENT FROM %@",CDModelCacheTable],NULL);
+   NSManagedObjectModel *model=nil;
+
+   if(statement==NULL)
+    return nil;
+
+   if(sqlite3_step(statement)==SQLITE_ROW && sqlite3_column_type(statement,0)==SQLITE_BLOB){
+    NSData *data=[NSData dataWithBytes:sqlite3_column_blob(statement,0)
+                                length:sqlite3_column_bytes(statement,0)];
+
+    [NSPredicate class];
+    [NSExpression class];
+
+    static NSMutableArray *tornUnarchivers=nil;
+    NSKeyedUnarchiver *unarchiver=[[NSKeyedUnarchiver alloc] initForReadingWithData:data];
+
+    @try {
+     /* Retained before the unarchiver goes, autoreleased for the caller:
+        -decodeObjectForKey: hands back nothing of its own. */
+     model=[[[unarchiver decodeObjectForKey:@"root"] retain] autorelease];
+    }
+    @catch(NSException *exception){
+     /* Someone else's archive, or one this library cannot read: no cache. */
+     if(tornUnarchivers==nil)
+      tornUnarchivers=[[NSMutableArray alloc] init];
+     [tornUnarchivers addObject:unarchiver];
+     model=nil;
+     unarchiver=nil;
+    }
+    [unarchiver release];
+
+    if(![model isKindOfClass:[NSManagedObjectModel class]])
+     model=nil;
+   }
+   sqlite3_finalize(statement);
+
+   return model;
+}
+
+static BOOL writeModelCache(sqlite3 *database,NSManagedObjectModel *model,NSError **error){
+   NSData *archive=archivedModel(model);
+
+   if(archive==nil)
+    return YES;   /* nothing to keep; the bundles are still there */
+
+   if(!executeSQL(database,[NSString stringWithFormat:@"CREATE TABLE IF NOT EXISTS %@ (Z_CONTENT BLOB)",CDModelCacheTable],error))
+    return NO;
+   if(!executeSQL(database,[NSString stringWithFormat:@"DELETE FROM %@",CDModelCacheTable],error))
+    return NO;
+
+   sqlite3_stmt *statement=prepareStatement(database,[NSString stringWithFormat:@"INSERT INTO %@ (Z_CONTENT) VALUES (?)",CDModelCacheTable],error);
+
+   if(statement==NULL)
+    return NO;
+
+   sqlite3_bind_blob(statement,1,[archive bytes],(int)[archive length],SQLITE_TRANSIENT);
+
+   BOOL ok=(sqlite3_step(statement)==SQLITE_DONE);
+
+   if(!ok && error!=NULL)
+    *error=sqliteError(database,NSPersistentStoreSaveError,@"unable to keep the model in the store");
+   sqlite3_finalize(statement);
+
+   return ok;
+}
+
 static NSDictionary *readMetadata(sqlite3 *database,NSError **error){
    if(!tableExists(database,@"Z_METADATA")){
     if(error!=NULL)
@@ -440,6 +551,25 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
    sqlite3_close(database);
 
    return result;
+}
+
+/* The model the store at this URL was written with, or nil: what a
+   migration needs when no bundle holds the source model. */
++(NSManagedObjectModel *)_cachedModelForPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options {
+   NSString *path=[url path];
+   sqlite3  *database=NULL;
+
+   if(path==nil || sqlite3_open_v2([path fileSystemRepresentation],&database,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){
+    if(database!=NULL)
+     sqlite3_close(database);
+    return nil;
+   }
+
+   NSManagedObjectModel *model=modelFromCache(database);
+
+   sqlite3_close(database);
+
+   return model;
 }
 
 +(BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreWithURL:(NSURL *)url error:(NSError **)error {
@@ -621,6 +751,9 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
    if(!executeSQL(DATABASE,@"CREATE TABLE Z_METADATA (Z_VERSION INTEGER PRIMARY KEY, Z_UUID VARCHAR(255), Z_PLIST BLOB)",error))
     return NO;
 
+   if(!writeModelCache(DATABASE,[[self persistentStoreCoordinator] managedObjectModel],error))
+    return NO;
+
    if(!executeSQL(DATABASE,@"CREATE TABLE Z_PRIMARYKEY (Z_ENT INTEGER PRIMARY KEY, Z_NAME VARCHAR, Z_SUPER INTEGER, Z_MAX INTEGER)",error))
     return NO;
 
@@ -790,6 +923,15 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
      return NO;
 
     [super setMetadata:metadata];
+
+    /* A store written before this library kept the model, or by another
+       framework: the model it is being opened with is the one its data
+       conforms to - the coordinator has just checked that - so keep it,
+       and a later migration will have it to migrate from.  Read-only
+       stores stay as they are, and a failure here is not worth refusing
+       to open a store that is otherwise fine. */
+    if(![self isReadOnly] && !tableExists(DATABASE,CDModelCacheTable))
+     writeModelCache(DATABASE,[[self persistentStoreCoordinator] managedObjectModel],NULL);
 
     return [self _loadEntityIDs:error] && [self _prepareHistoryTracking:error];
    }
@@ -2716,6 +2858,39 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
      anchorNumber=[request _anchorTransactionNumber];
     else if([request _anchorToken]!=nil)
      anchorNumber=[[request _anchorToken] _transactionNumberForStoreIdentifier:[self identifier]];
+   }
+
+   /* A token whose transaction has been purged is expired: the history it
+      names is gone, so the consumer cannot be told what it missed and has
+      to start again.  Arbitrated on macOS, where a purge through
+      transaction 4 expires the tokens at 1, 2 and 3 and leaves the one at
+      4 - that is, a token is expired exactly when it stands below the
+      oldest transaction the store still has. */
+   if(!byDate && [request _anchorToken]!=nil && anchorNumber>0 && ![request _isPurge]){
+    long long     oldest=0;
+    sqlite3_stmt *statement=prepareStatement(DATABASE,@"SELECT COALESCE(MIN(Z_PK), 0) FROM Z_ATRANSACTION",error);
+
+    if(statement==NULL)
+     return nil;
+    if(sqlite3_step(statement)==SQLITE_ROW)
+     oldest=sqlite3_column_int64(statement,0);
+    sqlite3_finalize(statement);
+
+    if(anchorNumber<oldest || oldest==0){
+     if(error!=NULL){
+      NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+      [userInfo setObject:[NSString stringWithFormat:@"Persistent History Token is expired for store at %@",[self URL]] forKey:@"message"];
+      [userInfo setObject:[NSString stringWithFormat:@"Persistent History Token is expired for store at %@",[self URL]] forKey:NSLocalizedDescriptionKey];
+      if([self identifier]!=nil)
+       [userInfo setObject:[self identifier] forKey:NSStoreUUIDKey];
+      if([[self URL] path]!=nil)
+       [userInfo setObject:[[self URL] path] forKey:NSFilePathErrorKey];
+
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentHistoryTokenExpiredError userInfo:userInfo];
+     }
+     return nil;
+    }
    }
 
    if([request _isPurge]){

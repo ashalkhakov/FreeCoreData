@@ -679,6 +679,50 @@ static BOOL CDWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
     XCTAssertNil([[transactions objectAtIndex:0] changes]);
 }
 
+/* A token names a place in the history, and a purge can take that place
+   away: the consumer then cannot be told what it missed, so the fetch
+   fails with NSPersistentHistoryTokenExpiredError rather than quietly
+   answering from wherever is left.  Arbitrated on macOS: purging
+   everything before the third transaction expires the tokens at 1 and 2
+   and leaves the one at 3 working. */
+- (void)testATokenWhoseTransactionWasPurgedIsExpired
+{
+    NSError *err = nil;
+    NSMutableArray *tokens = [NSMutableArray array];
+
+    for (int i = 0; i < 3; i++) {
+        [self insertNoteWithText:[NSString stringWithFormat:@"n%d", i]];
+        XCTAssertTrue([self.ctx save:&err], @"save: %@", err);
+        [tokens addObject:[self.psc currentPersistentHistoryTokenFromStores:nil]];
+    }
+
+    XCTAssertNotNil([self.ctx executeRequest:
+        [NSPersistentHistoryChangeRequest deleteHistoryBeforeToken:[tokens objectAtIndex:2]]
+                                        error:&err], @"purge: %@", err);
+
+    NSArray *surviving = [self fetchAllTransactions];
+
+    XCTAssertEqual([surviving count], (NSUInteger)1, @"only the third is left: %@", surviving);
+
+    for (NSUInteger i = 0; i < 2; i++) {
+        err = nil;
+        id result = [self.ctx executeRequest:
+            [NSPersistentHistoryChangeRequest fetchHistoryAfterToken:[tokens objectAtIndex:i]]
+                                       error:&err];
+
+        XCTAssertNil(result, @"the token at %lu named a transaction that is gone", (unsigned long)(i + 1));
+        XCTAssertEqual([err code], (NSInteger)NSPersistentHistoryTokenExpiredError, @"%@", err);
+    }
+
+    /* The one that still names a transaction it has seen goes on working. */
+    err = nil;
+    NSPersistentHistoryResult *result = (NSPersistentHistoryResult *)[self.ctx executeRequest:
+        [NSPersistentHistoryChangeRequest fetchHistoryAfterToken:[tokens lastObject]] error:&err];
+
+    XCTAssertNotNil(result, @"%@", err);
+    XCTAssertEqual([[result result] count], (NSUInteger)0);
+}
+
 #pragma mark - Migration
 
 /* The model a migration goes to: a Note with one attribute more. */
@@ -809,11 +853,10 @@ static NSUInteger CDChangeCount(NSArray *transactions)
    which is why the store's own options, NSPersistentHistoryTrackingKey
    among them, travel with it.
 
-   Apple finds the model to migrate from in the store itself (its
-   Z_MODELCACHE); this port looks for it among the bundles' models, so a
-   model built in code - like this one - is one it cannot find, and it
-   says so instead.  The port's own automatic migrations are of compiled
-   models, which it does find. */
+   The model to migrate from is found in the store itself, as Apple finds
+   it in its Z_MODELCACHE: this model is built in code and is in no
+   bundle, so looking only there - which is what this port did - left it
+   unmigratable. */
 - (void)testAutomaticMigrationKeepsAHistoryTokenMeaningful
 {
     NSError *err = nil;
@@ -851,12 +894,6 @@ static NSUInteger CDChangeCount(NSArray *transactions)
                                                           options:options
                                                             error:&err];
 
-#if !defined(__APPLE__)
-    XCTAssertNil(migrated, @"a model built in code is not one this port can migrate from");
-    XCTAssertEqual([err code], (NSInteger)NSMigrationMissingSourceModelError, @"%@", err);
-    (void)before;
-    (void)uuid;
-#else
     XCTAssertNotNil(migrated, @"automigrate: %@", err);
     XCTAssertEqualObjects([[psc metadataForPersistentStore:migrated] objectForKey:NSStoreUUIDKey], uuid,
                           @"still the same store, which is what makes the token ours");
@@ -880,7 +917,6 @@ static NSUInteger CDChangeCount(NSArray *transactions)
                    @"the save after the migration, and only it: %@", newer);
 
     [psc removePersistentStore:migrated error:NULL];
-#endif
 }
 
 /* History that has been purged leaves its numbering spent: the rows are

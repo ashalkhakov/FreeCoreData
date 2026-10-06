@@ -48,6 +48,12 @@ NSString * const NSPersistentHistoryTokenKey=@"historyToken";
 /* Implemented by stores that track persistent history (the SQLite
    store); other store classes are simply skipped when a token is
    assembled. */
+@interface NSPersistentStore(CDModelCache)
+/* Implemented by store classes that keep the model in the store (the
+   SQLite one does); asked only when the bundles hold no matching model. */
++(NSManagedObjectModel *)_cachedModelForPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options;
+@end
+
 @interface NSPersistentStore(CDHistoryTracking)
 -(BOOL)_historyTrackingEnabled;
 -(long long)_lastHistoryTransactionNumber;
@@ -143,6 +149,13 @@ static NSMutableDictionary *_storeTypes=nil;
    }
 
    NSManagedObjectModel *sourceModel=[NSManagedObjectModel mergedModelFromBundles:nil forStoreMetadata:metadata];
+
+   /* Failing that, the model the store itself was written with, which is
+      where Apple looks too (its Z_MODELCACHE): a model built in code, or
+      one whose compiled copy is no longer in any bundle, is otherwise a
+      store nothing can migrate. */
+   if(sourceModel==nil && [class respondsToSelector:@selector(_cachedModelForPersistentStoreWithURL:options:)])
+    sourceModel=[class _cachedModelForPersistentStoreWithURL:storeURL options:options];
 
    if(sourceModel==nil){
     if(error!=NULL)

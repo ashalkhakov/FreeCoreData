@@ -69,4 +69,7 @@ enum {
     NSMigrationManagerDestinationStoreError = 134160,
     NSEntityMigrationPolicyError = 134170,
     NSInferredMappingModelError = 134190,
+    /* A history fetch given a token whose transaction has since been
+       purged; the consumer has to start again from whatever it can. */
+    NSPersistentHistoryTokenExpiredError = 134301,
 };
