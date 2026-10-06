@@ -157,8 +157,43 @@ static NSString *escaped(NSString *string){
        || [written hasPrefix:@"FUNCTION($manager, \"destinationInstancesForEntityMappingNamed:sourceInstances:\""];
 }
 
-+(NSString *)_base64OfExpression:(NSExpression *)expression {
-   return [[NSKeyedArchiver archivedDataWithRootObject:expression] base64EncodedStringWithOptions:0];
++(BOOL)relationshipExpression:(NSExpression *)expression mappingName:(NSString **)mappingName keyPath:(NSString **)keyPath {
+   if([expression expressionType]!=NSFunctionExpressionType)
+    return NO;
+   if(![[expression function] isEqualToString:@"destinationInstancesForEntityMappingNamed:sourceInstances:"])
+    return NO;
+   if(![[[expression operand] description] isEqualToString:@"$manager"])
+    return NO;
+
+   NSArray *arguments=[expression arguments];
+
+   if([arguments count]!=2)
+    return NO;
+
+   NSExpression *name=[arguments objectAtIndex:0];
+   NSString     *reached=[[arguments objectAtIndex:1] description];
+
+   if([name expressionType]!=NSConstantValueExpressionType || ![[name constantValue] isKindOfClass:[NSString class]])
+    return NO;
+   if(![reached hasPrefix:@"$source."] || [reached length]<=[@"$source." length])
+    return NO;
+
+   if(mappingName!=NULL)
+    *mappingName=[name constantValue];
+   if(keyPath!=NULL)
+    *keyPath=[reached substringFromIndex:[@"$source." length]];
+
+   return YES;
+}
+
++(NSString *)_base64OfObject:(id)object {
+   return [[NSKeyedArchiver archivedDataWithRootObject:object] base64EncodedStringWithOptions:0];
+}
+
++(void)_appendUserInfo:(NSDictionary *)userInfo to:(NSMutableString *)objects {
+   if([userInfo count]>0)
+    [objects appendFormat:@"        <attribute name=\"userinfodata\" type=\"binary\">%@</attribute>\n",
+        [self _base64OfObject:userInfo]];
 }
 
 +(NSString *)xcmappingXMLForMappingModel:(NSMappingModel *)model
@@ -208,11 +243,26 @@ static NSString *escaped(NSString *string){
           isRelationship?@"RELATIONSHIP":@"ATTRIBUTE",propertyIdentifier];
       [objects appendFormat:@"        <attribute name=\"name\" type=\"string\">%@</attribute>\n",
           escaped([property name])];
+      NSString *throughMapping=nil;
+      NSString *keyPath=nil;
+
+      /* A relationship filled through another mapping says which, as
+         Xcode's inspector does; the key path only where it is not simply
+         the relationship's own name. */
+      if(isRelationship && [self relationshipExpression:[property valueExpression] mappingName:&throughMapping keyPath:&keyPath]){
+       if(![keyPath isEqualToString:[property name]])
+        [objects appendFormat:@"        <attribute name=\"sourcekeypath\" type=\"string\">%@</attribute>\n",
+            escaped(keyPath)];
+       [objects appendFormat:@"        <attribute name=\"sourcemappingname\" type=\"string\">%@</attribute>\n",
+           escaped(throughMapping)];
+       generated=YES;
+      }
       if(generated)
        [objects appendString:@"        <attribute name=\"autogenerateexpression\" type=\"bool\">1</attribute>\n"];
       else
        [objects appendFormat:@"        <attribute name=\"valueexpressiondata\" type=\"binary\">%@</attribute>\n",
-           [self _base64OfExpression:[property valueExpression]]];
+           [self _base64OfObject:[property valueExpression]]];
+      [self _appendUserInfo:[property userInfo] to:objects];
       [objects appendFormat:@"        <relationship name=\"entitymapping\" type=\"1/1\" destination=\"XDDEVENTITYMAPPING\" idrefs=\"%@\"></relationship>\n",
           identifier];
       [objects appendString:@"    </object>\n"];
@@ -222,6 +272,15 @@ static NSString *escaped(NSString *string){
     }
 
     [objects appendFormat:@"    <object type=\"XDDEVENTITYMAPPING\" id=\"%@\">\n",identifier];
+    if([[mapping name] length]>0 && ![[mapping name] isEqualToString:
+         [CDMappingCompiler defaultNameForEntityMappingFromEntityNamed:[mapping sourceEntityName]
+                                                         toEntityNamed:[mapping destinationEntityName]]])
+     [objects appendFormat:@"        <attribute name=\"name\" type=\"string\">%@</attribute>\n",
+         escaped([mapping name])];
+    if([[mapping entityMigrationPolicyClassName] length]>0)
+     [objects appendFormat:@"        <attribute name=\"migrationpolicyclassname\" type=\"string\">%@</attribute>\n",
+         escaped([mapping entityMigrationPolicyClassName])];
+    [self _appendUserInfo:[mapping userInfo] to:objects];
     if([[mapping sourceEntityName] length]>0)
      [objects appendFormat:@"        <attribute name=\"sourcename\" type=\"string\">%@</attribute>\n",
          escaped([mapping sourceEntityName])];
@@ -234,7 +293,12 @@ static NSString *escaped(NSString *string){
     [objects appendString:@"        <attribute name=\"mappingtypename\" type=\"string\">Undefined</attribute>\n"];
     [objects appendFormat:@"        <attribute name=\"mappingnumber\" type=\"int16\">%lu</attribute>\n",
         (unsigned long)(index+1)];
-    [objects appendString:@"        <attribute name=\"autogenerateexpression\" type=\"bool\">1</attribute>\n"];
+    /* A fetch the default one cannot express is written out whole. */
+    if(predicate==nil && [mapping sourceExpression]!=nil)
+     [objects appendFormat:@"        <attribute name=\"sourceexpressiondata\" type=\"binary\">%@</attribute>\n",
+         [self _base64OfObject:[mapping sourceExpression]]];
+    else
+     [objects appendString:@"        <attribute name=\"autogenerateexpression\" type=\"bool\">1</attribute>\n"];
     [objects appendFormat:@"        <relationship name=\"mappingmodel\" type=\"1/1\" destination=\"XDDEVMAPPINGMODEL\" idrefs=\"%@\"></relationship>\n",
         modelIdentifier];
     [objects appendFormat:@"        <relationship name=\"attributemappings\" type=\"0/0\" destination=\"XDDEVATTRIBUTEMAPPING\" idrefs=\"%@\"></relationship>\n",

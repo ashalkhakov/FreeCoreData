@@ -194,15 +194,45 @@ static NSError *compilerError(NSString *format,...){
 
 /* And a relationship: the destination objects of whatever the source
    object was related to, which only the manager can say. */
-+(NSExpression *)_valueExpressionForRelationshipNamed:(NSString *)name throughMapping:(NSString *)mappingName {
++(NSExpression *)valueExpressionForRelationshipKeyPath:(NSString *)keyPath throughMapping:(NSString *)mappingName {
    NSArray *arguments=[NSArray arrayWithObjects:
        [NSExpression expressionForConstantValue:mappingName],
-       [self _valueExpressionForSourceProperty:name],
+       [self _valueExpressionForSourceProperty:keyPath],
        nil];
 
    return [NSExpression expressionForFunction:[NSExpression expressionForVariable:@"manager"]
                                  selectorName:@"destinationInstancesForEntityMappingNamed:sourceInstances:"
                                     arguments:arguments];
+}
+
++(NSString *)defaultNameForEntityMappingFromEntityNamed:(NSString *)sourceName toEntityNamed:(NSString *)destinationName {
+   if([sourceName length]>0 && [destinationName length]>0)
+    return [NSString stringWithFormat:@"%@To%@",sourceName,destinationName];
+
+   return ([destinationName length]>0)?destinationName:sourceName;
+}
+
+/* What Xcode archives into a file - an expression, a user info dictionary -
+   is a keyed archive with the object at its root. */
++(id)_unarchivedObjectOfClass:(Class)cls fromData:(NSData *)data {
+   if(data==nil)
+    return nil;
+
+   [NSPredicate class];
+   [NSExpression class];
+
+   id object=nil;
+
+   @try {
+    NSKeyedUnarchiver *unarchiver=[[NSKeyedUnarchiver alloc] initForReadingWithData:data];
+
+    object=[unarchiver decodeObjectForKey:@"root"];
+   }
+   @catch(NSException *exception){
+    object=nil;
+   }
+
+   return [object isKindOfClass:cls]?object:nil;
 }
 
 /* ------------------------------------------------------------------ */
@@ -353,12 +383,10 @@ static NSError *compilerError(NSString *format,...){
    for(CDMappingSourceObject *object in sourceMappings){
     NSString *sourceName=[object string:@"sourcename"];
     NSString *destinationName=[object string:@"destinationname"];
-    NSString *name;
+    NSString *name=[object string:@"name"];
 
-    if([sourceName length]>0 && [destinationName length]>0)
-     name=[NSString stringWithFormat:@"%@To%@",sourceName,destinationName];
-    else
-     name=([destinationName length]>0)?destinationName:sourceName;
+    if([name length]==0)
+     name=[self defaultNameForEntityMappingFromEntityNamed:sourceName toEntityNamed:destinationName];
 
     [names addObject:name?:@""];
     if([destinationName length]>0 && [namesByDestinationEntity objectForKey:destinationName]==nil)
@@ -399,9 +427,20 @@ static NSError *compilerError(NSString *format,...){
     else
      [mapping setMappingType:NSTransformEntityMappingType];
 
-    if(sourceEntity!=nil)
+    /* Which objects it applies to: the default fetch, narrowed by the
+       author's predicate, unless the author wrote a fetch of their own. */
+    NSExpression *customFetch=[[object string:@"autogenerateexpression"] boolValue]?nil:
+        [self _unarchivedObjectOfClass:[NSExpression class] fromData:[object data:@"sourceexpressiondata"]];
+
+    if(customFetch!=nil)
+     [mapping setSourceExpression:customFetch];
+    else if(sourceEntity!=nil)
      [mapping setSourceExpression:[self sourceExpressionForEntityNamed:sourceName
                                                               predicate:[object string:@"sourcefilterpredicatestring"]]];
+
+    if([[object string:@"migrationpolicyclassname"] length]>0)
+     [mapping setEntityMigrationPolicyClassName:[object string:@"migrationpolicyclassname"]];
+    [mapping setUserInfo:[self _unarchivedObjectOfClass:[NSDictionary class] fromData:[object data:@"userinfodata"]]];
 
     NSMutableArray *attributeMappings=[NSMutableArray array];
     NSMutableArray *relationshipMappings=[NSMutableArray array];
@@ -420,27 +459,42 @@ static NSError *compilerError(NSString *format,...){
 
       [propertyMapping setName:name];
 
-      NSData *written=[property data:@"valueexpressiondata"];
+      [propertyMapping setUserInfo:[self _unarchivedObjectOfClass:[NSDictionary class] fromData:[property data:@"userinfodata"]]];
+
+      NSData   *written=[[property string:@"autogenerateexpression"] boolValue]?nil:[property data:@"valueexpressiondata"];
+      NSString *keyPath=[property string:@"sourcekeypath"];
+      NSString *throughMapping=[property string:@"sourcemappingname"];
 
       if(written!=nil){
-       [NSPredicate class];
-       [NSExpression class];
+       NSExpression *expression=[self _unarchivedObjectOfClass:[NSExpression class] fromData:written];
 
-       NSKeyedUnarchiver *unarchiver=[[NSKeyedUnarchiver alloc] initForReadingWithData:written];
-       NSExpression      *expression=[unarchiver decodeObjectForKey:@"root"];
-
-       if([expression isKindOfClass:[NSExpression class]])
+       if(expression!=nil)
         [propertyMapping setValueExpression:expression];
        else
         warnf(@"%@.%@: the value expression written here cannot be read",[mapping name],name);
       }
+      /* A relationship whose key path and mapping are spelled out is
+         filled through them, whatever the source entity calls things. */
+      else if(isRelationship && sourceEntity!=nil && ([keyPath length]>0 || [throughMapping length]>0)){
+       NSRelationshipDescription *relationship=[[sourceEntity relationshipsByName] objectForKey:([keyPath length]>0)?keyPath:name];
+
+       if([throughMapping length]==0)
+        throughMapping=[namesByDestinationEntity objectForKey:[[relationship destinationEntity] name]];
+
+       if([throughMapping length]>0)
+        [propertyMapping setValueExpression:[self valueExpressionForRelationshipKeyPath:([keyPath length]>0)?keyPath:name
+                                                                         throughMapping:throughMapping]];
+       else
+        warnf(@"%@.%@: no entity mapping is named to fill the relationship, so it is left empty",[mapping name],name);
+      }
       else if(sourceEntity!=nil && [[sourceEntity propertiesByName] objectForKey:name]!=nil){
        if(isRelationship){
         NSRelationshipDescription *relationship=[[sourceEntity relationshipsByName] objectForKey:name];
-        NSString                  *throughMapping=[namesByDestinationEntity objectForKey:[[relationship destinationEntity] name]];
+
+        throughMapping=[namesByDestinationEntity objectForKey:[[relationship destinationEntity] name]];
 
         if(throughMapping!=nil)
-         [propertyMapping setValueExpression:[self _valueExpressionForRelationshipNamed:name throughMapping:throughMapping]];
+         [propertyMapping setValueExpression:[self valueExpressionForRelationshipKeyPath:name throughMapping:throughMapping]];
         else
          warnf(@"%@.%@: nothing maps %@ into the destination, so the relationship is left empty",
                [mapping name],name,[[relationship destinationEntity] name]);

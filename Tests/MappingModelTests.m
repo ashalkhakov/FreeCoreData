@@ -203,6 +203,80 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* What Xcode's inspector lets an author set, beyond expressions: a mapping's
+   own name and policy class, user info on a mapping and on its properties,
+   and the key path and mapping a relationship is filled through.  Each
+   survives a write and a compile, and the relationship is filled through
+   the renamed mapping. */
+- (void)testWhatTheInspectorSetsSurvivesAWrite
+{
+    NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+    NSMappingModel *original = [[NSMappingModel alloc] initWithContentsOfURL:
+        [bundle URLForResource:@"MappingFixture" withExtension:@"cdm"]];
+    NSEntityMapping *tags = [[original entityMappingsByName] objectForKey:@"TagToTag"];
+    NSEntityMapping *notes = [[original entityMappingsByName] objectForKey:@"NoteToNote"];
+
+    XCTAssertNotNil(tags);
+    XCTAssertNotNil(notes);
+
+    [tags setName:@"CarryTags"];
+    [tags setEntityMigrationPolicyClassName:@"NSEntityMigrationPolicy"];
+    [tags setUserInfo:@{ @"why": @"renamed" }];
+
+    for (NSPropertyMapping *property in [notes relationshipMappings])
+        if ([[property name] isEqualToString:@"tags"]) {
+            [property setValueExpression:[CDMappingCompiler valueExpressionForRelationshipKeyPath:@"tags"
+                                                                                   throughMapping:@"CarryTags"]];
+            [property setUserInfo:@{ @"note": @"through CarryTags" }];
+        }
+
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [[NSProcessInfo processInfo] globallyUniqueString]];
+    NSString *source = [directory stringByAppendingPathComponent:@"Inspected.xcmappingmodel"];
+    NSError *error = nil;
+
+    XCTAssertTrue([CDMappingSerializer writeMappingModel:original
+                                                  toPath:source
+                                         sourceModelPath:@"MappingFixture.xcdatamodeld/MappingFixture.xcdatamodel"
+                                    destinationModelPath:@"MappingFixture.xcdatamodeld/MappingFixture 2.xcdatamodel"
+                                                   error:&error],
+                  @"write: %@", error);
+
+    NSMappingModel *again = [CDMappingCompiler
+        mappingModelAtPath:source
+               sourceModel:[self fixtureModelNamed:@"MappingFixture"]
+          destinationModel:[self fixtureModelNamed:@"MappingFixture 2"]
+                     error:&error];
+
+    XCTAssertNotNil(again, @"compile: %@", error);
+
+    NSEntityMapping *carried = [[again entityMappingsByName] objectForKey:@"CarryTags"];
+
+    XCTAssertNotNil(carried, @"the mapping keeps its name");
+    XCTAssertEqualObjects([carried entityMigrationPolicyClassName], @"NSEntityMigrationPolicy");
+    XCTAssertEqualObjects([carried userInfo], @{ @"why": @"renamed" });
+
+    NSPropertyMapping *filled = nil;
+
+    for (NSPropertyMapping *property in [[[again entityMappingsByName] objectForKey:@"NoteToNote"] relationshipMappings])
+        if ([[property name] isEqualToString:@"tags"]) filled = property;
+
+    NSString *mappingName = nil, *keyPath = nil;
+
+    XCTAssertTrue([CDMappingSerializer relationshipExpression:[filled valueExpression]
+                                                  mappingName:&mappingName
+                                                      keyPath:&keyPath],
+                  @"%@", [filled valueExpression]);
+    XCTAssertEqualObjects(mappingName, @"CarryTags");
+    XCTAssertEqualObjects(keyPath, @"tags");
+    XCTAssertEqualObjects([filled userInfo], @{ @"note": @"through CarryTags" });
+
+    /* And the notes still arrive with their tags. */
+    [self migrateWithMappingModel:again];
+
+    [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 - (void)testTheMappingModelCompiledHereIsTheOneXcodeCompiled
 {
     NSMappingModel *ours = [self fixtureMappingCompiledHere];

@@ -34,6 +34,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    those out of a file; an editor shows them as nothing. */
 + (BOOL)isGeneratedExpression:(NSExpression *)expression forPropertyNamed:(NSString *)name;
 
+/* Takes apart the expression that fills a relationship through another
+   entity mapping - see +[CDMappingCompiler
+   valueExpressionForRelationshipKeyPath:throughMapping:] - into the two
+   things Xcode's inspector shows for it.  NO for any other expression. */
++ (BOOL)relationshipExpression:(NSExpression *)expression
+                   mappingName:(NSString **)mappingName
+                       keyPath:(NSString **)keyPath;
+
 + (BOOL)writeMappingModel:(NSMappingModel *)model
                    toPath:(NSString *)path
           sourceModelPath:(NSString *)sourceModelPath

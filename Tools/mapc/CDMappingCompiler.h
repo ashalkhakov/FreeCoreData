@@ -56,4 +56,14 @@ extern NSString * const CDMappingDestinationModelPathKey;
    back when the predicate is edited. */
 + (NSExpression *)sourceExpressionForEntityNamed:(NSString *)entityName predicate:(NSString *)predicateString;
 
+/* The expression that fills a relationship: the destination objects the
+   named entity mapping made of whatever the source object reaches through
+   the key path - which is what Xcode's "Auto Generate Value Expression"
+   writes, from the key path and mapping name its inspector shows. */
++ (NSExpression *)valueExpressionForRelationshipKeyPath:(NSString *)keyPath throughMapping:(NSString *)mappingName;
+
+/* The name an entity mapping goes by when the file does not give one. */
++ (NSString *)defaultNameForEntityMappingFromEntityNamed:(NSString *)sourceName
+                                           toEntityNamed:(NSString *)destinationName;
+
 @end
