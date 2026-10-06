@@ -280,7 +280,11 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
      [attribute setOptional:boolAttr(attributeElement,@"optional")];
      if(boolAttr(attributeElement,@"transient"))
       [attribute setTransient:YES];
-     if(boolAttr(attributeElement,@"preserveValueOnDeletion"))
+     /* Xcode's modeler writes preserveAfterDeletion ("Preserve After
+        Deletion"); preserveValueOnDeletion is what this compiler's own
+        serializer once wrote, read still so those models keep it. */
+     if(boolAttr(attributeElement,@"preserveAfterDeletion") ||
+        boolAttr(attributeElement,@"preserveValueOnDeletion"))
       [attribute setPreservesValueInHistoryOnDeletion:YES];
      if(attr(attributeElement,@"versionHashModifier")!=nil)
       [attribute setVersionHashModifier:attr(attributeElement,@"versionHashModifier")];

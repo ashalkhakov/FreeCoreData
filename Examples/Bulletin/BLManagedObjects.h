@@ -12,7 +12,7 @@
  * alike (codegen is off in the model).
  *
  * "text" is marked Preserve After Deletion in the model
- * (preserveValueOnDeletion), so when a post is deleted, the history
+ * (preserveAfterDeletion), so when a post is deleted, the history
  * change for the deletion carries its last text in the tombstone - the
  * history window shows it. */
 @interface BLPost : NSManagedObject

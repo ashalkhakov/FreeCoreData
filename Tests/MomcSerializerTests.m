@@ -35,7 +35,7 @@ static NSString *const kRichModelXML = @""
 "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
 "<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\" sourceLanguage=\"Objective-C\">\n"
 "  <entity name=\"Article\" representedClassName=\"NSManagedObject\" versionHashModifier=\"v2\" elementID=\"Post\" syncable=\"YES\">\n"
-"    <attribute name=\"title\" attributeType=\"String\" defaultValueString=\"Untitled\" preserveValueOnDeletion=\"YES\" minValueString=\"1\" maxValueString=\"80\" regularExpressionString=\".+\"/>\n"
+"    <attribute name=\"title\" attributeType=\"String\" defaultValueString=\"Untitled\" preserveAfterDeletion=\"YES\" minValueString=\"1\" maxValueString=\"80\" regularExpressionString=\".+\"/>\n"
 "    <attribute name=\"titleUpper\" optional=\"YES\" attributeType=\"String\" derived=\"YES\" derivationExpression=\"uppercase:(title)\"/>\n"
 "    <attribute name=\"titleCopy\" optional=\"YES\" attributeType=\"String\" derived=\"YES\" derivationExpression=\"title\"/>\n"
 "    <attribute name=\"stamp\" optional=\"YES\" attributeType=\"Date\" derived=\"YES\" derivationExpression=\"now()\"/>\n"
@@ -176,7 +176,7 @@ static NSString *const kRichModelXML = @""
     NSAttributeDescription *titleB = [[articleB attributesByName] objectForKey:@"title"];
     XCTAssertEqualObjects([titleB defaultValue], @"Untitled");
     XCTAssertTrue([titleB preservesValueInHistoryOnDeletion],
-                  @"preserveValueOnDeletion round-trips (history tombstones)");
+                  @"preserveAfterDeletion round-trips (history tombstones)");
     XCTAssertEqualObjects([[[articleB attributesByName] objectForKey:@"published"] defaultValue],
                           [NSNumber numberWithBool:YES]);
     XCTAssertEqualObjects([[[articleB attributesByName] objectForKey:@"createdAt"] defaultValue],
@@ -284,6 +284,31 @@ static NSString *const kRichModelXML = @""
    (userDefinedModelVersionIdentifier) and compiled back into the one
    version identifier; a model without one gets a blank Identifier and
    compiles back to none. */
+/* "Preserve After Deletion": Xcode's modeler writes preserveAfterDeletion,
+   which Apple's momc takes and the serializer writes back; the spelling
+   the serializer once wrote, preserveValueOnDeletion, is still read. */
+- (void)testPreserveAfterDeletionIsXcodesSpelling
+{
+    NSString *head = @"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        "<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\" sourceLanguage=\"Objective-C\">\n"
+        "  <entity name=\"Item\" representedClassName=\"NSManagedObject\" syncable=\"YES\">\n";
+    NSString *tail = @"  </entity>\n</model>\n";
+    NSDictionary *spellings = [NSDictionary dictionaryWithObjectsAndKeys:
+        @"xcode", @"preserveAfterDeletion", @"legacy", @"preserveValueOnDeletion", nil];
+    for (NSString *spelling in spellings) {
+        NSString *xml = [NSString stringWithFormat:@"%@    <attribute name=\"key\" attributeType=\"String\" %@=\"YES\"/>\n"
+                         "    <attribute name=\"other\" optional=\"YES\" attributeType=\"String\"/>\n%@", head, spelling, tail];
+        NSManagedObjectModel *model = [self compileXML:xml named:[spellings objectForKey:spelling]];
+        NSDictionary *attributes = [[[model entitiesByName] objectForKey:@"Item"] attributesByName];
+        XCTAssertTrue([[attributes objectForKey:@"key"] preservesValueInHistoryOnDeletion], @"%@ is read", spelling);
+        XCTAssertFalse([[attributes objectForKey:@"other"] preservesValueInHistoryOnDeletion]);
+        NSString *written = [CDModelSerializer contentsXMLForModel:model error:NULL];
+        XCTAssertTrue([written rangeOfString:@"preserveAfterDeletion=\"YES\""].location != NSNotFound,
+                      @"written as Xcode writes it: %@", written);
+        XCTAssertTrue([written rangeOfString:@"preserveValueOnDeletion"].location == NSNotFound);
+    }
+}
+
 - (void)testVersionIdentifierRoundTrips
 {
     NSManagedObjectModel *original = [self compileXML:kRichModelXML named:@"unidentified"];

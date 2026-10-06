@@ -90,7 +90,7 @@
 @property (nonatomic, assign, getter=isTransient) BOOL transient;
 /* With persistent history tracking, a deleted object's last value for
    this attribute is kept in the history change's tombstone
-   (preserveValueOnDeletion in the model XML). */
+   (preserveAfterDeletion in the model XML, as Xcode writes it). */
 @property (nonatomic, assign) BOOL preservesValueInHistoryOnDeletion;
 @property (nonatomic, copy) NSString *hashModifier;
 @property (nonatomic, copy) NSDictionary *userInfo;
