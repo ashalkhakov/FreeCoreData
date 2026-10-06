@@ -317,6 +317,10 @@ int main(void)
     SCENARIO("An added entity has nothing to fetch");
     [wc selectEntityMapping:mappingNamed(doc, @"Fresh")];
     CHECK([[wc.mappingTypeLabel stringValue] isEqualToString:@"Add"], "its type is Add");
+    CHECK([[wc.entityUserInfoTable dataSource] numberOfRowsInTableView:wc.entityUserInfoTable] == 1
+              && [cell(wc.entityUserInfoTable, @"key", 0) isEqual:@"testkey"]
+              && [cell(wc.entityUserInfoTable, @"value", 0) isEqual:@"testvalue"],
+          "the user info Xcode wrote is listed");
     CHECK([[wc.sourceEntityPopup titleOfSelectedItem] isEqualToString:@"None"], "it has no source");
     CHECK(![wc.sourceFetchPopup isEnabled] && ![wc.filterPredicateField isEnabled],
           "so nothing to fetch and nothing to narrow");

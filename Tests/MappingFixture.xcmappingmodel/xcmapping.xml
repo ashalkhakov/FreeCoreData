@@ -49,6 +49,9 @@
         </metadata>
     </databaseInfo>
     <object type="XDDEVENTITYMAPPING" id="z102">
+        <attribute name="userinfodata" type="binary">YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8Q
+D05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGlCwwVFhdVJG51bGzTDQ4PEBIUV05TLmtleXNaTlMub2JqZWN0c1YkY2xhc3OhEYACoROAA4AEV3Rlc3RrZXlZdGVzdHZhbHVl0hgZGhtaJGNsYXNzbmFtZVgkY2xhc3Nlc18QE05TTXV0YWJsZURpY3Rpb25hcnmjGhwdXE5TRGljdGlvbmFyeVhOU09iamVjdAgRGiQpMjdJTFFTWV9mbnmAgoSGiIqSnKGstcvP3AAAAAAAAAEBAAAAAAAAAB4AAAAAAAAAAAAAAAAAAADl
+</attribute>
         <attribute name="mappingtypename" type="string">Undefined</attribute>
         <attribute name="mappingnumber" type="int16">1</attribute>
         <attribute name="destinationname" type="string">Fresh</attribute>
@@ -90,10 +93,16 @@ D05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGsCwwXGB0eJiswMTQ4VSRudWxs1Q0ODxAREhMUFRZZTlNP
         <relationship name="relationshipmappings" type="0/0" destination="XDDEVRELATIONSHIPMAPPING" idrefs="z111"></relationship>
     </object>
     <object type="XDDEVATTRIBUTEMAPPING" id="z107">
+        <attribute name="userinfodata" type="binary">YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8Q
+D05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGlCwwVFhdVJG51bGzTDQ4PEBIUV05TLmtleXNaTlMub2JqZWN0c1YkY2xhc3OhEYACoROAA4AEV3Rlc3RrZXlZdGVzdHZhbHVl0hgZGhtaJGNsYXNzbmFtZVgkY2xhc3Nlc18QE05TTXV0YWJsZURpY3Rpb25hcnmjGhwdXE5TRGljdGlvbmFyeVhOU09iamVjdAgRGiQpMjdJTFFTWV9mbnmAgoSGiIqSnKGstcvP3AAAAAAAAAEBAAAAAAAAAB4AAAAAAAAAAAAAAAAAAADl
+</attribute>
         <attribute name="name" type="string">text</attribute>
         <relationship name="entitymapping" type="1/1" destination="XDDEVENTITYMAPPING" idrefs="z103"></relationship>
     </object>
     <object type="XDDEVRELATIONSHIPMAPPING" id="z108">
+        <attribute name="userinfodata" type="binary">YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8Q
+D05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGlCwwVFhdVJG51bGzTDQ4PEBIUV05TLmtleXNaTlMub2JqZWN0c1YkY2xhc3OhEYACoROAA4AEV3Rlc3RrZXlZdGVzdHZhbHVl0hgZGhtaJGNsYXNzbmFtZVgkY2xhc3Nlc18QE05TTXV0YWJsZURpY3Rpb25hcnmjGhwdXE5TRGljdGlvbmFyeVhOU09iamVjdAgRGiQpMjdJTFFTWV9mbnmAgoSGiIqSnKGstcvP3AAAAAAAAAEBAAAAAAAAAB4AAAAAAAAAAAAAAAAAAADl
+</attribute>
         <attribute name="autogenerateexpression" type="bool">1</attribute>
         <attribute name="name" type="string">tags</attribute>
         <relationship name="entitymapping" type="1/1" destination="XDDEVENTITYMAPPING" idrefs="z103"></relationship>

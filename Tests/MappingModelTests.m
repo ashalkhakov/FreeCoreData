@@ -309,7 +309,22 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         XCTAssertEqual([[mine attributeMappings] count], [[theirMapping attributeMappings] count], @"%@", name);
         XCTAssertEqual([[mine relationshipMappings] count], [[theirMapping relationshipMappings] count], @"%@", name);
         XCTAssertEqual([mine sourceExpression] == nil, [theirMapping sourceExpression] == nil, @"%@", name);
+
+        /* User info, set in Xcode's inspector, on the mapping and on each
+           property mapping alike. */
+        XCTAssertEqualObjects([mine userInfo], [theirMapping userInfo], @"%@", name);
+        for (NSString *key in @[ @"attributeMappings", @"relationshipMappings" ])
+            for (NSPropertyMapping *property in [theirMapping valueForKey:key]) {
+                NSPropertyMapping *matching = nil;
+
+                for (NSPropertyMapping *candidate in [mine valueForKey:key])
+                    if ([[candidate name] isEqualToString:[property name]]) matching = candidate;
+                XCTAssertEqualObjects([matching userInfo], [property userInfo], @"%@.%@", name, [property name]);
+            }
     }
+
+    /* The fixture has some, so the comparison above is not of nothing. */
+    XCTAssertEqualObjects([[theirsByName objectForKey:@"Fresh"] userInfo], @{ @"testkey": @"testvalue" });
 }
 
 - (void)testAMappingModelMadeInXcodeIsReadAndFollowed
