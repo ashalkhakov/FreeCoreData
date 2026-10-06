@@ -46,6 +46,116 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                    (NSEntityMappingType)NSCopyEntityMappingType);
 }
 
+/* A mapping model written in Xcode says which objects a mapping applies to
+   in the mapping's source expression - a fetch request this manager builds,
+   narrowed by a predicate, run against the source context.  That is how a
+   mapping takes a subset of an entity, and ignoring it migrates everybody.
+
+   The mapping model is built here rather than inferred: an inferred one
+   describes a whole-store migration, and Apple's migration takes its own
+   way through that whichever expressions it is given. */
+- (void)testSourceExpressionChoosesWhatIsMigrated
+{
+    NSError *error = nil;
+    NSAttributeDescription *(^textAttribute)(void) = ^NSAttributeDescription *(void) {
+        NSAttributeDescription *text = [[NSAttributeDescription alloc] init];
+        [text setName:@"text"];
+        [text setAttributeType:NSStringAttributeType];
+        [text setOptional:YES];
+        return text;
+    };
+    NSManagedObjectModel *(^noteModel)(void) = ^NSManagedObjectModel *(void) {
+        NSEntityDescription *note = [[NSEntityDescription alloc] init];
+        [note setName:@"Note"];
+        [note setManagedObjectClassName:@"NSManagedObject"];
+        [note setProperties:[NSArray arrayWithObject:textAttribute()]];
+        NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+        [model setEntities:[NSArray arrayWithObject:note]];
+        return model;
+    };
+
+    NSManagedObjectModel *sourceModel = noteModel();
+    NSManagedObjectModel *destinationModel = noteModel();
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [[NSProcessInfo processInfo] globallyUniqueString]];
+
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:NULL];
+
+    NSURL *sourceURL = [NSURL fileURLWithPath:
+        [directory stringByAppendingPathComponent:@"source.sqlite"]];
+    NSPersistentStoreCoordinator *sourcePSC = [[NSPersistentStoreCoordinator alloc]
+                                                  initWithManagedObjectModel:sourceModel];
+
+    XCTAssertNotNil([sourcePSC addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+                                                      URL:sourceURL options:nil error:&error],
+                    @"open: %@", error);
+
+    NSManagedObjectContext *sourceCtx = [[NSManagedObjectContext alloc] init];
+    [sourceCtx setPersistentStoreCoordinator:sourcePSC];
+
+    for (NSString *text in [NSArray arrayWithObjects:@"keep me", @"keep her", @"drop him", nil]) {
+        NSManagedObject *note = [NSEntityDescription insertNewObjectForEntityForName:@"Note"
+                                                             inManagedObjectContext:sourceCtx];
+        [note setValue:text forKey:@"text"];
+    }
+    XCTAssertTrue([sourceCtx save:&error], @"save: %@", error);
+    XCTAssertTrue([sourcePSC removePersistentStore:[[sourcePSC persistentStores] lastObject]
+                                             error:&error], @"remove: %@", error);
+
+    NSPropertyMapping *textMapping = [[NSPropertyMapping alloc] init];
+    [textMapping setName:@"text"];
+    [textMapping setValueExpression:[NSExpression expressionWithFormat:@"$source.text"]];
+
+    NSEntityMapping *notes = [[NSEntityMapping alloc] init];
+    [notes setName:@"KeepSome"];
+    [notes setMappingType:NSTransformEntityMappingType];
+    [notes setSourceEntityName:@"Note"];
+    [notes setSourceEntityVersionHash:[[[sourceModel entitiesByName] objectForKey:@"Note"] versionHash]];
+    [notes setDestinationEntityName:@"Note"];
+    [notes setDestinationEntityVersionHash:[[[destinationModel entitiesByName] objectForKey:@"Note"] versionHash]];
+    [notes setAttributeMappings:[NSArray arrayWithObject:textMapping]];
+    [notes setSourceExpression:[NSExpression expressionWithFormat:
+        @"FETCH(FUNCTION($manager, 'fetchRequestForSourceEntityNamed:predicateString:', 'Note', 'text BEGINSWITH \"keep\"'), FUNCTION($manager, 'sourceContext'), NO)"]];
+
+    NSMappingModel *mapping = [[NSMappingModel alloc] init];
+    [mapping setEntityMappings:[NSArray arrayWithObject:notes]];
+
+    NSURL *destinationURL = [NSURL fileURLWithPath:
+        [directory stringByAppendingPathComponent:@"destination.sqlite"]];
+    NSMigrationManager *manager = [[NSMigrationManager alloc] initWithSourceModel:sourceModel
+                                                                destinationModel:destinationModel];
+
+    XCTAssertTrue([manager migrateStoreFromURL:sourceURL type:NSSQLiteStoreType options:nil
+                              withMappingModel:mapping toDestinationURL:destinationURL
+                               destinationType:NSSQLiteStoreType destinationOptions:nil
+                                         error:&error], @"migrate: %@", error);
+    [manager reset];
+
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+                                            initWithManagedObjectModel:destinationModel];
+
+    XCTAssertNotNil([psc addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+                                                URL:destinationURL options:nil error:&error],
+                    @"open the migrated store: %@", error);
+
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Note"];
+    [fetch setSortDescriptors:[NSArray arrayWithObject:
+        [NSSortDescriptor sortDescriptorWithKey:@"text" ascending:YES]]];
+
+    XCTAssertEqualObjects([[ctx executeFetchRequest:fetch error:&error] valueForKey:@"text"],
+        ([NSArray arrayWithObjects:@"keep her", @"keep me", nil]),
+        @"only what the source expression fetched: %@", error);
+
+    [psc removePersistentStore:[[psc persistentStores] lastObject] error:NULL];
+    [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 - (void)testInferredMappingModelAddsAndRemovesEntities
 {
     NSEntityDescription *added = [[NSEntityDescription alloc] init];

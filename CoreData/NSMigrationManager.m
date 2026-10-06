@@ -17,6 +17,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSEntityDescription.h>
 #import <CoreData/NSFetchRequest.h>
+#import <Foundation/NSExpression.h>
+#import <Foundation/NSPredicate.h>
 #import <CoreData/NSPersistentStoreCoordinator.h>
 #import <CoreData/CoreDataErrors.h>
 #import <CoreData/NSPersistentStore.h>
@@ -97,6 +99,26 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
    [[association objectForKey:@"sources"] addObject:sourceInstance];
    [[association objectForKey:@"destinations"] addObject:destinationInstance];
+}
+
+/* What a source expression asks this manager for, and what a custom policy
+   fetches with: a request on the source model's entity of that name,
+   narrowed by a predicate written as a string.  "TRUEPREDICATE" - which is
+   what an unfiltered mapping says - narrows nothing. */
+-(NSFetchRequest *)fetchRequestForSourceEntityNamed:(NSString *)entityName predicateString:(NSString *)predicateString {
+   NSEntityDescription *entity=[[_sourceModel entitiesByName] objectForKey:entityName];
+
+   if(entity==nil)
+    return nil;
+
+   NSFetchRequest *request=[[[NSFetchRequest alloc] init] autorelease];
+
+   [request setEntity:entity];
+
+   if([predicateString length]>0)
+    [request setPredicate:[NSPredicate predicateWithFormat:predicateString]];
+
+   return request;
 }
 
 -(NSArray *)destinationInstancesForEntityMappingNamed:(NSString *)mappingName sourceInstances:(NSArray *)sourceInstances {
@@ -182,6 +204,55 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    error=[error retain];
    [_migrationError release];
    _migrationError=error;
+}
+
+/* Which of the source store's objects a mapping applies to.
+
+   A mapping model written in Xcode says so in the mapping's source
+   expression, which is of one shape:
+
+     FETCH(FUNCTION($manager, "fetchRequestForSourceEntityNamed:predicateString:",
+                    "Note", "text BEGINSWITH 'keep'"),
+           FUNCTION($manager, "sourceContext"), NO)
+
+   - a request this manager builds, run against the context it is asked
+   for, which is how a mapping takes a subset of an entity.  Evaluating it
+   is all that is needed: $manager is this object, and the methods the
+   expression names are below.  A mapping without one - every inferred
+   mapping, and every mapping built in code - means the whole entity. */
+-(NSArray *)_sourceInstancesForEntityMapping:(NSEntityMapping *)mapping error:(NSError **)error {
+   NSExpression *sourceExpression=[mapping sourceExpression];
+
+   if(sourceExpression!=nil){
+    NSMutableDictionary *context=[NSMutableDictionary dictionaryWithObject:self forKey:@"manager"];
+    id                   instances=nil;
+
+    NS_DURING
+     instances=[sourceExpression expressionValueWithObject:nil context:context];
+    NS_HANDLER
+     if(error!=NULL)
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSMigrationError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"The source expression of entity mapping '%@' could not be evaluated: %@",[mapping name],[localException reason]] forKey:NSLocalizedDescriptionKey]];
+     instances=nil;
+     NS_VALUERETURN(nil,NSArray *);
+    NS_ENDHANDLER
+
+    if([instances isKindOfClass:[NSArray class]])
+     return instances;
+    if([instances isKindOfClass:[NSSet class]] || [instances isKindOfClass:[NSOrderedSet class]])
+     return [instances allObjects];
+    if(instances==nil)
+     return [NSArray array];
+
+    if(error!=NULL)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSMigrationError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"The source expression of entity mapping '%@' answered %@, not objects to migrate",[mapping name],[instances class]] forKey:NSLocalizedDescriptionKey]];
+    return nil;
+   }
+
+   NSFetchRequest *request=[[[NSFetchRequest alloc] init] autorelease];
+
+   [request setEntity:[self sourceEntityForEntityMapping:mapping]];
+
+   return [_sourceContext executeFetchRequest:request error:error];
 }
 
 -(NSEntityMigrationPolicy *)_policyForEntityMapping:(NSEntityMapping *)mapping {
@@ -357,11 +428,7 @@ static BOOL cancelledError(NSMigrationManager *self,NSError *migrationError,NSEr
     NSEntityDescription *sourceEntity=[self sourceEntityForEntityMapping:mapping];
 
     if(sourceEntity!=nil && [mapping mappingType]!=NSRemoveEntityMappingType){
-     NSFetchRequest *request=[[[NSFetchRequest alloc] init] autorelease];
-
-     [request setEntity:sourceEntity];
-
-     NSArray *sourceInstances=[_sourceContext executeFetchRequest:request error:error];
+     NSArray *sourceInstances=[self _sourceInstancesForEntityMapping:mapping error:error];
 
      if(sourceInstances==nil)
       return NO;
