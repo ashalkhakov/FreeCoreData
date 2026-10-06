@@ -47,6 +47,22 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
+				<string>xcmappingmodel</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Core Data Mapping Model</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSTypeIsPackage</key>
+			<true/>
+			<key>NSDocumentClass</key>
+			<string>MBMappingDocument</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
 				<string>xcdatamodel</string>
 			</array>
 			<key>CFBundleTypeName</key>

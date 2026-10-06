@@ -10,7 +10,7 @@ include $(GNUSTEP_MAKEFILES)/common.make
 CC = clang
 OBJC = clang
 
-TOOL_NAME = MBDocumentSmoke MBWindowProbe MBMappingSmoke
+TOOL_NAME = MBDocumentSmoke MBWindowProbe MBMappingSmoke MBMappingWindowProbe
 
 MB_SOURCES = \
 	../../ModelBuilder/MBDocument.m \
@@ -35,6 +35,7 @@ MB_SOURCES = \
 MBDocumentSmoke_OBJC_FILES = MBDocumentSmoke.m $(MB_SOURCES)
 MBWindowProbe_OBJC_FILES = MBWindowProbe.m $(MB_SOURCES)
 MBMappingSmoke_OBJC_FILES = MBMappingSmoke.m $(MB_SOURCES)
+MBMappingWindowProbe_OBJC_FILES = MBMappingWindowProbe.m $(MB_SOURCES)
 
 ADDITIONAL_INCLUDE_DIRS += -I../.. -I../../Tools/momc -I../../Tools/mapc -I../../ModelBuilder \
 	-I../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar \
@@ -45,6 +46,7 @@ FRAMEWORK_BUILD_DIR = $(CURDIR)/../../CoreData.framework/Versions/Current
 MBDocumentSmoke_OBJC_LIBS += -lCoreData -lgnustep-gui
 MBWindowProbe_OBJC_LIBS += -lCoreData -lgnustep-gui
 MBMappingSmoke_OBJC_LIBS += -lCoreData -lgnustep-gui
+MBMappingWindowProbe_OBJC_LIBS += -lCoreData -lgnustep-gui
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
 
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fblocks -fobjc-runtime=gnustep-2.0 \
@@ -61,7 +63,11 @@ after-all::
 	@wrap="$(GNUSTEP_OBJ_DIR)/MBWindowProbe.app"; \
 	mkdir -p "$$wrap/Resources"; \
 	cp -f "$(GNUSTEP_OBJ_DIR)/MBWindowProbe" "$$wrap/"; \
-	cp -f ../../ModelBuilder/MBDocumentWindow.xib "$$wrap/Resources/"
+	cp -f ../../ModelBuilder/MBDocumentWindow.xib "$$wrap/Resources/"; \
+	wrap="$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe.app"; \
+	mkdir -p "$$wrap/Resources"; \
+	cp -f "$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe" "$$wrap/"; \
+	cp -f ../../ModelBuilder/MBMappingWindow.xib "$$wrap/Resources/"
 
 RUN_ENV = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH"
 
@@ -70,6 +76,7 @@ check::
 	$(RUN_ENV) "$(GNUSTEP_OBJ_DIR)/MBDocumentSmoke"
 	$(RUN_ENV) "$(GNUSTEP_OBJ_DIR)/MBMappingSmoke"
 	$(RUN_ENV) "$(GNUSTEP_OBJ_DIR)/MBWindowProbe.app/MBWindowProbe"
+	$(RUN_ENV) "$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe.app/MBMappingWindowProbe"
 
 # gnustep-make mirrors ../../ source paths beside obj/ when compiling
 # out-of-directory sources; sweep those artifacts too.
