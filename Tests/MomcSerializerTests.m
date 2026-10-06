@@ -280,35 +280,46 @@ static NSString *const kRichModelXML = @""
     XCTAssertFalse([template returnsObjectsAsFaults]);
 }
 
-/* A model's version identifier is written as the version's Identifier
-   (userDefinedModelVersionIdentifier) and compiled back into the one
-   version identifier; a model without one gets a blank Identifier and
-   compiles back to none. */
-/* "Preserve After Deletion": Xcode's modeler writes preserveAfterDeletion,
-   which Apple's momc takes and the serializer writes back; the spelling
-   the serializer once wrote, preserveValueOnDeletion, is still read. */
+/* "Preserve After Deletion" is preserveAfterDeletion, which is what
+   Xcode's modeler writes and the only spelling Apple's momc reads: a
+   model written by one toolchain means the same thing to the other.
+   preserveValueOnDeletion, which this project invented and wrote for a
+   while, means nothing to either - checked here so it cannot come back
+   as a second, private spelling. */
 - (void)testPreserveAfterDeletionIsXcodesSpelling
 {
     NSString *head = @"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
         "<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\" sourceLanguage=\"Objective-C\">\n"
         "  <entity name=\"Item\" representedClassName=\"NSManagedObject\" syncable=\"YES\">\n";
     NSString *tail = @"  </entity>\n</model>\n";
-    NSDictionary *spellings = [NSDictionary dictionaryWithObjectsAndKeys:
-        @"xcode", @"preserveAfterDeletion", @"legacy", @"preserveValueOnDeletion", nil];
-    for (NSString *spelling in spellings) {
+    NSDictionary *isRead = [NSDictionary dictionaryWithObjectsAndKeys:
+        [NSNumber numberWithBool:YES], @"preserveAfterDeletion",
+        [NSNumber numberWithBool:NO], @"preserveValueOnDeletion", nil];
+
+    for (NSString *spelling in isRead) {
         NSString *xml = [NSString stringWithFormat:@"%@    <attribute name=\"key\" attributeType=\"String\" %@=\"YES\"/>\n"
                          "    <attribute name=\"other\" optional=\"YES\" attributeType=\"String\"/>\n%@", head, spelling, tail];
-        NSManagedObjectModel *model = [self compileXML:xml named:[spellings objectForKey:spelling]];
+        NSManagedObjectModel *model = [self compileXML:xml named:spelling];
         NSDictionary *attributes = [[[model entitiesByName] objectForKey:@"Item"] attributesByName];
-        XCTAssertTrue([[attributes objectForKey:@"key"] preservesValueInHistoryOnDeletion], @"%@ is read", spelling);
+        BOOL read = [[isRead objectForKey:spelling] boolValue];
+
+        XCTAssertEqual((BOOL)[[attributes objectForKey:@"key"] preservesValueInHistoryOnDeletion], read,
+                       @"%@ %@ be read", spelling, read ? @"should" : @"should not");
         XCTAssertFalse([[attributes objectForKey:@"other"] preservesValueInHistoryOnDeletion]);
+
+        /* And the flag is written back under the one name, or not at all. */
         NSString *written = [CDModelSerializer contentsXMLForModel:model error:NULL];
-        XCTAssertTrue([written rangeOfString:@"preserveAfterDeletion=\"YES\""].location != NSNotFound,
-                      @"written as Xcode writes it: %@", written);
+        XCTAssertNotNil(written);
+        XCTAssertEqual((BOOL)([written rangeOfString:@"preserveAfterDeletion=\"YES\""].location != NSNotFound), read,
+                       @"written as Xcode writes it: %@", written);
         XCTAssertTrue([written rangeOfString:@"preserveValueOnDeletion"].location == NSNotFound);
     }
 }
 
+/* A model's version identifier is written as the version's Identifier
+   (userDefinedModelVersionIdentifier) and compiled back into the one
+   version identifier; a model without one gets a blank Identifier and
+   compiles back to none. */
 - (void)testVersionIdentifierRoundTrips
 {
     NSManagedObjectModel *original = [self compileXML:kRichModelXML named:@"unidentified"];

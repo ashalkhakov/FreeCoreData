@@ -32,7 +32,7 @@
  *   NSPersistentHistoryToken (NSSecureCoding)     where a board stopped
  *                                                 merging, archived in
  *                                                 user defaults
- *   tombstones (preserveAfterDeletion)          the history window
+ *   tombstones (preserveAfterDeletion)            the history window
  *                                                 shows deleted posts'
  *                                                 last text
  *   deleteHistoryBeforeTransaction:               Compact History

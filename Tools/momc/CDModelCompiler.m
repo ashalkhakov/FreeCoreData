@@ -280,11 +280,13 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
      [attribute setOptional:boolAttr(attributeElement,@"optional")];
      if(boolAttr(attributeElement,@"transient"))
       [attribute setTransient:YES];
-     /* Xcode's modeler writes preserveAfterDeletion ("Preserve After
-        Deletion"); preserveValueOnDeletion is what this compiler's own
-        serializer once wrote, read still so those models keep it. */
-     if(boolAttr(attributeElement,@"preserveAfterDeletion") ||
-        boolAttr(attributeElement,@"preserveValueOnDeletion"))
+     /* "Preserve After Deletion", which Xcode's modeler writes and Apple's
+        momc reads under this name alone.  This compiler read
+        preserveValueOnDeletion for a while, a spelling of its own that
+        Apple's momc quietly ignores; models carrying it are re-saved
+        rather than read here, so the two toolchains make the same model
+        out of the same file. */
+     if(boolAttr(attributeElement,@"preserveAfterDeletion"))
       [attribute setPreservesValueInHistoryOnDeletion:YES];
      if(attr(attributeElement,@"versionHashModifier")!=nil)
       [attribute setVersionHashModifier:attr(attributeElement,@"versionHashModifier")];
