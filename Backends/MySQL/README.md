@@ -112,14 +112,14 @@ CD_TEST_MYSQL_URL=mysql://root:test@localhost:3306/coredata_test \
 ```
 
 On macOS, against Apple's CoreData, through the Xcode project - note the
-`TEST_RUNNER_` prefix, which is how xcodebuild passes a variable to the test
-process:
+`TEST_RUNNER_` prefix, in xcodebuild's environment, which is how xcodebuild
+passes a variable to the test process (given as an argument after
+`xcodebuild`, it is a build setting instead, and the tests skip):
 
 ```sh
-xcodebuild -project Backends/MySQL/CDMySQLStore.xcodeproj \
-    -scheme CDMySQLStoreTests -destination 'platform=macOS' \
-    TEST_RUNNER_CD_TEST_MYSQL_URL=mysql://root:test@localhost:3306/coredata_test \
-    test
+TEST_RUNNER_CD_TEST_MYSQL_URL=mysql://root:test@localhost:3306/coredata_test \
+    xcodebuild -project Backends/MySQL/CDMySQLStore.xcodeproj \
+    -scheme CDMySQLStoreTests -destination 'platform=macOS' test
 ```
 
 Each test works in a database of its own, dropped afterwards.  With
