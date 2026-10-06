@@ -1022,24 +1022,29 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 
      while(!failed && sqlite3_step(changes)==SQLITE_ROW){
       const char *entityText=(const char *)sqlite3_column_text(changes,3);
-      NSString   *name=[entityNames objectForKey:entityText?[NSString stringWithUTF8String:entityText]:@""];
+      NSString   *sourceName=entityText?[NSString stringWithUTF8String:entityText]:@"";
+      NSString   *name=[entityNames objectForKey:sourceName];
       NSEntityDescription *entity=(name!=nil)?[entities objectForKey:name]:nil;
 
       /* An entity the destination has not: its history goes with it. */
       if(entity==nil)
        continue;
 
+      /* Keyed by the source entity, whose primary-key space this number
+         belongs to: two source entities mapped into one destination
+         entity both count from 1, and keying by the destination would
+         make one's objects the other's. */
       NSNumber *sourceKey=[NSNumber numberWithLongLong:sqlite3_column_int64(changes,4)];
-      NSNumber *key=[[primaryKeys objectForKey:name] objectForKey:sourceKey];
+      NSNumber *key=[[primaryKeys objectForKey:sourceName] objectForKey:sourceKey];
 
       /* An object not migrated (deleted before): a key of its own, never
          one a migrated object has, the same for each of its changes. */
       if(key==nil){
-       NSMutableDictionary *mine=[orphans objectForKey:name];
+       NSMutableDictionary *mine=[orphans objectForKey:sourceName];
 
        if(mine==nil){
         mine=[NSMutableDictionary dictionary];
-        [orphans setObject:mine forKey:name];
+        [orphans setObject:mine forKey:sourceName];
        }
        key=[mine objectForKey:sourceKey];
        if(key==nil){
@@ -1079,17 +1084,45 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
       break;
     }
 
+    /* The number the migration's own transaction takes, and with it every
+       number this store hands out afterwards: above every number the
+       source ever gave out, not merely above the rows it still has.  A
+       purge leaves the table empty with its numbers spent, and a token
+       taken before the purge still names one of them - numbering from 1
+       again would put new transactions behind such a token, where nothing
+       would ever read them.  (Arbitrated on macOS: a store purged of
+       transactions 1 to 3 and then migrated goes on at 4.)
+
+       Given explicitly rather than left to AUTOINCREMENT, whose own
+       high-water mark went with the rows deleted above: sqlite_sequence
+       has no unique index on name, so it cannot simply be written back -
+       INSERT OR REPLACE appends a second row and which one SQLite then
+       believes is its business, not ours. */
+    long long     markerNumber=1;
+    sqlite3_stmt *high=prepareStatement(DATABASE,
+        found==2
+            ? @"SELECT MAX(COALESCE((SELECT seq FROM cd_source.sqlite_sequence WHERE name = 'Z_ATRANSACTION'), 0),"
+               "           COALESCE((SELECT MAX(Z_PK) FROM Z_ATRANSACTION), 0))"
+            : @"SELECT COALESCE((SELECT MAX(Z_PK) FROM Z_ATRANSACTION), 0)",error);
+
+    if(high==NULL)
+     break;
+    if(sqlite3_step(high)==SQLITE_ROW)
+     markerNumber=sqlite3_column_int64(high,0)+1;
+    sqlite3_finalize(high);
+
     /* The migration itself: a transaction of its own, with no changes. */
-    sqlite3_stmt *marker=prepareStatement(DATABASE,@"INSERT INTO Z_ATRANSACTION (ZTIMESTAMP, ZAUTHOR, ZPROCESSID, ZBUNDLEID) VALUES (?, ?, ?, ?)",error);
+    sqlite3_stmt *marker=prepareStatement(DATABASE,@"INSERT INTO Z_ATRANSACTION (Z_PK, ZTIMESTAMP, ZAUTHOR, ZPROCESSID, ZBUNDLEID) VALUES (?, ?, ?, ?, ?)",error);
     NSString     *processID=[NSString stringWithFormat:@"%d",(int)[[NSProcessInfo processInfo] processIdentifier]];
     NSString     *bundleID=[[NSBundle mainBundle] bundleIdentifier]?:[[NSProcessInfo processInfo] processName];
 
     if(marker==NULL)
      break;
-    sqlite3_bind_double(marker,1,[[NSDate date] timeIntervalSinceReferenceDate]);
-    sqlite3_bind_text(marker,2,[author UTF8String],-1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(marker,3,[processID UTF8String],-1,SQLITE_TRANSIENT);
-    sqlite3_bind_text(marker,4,[bundleID UTF8String],-1,SQLITE_TRANSIENT);
+    sqlite3_bind_int64(marker,1,markerNumber);
+    sqlite3_bind_double(marker,2,[[NSDate date] timeIntervalSinceReferenceDate]);
+    sqlite3_bind_text(marker,3,[author UTF8String],-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(marker,4,[processID UTF8String],-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(marker,5,[bundleID UTF8String],-1,SQLITE_TRANSIENT);
     ok=(sqlite3_step(marker)==SQLITE_DONE);
     sqlite3_finalize(marker);
     if(!ok && error!=NULL)
