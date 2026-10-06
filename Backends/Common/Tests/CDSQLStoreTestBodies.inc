@@ -2276,25 +2276,25 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
 
     [fetch setPredicate:[NSPredicate predicateWithFormat:@"SELF == %@", adaID]];
     XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)1,
-        "SELF == an object ID names that row: %@", error);
+        @"SELF == an object ID names that row: %@", error);
     XCTAssertEqual([reopened countForFetchRequest:fetch error:&error], (NSUInteger)1,
-        "and counts it: %@", error);
+        @"and counts it: %@", error);
 
     [fetch setPredicate:[NSPredicate predicateWithFormat:@"SELF == %@", ada]];
     XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)1,
-        "SELF == a managed object names that row: %@", error);
+        @"SELF == a managed object names that row: %@", error);
 
     [fetch setPredicate:[NSPredicate predicateWithFormat:@"SELF IN %@", @[ adaID ]]];
     XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)1,
-        "SELF IN a list of object IDs names those rows: %@", error);
+        @"SELF IN a list of object IDs names those rows: %@", error);
 
     [fetch setPredicate:[NSPredicate predicateWithFormat:@"employer == %@", companyID]];
     XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)2,
-        "a relationship compared with an object ID: %@", error);
+        @"a relationship compared with an object ID: %@", error);
 
     [fetch setPredicate:[NSPredicate predicateWithFormat:@"employer == %@", [ada valueForKey:@"employer"]]];
     XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)2,
-        "a relationship compared with a managed object: %@", error);
+        @"a relationship compared with a managed object: %@", error);
 
     /* Untranslatable, so evaluated over the fetched objects, where an object
        ID equals none of them.  Apple answers the same here. */
@@ -2302,7 +2302,7 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
         [NSPredicate predicateWithFormat:@"employer == %@", companyID],
         [self namedPredicate:@"nobody"] ]]];
     XCTAssertEqual([[reopened executeFetchRequest:fetch error:&error] count], (NSUInteger)0,
-        "a row named in a predicate the store cannot translate is not matched: %@", error);
+        @"a row named in a predicate the store cannot translate is not matched: %@", error);
 }
 
 /* -- regular expressions ----------------------------------------------- */
