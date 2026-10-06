@@ -9,6 +9,7 @@
 #import <CoreData/CoreData.h>
 #import "MBMappingDocument.h"
 #import "MBMappingWindowController.h"
+#import "MBNewMappingController.h"
 
 static int passed = 0, failed = 0;
 #define CHECK(cond, name) do { \
@@ -75,6 +76,17 @@ static void choose(MBMappingWindowController *wc, NSPopUpButton *popup, NSString
 {
   [popup selectItemWithTitle:title];
   [wc inspectorChanged:popup];
+}
+
+static NSButton *buttonTitled(NSView *view, NSString *title)
+{
+  if ([view isKindOfClass:[NSButton class]] && [[(NSButton *)view title] isEqualToString:title])
+    return (NSButton *)view;
+  for (NSView *subview in [view subviews]) {
+    NSButton *found = buttonTitled(subview, title);
+    if (found) return found;
+  }
+  return nil;
 }
 
 static NSInteger listedMappings(MBMappingWindowController *wc)
@@ -345,6 +357,53 @@ int main(void)
     [wc.entityMappingSegmentedControl setSelectedSegment:1];
     [wc entityMappingSegmentClicked:wc.entityMappingSegmentedControl];
     CHECK(listedMappings(wc) == before, "− removes the selected one");
+
+    SCENARIO("File > New Mapping Model");
+    /* GIVEN the fixture's two-version model
+       WHEN it is chosen as the source in the New Mapping Model panel
+       THEN the source starts at the version before the current one, the
+            destination at the current one, and Create writes a mapping
+            model that opens with Xcode's three mappings */
+    CHECK([[NSDocumentController sharedDocumentController] respondsToSelector:@selector(newMappingModel:)],
+          "the document controller answers New Mapping Model");
+    MBNewMappingController *panel = [[MBNewMappingController alloc] initWithWindowNibName:@"MBNewMappingPanel"];
+    CHECK([panel window] != nil && panel.sourceVersionPopup && panel.destinationVersionPopup
+              && panel.sourcePathLabel && panel.destinationPathLabel && panel.createButton,
+          "the panel loads from its nib, every outlet connected");
+    CHECK(![panel.createButton isEnabled], "Create waits for the models");
+    CHECK([[buttonTitled([[panel window] contentView], @"Cancel") keyEquivalent] isEqualToString:@"\033"],
+          "Cancel answers Escape (written in base64 in the xib)");
+    CHECK([[buttonTitled([[panel window] contentView], @"Create…") keyEquivalent] isEqualToString:@"\r"],
+          "Create answers Return");
+
+    NSString *modelBundle = [[fixture stringByDeletingLastPathComponent]
+        stringByAppendingPathComponent:@"MappingFixture.xcdatamodeld"];
+    CHECK(![panel chooseSourceModelAtPath:fixture], "a mapping model is not a model to choose");
+    CHECK([panel chooseSourceModelAtPath:modelBundle], "the model is chosen as the source");
+    CHECK([[panel.sourceVersionPopup titleOfSelectedItem] isEqualToString:@"MappingFixture"],
+          "starting from the version before the current one");
+    CHECK([[panel.destinationVersionPopup titleOfSelectedItem] isEqualToString:@"MappingFixture 2"],
+          "to the current one, of the same model");
+    CHECK([panel.createButton isEnabled], "and Create can go ahead");
+    CHECK([[panel suggestedFileName] isEqualToString:@"MappingFixtureToMappingFixture2.xcmappingmodel"]
+              && [[panel suggestedDirectory] isEqualToString:[fixture stringByDeletingLastPathComponent]],
+          "beside the model, named for the two versions");
+
+    NSString *created = [[fixture stringByDeletingLastPathComponent] stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"new-%d.xcmappingmodel", (int)getpid()]];
+    ok = [panel createMappingModelAtPath:created error:&error];
+    CHECK(ok, "Create writes the mapping model");
+    MBMappingDocument *made = [[MBMappingDocument alloc] init];
+    ok = ok && [made readFromURL:[NSURL fileURLWithPath:created] ofType:@"Core Data Mapping Model" error:&error];
+    if (!ok) printf("  (%s)\n", [[error description] UTF8String]);
+    NSArray *names = [[[made entityMappings] valueForKey:@"name"] sortedArrayUsingSelector:@selector(compare:)];
+    BOOL xcodesThree = [names isEqualToArray:@[ @"Fresh", @"NoteToNote", @"TagToTag" ]];
+    CHECK(xcodesThree,
+          "which opens with the mappings Xcode starts with");
+    CHECK([[made sourceModelPath] hasSuffix:@"MappingFixture.xcdatamodeld/MappingFixture.xcdatamodel"]
+              && ![[made sourceModelPath] isAbsolutePath],
+          "and records the model by its path in the project");
+    [[NSFileManager defaultManager] removeItemAtPath:created error:NULL];
 
     printf("\n---\n%d passed, %d failed\n", passed, failed);
     return failed == 0 ? 0 : 1;
