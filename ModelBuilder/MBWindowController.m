@@ -17,6 +17,7 @@
 #import "JUInspectorViewContainer.h"
 #import "DMTabBar.h"
 #import "DMTabBarItem.h"
+#import "MBWindowSupport.h"
 
 typedef NS_ENUM(NSInteger, MBSourceKind) {
   MBSourceGroupEntities = 0,
@@ -152,9 +153,7 @@ static void MBDisableControlsOfClass(NSView *root, Class cls, NSString *tooltip)
   }
 }
 
-static NSImage *MBBadgeImage(NSString *letters, CGFloat red, CGFloat green, CGFloat blue);
-
-static NSImage *MBFirstImageNamed(NSArray *names)
+NSImage *MBFirstImageNamed(NSArray *names)
 {
   for (NSString *name in names) {
     NSImage *image = [NSImage imageNamed:name];
@@ -167,7 +166,7 @@ static NSImage *MBFirstImageNamed(NSArray *names)
    Apple system images.  Where the name resolves to nothing, GSXib5 hands
    the segment the bare name string instead of nil, and the first draw
    sends it -size.  Swap any such segment to a text label. */
-static void MBRepairSegmentImages(NSView *view)
+void MBRepairSegmentImages(NSView *view)
 {
   if ([view isKindOfClass:[NSSegmentedControl class]]) {
     NSSegmentedControl *control = (NSSegmentedControl *)view;
@@ -195,7 +194,7 @@ static void MBRepairSegmentImages(NSView *view)
    on every tab page.  The field editor takes the setting from the cell it
    edits; Cocoa's text cells default to on, GNUstep's to off (and a xib
    does not say), so Ctrl+Z while typing did nothing there. */
-static void MBEnableTypingUndoIn(NSView *view)
+void MBEnableTypingUndoIn(NSView *view)
 {
   if ([view isKindOfClass:[NSTextField class]]) {
     [[(NSTextField *)view cell] setAllowsUndo:YES];
@@ -214,8 +213,53 @@ static void MBEnableTypingUndoIn(NSView *view)
         MBEnableTypingUndoIn(item.view);
 }
 
+/* Ported from RDL Designer: lays a split view's panes out by the rule its
+   delegate's -splitView:shouldAdjustSizeOfSubview: gives.  See
+   -splitView:resizeSubviewsWithOldSize: below for why GNUstep needs it. */
+void MBDistributeSplitSubviews(NSSplitView *splitView, id<NSSplitViewDelegate> delegate)
+{
+  NSArray *subviews = splitView.subviews;
+  NSUInteger count = subviews.count;
+  if (count == 0) return;
+  BOOL vertical = splitView.isVertical;
+  NSRect bounds = splitView.bounds;
+  CGFloat divider = splitView.dividerThickness;
+  CGFloat total = (vertical ? NSWidth(bounds) : NSHeight(bounds)) - divider * (CGFloat)(count - 1);
+  CGFloat spans[count];
+  BOOL adjust[count];
+  CGFloat oldAdjustable = 0, fixed = 0;
+  NSUInteger adjustableCount = 0;
+  for (NSUInteger i = 0; i < count; i++) {
+    NSRect frame = [subviews[i] frame];
+    spans[i] = vertical ? NSWidth(frame) : NSHeight(frame);
+    adjust[i] = ![splitView isSubviewCollapsed:subviews[i]] &&
+                [delegate splitView:splitView shouldAdjustSizeOfSubview:subviews[i]];
+    if (adjust[i]) { oldAdjustable += spans[i]; adjustableCount++; }
+    else fixed += spans[i];
+  }
+  if (adjustableCount == 0) {
+    /* nothing may give: let the last pane take the difference */
+    adjust[count - 1] = YES;
+    oldAdjustable = spans[count - 1];
+    fixed -= spans[count - 1];
+    adjustableCount = 1;
+  }
+  CGFloat forAdjustable = MAX(0, total - fixed);
+  CGFloat running = 0;
+  for (NSUInteger i = 0; i < count; i++) {
+    CGFloat span = spans[i];
+    if (adjust[i])
+      span = oldAdjustable > 0.5 ? forAdjustable * (spans[i] / oldAdjustable)
+                                 : forAdjustable / (CGFloat)adjustableCount;
+    NSRect rect = vertical ? NSMakeRect(running, 0, span, NSHeight(bounds))
+                           : NSMakeRect(0, running, NSWidth(bounds), span);
+    [subviews[i] setFrame:[splitView centerScanRect:rect]];
+    running += span + divider;
+  }
+}
+
 /* The first split view among a view's immediate subviews. */
-static NSSplitView *MBFirstSplitViewIn(NSView *view)
+NSSplitView *MBFirstSplitViewIn(NSView *view)
 {
   for (NSView *subview in view.subviews)
     if ([subview isKindOfClass:[NSSplitView class]]) return (NSSplitView *)subview;
@@ -1976,7 +2020,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
 /* Xcode-style circular letter badges, drawn once and cached.  The
    cache key carries the color, so the same letter can appear in
    different tints (Float "F" vs Fetch Request "F"). */
-static NSImage *MBBadgeImage(NSString *letters, CGFloat red, CGFloat green, CGFloat blue)
+NSImage *MBBadgeImage(NSString *letters, CGFloat red, CGFloat green, CGFloat blue)
 {
   static NSMutableDictionary *cache;
   if (!cache) cache = [NSMutableDictionary dictionary];
@@ -2304,44 +2348,7 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
 - (void)splitView:(NSSplitView *)splitView resizeSubviewsWithOldSize:(NSSize)oldSize
 {
   (void)oldSize;
-  NSArray *subviews = splitView.subviews;
-  NSUInteger count = subviews.count;
-  if (count == 0) return;
-  BOOL vertical = splitView.isVertical;
-  NSRect bounds = splitView.bounds;
-  CGFloat divider = splitView.dividerThickness;
-  CGFloat total = (vertical ? NSWidth(bounds) : NSHeight(bounds)) - divider * (CGFloat)(count - 1);
-  CGFloat spans[count];
-  BOOL adjust[count];
-  CGFloat oldAdjustable = 0, fixed = 0;
-  NSUInteger adjustableCount = 0;
-  for (NSUInteger i = 0; i < count; i++) {
-    NSRect frame = [subviews[i] frame];
-    spans[i] = vertical ? NSWidth(frame) : NSHeight(frame);
-    adjust[i] = ![splitView isSubviewCollapsed:subviews[i]] &&
-                [self splitView:splitView shouldAdjustSizeOfSubview:subviews[i]];
-    if (adjust[i]) { oldAdjustable += spans[i]; adjustableCount++; }
-    else fixed += spans[i];
-  }
-  if (adjustableCount == 0) {
-    /* nothing may give: let the last pane take the difference */
-    adjust[count - 1] = YES;
-    oldAdjustable = spans[count - 1];
-    fixed -= spans[count - 1];
-    adjustableCount = 1;
-  }
-  CGFloat forAdjustable = MAX(0, total - fixed);
-  CGFloat running = 0;
-  for (NSUInteger i = 0; i < count; i++) {
-    CGFloat span = spans[i];
-    if (adjust[i])
-      span = oldAdjustable > 0.5 ? forAdjustable * (spans[i] / oldAdjustable)
-                                 : forAdjustable / (CGFloat)adjustableCount;
-    NSRect rect = vertical ? NSMakeRect(running, 0, span, NSHeight(bounds))
-                           : NSMakeRect(0, running, NSWidth(bounds), span);
-    [subviews[i] setFrame:[splitView centerScanRect:rect]];
-    running += span + divider;
-  }
+  MBDistributeSplitSubviews(splitView, self);
 }
 #endif
 

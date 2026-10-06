@@ -23,9 +23,6 @@
 		CE80DEE0303EE4280028CAFF /* JUInspectorViewContainer.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEDA303EE4280028CAFF /* JUInspectorViewContainer.m */; };
 		CE80DEE6304161360028CAFF /* DMTabBar.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEE3304161360028CAFF /* DMTabBar.m */; };
 		CE80DEE7304161360028CAFF /* DMTabBarItem.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEE5304161360028CAFF /* DMTabBarItem.m */; };
-		CECF115D30757897002C292E /* MBMappingDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = CECF115930757897002C292E /* MBMappingDocument.m */; };
-		CECF115E30757897002C292E /* MBMappingWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = CECF115C30757897002C292E /* MBMappingWindowController.m */; };
-		CECF115F30757897002C292E /* MBMappingWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = CECF115A30757897002C292E /* MBMappingWindow.xib */; };
 		MB0000000000000000000101 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000001 /* main.m */; };
 		MB0000000000000000000102 /* CDModelCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000002 /* CDModelCompiler.m */; };
 		MB0000000000000000000103 /* MBDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000003 /* MBDocument.m */; };
@@ -54,6 +51,7 @@
 		MBMAP0000000000000000F006 /* CDMappingSerializer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDMappingSerializer.h; path = ../Tools/mapc/CDMappingSerializer.h; sourceTree = "<group>"; };
 		MBMAP0000000000000000F007 /* CDMappingSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDMappingSerializer.m; path = ../Tools/mapc/CDMappingSerializer.m; sourceTree = "<group>"; };
 		MBMAP0000000000000000F008 /* MBMappingWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBMappingWindow.xib; sourceTree = "<group>"; };
+		MBMAP0000000000000000F009 /* MBWindowSupport.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBWindowSupport.h; sourceTree = "<group>"; };
 		CE80DED5303EE4280028CAFF /* JUInspectorBaseView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = JUInspectorBaseView.h; path = ThirdParty/JUInspectorView/Source/JUInspectorBaseView.h; sourceTree = "<group>"; };
 		CE80DED6303EE4280028CAFF /* JUInspectorBaseView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = JUInspectorBaseView.m; path = ThirdParty/JUInspectorView/Source/JUInspectorBaseView.m; sourceTree = "<group>"; };
 		CE80DED7303EE4280028CAFF /* JUInspectorView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = JUInspectorView.h; path = ThirdParty/JUInspectorView/Source/JUInspectorView.h; sourceTree = "<group>"; };
@@ -66,11 +64,6 @@
 		CE80DEE3304161360028CAFF /* DMTabBar.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = DMTabBar.m; path = ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.m; sourceTree = "<group>"; };
 		CE80DEE4304161360028CAFF /* DMTabBarItem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = DMTabBarItem.h; path = ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.h; sourceTree = "<group>"; };
 		CE80DEE5304161360028CAFF /* DMTabBarItem.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = DMTabBarItem.m; path = ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.m; sourceTree = "<group>"; };
-		CECF115830757897002C292E /* MBMappingDocument.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingDocument.h; sourceTree = "<group>"; };
-		CECF115930757897002C292E /* MBMappingDocument.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingDocument.m; sourceTree = "<group>"; };
-		CECF115A30757897002C292E /* MBMappingWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBMappingWindow.xib; sourceTree = "<group>"; };
-		CECF115B30757897002C292E /* MBMappingWindowController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingWindowController.h; sourceTree = "<group>"; };
-		CECF115C30757897002C292E /* MBMappingWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingWindowController.m; sourceTree = "<group>"; };
 		MB0000000000000000000001 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		MB0000000000000000000002 /* CDModelCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelCompiler.m; path = ../Tools/momc/CDModelCompiler.m; sourceTree = "<group>"; };
 		MB0000000000000000000003 /* MBDocument.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBDocument.m; sourceTree = "<group>"; };
@@ -101,11 +94,6 @@
 		MB0000000000000000000301 = {
 			isa = PBXGroup;
 			children = (
-				CECF115830757897002C292E /* MBMappingDocument.h */,
-				CECF115930757897002C292E /* MBMappingDocument.m */,
-				CECF115A30757897002C292E /* MBMappingWindow.xib */,
-				CECF115B30757897002C292E /* MBMappingWindowController.h */,
-				CECF115C30757897002C292E /* MBMappingWindowController.m */,
 				CE39E3233043344B0075866A /* MBStepperTextField.h */,
 				CE39E3243043344B0075866A /* MBStepperTextField.m */,
 				CE39E2D43042FBC30075866A /* CDModelMutator.h */,
@@ -142,6 +130,7 @@
 				MBMAP0000000000000000F006 /* CDMappingSerializer.h */,
 				MBMAP0000000000000000F007 /* CDMappingSerializer.m */,
 				MBMAP0000000000000000F008 /* MBMappingWindow.xib */,
+				MBMAP0000000000000000F009 /* MBWindowSupport.h */,
 				MB0000000000000000000007 /* MBWindowController.h */,
 				MB0000000000000000000004 /* MBWindowController.m */,
 				MB0000000000000000000001 /* main.m */,
@@ -223,7 +212,6 @@
 				MB0000000000000000000105 /* MainMenu.xib in Resources */,
 				CE80DED2303EB3BF0028CAFF /* MBDocumentWindow.xib in Resources */,
 				MBMAP0000000000000000B004 /* MBMappingWindow.xib in Resources */,
-				CECF115F30757897002C292E /* MBMappingWindow.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -243,8 +231,6 @@
 				MBMAP0000000000000000B002 /* CDMappingCompiler.m in Sources */,
 				MBMAP0000000000000000B003 /* CDMappingSerializer.m in Sources */,
 				CE80DEDD303EE4280028CAFF /* JUInspectorViewHeader.m in Sources */,
-				CECF115D30757897002C292E /* MBMappingDocument.m in Sources */,
-				CECF115E30757897002C292E /* MBMappingWindowController.m in Sources */,
 				CE80DEE6304161360028CAFF /* DMTabBar.m in Sources */,
 				CE39E3253043344B0075866A /* MBStepperTextField.m in Sources */,
 				CE80DEE7304161360028CAFF /* DMTabBarItem.m in Sources */,

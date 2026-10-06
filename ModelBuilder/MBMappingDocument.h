@@ -46,6 +46,39 @@
 - (NSArray *)attributeMappingsOfEntityMapping:(NSEntityMapping *)mapping;
 - (NSArray *)relationshipMappingsOfEntityMapping:(NSEntityMapping *)mapping;
 
+/* What the inspector shows and sets on an entity mapping.  Its type is
+   not the author's to choose: it follows from the entities it pairs, and
+   changes when they do. */
+- (NSString *)mappingTypeNameOfEntityMapping:(NSEntityMapping *)mapping;
+- (void)setName:(NSString *)name ofEntityMapping:(NSEntityMapping *)mapping;
+- (void)setSourceEntityName:(NSString *)sourceName
+      destinationEntityName:(NSString *)destinationName
+            ofEntityMapping:(NSEntityMapping *)mapping;
+- (void)setMigrationPolicyClassName:(NSString *)className ofEntityMapping:(NSEntityMapping *)mapping;
+
+/* User info, on an entity mapping or a property mapping alike. */
+- (void)setUserInfo:(NSDictionary *)userInfo ofMappingObject:(id)subject;
+
+/* Which destination property a property mapping fills.  Two mappings
+   cannot fill one property, so taking a name another mapping has swaps
+   the two. */
+- (void)setName:(NSString *)name
+    ofPropertyMapping:(NSPropertyMapping *)property
+      inEntityMapping:(NSEntityMapping *)mapping;
+
+/* A relationship filled through another entity mapping, as Xcode's
+   "Auto Generate Value Expression" fills it: YES, with the key path it
+   follows from the source object and the mapping that made the objects it
+   reaches, when the relationship mapping is filled that way (or not yet
+   filled at all, in which case the two are what the compiler would use). */
+- (BOOL)relationshipMapping:(NSPropertyMapping *)property
+            inEntityMapping:(NSEntityMapping *)mapping
+                    keyPath:(NSString **)keyPath
+                mappingName:(NSString **)mappingName;
+- (void)setKeyPath:(NSString *)keyPath
+          mappingName:(NSString *)mappingName
+ofRelationshipMapping:(NSPropertyMapping *)property;
+
 /* Undo, as in MBDocument: an edit is everything between -beginEdit: and
    the matching -endEdit, and each change records its inverse. */
 - (void)beginEdit:(NSString *)actionName;

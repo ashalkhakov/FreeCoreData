@@ -8,289 +8,1142 @@
     <objects>
         <customObject id="-2" userLabel="File's Owner" customClass="MBMappingWindowController">
             <connections>
-                <outlet property="attributeMappingTable" destination="M26-mp-tbl" id="M58-mp-out"/>
-                <outlet property="destinationModelLabel" destination="M56-mp-lbl" id="M59-mp-out"/>
-                <outlet property="entityMappingSegmentedControl" destination="M03-mp-seg" id="M60-mp-out"/>
-                <outlet property="entityMappingTable" destination="M09-mp-tbl" id="M61-mp-out"/>
-                <outlet property="filterPredicateField" destination="M05-mp-prd" id="M62-mp-out"/>
-                <outlet property="relationshipMappingTable" destination="M40-mp-tbl" id="M63-mp-out"/>
-                <outlet property="sourceModelLabel" destination="M52-mp-lbl" id="M64-mp-out"/>
-                <outlet property="window" destination="M01-mp-win" id="M65-mp-out"/>
+                <outlet property="attributeExpressionField" destination="M77-mw-fld" id="M241-mw-own"/>
+                <outlet property="attributeMappingTable" destination="M219-mw-tbl" id="M242-mw-own"/>
+                <outlet property="attributeNamePopup" destination="M70-mw-pop" id="M243-mw-own"/>
+                <outlet property="attributeUserInfoSegmentedControl" destination="M95-mw-seg" id="M244-mw-own"/>
+                <outlet property="attributeUserInfoTable" destination="M85-mw-tbl" id="M245-mw-own"/>
+                <outlet property="attributesInspector" destination="M184-mw-sec" id="M246-mw-own"/>
+                <outlet property="customPolicyField" destination="M28-mw-fld" id="M247-mw-own"/>
+                <outlet property="destinationEntityPopup" destination="M17-mw-pop" id="M248-mw-own"/>
+                <outlet property="destinationModelLabel" destination="M165-mw-lbl" id="M249-mw-own"/>
+                <outlet property="entityMappingNameField" destination="M05-mw-fld" id="M250-mw-own"/>
+                <outlet property="entityMappingSegmentedControl" destination="M197-mw-seg" id="M251-mw-own"/>
+                <outlet property="entityUserInfoSegmentedControl" destination="M60-mw-seg" id="M252-mw-own"/>
+                <outlet property="entityUserInfoTable" destination="M50-mw-tbl" id="M253-mw-own"/>
+                <outlet property="filterPredicateField" destination="M42-mw-fld" id="M254-mw-own"/>
+                <outlet property="inspectorKindTabView" destination="M155-mw-tab" id="M255-mw-own"/>
+                <outlet property="inspectorTabBar" destination="M205-mw-tbb" id="M256-mw-own"/>
+                <outlet property="inspectorTabView" destination="M171-mw-tab" id="M257-mw-own"/>
+                <outlet property="mappingInspectorContainer" destination="M183-mw-ctr" id="M258-mw-own"/>
+                <outlet property="mappingTypeLabel" destination="M24-mw-lbl" id="M259-mw-own"/>
+                <outlet property="relationshipExpressionField" destination="M131-mw-fld" id="M260-mw-own"/>
+                <outlet property="relationshipKeyPathField" destination="M121-mw-fld" id="M261-mw-own"/>
+                <outlet property="relationshipMappingNameField" destination="M126-mw-fld" id="M262-mw-own"/>
+                <outlet property="relationshipMappingTable" destination="M231-mw-tbl" id="M263-mw-own"/>
+                <outlet property="relationshipNamePopup" destination="M105-mw-pop" id="M264-mw-own"/>
+                <outlet property="relationshipSourceFetchPopup" destination="M113-mw-pop" id="M265-mw-own"/>
+                <outlet property="relationshipUserInfoSegmentedControl" destination="M149-mw-seg" id="M266-mw-own"/>
+                <outlet property="relationshipUserInfoTable" destination="M139-mw-tbl" id="M267-mw-own"/>
+                <outlet property="relationshipsInspector" destination="M186-mw-sec" id="M268-mw-own"/>
+                <outlet property="sourceEntityPopup" destination="M10-mw-pop" id="M269-mw-own"/>
+                <outlet property="sourceFetchPopup" destination="M34-mw-pop" id="M270-mw-own"/>
+                <outlet property="sourceList" destination="M172-mw-out" id="M271-mw-own"/>
+                <outlet property="sourceModelLabel" destination="M161-mw-lbl" id="M272-mw-own"/>
+                <outlet property="window" destination="M212-mw-win" id="M273-mw-own"/>
             </connections>
         </customObject>
         <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
         <customObject id="-3" userLabel="Application" customClass="NSObject"/>
-        <window title="Mapping Model" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="M01-mp-win">
+        <window title="Mapping Model" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="M212-mw-win">
             <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
-            <rect key="contentRect" x="196" y="240" width="900" height="600"/>
+            <rect key="contentRect" x="196" y="240" width="1000" height="700"/>
             <rect key="screenRect" x="0.0" y="0.0" width="1920" height="1055"/>
-            <value key="minSize" type="size" width="700" height="500"/>
-            <view key="contentView" wantsLayer="YES" id="M02-mp-cnt">
-                <rect key="frame" x="0.0" y="0.0" width="900" height="600"/>
+            <value key="minSize" type="size" width="800" height="500"/>
+            <view key="contentView" wantsLayer="YES" id="M213-mw-cnt">
+                <rect key="frame" x="0.0" y="0.0" width="1000" height="700"/>
                 <autoresizingMask key="autoresizingMask"/>
                 <subviews>
-                <scrollView fixedFrame="YES" horizontalLineScroll="24" horizontalPageScroll="10" verticalLineScroll="24" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="M07-mp-scr">
-                    <rect key="frame" x="0" y="40" width="220" height="560"/>
-                    <autoresizingMask key="autoresizingMask" heightSizable="YES" flexibleMaxX="YES"/>
-                    <clipView key="contentView" id="M08-mp-clp">
-                        <rect key="frame" x="1" y="1" width="218" height="558"/>
+                    <splitView arrangesAllSubviews="NO" dividerStyle="thin" vertical="YES" id="M214-mw-spl">
+                        <rect key="frame" x="0.0" y="0.0" width="1000" height="700"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" columnReordering="NO" multipleSelection="NO" autosaveColumns="NO" rowHeight="24" headerView="M10-mp-hdr" id="M09-mp-tbl">
-                                <rect key="frame" x="0.0" y="0.0" width="218" height="530"/>
+                            <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M204-mw-cus">
+                                <rect key="frame" x="0.0" y="0.0" width="710" height="700"/>
                                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                <size key="intercellSpacing" width="17" height="0.0"/>
-                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
-                                <tableColumns>
-                                <tableColumn identifier="name" width="200" minWidth="40" maxWidth="1000" id="M13-mp-col">
-                                    <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Entity Mappings">
-                                        <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
-                                        <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
-                                    </tableHeaderCell>
-                                    <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="NO" sendsActionOnEndEditing="YES" title="Text Cell" id="M14-mp-cel">
-                                        <font key="font" metaFont="system"/>
-                                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                    </textFieldCell>
-                                    <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
-                                </tableColumn>
-                                </tableColumns>
-                                <connections>
-                                    <outlet property="dataSource" destination="-2" id="M15-mp-dsr"/>
-                                    <outlet property="delegate" destination="-2" id="M16-mp-dlg"/>
-                                </connections>
-                            </tableView>
-                        </subviews>
-                    </clipView>
-                    <scroller key="horizontalScroller" hidden="YES" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M11-mp-hsc">
-                        <rect key="frame" x="1" y="544" width="218" height="15"/>
-                        <autoresizingMask key="autoresizingMask"/>
-                    </scroller>
-                    <scroller key="verticalScroller" hidden="YES" wantsLayer="YES" verticalHuggingPriority="750" horizontal="NO" id="M12-mp-vsc">
-                        <rect key="frame" x="204" y="29" width="15" height="530"/>
-                        <autoresizingMask key="autoresizingMask"/>
-                    </scroller>
-                    <tableHeaderView key="headerView" wantsLayer="YES" id="M10-mp-hdr">
-                        <rect key="frame" x="0.0" y="0.0" width="218" height="28"/>
-                        <autoresizingMask key="autoresizingMask"/>
-                    </tableHeaderView>
-                </scrollView>
-                <segmentedControl verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M03-mp-seg">
-                    <rect key="frame" x="8" y="8" width="72" height="24"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
-                    <segmentedCell key="cell" borderStyle="border" alignment="left" style="rounded" trackingMode="momentary" id="M04-mp-sgc">
-                        <font key="font" metaFont="system"/>
-                        <segments>
-                            <segment label="+" width="32"/>
-                            <segment label="−" width="32" tag="1"/>
-                        </segments>
-                    </segmentedCell>
-                    <connections>
-                        <action selector="entityMappingSegmentClicked:" target="-2" id="M17-mp-act"/>
-                    </connections>
-                </segmentedControl>
-                <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M18-mp-lbl">
-                    <rect key="frame" x="232" y="568" width="110" height="17"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                    <textFieldCell key="cell" lineBreakMode="truncatingTail" title="Filter Predicate" id="M19-mp-lcl">
-                        <font key="font" metaFont="system"/>
-                        <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
-                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                    </textFieldCell>
-                </textField>
-                <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M05-mp-prd">
-                    <rect key="frame" x="346" y="565" width="542" height="22"/>
-                    <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
-                    <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="every object of the entity" drawsBackground="YES" id="M06-mp-pdc">
-                        <font key="font" metaFont="system"/>
-                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                    </textFieldCell>
-                    <connections>
-                        <action selector="takeFilterPredicateFrom:" target="-2" id="M20-mp-act"/>
-                        <outlet property="delegate" destination="-2" id="M21-mp-dlg"/>
-                    </connections>
-                </textField>
-                <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M22-mp-lbl">
-                    <rect key="frame" x="232" y="538" width="200" height="17"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
-                    <textFieldCell key="cell" lineBreakMode="truncatingTail" title="Attribute Mappings" id="M23-mp-lcl">
-                        <font key="font" metaFont="system"/>
-                        <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
-                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                    </textFieldCell>
-                </textField>
-                <scrollView fixedFrame="YES" horizontalLineScroll="24" horizontalPageScroll="10" verticalLineScroll="24" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="M24-mp-scr">
-                    <rect key="frame" x="232" y="290" width="656" height="244"/>
-                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                    <clipView key="contentView" id="M25-mp-clp">
-                        <rect key="frame" x="1" y="1" width="654" height="242"/>
-                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                        <subviews>
-                            <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" columnReordering="NO" multipleSelection="NO" autosaveColumns="NO" rowHeight="24" headerView="M27-mp-hdr" id="M26-mp-tbl">
-                                <rect key="frame" x="0.0" y="0.0" width="654" height="214"/>
+                                <subviews>
+                                    <splitView arrangesAllSubviews="NO" dividerStyle="thin" id="M202-mw-spl">
+                                        <rect key="frame" x="0.0" y="0.0" width="710" height="700"/>
+                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                        <subviews>
+                                            <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M201-mw-cus">
+                                                <rect key="frame" x="0.0" y="0.0" width="710" height="655"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                <subviews>
+                                                    <splitView arrangesAllSubviews="NO" dividerStyle="thin" vertical="YES" id="M195-mw-spl">
+                                                        <rect key="frame" x="0.0" y="0.0" width="710" height="655"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        <subviews>
+                                                            <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M193-mw-cus">
+                                                                <rect key="frame" x="0.0" y="0.0" width="200" height="655"/>
+                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                <subviews>
+                                                                    <scrollView fixedFrame="YES" horizontalLineScroll="24" horizontalPageScroll="10" verticalLineScroll="24" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="M174-mw-osc">
+                                                                        <rect key="frame" x="0.0" y="0.0" width="200" height="655"/>
+                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                        <clipView key="contentView" id="M173-mw-ocl">
+                                                                            <rect key="frame" x="1" y="1" width="183" height="638"/>
+                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                            <subviews>
+                                                                                <outlineView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" rowHeight="24" indentationPerLevel="13" outlineTableColumn="M175-mw-col" id="M172-mw-out">
+                                                                                    <rect key="frame" x="0.0" y="0.0" width="183" height="638"/>
+                                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                    <size key="intercellSpacing" width="17" height="0.0"/>
+                                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                    <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                                                                    <tableColumns>
+                                                                                        <tableColumn identifier="name" width="171" minWidth="40" maxWidth="1000" id="M175-mw-col">
+                                                                                            <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border">
+                                                                                                <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                                            </tableHeaderCell>
+                                                                                            <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M176-mw-dcl">
+                                                                                                <font key="font" metaFont="system"/>
+                                                                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                            </textFieldCell>
+                                                                                            <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                                                                        </tableColumn>
+                                                                                    </tableColumns>
+                                                                                    <connections>
+                                                                                        <outlet property="dataSource" destination="-2" id="M177-mw-dsr"/>
+                                                                                        <outlet property="delegate" destination="-2" id="M178-mw-dlg"/>
+                                                                                    </connections>
+                                                                                </outlineView>
+                                                                            </subviews>
+                                                                        </clipView>
+                                                                        <scroller key="horizontalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M179-mw-hsc">
+                                                                            <rect key="frame" x="1" y="639" width="183" height="15"/>
+                                                                            <autoresizingMask key="autoresizingMask"/>
+                                                                        </scroller>
+                                                                        <scroller key="verticalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="NO" id="M180-mw-vsc">
+                                                                            <rect key="frame" x="184" y="1" width="15" height="638"/>
+                                                                            <autoresizingMask key="autoresizingMask"/>
+                                                                        </scroller>
+                                                                    </scrollView>
+                                                                </subviews>
+                                                            </customView>
+                                                            <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M194-mw-cus">
+                                                                <rect key="frame" x="201" y="0.0" width="509" height="655"/>
+                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                <subviews>
+                                                                    <scrollView fixedFrame="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" usesPredominantAxisScrolling="NO" horizontalScrollElasticity="none" verticalScrollElasticity="none" translatesAutoresizingMaskIntoConstraints="NO" id="M189-mw-csc">
+                                                                        <rect key="frame" x="0.0" y="0.0" width="509" height="655"/>
+                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                        <clipView key="contentView" id="M190-mw-ccl">
+                                                                            <rect key="frame" x="1" y="1" width="492" height="653"/>
+                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                            <subviews>
+                                                                                <view id="M188-mw-doc">
+                                                                                    <rect key="frame" x="0.0" y="0.0" width="492" height="653"/>
+                                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                    <subviews>
+                                                                                        <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M183-mw-ctr" customClass="JUInspectorViewContainer">
+                                                                                            <rect key="frame" x="17" y="17" width="460" height="621"/>
+                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                            <subviews>
+                                                                                                <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M184-mw-sec" userLabel="Attribute Mappings" customClass="JUInspectorView">
+                                                                                                    <rect key="frame" x="0.0" y="0.0" width="300" height="120"/>
+                                                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                                                                                                    <userDefinedRuntimeAttributes>
+                                                                                                        <userDefinedRuntimeAttribute type="string" keyPath="name" value="Attribute Mappings"/>
+                                                                                                        <userDefinedRuntimeAttribute type="number" keyPath="index">
+                                                                                                            <integer key="value" value="0"/>
+                                                                                                        </userDefinedRuntimeAttribute>
+                                                                                                    </userDefinedRuntimeAttributes>
+                                                                                                    <connections>
+                                                                                                        <outlet property="body" destination="M181-mw-bdy" id="M185-mw-bdo"/>
+                                                                                                    </connections>
+                                                                                                </customView>
+                                                                                                <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M186-mw-sec" userLabel="Relationship Mappings" customClass="JUInspectorView">
+                                                                                                    <rect key="frame" x="0.0" y="0.0" width="300" height="120"/>
+                                                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                                                                                                    <userDefinedRuntimeAttributes>
+                                                                                                        <userDefinedRuntimeAttribute type="string" keyPath="name" value="Relationship Mappings"/>
+                                                                                                        <userDefinedRuntimeAttribute type="number" keyPath="index">
+                                                                                                            <integer key="value" value="1"/>
+                                                                                                        </userDefinedRuntimeAttribute>
+                                                                                                    </userDefinedRuntimeAttributes>
+                                                                                                    <connections>
+                                                                                                        <outlet property="body" destination="M182-mw-bdy" id="M187-mw-bdo"/>
+                                                                                                    </connections>
+                                                                                                </customView>
+                                                                                            </subviews>
+                                                                                        </customView>
+                                                                                    </subviews>
+                                                                                </view>
+                                                                            </subviews>
+                                                                        </clipView>
+                                                                        <scroller key="horizontalScroller" hidden="YES" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M191-mw-hsc">
+                                                                            <rect key="frame" x="-100" y="-100" width="492" height="15"/>
+                                                                            <autoresizingMask key="autoresizingMask"/>
+                                                                        </scroller>
+                                                                        <scroller key="verticalScroller" wantsLayer="YES" verticalHuggingPriority="750" doubleValue="1" horizontal="NO" id="M192-mw-vsc">
+                                                                            <rect key="frame" x="493" y="1" width="15" height="653"/>
+                                                                            <autoresizingMask key="autoresizingMask"/>
+                                                                        </scroller>
+                                                                    </scrollView>
+                                                                </subviews>
+                                                            </customView>
+                                                        </subviews>
+                                                        <holdingPriorities>
+                                                            <real value="250"/>
+                                                            <real value="250"/>
+                                                        </holdingPriorities>
+                                                        <connections>
+                                                            <outlet property="delegate" destination="-2" id="M196-mw-spd"/>
+                                                        </connections>
+                                                    </splitView>
+                                                </subviews>
+                                            </customView>
+                                            <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M200-mw-cus">
+                                                <rect key="frame" x="0.0" y="656" width="710" height="44"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                <subviews>
+                                                    <segmentedControl verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M197-mw-seg">
+                                                        <rect key="frame" x="14" y="10" width="184" height="24"/>
+                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                        <segmentedCell key="cell" borderStyle="border" alignment="left" style="rounded" trackingMode="momentary" id="M198-mw-sgc">
+                                                            <font key="font" metaFont="system"/>
+                                                            <segments>
+                                                                <segment label="+ Mapping" width="90"/>
+                                                                <segment label="− Mapping" width="90" tag="1"/>
+                                                            </segments>
+                                                        </segmentedCell>
+                                                        <connections>
+                                                            <action selector="entityMappingSegmentClicked:" target="-2" id="M199-mw-act"/>
+                                                        </connections>
+                                                    </segmentedControl>
+                                                </subviews>
+                                            </customView>
+                                        </subviews>
+                                        <holdingPriorities>
+                                            <real value="250"/>
+                                            <real value="250"/>
+                                        </holdingPriorities>
+                                        <connections>
+                                            <outlet property="delegate" destination="-2" id="M203-mw-spd"/>
+                                        </connections>
+                                    </splitView>
+                                </subviews>
+                            </customView>
+                            <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M211-mw-cus">
+                                <rect key="frame" x="711" y="0.0" width="289" height="700"/>
                                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                <size key="intercellSpacing" width="17" height="0.0"/>
-                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
-                                <tableColumns>
-                                <tableColumn identifier="property" width="200" minWidth="40" maxWidth="1000" id="M30-mp-col">
-                                    <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Destination Attribute">
-                                        <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
-                                        <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
-                                    </tableHeaderCell>
-                                    <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="NO" sendsActionOnEndEditing="YES" title="Text Cell" id="M31-mp-cel">
-                                        <font key="font" metaFont="system"/>
-                                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                    </textFieldCell>
-                                    <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
-                                </tableColumn>
-                                <tableColumn identifier="expression" width="420" minWidth="40" maxWidth="1000" id="M32-mp-col">
-                                    <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Value Expression">
-                                        <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
-                                        <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
-                                    </tableHeaderCell>
-                                    <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M33-mp-cel">
-                                        <font key="font" metaFont="system"/>
-                                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                    </textFieldCell>
-                                    <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
-                                </tableColumn>
-                                </tableColumns>
-                                <connections>
-                                    <outlet property="dataSource" destination="-2" id="M34-mp-dsr"/>
-                                    <outlet property="delegate" destination="-2" id="M35-mp-dlg"/>
-                                </connections>
-                            </tableView>
+                                <subviews>
+                                    <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M205-mw-tbb" customClass="DMTabBar">
+                                        <rect key="frame" x="0.0" y="678" width="289" height="22"/>
+                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                    </customView>
+                                    <scrollView fixedFrame="YES" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="M206-mw-isc">
+                                        <rect key="frame" x="0.0" y="0.0" width="289" height="678"/>
+                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                        <clipView key="contentView" id="M207-mw-icl">
+                                            <rect key="frame" x="1" y="1" width="272" height="661"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <subviews>
+                                                <customView id="M208-mw-flp" customClass="MBFlippedView">
+                                                    <rect key="frame" x="0.0" y="0.0" width="272" height="680"/>
+                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                                                    <subviews>
+                                                        <tabView fixedFrame="YES" type="noTabsNoBorder" initialItem="M170-mw-tbi" translatesAutoresizingMaskIntoConstraints="NO" id="M171-mw-tab">
+                                                            <rect key="frame" x="0.0" y="0.0" width="272" height="680"/>
+                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                                                            <font key="font" metaFont="system"/>
+                                                            <tabViewItems>
+                                                                <tabViewItem label="Identity and Type" identifier="" id="M169-mw-tbi">
+                                                                    <view key="view" id="M168-mw-pgv">
+                                                                        <rect key="frame" x="0.0" y="0.0" width="272" height="680"/>
+                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                        <subviews>
+                                                                            <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M167-mw-cus">
+                                                                                <rect key="frame" x="0.0" y="589" width="272" height="91"/>
+                                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                <subviews>
+                                                                                    <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M157-mw-lbl">
+                                                                                        <rect key="frame" x="8" y="64" width="256" height="17"/>
+                                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                        <textFieldCell key="cell" lineBreakMode="clipping" title="Mapping Model" id="M158-mw-lcl">
+                                                                                            <font key="font" metaFont="systemBold"/>
+                                                                                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                        </textFieldCell>
+                                                                                    </textField>
+                                                                                    <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M159-mw-lbl">
+                                                                                        <rect key="frame" x="-2" y="37" width="92" height="14"/>
+                                                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Source" id="M160-mw-lcl">
+                                                                                            <font key="font" metaFont="smallSystem"/>
+                                                                                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                        </textFieldCell>
+                                                                                    </textField>
+                                                                                    <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M161-mw-lbl">
+                                                                                        <rect key="frame" x="96" y="37" width="168" height="14"/>
+                                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                        <textFieldCell key="cell" controlSize="small" lineBreakMode="truncatingMiddle" selectable="YES" alignment="left" id="M162-mw-lcl">
+                                                                                            <font key="font" metaFont="smallSystem"/>
+                                                                                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                        </textFieldCell>
+                                                                                    </textField>
+                                                                                    <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M163-mw-lbl">
+                                                                                        <rect key="frame" x="-2" y="10" width="92" height="14"/>
+                                                                                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                        <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Destination" id="M164-mw-lcl">
+                                                                                            <font key="font" metaFont="smallSystem"/>
+                                                                                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                        </textFieldCell>
+                                                                                    </textField>
+                                                                                    <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M165-mw-lbl">
+                                                                                        <rect key="frame" x="96" y="10" width="168" height="14"/>
+                                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                        <textFieldCell key="cell" controlSize="small" lineBreakMode="truncatingMiddle" selectable="YES" alignment="left" id="M166-mw-lcl">
+                                                                                            <font key="font" metaFont="smallSystem"/>
+                                                                                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                        </textFieldCell>
+                                                                                    </textField>
+                                                                                </subviews>
+                                                                            </customView>
+                                                                        </subviews>
+                                                                    </view>
+                                                                </tabViewItem>
+                                                                <tabViewItem label="Mapping Model Inspector" identifier="" id="M170-mw-tbi">
+                                                                    <view key="view" id="M156-mw-pgv">
+                                                                        <rect key="frame" x="0.0" y="0.0" width="267" height="680"/>
+                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                        <subviews>
+                                                                            <tabView fixedFrame="YES" type="noTabsNoBorder" translatesAutoresizingMaskIntoConstraints="NO" id="M155-mw-tab">
+                                                                                <rect key="frame" x="0.0" y="0.0" width="267" height="680"/>
+                                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                <font key="font" metaFont="system"/>
+                                                                                <tabViewItems>
+                                                                                    <tabViewItem label="Entity Mapping" identifier="" id="M65-mw-tbi">
+                                                                                        <view key="view" id="M64-mw-pgv">
+                                                                                            <rect key="frame" x="0.0" y="0.0" width="267" height="680"/>
+                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                            <subviews>
+                                                                                                <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M63-mw-cus">
+                                                                                                    <rect key="frame" x="0.0" y="252" width="267" height="428"/>
+                                                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                    <subviews>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M01-mw-lbl">
+                                                                                                            <rect key="frame" x="8" y="401" width="251" height="17"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" lineBreakMode="clipping" title="Entity Mapping" id="M02-mw-lcl">
+                                                                                                                <font key="font" metaFont="systemBold"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M03-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="374" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Name" id="M04-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M05-mw-fld">
+                                                                                                            <rect key="frame" x="96" y="372" width="163" height="19"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="M06-mw-fcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M07-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M08-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="347" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Source" id="M09-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <popUpButton verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M10-mw-pop">
+                                                                                                            <rect key="frame" x="93" y="343" width="169" height="22"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <popUpButtonCell key="cell" type="push" title="Invalid Source" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" state="on" borderStyle="borderAndBezel" imageScaling="proportionallyDown" inset="2" selectedItem="M11-mw-itm" id="M13-mw-pcl">
+                                                                                                                <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <menu key="menu" id="M12-mw-mnu">
+                                                                                                                    <items>
+                                                                                                                        <menuItem title="Invalid Source" state="on" id="M11-mw-itm"/>
+                                                                                                                    </items>
+                                                                                                                </menu>
+                                                                                                            </popUpButtonCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M14-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </popUpButton>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M15-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="320" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Destination" id="M16-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <popUpButton verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M17-mw-pop">
+                                                                                                            <rect key="frame" x="93" y="316" width="169" height="22"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <popUpButtonCell key="cell" type="push" title="Invalid Destination" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" state="on" borderStyle="borderAndBezel" imageScaling="proportionallyDown" inset="2" selectedItem="M18-mw-itm" id="M20-mw-pcl">
+                                                                                                                <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <menu key="menu" id="M19-mw-mnu">
+                                                                                                                    <items>
+                                                                                                                        <menuItem title="Invalid Destination" state="on" id="M18-mw-itm"/>
+                                                                                                                    </items>
+                                                                                                                </menu>
+                                                                                                            </popUpButtonCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M21-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </popUpButton>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M22-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="293" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Type" id="M23-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M24-mw-lbl">
+                                                                                                            <rect key="frame" x="96" y="293" width="163" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" selectable="YES" alignment="left" id="M25-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M26-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="266" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Custom Policy" id="M27-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M28-mw-fld">
+                                                                                                            <rect key="frame" x="96" y="264" width="163" height="19"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="NSEntityMigrationPolicy" drawsBackground="YES" id="M29-mw-fcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M30-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </textField>
+                                                                                                        <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="M31-mw-sep">
+                                                                                                            <rect key="frame" x="8" y="252" width="251" height="5"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                        </box>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M32-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="227" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Source Fetch" id="M33-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <popUpButton verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M34-mw-pop">
+                                                                                                            <rect key="frame" x="93" y="223" width="169" height="22"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <popUpButtonCell key="cell" type="push" title="Default" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" state="on" borderStyle="borderAndBezel" imageScaling="proportionallyDown" inset="2" selectedItem="M35-mw-itm" id="M38-mw-pcl">
+                                                                                                                <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <menu key="menu" id="M37-mw-mnu">
+                                                                                                                    <items>
+                                                                                                                        <menuItem title="Default" state="on" id="M35-mw-itm"/>
+                                                                                                                        <menuItem title="Custom" id="M36-mw-itm"/>
+                                                                                                                    </items>
+                                                                                                                </menu>
+                                                                                                            </popUpButtonCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M39-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </popUpButton>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M40-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="200" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Filter Predicate" id="M41-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M42-mw-fld">
+                                                                                                            <rect key="frame" x="96" y="198" width="163" height="19"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="Filter Predicate" drawsBackground="YES" id="M43-mw-fcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M44-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </textField>
+                                                                                                        <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="M45-mw-sep">
+                                                                                                            <rect key="frame" x="8" y="186" width="251" height="5"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                        </box>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M46-mw-lbl">
+                                                                                                            <rect key="frame" x="8" y="161" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="left" title="User Info" id="M47-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <scrollView fixedFrame="YES" horizontalLineScroll="20" horizontalPageScroll="10" verticalLineScroll="20" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="M48-mw-scr">
+                                                                                                            <rect key="frame" x="8" y="36" width="251" height="120"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <clipView key="contentView" id="M49-mw-clp">
+                                                                                                                <rect key="frame" x="1" y="1" width="234" height="103"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                                <subviews>
+                                                                                                                    <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" columnReordering="NO" multipleSelection="NO" autosaveColumns="NO" rowHeight="20" headerView="M51-mw-hdr" id="M50-mw-tbl">
+                                                                                                                        <rect key="frame" x="0.0" y="0.0" width="249" height="75"/>
+                                                                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                                                        <size key="intercellSpacing" width="17" height="0.0"/>
+                                                                                                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                        <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                        <tableColumns>
+                                                                                                                            <tableColumn identifier="key" width="100" minWidth="40" maxWidth="1000" id="M52-mw-col">
+                                                                                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Key">
+                                                                                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </tableHeaderCell>
+                                                                                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M53-mw-dcl">
+                                                                                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </textFieldCell>
+                                                                                                                                <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                                                                                                            </tableColumn>
+                                                                                                                            <tableColumn identifier="value" width="120" minWidth="40" maxWidth="1000" id="M54-mw-col">
+                                                                                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Value">
+                                                                                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </tableHeaderCell>
+                                                                                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M55-mw-dcl">
+                                                                                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </textFieldCell>
+                                                                                                                                <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                                                                                                            </tableColumn>
+                                                                                                                        </tableColumns>
+                                                                                                                        <connections>
+                                                                                                                            <outlet property="dataSource" destination="-2" id="M56-mw-dsr"/>
+                                                                                                                            <outlet property="delegate" destination="-2" id="M57-mw-dlg"/>
+                                                                                                                        </connections>
+                                                                                                                    </tableView>
+                                                                                                                </subviews>
+                                                                                                            </clipView>
+                                                                                                            <scroller key="horizontalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M58-mw-hsc">
+                                                                                                                <rect key="frame" x="1" y="104" width="234" height="15"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                            </scroller>
+                                                                                                            <scroller key="verticalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="NO" id="M59-mw-vsc">
+                                                                                                                <rect key="frame" x="235" y="29" width="15" height="75"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                            </scroller>
+                                                                                                            <tableHeaderView key="headerView" wantsLayer="YES" id="M51-mw-hdr">
+                                                                                                                <rect key="frame" x="0.0" y="0.0" width="249" height="28"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                            </tableHeaderView>
+                                                                                                        </scrollView>
+                                                                                                        <segmentedControl verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M60-mw-seg">
+                                                                                                            <rect key="frame" x="8" y="9" width="69" height="21"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <segmentedCell key="cell" controlSize="small" borderStyle="border" alignment="left" style="smallSquare" trackingMode="momentary" id="M61-mw-sgc">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <segments>
+                                                                                                                    <segment image="NSAddTemplate" width="32"/>
+                                                                                                                    <segment image="NSRemoveTemplate" width="32" tag="1"/>
+                                                                                                                </segments>
+                                                                                                            </segmentedCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="userInfoSegmentClicked:" target="-2" id="M62-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </segmentedControl>
+                                                                                                    </subviews>
+                                                                                                </customView>
+                                                                                            </subviews>
+                                                                                        </view>
+                                                                                    </tabViewItem>
+                                                                                    <tabViewItem label="Attribute Mapping" identifier="" id="M100-mw-tbi">
+                                                                                        <view key="view" id="M99-mw-pgv">
+                                                                                            <rect key="frame" x="0.0" y="0.0" width="267" height="680"/>
+                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                            <subviews>
+                                                                                                <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M98-mw-cus">
+                                                                                                    <rect key="frame" x="0.0" y="399" width="267" height="281"/>
+                                                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                    <subviews>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M66-mw-lbl">
+                                                                                                            <rect key="frame" x="8" y="254" width="251" height="17"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" lineBreakMode="clipping" title="Attribute Mapping" id="M67-mw-lcl">
+                                                                                                                <font key="font" metaFont="systemBold"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M68-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="227" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Name" id="M69-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <popUpButton verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M70-mw-pop">
+                                                                                                            <rect key="frame" x="93" y="223" width="169" height="22"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <popUpButtonCell key="cell" type="push" title="Attribute" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" state="on" borderStyle="borderAndBezel" imageScaling="proportionallyDown" inset="2" selectedItem="M71-mw-itm" id="M73-mw-pcl">
+                                                                                                                <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <menu key="menu" id="M72-mw-mnu">
+                                                                                                                    <items>
+                                                                                                                        <menuItem title="Attribute" state="on" id="M71-mw-itm"/>
+                                                                                                                    </items>
+                                                                                                                </menu>
+                                                                                                            </popUpButtonCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M74-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </popUpButton>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M75-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="200" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Value Expression" id="M76-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M77-mw-fld">
+                                                                                                            <rect key="frame" x="96" y="198" width="163" height="19"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="Value Expression" drawsBackground="YES" id="M78-mw-fcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M79-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </textField>
+                                                                                                        <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="M80-mw-sep">
+                                                                                                            <rect key="frame" x="8" y="186" width="251" height="5"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                        </box>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M81-mw-lbl">
+                                                                                                            <rect key="frame" x="8" y="161" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="left" title="User Info" id="M82-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <scrollView fixedFrame="YES" horizontalLineScroll="20" horizontalPageScroll="10" verticalLineScroll="20" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="M83-mw-scr">
+                                                                                                            <rect key="frame" x="8" y="36" width="251" height="120"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <clipView key="contentView" id="M84-mw-clp">
+                                                                                                                <rect key="frame" x="1" y="1" width="234" height="103"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                                <subviews>
+                                                                                                                    <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" columnReordering="NO" multipleSelection="NO" autosaveColumns="NO" rowHeight="20" headerView="M86-mw-hdr" id="M85-mw-tbl">
+                                                                                                                        <rect key="frame" x="0.0" y="0.0" width="249" height="75"/>
+                                                                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                                                        <size key="intercellSpacing" width="17" height="0.0"/>
+                                                                                                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                        <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                        <tableColumns>
+                                                                                                                            <tableColumn identifier="key" width="100" minWidth="40" maxWidth="1000" id="M87-mw-col">
+                                                                                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Key">
+                                                                                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </tableHeaderCell>
+                                                                                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M88-mw-dcl">
+                                                                                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </textFieldCell>
+                                                                                                                                <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                                                                                                            </tableColumn>
+                                                                                                                            <tableColumn identifier="value" width="120" minWidth="40" maxWidth="1000" id="M89-mw-col">
+                                                                                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Value">
+                                                                                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </tableHeaderCell>
+                                                                                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M90-mw-dcl">
+                                                                                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </textFieldCell>
+                                                                                                                                <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                                                                                                            </tableColumn>
+                                                                                                                        </tableColumns>
+                                                                                                                        <connections>
+                                                                                                                            <outlet property="dataSource" destination="-2" id="M91-mw-dsr"/>
+                                                                                                                            <outlet property="delegate" destination="-2" id="M92-mw-dlg"/>
+                                                                                                                        </connections>
+                                                                                                                    </tableView>
+                                                                                                                </subviews>
+                                                                                                            </clipView>
+                                                                                                            <scroller key="horizontalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M93-mw-hsc">
+                                                                                                                <rect key="frame" x="1" y="104" width="234" height="15"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                            </scroller>
+                                                                                                            <scroller key="verticalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="NO" id="M94-mw-vsc">
+                                                                                                                <rect key="frame" x="235" y="29" width="15" height="75"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                            </scroller>
+                                                                                                            <tableHeaderView key="headerView" wantsLayer="YES" id="M86-mw-hdr">
+                                                                                                                <rect key="frame" x="0.0" y="0.0" width="249" height="28"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                            </tableHeaderView>
+                                                                                                        </scrollView>
+                                                                                                        <segmentedControl verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M95-mw-seg">
+                                                                                                            <rect key="frame" x="8" y="9" width="69" height="21"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <segmentedCell key="cell" controlSize="small" borderStyle="border" alignment="left" style="smallSquare" trackingMode="momentary" id="M96-mw-sgc">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <segments>
+                                                                                                                    <segment image="NSAddTemplate" width="32"/>
+                                                                                                                    <segment image="NSRemoveTemplate" width="32" tag="1"/>
+                                                                                                                </segments>
+                                                                                                            </segmentedCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="userInfoSegmentClicked:" target="-2" id="M97-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </segmentedControl>
+                                                                                                    </subviews>
+                                                                                                </customView>
+                                                                                            </subviews>
+                                                                                        </view>
+                                                                                    </tabViewItem>
+                                                                                    <tabViewItem label="Relationship Mapping" identifier="" id="M154-mw-tbi">
+                                                                                        <view key="view" id="M153-mw-pgv">
+                                                                                            <rect key="frame" x="0.0" y="0.0" width="267" height="680"/>
+                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                            <subviews>
+                                                                                                <customView fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M152-mw-cus">
+                                                                                                    <rect key="frame" x="0.0" y="306" width="267" height="374"/>
+                                                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                    <subviews>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M101-mw-lbl">
+                                                                                                            <rect key="frame" x="8" y="347" width="251" height="17"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" lineBreakMode="clipping" title="Relationship Mapping" id="M102-mw-lcl">
+                                                                                                                <font key="font" metaFont="systemBold"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M103-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="320" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Name" id="M104-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <popUpButton verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M105-mw-pop">
+                                                                                                            <rect key="frame" x="93" y="316" width="169" height="22"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <popUpButtonCell key="cell" type="push" title="Relationship" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" state="on" borderStyle="borderAndBezel" imageScaling="proportionallyDown" inset="2" selectedItem="M106-mw-itm" id="M108-mw-pcl">
+                                                                                                                <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <menu key="menu" id="M107-mw-mnu">
+                                                                                                                    <items>
+                                                                                                                        <menuItem title="Relationship" state="on" id="M106-mw-itm"/>
+                                                                                                                    </items>
+                                                                                                                </menu>
+                                                                                                            </popUpButtonCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M109-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </popUpButton>
+                                                                                                        <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="M110-mw-sep">
+                                                                                                            <rect key="frame" x="8" y="306" width="251" height="5"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                        </box>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M111-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="281" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Source Fetch" id="M112-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <popUpButton verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M113-mw-pop">
+                                                                                                            <rect key="frame" x="93" y="277" width="169" height="22"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <popUpButtonCell key="cell" type="push" title="Auto Generate Value Expression" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" state="on" borderStyle="borderAndBezel" imageScaling="proportionallyDown" inset="2" selectedItem="M114-mw-itm" id="M117-mw-pcl">
+                                                                                                                <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <menu key="menu" id="M116-mw-mnu">
+                                                                                                                    <items>
+                                                                                                                        <menuItem title="Auto Generate Value Expression" state="on" id="M114-mw-itm"/>
+                                                                                                                        <menuItem title="Custom Value Expression" id="M115-mw-itm"/>
+                                                                                                                    </items>
+                                                                                                                </menu>
+                                                                                                            </popUpButtonCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M118-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </popUpButton>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M119-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="254" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Key Path" id="M120-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M121-mw-fld">
+                                                                                                            <rect key="frame" x="96" y="252" width="163" height="19"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="Key Path" drawsBackground="YES" id="M122-mw-fcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M123-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M124-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="227" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Mapping Name" id="M125-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M126-mw-fld">
+                                                                                                            <rect key="frame" x="96" y="225" width="163" height="19"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="Mapping Name" drawsBackground="YES" id="M127-mw-fcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M128-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M129-mw-lbl">
+                                                                                                            <rect key="frame" x="-2" y="200" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="right" title="Value Expression" id="M130-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M131-mw-fld">
+                                                                                                            <rect key="frame" x="96" y="198" width="163" height="19"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="Value Expression" drawsBackground="YES" id="M132-mw-fcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="M133-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </textField>
+                                                                                                        <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="M134-mw-sep">
+                                                                                                            <rect key="frame" x="8" y="186" width="251" height="5"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                        </box>
+                                                                                                        <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M135-mw-lbl">
+                                                                                                            <rect key="frame" x="8" y="161" width="92" height="14"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <textFieldCell key="cell" controlSize="small" lineBreakMode="clipping" alignment="left" title="User Info" id="M136-mw-lcl">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                            </textFieldCell>
+                                                                                                        </textField>
+                                                                                                        <scrollView fixedFrame="YES" horizontalLineScroll="20" horizontalPageScroll="10" verticalLineScroll="20" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="M137-mw-scr">
+                                                                                                            <rect key="frame" x="8" y="36" width="251" height="120"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                                                            <clipView key="contentView" id="M138-mw-clp">
+                                                                                                                <rect key="frame" x="1" y="1" width="234" height="103"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                                <subviews>
+                                                                                                                    <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" columnReordering="NO" multipleSelection="NO" autosaveColumns="NO" rowHeight="20" headerView="M140-mw-hdr" id="M139-mw-tbl">
+                                                                                                                        <rect key="frame" x="0.0" y="0.0" width="249" height="75"/>
+                                                                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                                                        <size key="intercellSpacing" width="17" height="0.0"/>
+                                                                                                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                        <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                        <tableColumns>
+                                                                                                                            <tableColumn identifier="key" width="100" minWidth="40" maxWidth="1000" id="M141-mw-col">
+                                                                                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Key">
+                                                                                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </tableHeaderCell>
+                                                                                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M142-mw-dcl">
+                                                                                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </textFieldCell>
+                                                                                                                                <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                                                                                                            </tableColumn>
+                                                                                                                            <tableColumn identifier="value" width="120" minWidth="40" maxWidth="1000" id="M143-mw-col">
+                                                                                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Value">
+                                                                                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </tableHeaderCell>
+                                                                                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M144-mw-dcl">
+                                                                                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                                                                </textFieldCell>
+                                                                                                                                <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                                                                                                            </tableColumn>
+                                                                                                                        </tableColumns>
+                                                                                                                        <connections>
+                                                                                                                            <outlet property="dataSource" destination="-2" id="M145-mw-dsr"/>
+                                                                                                                            <outlet property="delegate" destination="-2" id="M146-mw-dlg"/>
+                                                                                                                        </connections>
+                                                                                                                    </tableView>
+                                                                                                                </subviews>
+                                                                                                            </clipView>
+                                                                                                            <scroller key="horizontalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M147-mw-hsc">
+                                                                                                                <rect key="frame" x="1" y="104" width="234" height="15"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                            </scroller>
+                                                                                                            <scroller key="verticalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="NO" id="M148-mw-vsc">
+                                                                                                                <rect key="frame" x="235" y="29" width="15" height="75"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                            </scroller>
+                                                                                                            <tableHeaderView key="headerView" wantsLayer="YES" id="M140-mw-hdr">
+                                                                                                                <rect key="frame" x="0.0" y="0.0" width="249" height="28"/>
+                                                                                                                <autoresizingMask key="autoresizingMask"/>
+                                                                                                            </tableHeaderView>
+                                                                                                        </scrollView>
+                                                                                                        <segmentedControl verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M149-mw-seg">
+                                                                                                            <rect key="frame" x="8" y="9" width="69" height="21"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <segmentedCell key="cell" controlSize="small" borderStyle="border" alignment="left" style="smallSquare" trackingMode="momentary" id="M150-mw-sgc">
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                                <segments>
+                                                                                                                    <segment image="NSAddTemplate" width="32"/>
+                                                                                                                    <segment image="NSRemoveTemplate" width="32" tag="1"/>
+                                                                                                                </segments>
+                                                                                                            </segmentedCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="userInfoSegmentClicked:" target="-2" id="M151-mw-act"/>
+                                                                                                            </connections>
+                                                                                                        </segmentedControl>
+                                                                                                    </subviews>
+                                                                                                </customView>
+                                                                                            </subviews>
+                                                                                        </view>
+                                                                                    </tabViewItem>
+                                                                                </tabViewItems>
+                                                                            </tabView>
+                                                                        </subviews>
+                                                                    </view>
+                                                                </tabViewItem>
+                                                            </tabViewItems>
+                                                        </tabView>
+                                                    </subviews>
+                                                </customView>
+                                            </subviews>
+                                        </clipView>
+                                        <scroller key="horizontalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M209-mw-hsc">
+                                            <rect key="frame" x="1" y="662" width="272" height="15"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                        </scroller>
+                                        <scroller key="verticalScroller" wantsLayer="YES" verticalHuggingPriority="750" doubleValue="1" horizontal="NO" id="M210-mw-vsc">
+                                            <rect key="frame" x="273" y="1" width="15" height="661"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                        </scroller>
+                                    </scrollView>
+                                </subviews>
+                            </customView>
                         </subviews>
-                    </clipView>
-                    <scroller key="horizontalScroller" hidden="YES" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M28-mp-hsc">
-                        <rect key="frame" x="1" y="228" width="654" height="15"/>
-                        <autoresizingMask key="autoresizingMask"/>
-                    </scroller>
-                    <scroller key="verticalScroller" hidden="YES" wantsLayer="YES" verticalHuggingPriority="750" horizontal="NO" id="M29-mp-vsc">
-                        <rect key="frame" x="640" y="29" width="15" height="214"/>
-                        <autoresizingMask key="autoresizingMask"/>
-                    </scroller>
-                    <tableHeaderView key="headerView" wantsLayer="YES" id="M27-mp-hdr">
-                        <rect key="frame" x="0.0" y="0.0" width="654" height="28"/>
-                        <autoresizingMask key="autoresizingMask"/>
-                    </tableHeaderView>
-                </scrollView>
-                <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M36-mp-lbl">
-                    <rect key="frame" x="232" y="262" width="200" height="17"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
-                    <textFieldCell key="cell" lineBreakMode="truncatingTail" title="Relationship Mappings" id="M37-mp-lcl">
-                        <font key="font" metaFont="system"/>
-                        <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
-                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                    </textFieldCell>
-                </textField>
-                <scrollView fixedFrame="YES" horizontalLineScroll="24" horizontalPageScroll="10" verticalLineScroll="24" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="M38-mp-scr">
-                    <rect key="frame" x="232" y="50" width="656" height="208"/>
-                    <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMaxY="YES"/>
-                    <clipView key="contentView" id="M39-mp-clp">
-                        <rect key="frame" x="1" y="1" width="654" height="206"/>
-                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                        <subviews>
-                            <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" columnReordering="NO" multipleSelection="NO" autosaveColumns="NO" rowHeight="24" headerView="M41-mp-hdr" id="M40-mp-tbl">
-                                <rect key="frame" x="0.0" y="0.0" width="654" height="178"/>
-                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                <size key="intercellSpacing" width="17" height="0.0"/>
-                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
-                                <tableColumns>
-                                <tableColumn identifier="property" width="200" minWidth="40" maxWidth="1000" id="M44-mp-col">
-                                    <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Destination Relationship">
-                                        <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
-                                        <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
-                                    </tableHeaderCell>
-                                    <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="NO" sendsActionOnEndEditing="YES" title="Text Cell" id="M45-mp-cel">
-                                        <font key="font" metaFont="system"/>
-                                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                    </textFieldCell>
-                                    <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
-                                </tableColumn>
-                                <tableColumn identifier="expression" width="420" minWidth="40" maxWidth="1000" id="M46-mp-col">
-                                    <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Value Expression">
-                                        <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
-                                        <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
-                                    </tableHeaderCell>
-                                    <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M47-mp-cel">
-                                        <font key="font" metaFont="system"/>
-                                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                    </textFieldCell>
-                                    <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
-                                </tableColumn>
-                                </tableColumns>
-                                <connections>
-                                    <outlet property="dataSource" destination="-2" id="M48-mp-dsr"/>
-                                    <outlet property="delegate" destination="-2" id="M49-mp-dlg"/>
-                                </connections>
-                            </tableView>
-                        </subviews>
-                    </clipView>
-                    <scroller key="horizontalScroller" hidden="YES" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M42-mp-hsc">
-                        <rect key="frame" x="1" y="192" width="654" height="15"/>
-                        <autoresizingMask key="autoresizingMask"/>
-                    </scroller>
-                    <scroller key="verticalScroller" hidden="YES" wantsLayer="YES" verticalHuggingPriority="750" horizontal="NO" id="M43-mp-vsc">
-                        <rect key="frame" x="640" y="29" width="15" height="178"/>
-                        <autoresizingMask key="autoresizingMask"/>
-                    </scroller>
-                    <tableHeaderView key="headerView" wantsLayer="YES" id="M41-mp-hdr">
-                        <rect key="frame" x="0.0" y="0.0" width="654" height="28"/>
-                        <autoresizingMask key="autoresizingMask"/>
-                    </tableHeaderView>
-                </scrollView>
-                <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M50-mp-lbl">
-                    <rect key="frame" x="232" y="14" width="60" height="17"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
-                    <textFieldCell key="cell" lineBreakMode="truncatingTail" alignment="right" title="Source" id="M51-mp-lcl">
-                        <font key="font" metaFont="system"/>
-                        <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
-                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                    </textFieldCell>
-                </textField>
-                <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M52-mp-lbl">
-                    <rect key="frame" x="298" y="14" width="250" height="17"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
-                    <textFieldCell key="cell" lineBreakMode="truncatingTail" title="" id="M53-mp-lcl">
-                        <font key="font" metaFont="system"/>
-                        <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
-                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                    </textFieldCell>
-                </textField>
-                <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M54-mp-lbl">
-                    <rect key="frame" x="560" y="14" width="80" height="17"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMaxY="YES"/>
-                    <textFieldCell key="cell" lineBreakMode="truncatingTail" alignment="right" title="Destination" id="M55-mp-lcl">
-                        <font key="font" metaFont="system"/>
-                        <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
-                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                    </textFieldCell>
-                </textField>
-                <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="M56-mp-lbl">
-                    <rect key="frame" x="646" y="14" width="242" height="17"/>
-                    <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMaxY="YES"/>
-                    <textFieldCell key="cell" lineBreakMode="truncatingTail" title="" id="M57-mp-lcl">
-                        <font key="font" metaFont="system"/>
-                        <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
-                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                    </textFieldCell>
-                </textField>
+                        <holdingPriorities>
+                            <real value="250"/>
+                            <real value="250"/>
+                        </holdingPriorities>
+                        <connections>
+                            <outlet property="delegate" destination="-2" id="M215-mw-spd"/>
+                        </connections>
+                    </splitView>
                 </subviews>
             </view>
             <connections>
-                <outlet property="delegate" destination="-2" id="M66-mp-wdl"/>
+                <outlet property="delegate" destination="-2" id="M216-mw-wdl"/>
             </connections>
-            <point key="canvasLocation" x="140" y="150"/>
+            <point key="canvasLocation" x="140" y="144"/>
         </window>
+        <customView id="M181-mw-bdy">
+            <rect key="frame" x="0.0" y="0.0" width="480" height="220"/>
+            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+            <subviews>
+                <scrollView fixedFrame="YES" horizontalLineScroll="24" horizontalPageScroll="10" verticalLineScroll="24" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="M217-mw-scr">
+                    <rect key="frame" x="0.0" y="0.0" width="480" height="220"/>
+                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                    <clipView key="contentView" id="M218-mw-clp">
+                        <rect key="frame" x="1" y="1" width="463" height="203"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                        <subviews>
+                            <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" columnReordering="NO" multipleSelection="NO" autosaveColumns="NO" rowHeight="24" headerView="M220-mw-hdr" id="M219-mw-tbl">
+                                <rect key="frame" x="0.0" y="0.0" width="489" height="175"/>
+                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                <size key="intercellSpacing" width="17" height="0.0"/>
+                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                <tableColumns>
+                                    <tableColumn identifier="property" width="170" minWidth="40" maxWidth="1000" id="M221-mw-col">
+                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Destination Attribute">
+                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                        </tableHeaderCell>
+                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M222-mw-dcl">
+                                            <font key="font" metaFont="system"/>
+                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                        </textFieldCell>
+                                        <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                    </tableColumn>
+                                    <tableColumn identifier="expression" width="290" minWidth="40" maxWidth="1000" id="M223-mw-col">
+                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Value Expression">
+                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                        </tableHeaderCell>
+                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M224-mw-dcl">
+                                            <font key="font" metaFont="system"/>
+                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                        </textFieldCell>
+                                        <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                    </tableColumn>
+                                </tableColumns>
+                                <connections>
+                                    <outlet property="dataSource" destination="-2" id="M225-mw-dsr"/>
+                                    <outlet property="delegate" destination="-2" id="M226-mw-dlg"/>
+                                </connections>
+                            </tableView>
+                        </subviews>
+                    </clipView>
+                    <scroller key="horizontalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M227-mw-hsc">
+                        <rect key="frame" x="1" y="204" width="463" height="15"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </scroller>
+                    <scroller key="verticalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="NO" id="M228-mw-vsc">
+                        <rect key="frame" x="464" y="29" width="15" height="175"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </scroller>
+                    <tableHeaderView key="headerView" wantsLayer="YES" id="M220-mw-hdr">
+                        <rect key="frame" x="0.0" y="0.0" width="489" height="28"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </tableHeaderView>
+                </scrollView>
+            </subviews>
+        </customView>
+        <customView id="M182-mw-bdy">
+            <rect key="frame" x="0.0" y="0.0" width="480" height="220"/>
+            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+            <subviews>
+                <scrollView fixedFrame="YES" horizontalLineScroll="24" horizontalPageScroll="10" verticalLineScroll="24" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="M229-mw-scr">
+                    <rect key="frame" x="0.0" y="0.0" width="480" height="220"/>
+                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                    <clipView key="contentView" id="M230-mw-clp">
+                        <rect key="frame" x="1" y="1" width="463" height="203"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                        <subviews>
+                            <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" columnReordering="NO" multipleSelection="NO" autosaveColumns="NO" rowHeight="24" headerView="M232-mw-hdr" id="M231-mw-tbl">
+                                <rect key="frame" x="0.0" y="0.0" width="489" height="175"/>
+                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                <size key="intercellSpacing" width="17" height="0.0"/>
+                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                <tableColumns>
+                                    <tableColumn identifier="property" width="170" minWidth="40" maxWidth="1000" id="M233-mw-col">
+                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Destination Relationship">
+                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                        </tableHeaderCell>
+                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M234-mw-dcl">
+                                            <font key="font" metaFont="system"/>
+                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                        </textFieldCell>
+                                        <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                    </tableColumn>
+                                    <tableColumn identifier="expression" width="290" minWidth="40" maxWidth="1000" id="M235-mw-col">
+                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Value Expression">
+                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                        </tableHeaderCell>
+                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="M236-mw-dcl">
+                                            <font key="font" metaFont="system"/>
+                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                        </textFieldCell>
+                                        <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES"/>
+                                    </tableColumn>
+                                </tableColumns>
+                                <connections>
+                                    <outlet property="dataSource" destination="-2" id="M237-mw-dsr"/>
+                                    <outlet property="delegate" destination="-2" id="M238-mw-dlg"/>
+                                </connections>
+                            </tableView>
+                        </subviews>
+                    </clipView>
+                    <scroller key="horizontalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="M239-mw-hsc">
+                        <rect key="frame" x="1" y="204" width="463" height="15"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </scroller>
+                    <scroller key="verticalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="NO" id="M240-mw-vsc">
+                        <rect key="frame" x="464" y="29" width="15" height="175"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </scroller>
+                    <tableHeaderView key="headerView" wantsLayer="YES" id="M232-mw-hdr">
+                        <rect key="frame" x="0.0" y="0.0" width="489" height="28"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </tableHeaderView>
+                </scrollView>
+            </subviews>
+        </customView>
     </objects>
+    <resources>
+        <image name="NSAddTemplate" width="18" height="16"/>
+        <image name="NSRemoveTemplate" width="18" height="4"/>
+    </resources>
 </document>

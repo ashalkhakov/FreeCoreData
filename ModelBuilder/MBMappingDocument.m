@@ -22,12 +22,12 @@
 
 + (NSArray *)readableTypes
 {
-  return @[ @"Core Data Mapping Model" ];
+  return @[ @"xcmappingmodel", @"Core Data Mapping Model" ];
 }
 
 + (NSArray *)writableTypes
 {
-  return [self readableTypes];
+  return @[ @"xcmappingmodel", @"Core Data Mapping Model" ];
 }
 
 - (NSString *)fileType
@@ -305,6 +305,162 @@
   [self endEdit];
 }
 
+/* -- the inspector --------------------------------------------------- */
+
+- (NSString *)mappingTypeNameOfEntityMapping:(NSEntityMapping *)mapping
+{
+  switch ([mapping mappingType]) {
+    case NSAddEntityMappingType:       return @"Add";
+    case NSRemoveEntityMappingType:    return @"Remove";
+    case NSCopyEntityMappingType:      return @"Copy";
+    case NSTransformEntityMappingType: return @"Transform";
+    case NSCustomEntityMappingType:    return @"Custom";
+    default:                           return @"Undefined";
+  }
+}
+
+- (void)setName:(NSString *)name ofEntityMapping:(NSEntityMapping *)mapping
+{
+  if (name.length == 0) return;
+
+  [self beginEdit:@"Rename Entity Mapping"];
+  [self setValue:name forKey:@"name" ofMappingObject:mapping];
+  [self endEdit];
+}
+
+- (void)setSourceEntityName:(NSString *)sourceName
+      destinationEntityName:(NSString *)destinationName
+            ofEntityMapping:(NSEntityMapping *)mapping
+{
+  NSEntityDescription *source = sourceName.length
+      ? [[self.sourceModel entitiesByName] objectForKey:sourceName] : nil;
+  NSEntityDescription *destination = destinationName.length
+      ? [[self.destinationModel entitiesByName] objectForKey:destinationName] : nil;
+  NSString *wasDefaultName = [CDMappingCompiler
+      defaultNameForEntityMappingFromEntityNamed:[mapping sourceEntityName]
+                                   toEntityNamed:[mapping destinationEntityName]];
+  NSString *predicate = [self filterPredicateOfEntityMapping:mapping];
+  NSEntityMappingType type;
+
+  if (source == nil)
+    type = NSAddEntityMappingType;
+  else if (destination == nil)
+    type = NSRemoveEntityMappingType;
+  else if ([[source versionHash] isEqual:[destination versionHash]])
+    type = NSCopyEntityMappingType;
+  else
+    type = NSTransformEntityMappingType;
+
+  [self beginEdit:@"Change Entity Mapping"];
+  [self setValue:sourceName.length ? sourceName : [NSNull null]
+          forKey:@"sourceEntityName" ofMappingObject:mapping];
+  [self setValue:destinationName.length ? destinationName : [NSNull null]
+          forKey:@"destinationEntityName" ofMappingObject:mapping];
+  [self setValue:[source versionHash] ?: [NSNull null]
+          forKey:@"sourceEntityVersionHash" ofMappingObject:mapping];
+  [self setValue:[destination versionHash] ?: [NSNull null]
+          forKey:@"destinationEntityVersionHash" ofMappingObject:mapping];
+  [self setValue:@(type) forKey:@"mappingType" ofMappingObject:mapping];
+  [self setValue:(source != nil)
+      ? [CDMappingCompiler sourceExpressionForEntityNamed:sourceName
+                                                predicate:predicate.length ? predicate : @"TRUEPREDICATE"]
+      : [NSNull null]
+          forKey:@"sourceExpression" ofMappingObject:mapping];
+  /* A name that only said which entities were paired says it again. */
+  if ([[mapping name] isEqualToString:wasDefaultName])
+    [self setValue:[CDMappingCompiler defaultNameForEntityMappingFromEntityNamed:sourceName
+                                                                   toEntityNamed:destinationName]
+            forKey:@"name" ofMappingObject:mapping];
+  [self endEdit];
+}
+
+- (void)setMigrationPolicyClassName:(NSString *)className ofEntityMapping:(NSEntityMapping *)mapping
+{
+  [self beginEdit:@"Change Custom Policy"];
+  [self setValue:className.length ? className : [NSNull null]
+          forKey:@"entityMigrationPolicyClassName" ofMappingObject:mapping];
+  [self endEdit];
+}
+
+- (void)setUserInfo:(NSDictionary *)userInfo ofMappingObject:(id)subject
+{
+  [self beginEdit:@"Change User Info"];
+  [self setValue:userInfo.count ? [userInfo copy] : [NSNull null]
+          forKey:@"userInfo" ofMappingObject:subject];
+  [self endEdit];
+}
+
+- (void)setName:(NSString *)name
+    ofPropertyMapping:(NSPropertyMapping *)property
+      inEntityMapping:(NSEntityMapping *)mapping
+{
+  NSString *was = [property name];
+
+  if (name.length == 0 || [name isEqualToString:was]) return;
+
+  [self beginEdit:@"Change Destination Property"];
+  for (NSPropertyMapping *other in [[mapping attributeMappings] arrayByAddingObjectsFromArray:
+                                        [mapping relationshipMappings] ?: @[]])
+    if (other != property && [[other name] isEqualToString:name])
+      [self setValue:was forKey:@"name" ofMappingObject:other];
+  [self setValue:name forKey:@"name" ofMappingObject:property];
+  [self endEdit];
+}
+
+/* The mapping the compiler fills a relationship through: the one that
+   makes the destination entity the source relationship reaches. */
+- (NSString *)defaultMappingNameForRelationshipNamed:(NSString *)name
+                                     inEntityMapping:(NSEntityMapping *)mapping
+{
+  NSEntityDescription *source = [[self.sourceModel entitiesByName] objectForKey:[mapping sourceEntityName]];
+  NSRelationshipDescription *relationship = [[source relationshipsByName] objectForKey:name];
+  NSString *reached = [[relationship destinationEntity] name];
+
+  if (reached == nil) return nil;
+
+  for (NSEntityMapping *candidate in [self entityMappings])
+    if ([[candidate destinationEntityName] isEqualToString:reached])
+      return [candidate name];
+
+  return nil;
+}
+
+- (BOOL)relationshipMapping:(NSPropertyMapping *)property
+            inEntityMapping:(NSEntityMapping *)mapping
+                    keyPath:(NSString **)keyPath
+                mappingName:(NSString **)mappingName
+{
+  NSExpression *expression = [property valueExpression];
+  NSString *path = nil, *through = nil;
+
+  if (expression != nil
+      && ![CDMappingSerializer relationshipExpression:expression mappingName:&through keyPath:&path])
+    return NO;
+
+  if (expression == nil) {
+    path = [property name];
+    through = [self defaultMappingNameForRelationshipNamed:path inEntityMapping:mapping];
+  }
+
+  if (keyPath != NULL) *keyPath = path;
+  if (mappingName != NULL) *mappingName = through;
+
+  return YES;
+}
+
+- (void)setKeyPath:(NSString *)keyPath
+          mappingName:(NSString *)mappingName
+ofRelationshipMapping:(NSPropertyMapping *)property
+{
+  NSExpression *expression = (keyPath.length && mappingName.length)
+      ? [CDMappingCompiler valueExpressionForRelationshipKeyPath:keyPath throughMapping:mappingName]
+      : nil;
+
+  [self beginEdit:@"Change Value Expression"];
+  [self setValue:expression ?: [NSNull null] forKey:@"valueExpression" ofMappingObject:property];
+  [self endEdit];
+}
+
 /* -- undo, one inverse per change ------------------------------------ */
 
 - (void)setUndoActionName:(NSString *)name
@@ -357,6 +513,7 @@
 - (void)setValue:(id)value forKey:(NSString *)key ofMappingObject:(id)subject
 {
   if (subject == nil) return;
+  if (value == [NSNull null]) value = nil;
 
   id current = [subject valueForKey:key];
 
@@ -374,7 +531,7 @@
     [self endEdit];
   }
 
-  [subject setValue:(value == [NSNull null] ? nil : value) forKey:key];
+  [subject setValue:value forKey:key];
   [self noteMappingChanged];
 }
 
