@@ -14,6 +14,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <XCTest/XCTest.h>
 #import <CoreData/CoreData.h>
 #import "VersioningTestModels.h"
+#import "CDMappingCompiler.h"
 
 @interface MappingModelTests : XCTestCase
 @end
@@ -110,17 +111,93 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     return model;
 }
 
+/* And the same mapping model compiled here rather than by Xcode: the
+   source says which entity maps to which, the predicate that narrows a
+   mapping, and the one value expression written by hand; everything else -
+   the kind of each mapping, the version hashes, the expressions nobody
+   wrote - is worked out from the two models.  The two compilers should
+   agree, so the test is run twice over the same assertions.
+
+   Only where the source is at hand: Xcode's build compiles it rather than
+   copying it, so on macOS the bundle holds the compiled one alone. */
+- (NSMappingModel *)fixtureMappingCompiledHere
+{
+    NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+    NSString *source = [[bundle resourcePath]
+        stringByAppendingPathComponent:@"MappingFixture.xcmappingmodel"];
+
+    if (![[NSFileManager defaultManager] fileExistsAtPath:source])
+        return nil;
+
+    NSError *error = nil;
+    NSMappingModel *mapping = [CDMappingCompiler
+        mappingModelAtPath:source
+               sourceModel:[self fixtureModelNamed:@"MappingFixture"]
+          destinationModel:[self fixtureModelNamed:@"MappingFixture 2"]
+                     error:&error];
+
+    XCTAssertNotNil(mapping, @"compiling %@: %@", source, error);
+    return mapping;
+}
+
+- (void)testTheMappingModelCompiledHereIsTheOneXcodeCompiled
+{
+    NSMappingModel *ours = [self fixtureMappingCompiledHere];
+
+    if (ours == nil) return;
+
+    NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+    NSMappingModel *theirs = [[NSMappingModel alloc] initWithContentsOfURL:
+        [bundle URLForResource:@"MappingFixture" withExtension:@"cdm"]];
+
+    XCTAssertNotNil(theirs);
+    XCTAssertEqual([[ours entityMappings] count], [[theirs entityMappings] count]);
+
+    NSDictionary *oursByName = [ours entityMappingsByName];
+    NSDictionary *theirsByName = [theirs entityMappingsByName];
+
+    XCTAssertEqualObjects([[[oursByName allKeys] sortedArrayUsingSelector:@selector(compare:)]
+                             componentsJoinedByString:@","],
+                          [[[theirsByName allKeys] sortedArrayUsingSelector:@selector(compare:)]
+                             componentsJoinedByString:@","],
+                          @"the same mappings, under the same names");
+
+    for (NSString *name in oursByName) {
+        NSEntityMapping *mine = [oursByName objectForKey:name];
+        NSEntityMapping *theirMapping = [theirsByName objectForKey:name];
+
+        XCTAssertEqual([mine mappingType], [theirMapping mappingType], @"%@", name);
+        XCTAssertEqualObjects([mine sourceEntityName], [theirMapping sourceEntityName], @"%@", name);
+        XCTAssertEqualObjects([mine destinationEntityName], [theirMapping destinationEntityName], @"%@", name);
+        XCTAssertEqual([[mine attributeMappings] count], [[theirMapping attributeMappings] count], @"%@", name);
+        XCTAssertEqual([[mine relationshipMappings] count], [[theirMapping relationshipMappings] count], @"%@", name);
+        XCTAssertEqual([mine sourceExpression] == nil, [theirMapping sourceExpression] == nil, @"%@", name);
+    }
+}
+
 - (void)testAMappingModelMadeInXcodeIsReadAndFollowed
 {
-    NSError *error = nil;
     NSBundle *bundle = [NSBundle bundleForClass:[self class]];
     NSURL *cdm = [bundle URLForResource:@"MappingFixture" withExtension:@"cdm"];
 
     XCTAssertNotNil(cdm, @"MappingFixture.cdm missing from the test bundle");
+    [self migrateWithMappingModel:[[NSMappingModel alloc] initWithContentsOfURL:cdm]];
+}
 
-    NSMappingModel *mapping = [[NSMappingModel alloc] initWithContentsOfURL:cdm];
+/* The same migration, driven by the mapping model this project compiled. */
+- (void)testAMappingModelCompiledHereIsFollowedTheSameWay
+{
+    NSMappingModel *ours = [self fixtureMappingCompiledHere];
 
-    XCTAssertNotNil(mapping, @"a mapping model compiled by Xcode");
+    if (ours != nil)
+        [self migrateWithMappingModel:ours];
+}
+
+- (void)migrateWithMappingModel:(NSMappingModel *)mapping
+{
+    NSError *error = nil;
+
+    XCTAssertNotNil(mapping, @"a mapping model to migrate with");
     XCTAssertEqual([[mapping entityMappings] count], (NSUInteger)3);
 
     NSEntityMapping *notes = [[mapping entityMappingsByName] objectForKey:@"NoteToNote"];

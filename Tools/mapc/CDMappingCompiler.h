@@ -1,0 +1,43 @@
+/* This file is part of the CoreData framework port for GNUstep.
+   Original file — not derived from Cocotron.
+
+   Copyright (c) 2026 the GNUstep CoreData port contributors.
+   Released under the MIT license.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
+#import <Foundation/Foundation.h>
+
+@class NSMappingModel, NSManagedObjectModel;
+
+extern NSString * const CDMappingCompilerErrorDomain;
+
+/* Compiles a mapping model's source - an .xcmappingmodel, which is a
+   directory holding an xcmapping.xml - into the .cdm a migration loads,
+   the way Xcode's mapc does.
+
+   The source says what the author chose: which entity maps to which, the
+   predicate that narrows the objects a mapping applies to, and any value
+   expression written by hand.  Everything else is worked out here from the
+   two models the source carries copies of - the kind of each mapping, the
+   version hashes, and the expressions no one wrote by hand. */
+@interface CDMappingCompiler : NSObject
+
++ (NSMappingModel *)mappingModelAtPath:(NSString *)path error:(NSError **)error;
+
+/* The same, for a caller that already has the two models - ModelBuilder
+   while editing, a test with them loaded - and so needs none of the path
+   resolving the other does. */
++ (NSMappingModel *)mappingModelAtPath:(NSString *)path
+                           sourceModel:(NSManagedObjectModel *)sourceModel
+                      destinationModel:(NSManagedObjectModel *)destinationModel
+                                 error:(NSError **)error;
++ (BOOL)compileMappingModelAtPath:(NSString *)path toPath:(NSString *)destination error:(NSError **)error;
+
+/* Warnings are reported through this, as momc does it. */
++ (void)setWarningHandler:(void (^)(NSString *message))handler;
+
+@end

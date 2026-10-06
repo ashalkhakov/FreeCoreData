@@ -24,6 +24,7 @@ Examples/Bulletin/               - Persistent history: two stacks, one store
 ModelBuilder/                    - Document-based .xcdatamodeld editor (AppKit)
 CDLauncher/                      - App chooser inside the Linux AppImage
 Tools/momc/                      - Xcode model compiler (.xcdatamodeld → .momd)
+Tools/mapc/                      - mapping model compiler (.xcmappingmodel → .cdm)
 coredata-model.make              - gnustep-make fragment for XCDATAMODELD_FILES
 GNUmakefile                      - Build script for GNUstep (framework.make)
 Tests/GNUmakefile                - Build script for the XCTest bundle
@@ -164,6 +165,20 @@ and `coredata-model.make`. Edit a model, then compile it:
 make -C Tools/momc
 Tools/momc/obj/momc Examples/EmployeeDirectory/EmployeeDirectory.xcdatamodeld /tmp/EmployeeDirectory.momd
 ```
+
+A mapping model - which says how one version of a model migrates into the
+next, and which objects a mapping applies to - compiles the same way, with
+`Tools/mapc`:
+
+```sh
+make -C Tools/mapc
+Tools/mapc/obj/mapc Tests/MappingFixture.xcmappingmodel /tmp/MappingFixture.cdm
+```
+
+Both compilers are wired into `coredata-model.make`, so a project lists its
+sources (`<target>_XCDATAMODELD_FILES`, `<target>_XCMAPPINGMODEL_FILES`) and
+they are compiled into its resources as it builds. Authoring a mapping model
+still needs Xcode; ModelBuilder edits models only.
 
 See [ModelBuilder/README.md](ModelBuilder/README.md).
 

@@ -34,6 +34,7 @@ CoreDataTests_OBJC_FILES = \
 	CodegenBuildTests.m \
 	CGBBook.m \
 	../Tools/momc/CDModelCompiler.m \
+	../Tools/mapc/CDMappingCompiler.m \
 	../Tools/momc/CDModelSerializer.m \
 	../Tools/momc/CDCodeGenerator.m \
 	NSUUIDAndOrderedRelationshipTests.m \
@@ -49,7 +50,7 @@ CoreDataTests_OBJC_FILES = \
 	MappingModelTests.m \
 	StoreVersioningTests.m
 
-CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData -I../Tools/momc
+CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData -I../Tools/momc -I../Tools/mapc
 
 # Link and run against the freshly built, uninstalled framework in the
 # source tree, not whatever CoreData is installed in the GNUstep domains.
@@ -76,6 +77,10 @@ CoreDataTests_XCDATAMODELD_FILES = MomcFixture.xcdatamodeld CodegenFixture.xcdat
 # Xcode's mapc and checked in: there is no mapc here, and a mapping model
 # can only be authored in Xcode's editor anyway.
 CoreDataTests_RESOURCE_FILES += MappingFixture.cdm
+# The mapping model's source as well, so a test can compile it with this
+# project's own compiler and check the two agree.  (Xcode's build compiles
+# it instead, so on macOS only the compiled one is in the bundle.)
+CoreDataTests_RESOURCE_FILES += MappingFixture.xcmappingmodel
 # CodegenFixture's classes are generated as the bundle builds.
 CoreDataTests_COREDATA_CODEGEN = yes
 MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" \
