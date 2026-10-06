@@ -29,6 +29,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                      destinationModelPath:(NSString *)destinationModelPath
                                     error:(NSError **)error;
 
+/* Whether an expression is the one the compiler works out for a property
+   of this name, rather than one an author wrote.  The serializer leaves
+   those out of a file; an editor shows them as nothing. */
++ (BOOL)isGeneratedExpression:(NSExpression *)expression forPropertyNamed:(NSString *)name;
+
 + (BOOL)writeMappingModel:(NSMappingModel *)model
                    toPath:(NSString *)path
           sourceModelPath:(NSString *)sourceModelPath

@@ -15,6 +15,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 extern NSString * const CDMappingCompilerErrorDomain;
 
+extern NSString * const CDMappingSourceModelKey;
+extern NSString * const CDMappingDestinationModelKey;
+extern NSString * const CDMappingSourceModelPathKey;
+extern NSString * const CDMappingDestinationModelPathKey;
+
 /* Compiles a mapping model's source - an .xcmappingmodel, which is a
    directory holding an xcmapping.xml - into the .cdm a migration loads,
    the way Xcode's mapc does.
@@ -37,7 +42,18 @@ extern NSString * const CDMappingCompilerErrorDomain;
                                  error:(NSError **)error;
 + (BOOL)compileMappingModelAtPath:(NSString *)path toPath:(NSString *)destination error:(NSError **)error;
 
+/* The two models a mapping model's source names, and the paths it names
+   them by: what an editor needs to show which entities and properties
+   there are to map.  Keys: CDMappingSourceModelKey, CDMappingDestination
+   ModelKey, CDMappingSourceModelPathKey, CDMappingDestinationModelPathKey. */
++ (NSDictionary *)modelsForMappingModelAtPath:(NSString *)path error:(NSError **)error;
+
 /* Warnings are reported through this, as momc does it. */
 + (void)setWarningHandler:(void (^)(NSString *message))handler;
+
+/* The expression that says which objects a mapping applies to, built from
+   an entity name and the predicate an author wrote - what an editor puts
+   back when the predicate is edited. */
++ (NSExpression *)sourceExpressionForEntityNamed:(NSString *)entityName predicate:(NSString *)predicateString;
 
 @end

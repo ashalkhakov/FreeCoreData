@@ -13,9 +13,11 @@ OBJC = clang
 
 APP_NAME = ModelBuilder
 ModelBuilder_OBJC_FILES = main.m MBDocument.m MBEditors.m MBWindowController.m \
+	MBMappingDocument.m \
 	../Tools/momc/CDModelCompiler.m ../Tools/momc/CDModelSerializer.m \
 	../Tools/momc/CDModelMutator.m \
 	../Tools/momc/CDCodeGenerator.m \
+	../Tools/mapc/CDMappingCompiler.m ../Tools/mapc/CDMappingSerializer.m \
 	MBStepperTextField.m \
 	ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.m \
 	ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.m \
@@ -29,7 +31,7 @@ ModelBuilder_MAIN_MODEL_FILE = MainMenu.xib
 ModelBuilder_APPLICATION_ICON = ModelBuilder.png
 
 # Repo-root layout: headers/framework sit one directory up.
-ModelBuilder_INCLUDE_DIRS = -I.. -I../Tools/momc \
+ModelBuilder_INCLUDE_DIRS = -I.. -I../Tools/momc -I../Tools/mapc \
 	-IThirdParty/DMTabBar/DMTabBar/DMTabBar \
 	-IThirdParty/JUInspectorView/Source
 ModelBuilder_OBJC_LIBS += -lCoreData

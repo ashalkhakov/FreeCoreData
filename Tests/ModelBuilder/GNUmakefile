@@ -10,16 +10,19 @@ include $(GNUSTEP_MAKEFILES)/common.make
 CC = clang
 OBJC = clang
 
-TOOL_NAME = MBDocumentSmoke MBWindowProbe
+TOOL_NAME = MBDocumentSmoke MBWindowProbe MBMappingSmoke
 
 MB_SOURCES = \
 	../../ModelBuilder/MBDocument.m \
+	../../ModelBuilder/MBMappingDocument.m \
 	../../ModelBuilder/MBEditors.m \
 	../../ModelBuilder/MBWindowController.m \
 	../../Tools/momc/CDModelCompiler.m \
 	../../Tools/momc/CDModelSerializer.m \
 	../../Tools/momc/CDModelMutator.m \
 	../../Tools/momc/CDCodeGenerator.m \
+	../../Tools/mapc/CDMappingCompiler.m \
+	../../Tools/mapc/CDMappingSerializer.m \
 	../../ModelBuilder/MBStepperTextField.m \
 	../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.m \
 	../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.m \
@@ -30,8 +33,9 @@ MB_SOURCES = \
 
 MBDocumentSmoke_OBJC_FILES = MBDocumentSmoke.m $(MB_SOURCES)
 MBWindowProbe_OBJC_FILES = MBWindowProbe.m $(MB_SOURCES)
+MBMappingSmoke_OBJC_FILES = MBMappingSmoke.m $(MB_SOURCES)
 
-ADDITIONAL_INCLUDE_DIRS += -I../.. -I../../Tools/momc -I../../ModelBuilder \
+ADDITIONAL_INCLUDE_DIRS += -I../.. -I../../Tools/momc -I../../Tools/mapc -I../../ModelBuilder \
 	-I../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar \
 	-I../../ModelBuilder/ThirdParty/JUInspectorView/Source
 
@@ -39,6 +43,7 @@ FRAMEWORK_BUILD_DIR = $(CURDIR)/../../CoreData.framework/Versions/Current
 
 MBDocumentSmoke_OBJC_LIBS += -lCoreData -lgnustep-gui
 MBWindowProbe_OBJC_LIBS += -lCoreData -lgnustep-gui
+MBMappingSmoke_OBJC_LIBS += -lCoreData -lgnustep-gui
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
 
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fblocks -fobjc-runtime=gnustep-2.0 \
@@ -62,6 +67,7 @@ RUN_ENV = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(G
 .PHONY: check
 check::
 	$(RUN_ENV) "$(GNUSTEP_OBJ_DIR)/MBDocumentSmoke"
+	$(RUN_ENV) "$(GNUSTEP_OBJ_DIR)/MBMappingSmoke"
 	$(RUN_ENV) "$(GNUSTEP_OBJ_DIR)/MBWindowProbe.app/MBWindowProbe"
 
 # gnustep-make mirrors ../../ source paths beside obj/ when compiling

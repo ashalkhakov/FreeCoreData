@@ -147,7 +147,7 @@ static NSString *escaped(NSString *string){
 
 /* An expression the compiler would have generated anyway is left out, so
    the file says what was chosen rather than what follows from it. */
-+(BOOL)_expression:(NSExpression *)expression isGeneratedFor:(NSString *)propertyName {
++(BOOL)isGeneratedExpression:(NSExpression *)expression forPropertyNamed:(NSString *)propertyName {
    if(expression==nil)
     return YES;
 
@@ -202,7 +202,7 @@ static NSString *escaped(NSString *string){
 
      for(NSPropertyMapping *property in properties){
       NSString *propertyIdentifier=[NSString stringWithFormat:@"z%lu",(unsigned long)nextIdentifier++];
-      BOOL      generated=[self _expression:[property valueExpression] isGeneratedFor:[property name]];
+      BOOL      generated=[self isGeneratedExpression:[property valueExpression] forPropertyNamed:[property name]];
 
       [objects appendFormat:@"    <object type=\"XDDEV%@MAPPING\" id=\"%@\">\n",
           isRelationship?@"RELATIONSHIP":@"ATTRIBUTE",propertyIdentifier];

@@ -15,6 +15,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "CDModelCompiler.h"
 
 NSString * const CDMappingCompilerErrorDomain=@"CDMappingCompilerErrorDomain";
+NSString * const CDMappingSourceModelKey=@"CDMappingSourceModel";
+NSString * const CDMappingDestinationModelKey=@"CDMappingDestinationModel";
+NSString * const CDMappingSourceModelPathKey=@"CDMappingSourceModelPath";
+NSString * const CDMappingDestinationModelPathKey=@"CDMappingDestinationModelPath";
 
 static void (^warningHandler)(NSString *)=nil;
 
@@ -168,7 +172,7 @@ static NSError *compilerError(NSString *format,...){
 /* Which objects a mapping applies to: the request this manager builds for
    one entity, narrowed by the author's predicate, run against the context
    the migration reads from. */
-+(NSExpression *)_sourceExpressionForEntityNamed:(NSString *)entityName predicate:(NSString *)predicateString {
++(NSExpression *)sourceExpressionForEntityNamed:(NSString *)entityName predicate:(NSString *)predicateString {
    NSArray *arguments=[NSArray arrayWithObjects:
        [NSExpression expressionForConstantValue:entityName],
        [NSExpression expressionForConstantValue:([predicateString length]>0)?predicateString:@"TRUEPREDICATE"],
@@ -267,6 +271,40 @@ static NSError *compilerError(NSString *format,...){
                              error:error];
 }
 
++(NSDictionary *)modelsForMappingModelAtPath:(NSString *)path error:(NSError **)error {
+   NSDictionary          *objects=[self _sourceObjectsAtPath:path error:error];
+   CDMappingSourceObject *root=(objects!=nil)?[self _rootOf:objects]:nil;
+
+   if(root==nil){
+    if(objects!=nil && error!=NULL)
+     *error=compilerError(@"%@ holds no mapping model",path);
+    return nil;
+   }
+
+   NSString             *sourcePath=[root string:@"sourcemodelpath"];
+   NSString             *destinationPath=[root string:@"destinationmodelpath"];
+   NSManagedObjectModel *sourceModel=[self _modelAtRecordedPath:sourcePath relativeTo:path];
+   NSManagedObjectModel *destinationModel=[self _modelAtRecordedPath:destinationPath relativeTo:path];
+   NSMutableDictionary  *result=[NSMutableDictionary dictionary];
+
+   if(sourceModel!=nil)
+    [result setObject:sourceModel forKey:CDMappingSourceModelKey];
+   if(destinationModel!=nil)
+    [result setObject:destinationModel forKey:CDMappingDestinationModelKey];
+   if(sourcePath!=nil)
+    [result setObject:sourcePath forKey:CDMappingSourceModelPathKey];
+   if(destinationPath!=nil)
+    [result setObject:destinationPath forKey:CDMappingDestinationModelPathKey];
+
+   if(sourceModel==nil || destinationModel==nil){
+    if(error!=NULL)
+     *error=compilerError(@"cannot read the models %@ maps between (%@ and %@)",
+                          [path lastPathComponent],sourcePath,destinationPath);
+   }
+
+   return result;
+}
+
 +(CDMappingSourceObject *)_rootOf:(NSDictionary *)objects {
    for(CDMappingSourceObject *object in [objects allValues])
     if([object->_kind isEqualToString:@"XDDEVMAPPINGMODEL"])
@@ -362,7 +400,7 @@ static NSError *compilerError(NSString *format,...){
      [mapping setMappingType:NSTransformEntityMappingType];
 
     if(sourceEntity!=nil)
-     [mapping setSourceExpression:[self _sourceExpressionForEntityNamed:sourceName
+     [mapping setSourceExpression:[self sourceExpressionForEntityNamed:sourceName
                                                               predicate:[object string:@"sourcefilterpredicatestring"]]];
 
     NSMutableArray *attributeMappings=[NSMutableArray array];
