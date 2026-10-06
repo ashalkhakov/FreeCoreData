@@ -258,31 +258,7 @@
       ? [[self.sourceModel entitiesByName] objectForKey:sourceName] : nil;
   NSEntityDescription *destination = destinationName.length
       ? [[self.destinationModel entitiesByName] objectForKey:destinationName] : nil;
-  NSEntityMapping *mapping = [[NSEntityMapping alloc] init];
-
-  [mapping setName:(sourceName.length && destinationName.length)
-      ? [NSString stringWithFormat:@"%@To%@", sourceName, destinationName]
-      : (destinationName.length ? destinationName : sourceName)];
-  [mapping setSourceEntityName:sourceName];
-  [mapping setDestinationEntityName:destinationName];
-  [mapping setSourceEntityVersionHash:[source versionHash]];
-  [mapping setDestinationEntityVersionHash:[destination versionHash]];
-  [mapping setAttributeMappings:@[]];
-  [mapping setRelationshipMappings:@[]];
-
-  /* The kind the compiler would work out anyway, so the editor shows it. */
-  if (source == nil)
-    [mapping setMappingType:NSAddEntityMappingType];
-  else if (destination == nil)
-    [mapping setMappingType:NSRemoveEntityMappingType];
-  else if ([[source versionHash] isEqual:[destination versionHash]])
-    [mapping setMappingType:NSCopyEntityMappingType];
-  else
-    [mapping setMappingType:NSTransformEntityMappingType];
-
-  if (source != nil)
-    [mapping setSourceExpression:
-        [CDMappingCompiler sourceExpressionForEntityNamed:sourceName predicate:@"TRUEPREDICATE"]];
+  NSEntityMapping *mapping = [CDMappingCompiler entityMappingFromEntity:source toEntity:destination];
 
   [self beginEdit:@"Add Entity Mapping"];
   [self setValue:[[self entityMappings] arrayByAddingObject:mapping]

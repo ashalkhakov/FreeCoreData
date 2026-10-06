@@ -42,6 +42,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                    mappingName:(NSString **)mappingName
                        keyPath:(NSString **)keyPath;
 
+/* The path a mapping model at one place records for a model at another,
+   as Xcode records it: relative to the project the two are in - the
+   nearest directory above the mapping model holding an .xcodeproj that
+   holds the model too - or, outside a project, to the nearest directory
+   holding both.  The compiler looks for a model by that path against each
+   directory above the mapping model, so either is found again. */
++ (NSString *)recordedPathOfModelAtPath:(NSString *)modelPath
+                  forMappingModelAtPath:(NSString *)mappingPath;
+
 + (BOOL)writeMappingModel:(NSMappingModel *)model
                    toPath:(NSString *)path
           sourceModelPath:(NSString *)sourceModelPath

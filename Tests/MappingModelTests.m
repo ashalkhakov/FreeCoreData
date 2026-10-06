@@ -277,6 +277,134 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* A new mapping model starts where Xcode's does: one mapping per
+   destination entity, under the names Xcode gives them, of the types that
+   follow, with a row for every destination property - and none for the
+   entity the new version dropped.  Written and compiled, the rows are
+   filled from their names. */
+- (void)testANewMappingModelStartsWhereXcodesDoes
+{
+    NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+    NSMappingModel *xcodes = [[NSMappingModel alloc] initWithContentsOfURL:
+        [bundle URLForResource:@"MappingFixture" withExtension:@"cdm"]];
+    NSManagedObjectModel *source = [self fixtureModelNamed:@"MappingFixture"];
+    NSManagedObjectModel *destination = [self fixtureModelNamed:@"MappingFixture 2"];
+    NSMappingModel *started = [CDMappingCompiler startingMappingModelFromSourceModel:source
+                                                                   toDestinationModel:destination];
+
+    XCTAssertEqualObjects([[[[started entityMappingsByName] allKeys] sortedArrayUsingSelector:@selector(compare:)]
+                              componentsJoinedByString:@","],
+                          [[[[xcodes entityMappingsByName] allKeys] sortedArrayUsingSelector:@selector(compare:)]
+                              componentsJoinedByString:@","],
+                          @"the mappings Xcode starts with, and no mapping for Obsolete");
+
+    for (NSEntityMapping *theirs in [xcodes entityMappings]) {
+        NSEntityMapping *ours = [[started entityMappingsByName] objectForKey:[theirs name]];
+
+        XCTAssertEqual([ours mappingType], [theirs mappingType], @"%@", [theirs name]);
+        XCTAssertEqual([[ours attributeMappings] count], [[theirs attributeMappings] count], @"%@", [theirs name]);
+        XCTAssertEqual([[ours relationshipMappings] count], [[theirs relationshipMappings] count], @"%@", [theirs name]);
+        XCTAssertEqual([ours sourceExpression] == nil, [theirs sourceExpression] == nil, @"%@", [theirs name]);
+    }
+
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [[NSProcessInfo processInfo] globallyUniqueString]];
+    NSString *path = [directory stringByAppendingPathComponent:@"Started.xcmappingmodel"];
+    NSError *error = nil;
+
+    XCTAssertTrue([CDMappingSerializer writeMappingModel:started
+                                                  toPath:path
+                                         sourceModelPath:@"MappingFixture.xcdatamodeld/MappingFixture.xcdatamodel"
+                                    destinationModelPath:@"MappingFixture.xcdatamodeld/MappingFixture 2.xcdatamodel"
+                                                   error:&error], @"%@", error);
+
+    NSMappingModel *compiled = [CDMappingCompiler mappingModelAtPath:path
+                                                         sourceModel:source
+                                                    destinationModel:destination
+                                                               error:&error];
+    NSEntityMapping *notes = [[compiled entityMappingsByName] objectForKey:@"NoteToNote"];
+    NSMutableDictionary *filled = [NSMutableDictionary dictionary];
+    NSExpression *tags = nil;
+
+    for (NSPropertyMapping *property in [[notes attributeMappings] arrayByAddingObjectsFromArray:[notes relationshipMappings]]) {
+        [filled setObject:[[property valueExpression] description] ?: @"" forKey:[property name]];
+        if ([[property name] isEqualToString:@"tags"]) tags = [property valueExpression];
+    }
+
+    XCTAssertEqualObjects(filled[@"text"], @"$source.text");
+    XCTAssertEqualObjects(filled[@"writer"], @"", @"nothing in the source is called writer");
+
+    NSString *through = nil, *keyPath = nil;
+
+    XCTAssertTrue([CDMappingSerializer relationshipExpression:tags mappingName:&through keyPath:&keyPath], @"%@", tags);
+    XCTAssertEqualObjects(through, @"TagToTag");
+    XCTAssertEqualObjects(keyPath, @"tags");
+
+    [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* A renaming identifier says what an entity or property was called. */
+- (void)testANewMappingModelFollowsRenamingIdentifiers
+{
+    NSManagedObjectModel *source = [[NSManagedObjectModel alloc] init];
+    NSEntityDescription *person = [[NSEntityDescription alloc] init];
+    NSAttributeDescription *fullName = [[NSAttributeDescription alloc] init];
+
+    [person setName:@"Person"];
+    [fullName setName:@"fullName"];
+    [fullName setAttributeType:NSStringAttributeType];
+    [person setProperties:@[ fullName ]];
+    [source setEntities:@[ person ]];
+
+    NSManagedObjectModel *destination = [[NSManagedObjectModel alloc] init];
+    NSEntityDescription *human = [[NSEntityDescription alloc] init];
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+
+    [human setName:@"Human"];
+    [human setRenamingIdentifier:@"Person"];
+    [name setName:@"name"];
+    [name setRenamingIdentifier:@"fullName"];
+    [name setAttributeType:NSStringAttributeType];
+    [human setProperties:@[ name ]];
+    [destination setEntities:@[ human ]];
+
+    NSMappingModel *started = [CDMappingCompiler startingMappingModelFromSourceModel:source
+                                                                   toDestinationModel:destination];
+    NSEntityMapping *mapping = [[started entityMappingsByName] objectForKey:@"PersonToHuman"];
+
+    XCTAssertNotNil(mapping, @"%@", [[started entityMappingsByName] allKeys]);
+    XCTAssertEqual([mapping mappingType], (NSEntityMappingType)NSTransformEntityMappingType);
+    XCTAssertEqualObjects([[[[mapping attributeMappings] firstObject] valueExpression] description],
+                          @"$source.fullName");
+}
+
+/* A model is recorded by its path in the project, as Xcode records it,
+   and outside a project by its path from the nearest directory holding
+   both files. */
+- (void)testAModelIsRecordedByItsPathInTheProject
+{
+    NSFileManager *files = [NSFileManager defaultManager];
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [[NSProcessInfo processInfo] globallyUniqueString]];
+    NSString *model = [root stringByAppendingPathComponent:@"App/Model.xcdatamodeld/Model 2.xcdatamodel"];
+    NSString *mapping = [root stringByAppendingPathComponent:@"App/Mappings/V1toV2.xcmappingmodel"];
+
+    [files createDirectoryAtPath:model withIntermediateDirectories:YES attributes:nil error:NULL];
+    [files createDirectoryAtPath:[mapping stringByDeletingLastPathComponent]
+     withIntermediateDirectories:YES attributes:nil error:NULL];
+
+    XCTAssertEqualObjects([CDMappingSerializer recordedPathOfModelAtPath:model forMappingModelAtPath:mapping],
+                          @"Model.xcdatamodeld/Model 2.xcdatamodel");
+
+    [files createDirectoryAtPath:[root stringByAppendingPathComponent:@"App.xcodeproj"]
+     withIntermediateDirectories:YES attributes:nil error:NULL];
+
+    XCTAssertEqualObjects([CDMappingSerializer recordedPathOfModelAtPath:model forMappingModelAtPath:mapping],
+                          @"App/Model.xcdatamodeld/Model 2.xcdatamodel");
+
+    [files removeItemAtPath:root error:NULL];
+}
+
 - (void)testTheMappingModelCompiledHereIsTheOneXcodeCompiled
 {
     NSMappingModel *ours = [self fixtureMappingCompiledHere];

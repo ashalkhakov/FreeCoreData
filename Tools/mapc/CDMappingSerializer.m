@@ -196,6 +196,36 @@ static NSString *escaped(NSString *string){
         [self _base64OfObject:userInfo]];
 }
 
++(NSString *)recordedPathOfModelAtPath:(NSString *)modelPath forMappingModelAtPath:(NSString *)mappingPath {
+   NSArray *model=[[modelPath stringByStandardizingPath] pathComponents];
+   NSArray *mapping=[[[mappingPath stringByStandardizingPath] stringByDeletingLastPathComponent] pathComponents];
+   NSUInteger shared=0;
+
+   while(shared<[model count]-1 && shared<[mapping count]
+         && [[model objectAtIndex:shared] isEqualToString:[mapping objectAtIndex:shared]])
+    shared++;
+
+   /* The project: the deepest directory above the mapping model, and above
+      the model too, that holds an .xcodeproj.  Without one, the nearest
+      directory holding both. */
+   NSUInteger base=shared;
+
+   for(NSUInteger depth=shared;depth>1;depth--){
+    NSString *directory=[NSString pathWithComponents:[mapping subarrayWithRange:NSMakeRange(0,depth)]];
+    BOOL      isProject=NO;
+
+    for(NSString *entry in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:directory error:NULL])
+     if([[entry pathExtension] isEqualToString:@"xcodeproj"])
+      isProject=YES;
+    if(isProject){
+     base=depth;
+     break;
+    }
+   }
+
+   return [NSString pathWithComponents:[model subarrayWithRange:NSMakeRange(base,[model count]-base)]];
+}
+
 +(NSString *)xcmappingXMLForMappingModel:(NSMappingModel *)model
                          sourceModelPath:(NSString *)sourceModelPath
                     destinationModelPath:(NSString *)destinationModelPath

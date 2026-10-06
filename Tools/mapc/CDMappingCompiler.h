@@ -11,7 +11,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <Foundation/Foundation.h>
 
-@class NSMappingModel, NSManagedObjectModel;
+@class NSMappingModel, NSManagedObjectModel, NSEntityMapping, NSEntityDescription;
 
 extern NSString * const CDMappingCompilerErrorDomain;
 
@@ -61,6 +61,22 @@ extern NSString * const CDMappingDestinationModelPathKey;
    the key path - which is what Xcode's "Auto Generate Value Expression"
    writes, from the key path and mapping name its inspector shows. */
 + (NSExpression *)valueExpressionForRelationshipKeyPath:(NSString *)keyPath throughMapping:(NSString *)mappingName;
+
+/* A mapping from one entity to another (either may be nil, for an entity
+   added or removed), of the type that follows from the two, fetching
+   every object of the source entity.  It has no property mappings. */
++ (NSEntityMapping *)entityMappingFromEntity:(NSEntityDescription *)source
+                                    toEntity:(NSEntityDescription *)destination;
+
+/* What Xcode's New Mapping Model starts an author from: a mapping for
+   each destination entity, from the source entity of the same name (or
+   the one its renaming identifier names), with a row for each of its
+   properties - empty, for the compiler to fill from the name, unless a
+   renaming identifier says the property was called something else.  An
+   entity the destination model dropped has no mapping, as in Xcode: its
+   objects are simply not carried over. */
++ (NSMappingModel *)startingMappingModelFromSourceModel:(NSManagedObjectModel *)sourceModel
+                                     toDestinationModel:(NSManagedObjectModel *)destinationModel;
 
 /* The name an entity mapping goes by when the file does not give one. */
 + (NSString *)defaultNameForEntityMappingFromEntityNamed:(NSString *)sourceName

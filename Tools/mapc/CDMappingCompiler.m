@@ -212,6 +212,101 @@ static NSError *compilerError(NSString *format,...){
    return ([destinationName length]>0)?destinationName:sourceName;
 }
 
++(NSEntityMapping *)entityMappingFromEntity:(NSEntityDescription *)source toEntity:(NSEntityDescription *)destination {
+   NSEntityMapping *mapping=[[NSEntityMapping alloc] init];
+
+   [mapping setName:[self defaultNameForEntityMappingFromEntityNamed:[source name] toEntityNamed:[destination name]]];
+   [mapping setSourceEntityName:[source name]];
+   [mapping setDestinationEntityName:[destination name]];
+   [mapping setSourceEntityVersionHash:[source versionHash]];
+   [mapping setDestinationEntityVersionHash:[destination versionHash]];
+   [mapping setAttributeMappings:[NSArray array]];
+   [mapping setRelationshipMappings:[NSArray array]];
+
+   if(source==nil)
+    [mapping setMappingType:NSAddEntityMappingType];
+   else if(destination==nil)
+    [mapping setMappingType:NSRemoveEntityMappingType];
+   else if([[source versionHash] isEqual:[destination versionHash]])
+    [mapping setMappingType:NSCopyEntityMappingType];
+   else
+    [mapping setMappingType:NSTransformEntityMappingType];
+
+   if(source!=nil)
+    [mapping setSourceExpression:[self sourceExpressionForEntityNamed:[source name] predicate:@"TRUEPREDICATE"]];
+
+   return mapping;
+}
+
+/* The source counterpart of a destination entity or property: the one its
+   renaming identifier names, or else the one of the same name. */
+static id counterpartIn(NSDictionary *sourceByName,id destination){
+   NSString *renamed=[destination renamingIdentifier];
+
+   if([renamed length]>0 && [sourceByName objectForKey:renamed]!=nil)
+    return [sourceByName objectForKey:renamed];
+
+   return [sourceByName objectForKey:[destination name]];
+}
+
++(NSMappingModel *)startingMappingModelFromSourceModel:(NSManagedObjectModel *)sourceModel
+                                    toDestinationModel:(NSManagedObjectModel *)destinationModel {
+   NSArray             *destinations=[[destinationModel entities] sortedArrayUsingDescriptors:
+       [NSArray arrayWithObject:[NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES]]];
+   NSMutableArray      *mappings=[NSMutableArray array];
+   NSMutableDictionary *mappingNamesByDestination=[NSMutableDictionary dictionary];
+   NSMutableArray      *pairs=[NSMutableArray array];
+
+   for(NSEntityDescription *destination in destinations){
+    NSEntityDescription *source=counterpartIn([sourceModel entitiesByName],destination);
+    NSEntityMapping     *mapping=[self entityMappingFromEntity:source toEntity:destination];
+
+    [mappings addObject:mapping];
+    [pairs addObject:[NSArray arrayWithObjects:destination,source?:(id)[NSNull null],nil]];
+    [mappingNamesByDestination setObject:[mapping name] forKey:[destination name]];
+   }
+
+   NSUInteger index=0;
+
+   for(NSEntityMapping *mapping in mappings){
+    NSEntityDescription *destination=[[pairs objectAtIndex:index] objectAtIndex:0];
+    id                   source=[[pairs objectAtIndex:index] objectAtIndex:1];
+    NSMutableArray      *attributes=[NSMutableArray array];
+    NSMutableArray      *relationships=[NSMutableArray array];
+
+    index++;
+    for(NSPropertyDescription *property in [destination properties]){
+     BOOL                   isRelationship=[property isKindOfClass:[NSRelationshipDescription class]];
+     NSPropertyDescription *was=(source==[NSNull null])?nil:counterpartIn([source propertiesByName],property);
+     NSPropertyMapping     *propertyMapping=[[NSPropertyMapping alloc] init];
+
+     [propertyMapping setName:[property name]];
+
+     /* Only a renamed property needs saying; the rest follow from their names. */
+     if(was!=nil && ![[was name] isEqualToString:[property name]]){
+      if(!isRelationship)
+       [propertyMapping setValueExpression:[self _valueExpressionForSourceProperty:[was name]]];
+      else{
+       NSString *through=[mappingNamesByDestination objectForKey:[[(NSRelationshipDescription *)property destinationEntity] name]];
+
+       if(through!=nil)
+        [propertyMapping setValueExpression:[self valueExpressionForRelationshipKeyPath:[was name] throughMapping:through]];
+      }
+     }
+
+     [(isRelationship?relationships:attributes) addObject:propertyMapping];
+    }
+    [mapping setAttributeMappings:attributes];
+    [mapping setRelationshipMappings:relationships];
+   }
+
+   NSMappingModel *model=[[NSMappingModel alloc] init];
+
+   [model setEntityMappings:mappings];
+
+   return model;
+}
+
 /* What Xcode archives into a file - an expression, a user info dictionary -
    is a keyed archive with the object at its root. */
 +(id)_unarchivedObjectOfClass:(Class)cls fromData:(NSData *)data {
