@@ -13,7 +13,7 @@ OBJC = clang
 
 APP_NAME = ModelBuilder
 ModelBuilder_OBJC_FILES = main.m MBDocument.m MBEditors.m MBWindowController.m \
-	MBMappingDocument.m \
+	MBMappingDocument.m MBMappingWindowController.m \
 	../Tools/momc/CDModelCompiler.m ../Tools/momc/CDModelSerializer.m \
 	../Tools/momc/CDModelMutator.m \
 	../Tools/momc/CDCodeGenerator.m \
@@ -25,7 +25,8 @@ ModelBuilder_OBJC_FILES = main.m MBDocument.m MBEditors.m MBWindowController.m \
 	ThirdParty/JUInspectorView/Source/JUInspectorView.m \
 	ThirdParty/JUInspectorView/Source/JUInspectorViewContainer.m \
 	ThirdParty/JUInspectorView/Source/JUInspectorViewHeader.m
-ModelBuilder_RESOURCE_FILES = MainMenu.xib MBDocumentWindow.xib Info-gnustep.plist \
+ModelBuilder_RESOURCE_FILES = MainMenu.xib MBDocumentWindow.xib MBMappingWindow.xib \
+	Info-gnustep.plist \
 	ModelBuilder.png
 ModelBuilder_MAIN_MODEL_FILE = MainMenu.xib
 ModelBuilder_APPLICATION_ICON = ModelBuilder.png

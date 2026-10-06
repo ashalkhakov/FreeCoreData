@@ -4,6 +4,7 @@
 #import "MBMappingDocument.h"
 #import "CDMappingCompiler.h"
 #import "CDMappingSerializer.h"
+#import "MBMappingWindowController.h"
 
 @implementation MBMappingDocument
 {
@@ -78,6 +79,17 @@
                                 sourceModelPath:self.sourceModelPath
                            destinationModelPath:self.destinationModelPath
                                           error:error];
+}
+
+- (void)makeWindowControllers
+{
+  [self addWindowController:
+      [[MBMappingWindowController alloc] initWithWindowNibName:@"MBMappingWindow"]];
+}
+
+- (NSString *)windowNibName
+{
+  return @"MBMappingWindow";
 }
 
 - (void)noteMappingChanged
