@@ -44,6 +44,7 @@ CoreData_OBJC_FILES = \
 	CoreData/NSInMemoryPersistentStore.m \
 	CoreData/NSPropertyMapping.m \
 	CoreData/NSEntityMapping.m \
+	CoreData/NSFetchRequestExpression.m \
 	CoreData/NSMappingModel.m \
 	CoreData/NSEntityMigrationPolicy.m \
 	CoreData/NSMigrationManager.m \
@@ -93,6 +94,7 @@ CoreData_HEADER_FILES = \
 	NSXMLPersistentStore.h \
 	NSPropertyMapping.h \
 	NSEntityMapping.h \
+	NSFetchRequestExpression.h \
 	NSMappingModel.h \
 	NSEntityMigrationPolicy.h \
 	NSMigrationManager.h \

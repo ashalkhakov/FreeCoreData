@@ -1,31 +1,31 @@
 /* This file is part of the CoreData framework port for GNUstep.
    Original file — not derived from Cocotron.
 
-   GNUstep port adaptations are released under the same MIT license.
+   Copyright (c) 2026 the GNUstep CoreData port contributors.
+   Released under the MIT license.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
-#import <Foundation/Foundation.h>
+#import <Foundation/NSExpression.h>
 
-@class NSExpression;
+/* An expression that runs a fetch request against a managed object context.
+   Core Data declares the type and the class; the expression itself is
+   Foundation's, which is where a mapping model's FETCH(...) is parsed,
+   evaluated and archived. */
+static const NSExpressionType NSFetchRequestExpressionType = (NSExpressionType)50;
 
-@interface NSPropertyMapping : NSObject {
-    NSString *_name;
-    NSExpression *_valueExpression;
-    NSDictionary *_userInfo;
-    NSArray *_propertyTransforms;
-}
+@interface NSFetchRequestExpression : NSExpression
 
-- (NSString *)name;
-- (void)setName:(NSString *)name;
+/* `fetch` must evaluate to an NSFetchRequest and `context` to an
+   NSManagedObjectContext; countOnly asks for the number of rows rather
+   than the rows. */
++ (NSExpression *)expressionForFetch:(NSExpression *)fetch context:(NSExpression *)context countOnly:(BOOL)countFlag;
 
-- (NSExpression *)valueExpression;
-- (void)setValueExpression:(NSExpression *)expression;
-
-- (NSDictionary *)userInfo;
-- (void)setUserInfo:(NSDictionary *)userInfo;
+@property (readonly, strong) NSExpression *requestExpression;
+@property (readonly, strong) NSExpression *contextExpression;
+@property (getter=isCountOnlyRequest, readonly) BOOL countOnlyRequest;
 
 @end

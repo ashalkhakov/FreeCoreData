@@ -46,6 +46,45 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                    (NSEntityMappingType)NSCopyEntityMappingType);
 }
 
+/* A mapping model is a keyed archive of its entity mappings, their
+   property mappings and the expressions in them - the shape Core Data
+   writes, down to the keys, so that what one framework writes the other
+   reads.  (What Xcode's own compiler puts in a .cdm is not checked here:
+   a mapping model can only be authored in its editor.) */
+- (void)testAMappingModelRoundTripsThroughAnArchive
+{
+    NSPropertyMapping *textMapping = [[NSPropertyMapping alloc] init];
+    [textMapping setName:@"text"];
+    [textMapping setValueExpression:[NSExpression expressionWithFormat:@"$source.text"]];
+
+    NSEntityMapping *notes = [[NSEntityMapping alloc] init];
+    [notes setName:@"KeepSome"];
+    [notes setMappingType:NSTransformEntityMappingType];
+    [notes setSourceEntityName:@"Note"];
+    [notes setDestinationEntityName:@"Note"];
+    [notes setAttributeMappings:[NSArray arrayWithObject:textMapping]];
+    [notes setSourceExpression:[NSExpression expressionWithFormat:
+        @"FETCH(FUNCTION($manager, 'fetchRequestForSourceEntityNamed:predicateString:', 'Note', 'TRUEPREDICATE'), FUNCTION($manager, 'sourceContext'), NO)"]];
+
+    NSMappingModel *mapping = [[NSMappingModel alloc] init];
+    [mapping setEntityMappings:[NSArray arrayWithObject:notes]];
+
+    NSData *archive = [NSKeyedArchiver archivedDataWithRootObject:mapping];
+    NSMappingModel *read = [NSKeyedUnarchiver unarchiveObjectWithData:archive];
+
+    XCTAssertEqual([[read entityMappings] count], (NSUInteger)1);
+
+    NSEntityMapping *readNotes = [[read entityMappings] lastObject];
+
+    XCTAssertEqualObjects([readNotes name], @"KeepSome");
+    XCTAssertEqual([readNotes mappingType], (NSEntityMappingType)NSTransformEntityMappingType);
+    XCTAssertEqualObjects([readNotes sourceEntityName], @"Note");
+    NSUInteger readType = [[readNotes sourceExpression] expressionType];
+
+    XCTAssertEqual(readType, (NSUInteger)NSFetchRequestExpressionType);
+    XCTAssertEqualObjects([[[readNotes attributeMappings] lastObject] name], @"text");
+}
+
 /* A mapping model written in Xcode says which objects a mapping applies to
    in the mapping's source expression - a fetch request this manager builds,
    narrowed by a predicate, run against the source context.  That is how a

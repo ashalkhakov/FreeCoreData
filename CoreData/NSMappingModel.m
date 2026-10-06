@@ -166,6 +166,33 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return result;
 }
 
+/* A mapping model compiled by Xcode is a keyed archive, and these are the
+   keys it carries - the same ones this writes, so a model written here can
+   be read there. */
+-(id)initWithCoder:(NSCoder *)coder {
+   if((self=[super init])==nil)
+    return nil;
+
+   if([coder allowsKeyedCoding])
+    _entityMappings=[[coder decodeObjectForKey:@"NSEntityMappings"] copy];
+   else
+    _entityMappings=[[coder decodeObject] copy];
+
+   if(_entityMappings==nil)
+    _entityMappings=[[NSArray alloc] init];
+
+   return self;
+}
+
+-(void)encodeWithCoder:(NSCoder *)coder {
+   if([coder allowsKeyedCoding]){
+    [coder encodeObject:_entityMappings forKey:@"NSEntityMappings"];
+    [coder encodeObject:[self entityMappingsByName] forKey:@"NSEntityMappingsByName"];
+   }
+   else
+    [coder encodeObject:_entityMappings];
+}
+
 -(NSArray *)entityMappings {
    return _entityMappings;
 }
