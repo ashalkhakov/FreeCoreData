@@ -346,16 +346,49 @@ static NSMutableDictionary *_storeTypes=nil;
    [store setMetadata:value];
 }
 
-+(BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url error:(NSError **)error {
+/* An unregistered store type: nothing can be said about the URL, and a
+   caller reading *error after a nil return has to find something there. */
++(Class)_storeClassForType:(NSString *)storeType error:(NSError **)error {
    Class check=[[self registeredStoreTypes] objectForKey:storeType];
-   
-   return [check setMetadata:metadata forPersistentStoreWithURL:url error:error];
+
+   if(check==nil && error!=NULL){
+    NSDictionary *userInfo=[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"No persistent store class is registered for the type '%@'",storeType] forKey:NSLocalizedDescriptionKey];
+
+    *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreInvalidTypeError userInfo:userInfo];
+   }
+   return check;
+}
+
+/* The four of these go through the store class's options-aware pair, whose
+   default drops the options again: a store that cares (a SQL backend whose
+   schema is in its options) overrides that pair, and then asking for a
+   store's metadata with the options it is opened with reaches the store
+   that was asked about rather than whatever the connection's default
+   schema holds. */
++(BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url error:(NSError **)error {
+   return [self setMetadata:metadata forPersistentStoreOfType:storeType URL:url options:nil error:error];
+}
+
++(NSDictionary *)metadataForPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error {
+   Class check=[self _storeClassForType:storeType error:error];
+
+   if(check==Nil)
+    return nil;
+
+   return [check metadataForPersistentStoreWithURL:url options:options error:error];
+}
+
++(BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error {
+   Class check=[self _storeClassForType:storeType error:error];
+
+   if(check==Nil)
+    return NO;
+
+   return [check setMetadata:metadata forPersistentStoreWithURL:url options:options error:error];
 }
 
 +(NSDictionary *)metadataForPersistentStoreOfType:(NSString *)storeType URL:(NSURL *)url error:(NSError **)error {
-   Class check=[[self registeredStoreTypes] objectForKey:storeType];
-   
-   return [check metadataForPersistentStoreWithURL:url error:error];
+   return [self metadataForPersistentStoreOfType:storeType URL:url options:nil error:error];
 }
 
 -(NSPersistentStore *)_persistentStoreWithIdentifier:(NSString *)identifier {

@@ -56,6 +56,15 @@ extern NSString * const CDSQLStoreMigrateSchemaOption;
    options name one, otherwise the store's own Z_ tables.  For tests and for
    tools that need to start from a clean database; there is no Core Data API
    for destroying a store. */
+/* Metadata for the store the options name - the schema, for a server that
+   holds more than one store per database.  Declared here because this pair
+   is the port's, not Apple's: on Apple's CoreData these compile and work
+   when called directly, but its coordinator has no way to call them, so
+   +metadataForPersistentStoreOfType:URL:options:error: there still reaches
+   the default schema. */
++ (NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
++ (BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
+
 + (BOOL)destroyStoreAtURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
 
 @end

@@ -25,6 +25,17 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 + (NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url error:(NSError **)error;
 + (BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreWithURL:(NSURL *)url error:(NSError **)error;
 
+/* The same, given the options the store would be opened with.  For most
+   stores the URL is the whole address and the options change nothing, so
+   the default implementations drop them and call the two above; a store
+   whose options say where its data lives - a SQL backend told its schema
+   in CDSQLStoreSchemaNameOption - overrides these instead, and then
+   +metadataForPersistentStoreOfType:URL:options:error: reaches the right
+   place.  (Apple has the coordinator's half of this but no way to pass
+   options on to a store class, so these two are this port's.) */
++ (NSDictionary *)metadataForPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
++ (BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
+
 + (Class)migrationManagerClass;
 
 - initWithPersistentStoreCoordinator:(NSPersistentStoreCoordinator *)root configurationName:(NSString *)name URL:(NSURL *)url options:(NSDictionary *)options;

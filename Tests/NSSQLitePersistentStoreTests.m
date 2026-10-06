@@ -280,6 +280,39 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                           [VersioningTestModelV1() entityVersionHashesByName]);
 }
 
+/* The forms with options, Apple's since macOS 10.11: the same metadata,
+   and what is set is read back. */
+- (void)testMetadataWithOptions
+{
+    [self populateStore];
+
+    NSDictionary *options = [NSDictionary dictionaryWithObject:[NSNumber numberWithBool:YES]
+                                                        forKey:NSPersistentHistoryTrackingKey];
+    NSError *error = nil;
+    NSDictionary *metadata = [NSPersistentStoreCoordinator
+        metadataForPersistentStoreOfType:NSSQLiteStoreType
+                                     URL:self.storeURL
+                                 options:options
+                                   error:&error];
+    XCTAssertNotNil(metadata, @"failed to read metadata: %@", error);
+    XCTAssertEqualObjects([metadata objectForKey:NSStoreModelVersionHashesKey],
+                          [VersioningTestModelV1() entityVersionHashesByName]);
+
+    NSMutableDictionary *changed = [metadata mutableCopy];
+    [changed setObject:@"kept" forKey:@"CDTestKey"];
+    XCTAssertTrue([NSPersistentStoreCoordinator setMetadata:changed
+                                   forPersistentStoreOfType:NSSQLiteStoreType
+                                                        URL:self.storeURL
+                                                    options:options
+                                                      error:&error], @"%@", error);
+    NSDictionary *again = [NSPersistentStoreCoordinator
+        metadataForPersistentStoreOfType:NSSQLiteStoreType
+                                     URL:self.storeURL
+                                 options:options
+                                   error:&error];
+    XCTAssertEqualObjects([again objectForKey:@"CDTestKey"], @"kept");
+}
+
 - (void)testReopeningWithIncompatibleModelFails
 {
     [self populateStore];

@@ -56,6 +56,61 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects(uuid, reopenedUUID);
 }
 
+/* A URL names a database, and the store inside it is named by the options,
+   so reading or writing a store's metadata by URL needs them: without them
+   the answer is about whatever the connection's default schema holds -
+   another store, or nothing at all.  Asked WITH them, the store class
+   answers for the store that was asked about. */
+- (void)testMetadataByURLNeedsTheStoresOptions
+{
+    if (![self databaseAvailable]) return;
+
+    NSPersistentStore *store = [[[self.context persistentStoreCoordinator] persistentStores] firstObject];
+    NSString *uuid = [[store metadata] objectForKey:NSStoreUUIDKey];
+
+    XCTAssertNotNil(uuid);
+    XCTAssertNotNil([self.storeOptions objectForKey:[self schemaNameOptionKey]],
+                    @"this test is about the schema option");
+
+    NSError *error = nil;
+    NSDictionary *read = [[self storeClass] metadataForPersistentStoreWithURL:self.storeURL
+                                                                     options:self.storeOptions
+                                                                       error:&error];
+
+    XCTAssertEqualObjects([read objectForKey:NSStoreUUIDKey], uuid, @"%@", error);
+    XCTAssertEqualObjects([read objectForKey:NSStoreTypeKey], [self storeType]);
+
+    /* And a stamp written that way is the one this store then reads. */
+    NSMutableDictionary *stamped = [read mutableCopy];
+
+    [stamped setObject:@"written-by-url" forKey:@"CDTestStamp"];
+    XCTAssertTrue([[self storeClass] setMetadata:stamped
+                       forPersistentStoreWithURL:self.storeURL
+                                         options:self.storeOptions
+                                           error:&error], @"%@", error);
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSPersistentStore *again = [[[reopened persistentStoreCoordinator] persistentStores] firstObject];
+
+    XCTAssertEqualObjects([[again metadata] objectForKey:@"CDTestStamp"], @"written-by-url");
+    XCTAssertEqualObjects([[again metadata] objectForKey:NSStoreUUIDKey], uuid,
+                          @"the stamp did not cost the store its identity");
+
+#if !defined(__APPLE__)
+    /* The coordinator's own options-aware methods reach the same place.
+       Only here: Apple has those methods but no way to hand the options to
+       a store class, so there they answer for the default schema. */
+    NSDictionary *throughCoordinator =
+        [NSPersistentStoreCoordinator metadataForPersistentStoreOfType:[self storeType]
+                                                                  URL:self.storeURL
+                                                              options:self.storeOptions
+                                                                error:&error];
+
+    XCTAssertEqualObjects([throughCoordinator objectForKey:NSStoreUUIDKey], uuid, @"%@", error);
+    XCTAssertEqualObjects([throughCoordinator objectForKey:@"CDTestStamp"], @"written-by-url");
+#endif
+}
+
 /* -- round trips ------------------------------------------------------ */
 
 - (void)testInsertedObjectIsReadBackByAFreshStack
