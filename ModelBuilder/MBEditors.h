@@ -66,8 +66,25 @@
    per constraint (the table's row format). */
 @property (nonatomic, copy) NSArray *constraintRows;
 
+/* The entity's fetch indexes, one dictionary per index, in order:
+     name       the index's name
+     predicate  its partial predicate's format, or absent
+     elements   one dictionary per element:
+                  property    the property's name (an attribute, or a
+                              to-one relationship)
+                  expression  instead of a property: the index's own
+                              NSExpressionDescription
+                  rtree       @YES for an R-tree element
+                  ascending   @NO for a descending one
+   Setting them replaces the indexes - refusing (lastError) a predicate
+   that does not parse or an R-tree element that is not a small number. */
+@property (nonatomic, copy) NSArray *fetchIndexRows;
+- (NSString *)addFetchIndex;
+- (void)removeFetchIndexNamed:(NSString *)name;
+
 /* Property lifecycle.  Add returns the new property's name; removes
-   unwire a removed relationship's inverse. */
+   unwire a removed relationship's inverse, and take the property out of
+   any fetch index that names it. */
 - (NSString *)addAttribute;
 - (void)removeAttributeNamed:(NSString *)name;
 - (NSString *)addRelationship;

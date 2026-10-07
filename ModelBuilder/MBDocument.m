@@ -176,6 +176,25 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
   [editor setValue:(value == [NSNull null] ? nil : value) forKey:key];
 }
 
+/* Apple's CoreData drops the fetch indexes of an entity, and of every
+   entity above it, when its properties are set - even to the same ones.
+   They are put back. */
+static void MBSetPropertiesKeepingIndexes(NSEntityDescription *entity, NSArray *properties)
+{
+  NSMutableArray *chain = [NSMutableArray array];
+  NSMutableArray *indexes = [NSMutableArray array];
+  for (NSEntityDescription *check = entity; check; check = check.superentity) {
+    [chain addObject:check];
+    [indexes addObject:check.indexes ?: @[]];
+  }
+  entity.properties = properties;
+  for (NSUInteger i = 0; i < chain.count; i++)
+    if (![[chain[i] indexes] isEqualToArray:indexes[i]]) {
+      [chain[i] setIndexes:@[]];   /* see -[MBEntityEditor setFetchIndexRows:] */
+      [chain[i] setIndexes:indexes[i]];
+    }
+}
+
 - (void)insertProperty:(NSPropertyDescription *)property
               intoEntity:(NSEntityDescription *)entity
                  atIndex:(NSUInteger)index
@@ -183,7 +202,7 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
   [self beginEdit:nil];
   NSMutableArray *properties = [[CDModelCompiler declaredPropertiesOfEntity:entity] mutableCopy];
   [properties insertObject:property atIndex:MIN(index, properties.count)];
-  entity.properties = properties;
+  MBSetPropertiesKeepingIndexes(entity, properties);
   /* A removed relationship kept its own inverse; its partner's pointer
      back was cut on removal, and is restored with it. */
   if ([property isKindOfClass:[NSRelationshipDescription class]]) {
@@ -209,7 +228,7 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
   }
   NSMutableArray *properties = [[CDModelCompiler declaredPropertiesOfEntity:entity] mutableCopy];
   [properties removeObjectAtIndex:index];
-  entity.properties = properties;
+  MBSetPropertiesKeepingIndexes(entity, properties);
   [[self inverse] insertProperty:property intoEntity:entity atIndex:index];
   [self noteModelChanged];
   [self endEdit];
@@ -226,7 +245,7 @@ static NSString *const kCurrentVersionKey = @"_XCCurrentVersionName";
   [self beginEdit:nil];
   NSMutableArray *properties = [[CDModelCompiler declaredPropertiesOfEntity:entity] mutableCopy];
   [properties replaceObjectAtIndex:index withObject:replacement];
-  entity.properties = properties;
+  MBSetPropertiesKeepingIndexes(entity, properties);
   [[self inverse] replaceProperty:replacement withProperty:current];
   [self noteModelChanged];
   [self endEdit];

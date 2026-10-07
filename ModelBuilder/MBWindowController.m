@@ -25,7 +25,8 @@ typedef NS_ENUM(NSInteger, MBSourceKind) {
   MBSourceGroupConfigurations,
   MBSourceEntity,
   MBSourceFetch,
-  MBSourceConfiguration
+  MBSourceConfiguration,
+  MBSourceFetchIndex        /* under its entity */
 };
 
 /* One row of the source list. */
@@ -89,6 +90,8 @@ typedef NS_ENUM(NSInteger, MBSourceKind) {
 /* The implicit Default configuration: every entity, not in the file, and
    not editable -- what Xcode lists when a model declares none. */
 @property (nonatomic, assign) BOOL implicitDefault;
+/* A fetch index's entity: index names are only unique within one. */
+@property (nonatomic, copy) NSString *entityName;
 + (instancetype)itemWithKind:(MBSourceKind)kind name:(NSString *)name;
 - (BOOL)isGroup;
 @end
@@ -113,15 +116,16 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
   MBInspectAttribute,
   MBInspectRelationship,
   MBInspectFetch,
-  MBInspectConfiguration
+  MBInspectConfiguration,
+  MBInspectFetchIndex
 };
 
 /* inspectorTabView pages */
 enum { MBInspectorPageIdentity = 0, MBInspectorPageDataModel = 1 };
 /* inspectorKindTabView pages */
-enum { MBKindPageEntity = 0, MBKindPageFetch = 1, MBKindPageAttribute = 2, MBKindPageRelationship = 3 };
+enum { MBKindPageEntity = 0, MBKindPageFetch = 1, MBKindPageAttribute = 2, MBKindPageRelationship = 3, MBKindPageFetchIndex = 4 };
 /* centerTabView pages */
-enum { MBCenterPageEntity = 0, MBCenterPageFetch = 1, MBCenterPageConfiguration = 2 };
+enum { MBCenterPageEntity = 0, MBCenterPageFetch = 1, MBCenterPageConfiguration = 2, MBCenterPageFetchIndex = 3 };
 /* predicateTabView pages */
 enum { MBPredicatePageEditor = 0, MBPredicatePageSource = 1 };
 
@@ -287,6 +291,8 @@ static const CGFloat MBInspectorMinimum = 260.0;
 
   MBSourceItem *_entitiesGroup, *_fetchesGroup, *_configurationsGroup;
   NSArray *_entityItems, *_fetchItems, *_configurationItems;
+  NSDictionary *_fetchIndexItemsByEntity;   /* entity name -> its index items */
+  NSArray *_fetchIndexElementRows;          /* the selected index's elements */
 
   NSArray *_attributeNames;
   NSArray *_relationshipNames;
@@ -344,6 +350,8 @@ static const CGFloat MBInspectorMinimum = 260.0;
     self.fetchRequestInspector.name = @"FetchRequest";
   if (!self.entitiesInspector.name.length)
     self.entitiesInspector.name = @"Entities";
+  if (!self.fetchIndexElementsInspector.name.length)
+    self.fetchIndexElementsInspector.name = @"Fetch Index Elements";
   if (self.relationshipsInspector.index == self.attributesInspector.index) {
     self.relationshipsInspector.index = 1;
     [self.entityInspectorContainer arrangeViews];
@@ -408,6 +416,7 @@ static const CGFloat MBInspectorMinimum = 260.0;
     { @"Add Entity", @selector(addEntity:) },
     { @"Add Fetch Request", @selector(addFetchRequest:) },
     { @"Add Configuration", @selector(addConfiguration:) },
+    { @"Add Fetch Index", @selector(addFetchIndex:) },
   };
   for (unsigned i = 0; i < sizeof(addItems) / sizeof(addItems[0]); i++) {
     NSMenuItem *item = [addMenu addItemWithTitle:addItems[i].title
@@ -518,6 +527,7 @@ static const CGFloat MBInspectorMinimum = 260.0;
   if (relationship) selection[@"relationship"] = relationship;
   NSFetchRequest *fetch = [self selectedTemplate];
   if (fetch) selection[@"fetch"] = fetch;
+  if (source.kind == MBSourceFetchIndex) selection[@"indexEntity"] = source.entityName;
   _replaySelection = selection;
 }
 
@@ -543,7 +553,11 @@ static const CGFloat MBInspectorMinimum = 260.0;
     for (NSString *key in templates)
       if (templates[key] == selection[@"fetch"]) name = key;
   }
-  if (name) [self selectSourceKind:kind name:name];
+  if (kind == MBSourceFetchIndex) {
+    NSString *entityName = (entity && self.model.entitiesByName[entity.name] == entity) ? entity.name : selection[@"indexEntity"];
+    [self selectFetchIndexNamed:name ofEntityNamed:entityName];
+    if (![self selectedSourceItem]) [self selectSourceKind:MBSourceEntity name:entityName];
+  } else if (name) [self selectSourceKind:kind name:name];
   if (![self selectedSourceItem] && _entityItems.count)
     [self selectSourceItem:_entityItems.firstObject];
 
@@ -592,6 +606,18 @@ static const CGFloat MBInspectorMinimum = 260.0;
   for (NSEntityDescription *entity in [self.modelDocument sortedEntities])
     [entities addObject:[MBSourceItem itemWithKind:MBSourceEntity name:entity.name]];
   _entityItems = entities;
+
+  NSMutableDictionary *indexItems = [NSMutableDictionary dictionary];
+  for (NSEntityDescription *entity in [self.modelDocument sortedEntities]) {
+    NSMutableArray *items = [NSMutableArray array];
+    for (NSFetchIndexDescription *index in [entity indexes]) {
+      MBSourceItem *item = [MBSourceItem itemWithKind:MBSourceFetchIndex name:index.name];
+      item.entityName = entity.name;
+      [items addObject:item];
+    }
+    if (items.count) indexItems[entity.name] = items;
+  }
+  _fetchIndexItemsByEntity = indexItems;
 
   NSMutableArray *fetches = [NSMutableArray array];
   for (NSString *name in [[[self.model fetchRequestTemplatesByName] allKeys]
@@ -655,8 +681,59 @@ static const CGFloat MBInspectorMinimum = 260.0;
     if (row < 0 || (NSUInteger)row >= _memberEntityNames.count) return nil;
     return self.model.entitiesByName[_memberEntityNames[(NSUInteger)row]];
   }
+  if (item.kind == MBSourceFetchIndex) return self.model.entitiesByName[item.entityName];
   if (item.kind != MBSourceEntity) return nil;
   return self.model.entitiesByName[item.name];
+}
+
+- (NSString *)selectedFetchIndexName
+{
+  MBSourceItem *item = [self selectedSourceItem];
+  return item.kind == MBSourceFetchIndex ? item.name : nil;
+}
+
+/* The selected index as the entity editor has it (see fetchIndexRows). */
+- (NSDictionary *)selectedFetchIndexRow
+{
+  NSString *name = [self selectedFetchIndexName];
+  for (NSDictionary *row in [self entityEditor].fetchIndexRows)
+    if ([row[@"name"] isEqualToString:name]) return row;
+  return nil;
+}
+
+- (void)selectFetchIndexNamed:(NSString *)name ofEntityNamed:(NSString *)entityName
+{
+  for (MBSourceItem *entityItem in _entityItems)
+    if ([entityItem.name isEqualToString:entityName])
+      [self.sourceList expandItem:entityItem];
+  for (MBSourceItem *item in _fetchIndexItemsByEntity[entityName])
+    if ([item.name isEqualToString:name]) [self selectSourceItem:item];
+}
+
+/* The selected index with one of its rows changed - name, predicate or
+   elements - as one undo step. */
+- (void)changeSelectedFetchIndex:(void (^)(NSMutableDictionary *row))change action:(NSString *)action
+{
+  NSString *name = [self selectedFetchIndexName];
+  NSString *entityName = [self selectedEntity].name;
+  MBEntityEditor *editor = [self entityEditor];
+  NSMutableArray *rows = [NSMutableArray array];
+  NSString *renamed = name;
+  for (NSDictionary *row in editor.fetchIndexRows) {
+    NSMutableDictionary *copy = [row mutableCopy];
+    if ([row[@"name"] isEqualToString:name]) {
+      change(copy);
+      renamed = copy[@"name"];
+    }
+    [rows addObject:copy];
+  }
+  [self.modelDocument beginEdit:action];
+  editor.fetchIndexRows = rows;
+  [self.modelDocument endEdit];
+  if (editor.lastError)
+    [self presentModelError:editor.lastError title:@"Cannot change the fetch index"];
+  [self reloadEverything];
+  [self selectFetchIndexNamed:editor.lastError ? name : renamed ofEntityNamed:entityName];
 }
 
 - (NSString *)selectedTemplateName
@@ -829,6 +906,11 @@ static const CGFloat MBInspectorMinimum = 260.0;
   } else if (item.kind == MBSourceFetch) {
     [self.centerTabView selectTabViewItemAtIndex:MBCenterPageFetch];
     _kind = MBInspectFetch;
+  } else if (item.kind == MBSourceFetchIndex) {
+    [self.centerTabView selectTabViewItemAtIndex:MBCenterPageFetchIndex];
+    _kind = MBInspectFetchIndex;
+    _fetchIndexElementRows = [self selectedFetchIndexRow][@"elements"] ?: @[];
+    [self.fetchIndexElementTable reloadData];
   } else if (item.kind == MBSourceConfiguration) {
     [self.centerTabView selectTabViewItemAtIndex:MBCenterPageConfiguration];
     _kind = self.memberTable.selectedRow >= 0 ? MBInspectEntity : MBInspectConfiguration;
@@ -1131,6 +1213,13 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
       [self selectInspectorPage:MBInspectorPageDataModel kindPage:MBKindPageFetch];
       [self fillFetchInspector:[self selectedTemplate]];
       break;
+    case MBInspectFetchIndex: {
+      NSDictionary *row = [self selectedFetchIndexRow];
+      [self selectInspectorPage:MBInspectorPageDataModel kindPage:MBKindPageFetchIndex];
+      self.fetchIndexNameField.stringValue = row[@"name"] ?: @"";
+      self.fetchIndexPredicateField.stringValue = row[@"predicate"] ?: @"";
+      break;
+    }
     default:
       /* configurations and empty selections have no data-model page */
       [self selectInspectorPage:MBInspectorPageIdentity kindPage:-1];
@@ -1214,6 +1303,16 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
       [self.modelDocument removeFetchRequestNamed:selected.name];
       [self reloadEverything];
       break;
+    case MBSourceFetchIndex: {
+      NSString *entityName = selected.entityName;
+      [self.modelDocument beginEdit:@"Remove Fetch Index"];
+      [[MBEntityEditor editorForEntityNamed:entityName document:self.modelDocument]
+          removeFetchIndexNamed:selected.name];
+      [self.modelDocument endEdit];
+      [self reloadEverything];
+      [self selectSourceKind:MBSourceEntity name:entityName];
+      break;
+    }
     case MBSourceConfiguration: {
       if (selected.implicitDefault) break;   /* not in the file to remove */
       NSError *error = nil;
@@ -1251,6 +1350,64 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   if (!name) return;
   [self reloadEverything];
   [self selectSourceKind:MBSourceConfiguration name:name];
+}
+
+/* A new fetch index on the selected entity, shown for editing. */
+- (IBAction)addFetchIndex:(id)sender
+{
+  (void)sender;
+  NSString *entityName = [self selectedEntity].name;
+  if (!entityName) return;
+  [self.modelDocument beginEdit:@"Add Fetch Index"];
+  NSString *name = [[MBEntityEditor editorForEntityNamed:entityName document:self.modelDocument] addFetchIndex];
+  [self.modelDocument endEdit];
+  [self reloadEverything];
+  [self selectFetchIndexNamed:name ofEntityNamed:entityName];
+}
+
+/* + adds an element (the first property the index does not have yet),
+   − removes the selected one. */
+- (IBAction)fetchIndexElementSegmentClicked:(id)sender
+{
+  if (![self selectedFetchIndexName]) return;
+  NSInteger selected = self.fetchIndexElementTable.selectedRow;
+  if ([sender selectedSegment] == 0) {
+    NSArray *choices = [self fetchIndexPropertyChoices];
+    NSArray *used = [_fetchIndexElementRows valueForKey:@"property"];
+    NSString *next = nil;
+    for (NSString *choice in choices)
+      if (![used containsObject:choice]) { next = choice; break; }
+    if (!next) next = choices.firstObject;
+    if (!next) return;
+    [self changeSelectedFetchIndex:^(NSMutableDictionary *row) {
+              row[@"elements"] = [row[@"elements"] arrayByAddingObject:@{ @"property" : next }];
+            }
+                            action:@"Add Fetch Index Element"];
+  } else {
+    if (selected < 0 || (NSUInteger)selected >= _fetchIndexElementRows.count) return;
+    [self changeSelectedFetchIndex:^(NSMutableDictionary *row) {
+              NSMutableArray *elements = [row[@"elements"] mutableCopy];
+              [elements removeObjectAtIndex:(NSUInteger)selected];
+              row[@"elements"] = elements;
+            }
+                            action:@"Remove Fetch Index Element"];
+  }
+}
+
+/* What an element can index: the entity's stored attributes and to-ones,
+   its own and inherited, by name. */
+- (NSArray *)fetchIndexPropertyChoices
+{
+  NSMutableArray *names = [NSMutableArray array];
+  NSDictionary *properties = [self selectedEntity].propertiesByName;
+  for (NSString *name in properties) {
+    NSPropertyDescription *property = properties[name];
+    if (property.isTransient) continue;
+    if ([property isKindOfClass:[NSAttributeDescription class]] ||
+        ([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany]))
+      [names addObject:name];
+  }
+  return [names sortedArrayUsingSelector:@selector(compare:)];
 }
 
 /* MainMenu.xib's Model > Remove Entity. */
@@ -1719,9 +1876,38 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
       [document beginEdit:@"Edit Relationship"]; [self applyRelationshipInspector]; break;
     case MBInspectFetch:
       [document beginEdit:@"Edit Fetch Request"]; [self applyFetchInspector:sender]; break;
+    case MBInspectFetchIndex:
+      [self applyFetchIndexInspector:sender];
+      return;
     default: return;
   }
   [document endEdit];
+}
+
+- (void)applyFetchIndexInspector:(id)sender
+{
+  NSDictionary *row = [self selectedFetchIndexRow];
+  if (!row) return;
+  if (sender == self.fetchIndexNameField) {
+    NSString *name = [self.fetchIndexNameField.stringValue stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceCharacterSet]];
+    if (!name.length || [name isEqualToString:row[@"name"]]) return;
+    if ([[[self entityEditor].fetchIndexRows valueForKey:@"name"] containsObject:name]) {
+      self.fetchIndexNameField.stringValue = row[@"name"];
+      return;   /* names are unique within an entity */
+    }
+    [self changeSelectedFetchIndex:^(NSMutableDictionary *edited) { edited[@"name"] = name; }
+                            action:@"Rename Fetch Index"];
+  } else if (sender == self.fetchIndexPredicateField) {
+    NSString *format = [self.fetchIndexPredicateField.stringValue stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceCharacterSet]];
+    if ([format isEqualToString:row[@"predicate"] ?: @""]) return;
+    [self changeSelectedFetchIndex:^(NSMutableDictionary *edited) {
+              if (format.length) edited[@"predicate"] = format;
+              else [edited removeObjectForKey:@"predicate"];
+            }
+                            action:@"Edit Partial Predicate"];
+  }
 }
 
 - (void)controlTextDidEndEditing:(NSNotification *)notification
@@ -1877,7 +2063,8 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
     return self.model.entities.count > 0;   /* a fetch needs an entity */
   if (action == @selector(removeEntity:) ||
       action == @selector(addAttribute:) ||
-      action == @selector(addRelationship:))
+      action == @selector(addRelationship:) ||
+      action == @selector(addFetchIndex:))
     return [self selectedEntity] != nil;
   return YES;
 }
@@ -1893,6 +2080,8 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   if (item == _entitiesGroup) return (NSInteger)_entityItems.count;
   if (item == _fetchesGroup) return (NSInteger)_fetchItems.count;
   if (item == _configurationsGroup) return (NSInteger)_configurationItems.count;
+  if ([item isKindOfClass:[MBSourceItem class]] && [(MBSourceItem *)item kind] == MBSourceEntity)
+    return (NSInteger)[_fetchIndexItemsByEntity[[(MBSourceItem *)item name]] count];
   return 0;
 }
 
@@ -1906,13 +2095,18 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   }
   if (item == _entitiesGroup) return _entityItems[(NSUInteger)index];
   if (item == _fetchesGroup) return _fetchItems[(NSUInteger)index];
-  return _configurationItems[(NSUInteger)index];
+  if (item == _configurationsGroup) return _configurationItems[(NSUInteger)index];
+  return _fetchIndexItemsByEntity[[(MBSourceItem *)item name]][(NSUInteger)index];
 }
 
 - (BOOL)outlineView:(NSOutlineView *)outline isItemExpandable:(id)item
 {
   (void)outline;
-  return [item isKindOfClass:[MBSourceItem class]] && [item isGroup];
+  if (![item isKindOfClass:[MBSourceItem class]]) return NO;
+  if ([item isGroup]) return YES;
+  /* An entity opens to its fetch indexes, as in Xcode. */
+  return [(MBSourceItem *)item kind] == MBSourceEntity &&
+         [_fetchIndexItemsByEntity[[(MBSourceItem *)item name]] count] > 0;
 }
 
 - (id)outlineView:(NSOutlineView *)outline objectValueForTableColumn:(NSTableColumn *)column byItem:(id)item
@@ -1925,6 +2119,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
       case MBSourceEntity:        return MBEntityBadge();
       case MBSourceFetch:         return MBFetchBadge();
       case MBSourceConfiguration: return MBConfigurationBadge();
+      case MBSourceFetchIndex:    return MBBadgeImage(@"I", 0.52, 0.52, 0.56);
       default:                    return nil;
     }
   }
@@ -1958,6 +2153,21 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
     [self.modelDocument renameFetchRequestNamed:source.name to:text];
   } else if (source.kind == MBSourceConfiguration) {
     [self.modelDocument renameConfiguration:source.name to:text error:NULL];
+  } else if (source.kind == MBSourceFetchIndex) {
+    MBEntityEditor *editor = [MBEntityEditor editorForEntityNamed:source.entityName document:self.modelDocument];
+    NSArray *rows = editor.fetchIndexRows;
+    if ([[rows valueForKey:@"name"] containsObject:text]) return;   /* names are unique within an entity */
+    NSMutableArray *renamed = [NSMutableArray array];
+    for (NSDictionary *row in rows) {
+      NSMutableDictionary *copy = [row mutableCopy];
+      if ([row[@"name"] isEqualToString:source.name]) copy[@"name"] = text;
+      [renamed addObject:copy];
+    }
+    editor.fetchIndexRows = renamed;
+    NSString *entityName = source.entityName;
+    [self reloadEverything];
+    [self selectFetchIndexNamed:text ofEntityNamed:entityName];
+    return;
   }
   [self.modelDocument noteModelChanged];
   [self reloadEverything];
@@ -2011,6 +2221,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   if (table == self.relationshipTable) return (NSInteger)_relationshipNames.count;
   if (table == self.memberTable) return (NSInteger)_memberEntityNames.count;
   if (table == self.constraintsTable) return (NSInteger)_constraintRows.count;
+  if (table == self.fetchIndexElementTable) return (NSInteger)_fetchIndexElementRows.count;
   if (table == [self activeUserInfoTable]) return (NSInteger)_userInfoKeys.count;
   return 0;
 }
@@ -2104,6 +2315,13 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
   if ([ident isEqualToString:@"icon"])
     return [self iconForTable:table row:row];
 
+  if (table == self.fetchIndexElementTable && row >= 0 && (NSUInteger)row < _fetchIndexElementRows.count) {
+    NSDictionary *element = _fetchIndexElementRows[(NSUInteger)row];
+    NSString *current = [ident isEqualToString:@"type"] ? ([element[@"rtree"] boolValue] ? @"R-Tree" : @"Binary")
+                      : [ident isEqualToString:@"order"] ? (element[@"ascending"] && ![element[@"ascending"] boolValue] ? @"Descending" : @"Ascending")
+                      : [self fetchIndexElementTitle:element];
+    return [self mbIndexOf:current inChoices:[self mbChoicesForTable:table column:ident row:row]];
+  }
   if (table == self.attributeTable && entity && row >= 0 &&
       (NSUInteger)row < _attributeNames.count) {
     NSAttributeDescription *attr = entity.attributesByName[_attributeNames[(NSUInteger)row]];
@@ -2190,6 +2408,32 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
     [self.modelDocument noteModelChanged];
     return;
   }
+  if (table == self.fetchIndexElementTable) {
+    if (row < 0 || (NSUInteger)row >= _fetchIndexElementRows.count) return;
+    NSString *choice = [value description];
+    NSUInteger position = (NSUInteger)row;
+    if ([ident isEqualToString:@"property"] &&
+        [choice isEqualToString:[self fetchIndexElementTitle:_fetchIndexElementRows[position]]])
+      return;
+    [self changeSelectedFetchIndex:^(NSMutableDictionary *edited) {
+              NSMutableArray *elements = [edited[@"elements"] mutableCopy];
+              NSMutableDictionary *element = [elements[position] mutableCopy];
+              if ([ident isEqualToString:@"type"]) {
+                if ([choice isEqualToString:@"R-Tree"]) element[@"rtree"] = @YES;
+                else [element removeObjectForKey:@"rtree"];
+              } else if ([ident isEqualToString:@"order"]) {
+                if ([choice isEqualToString:@"Descending"]) element[@"ascending"] = @NO;
+                else [element removeObjectForKey:@"ascending"];
+              } else {
+                [element removeObjectForKey:@"expression"];
+                element[@"property"] = choice;
+              }
+              elements[position] = element;
+              edited[@"elements"] = elements;
+            }
+                            action:@"Edit Fetch Index Element"];
+    return;
+  }
   if (table == self.constraintsTable) {
     if (row < 0 || (NSUInteger)row >= _constraintRows.count) return;
     _constraintRows[(NSUInteger)row] = [value description] ?: @"";
@@ -2241,6 +2485,16 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
    list that differs by row. */
 - (NSArray *)mbChoicesForTable:(NSTableView *)table column:(NSString *)ident row:(NSInteger)row
 {
+  if (table == self.fetchIndexElementTable) {
+    if ([ident isEqualToString:@"type"]) return @[ @"Binary", @"R-Tree" ];
+    if ([ident isEqualToString:@"order"]) return @[ @"Ascending", @"Descending" ];
+    /* An expression element offers itself besides the properties. */
+    NSMutableArray *choices = [[self fetchIndexPropertyChoices] mutableCopy];
+    if (row >= 0 && (NSUInteger)row < _fetchIndexElementRows.count &&
+        _fetchIndexElementRows[(NSUInteger)row][@"expression"])
+      [choices addObject:[self fetchIndexElementTitle:_fetchIndexElementRows[(NSUInteger)row]]];
+    return choices;
+  }
   if (table == self.attributeTable && [ident isEqualToString:@"type"])
     return [CDModelCompiler attributeTypeNames];
   if (table == self.relationshipTable && [ident isEqualToString:@"destination"])
@@ -2257,6 +2511,13 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
     return names;
   }
   return nil;
+}
+
+- (NSString *)fetchIndexElementTitle:(NSDictionary *)element
+{
+  NSExpressionDescription *expression = element[@"expression"];
+  if (expression) return [NSString stringWithFormat:@"expression: %@", [expression.expression description]];
+  return element[@"property"] ?: @"";
 }
 
 - (NSNumber *)mbIndexOf:(NSString *)name inChoices:(NSArray *)choices

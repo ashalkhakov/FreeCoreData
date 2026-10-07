@@ -2,7 +2,8 @@
    layout lives entirely in MBDocumentWindow.xib (one xib serving both
    toolkits; GNUstep loads it through GSXib5).
 
-   Left: source list (ENTITIES / FETCH REQUESTS / CONFIGURATIONS).
+   Left: source list (ENTITIES / FETCH REQUESTS / CONFIGURATIONS); an
+   entity with fetch indexes opens to list them.
    Bottom bar: "+/− Entity" and "+/− Attribute" segmented controls.
    Center: a borderless tab view — the entity editor (Attributes and
    Relationships tables in collapsible JUInspectorView sections, each
@@ -63,6 +64,13 @@
 @property (nonatomic, strong) IBOutlet JUInspectorView *entitiesInspector;
 @property (nonatomic, strong) IBOutlet NSTableView *memberTable;
 
+/* Center pane: fetch index editor (its elements: Property, Type and Order
+   columns, all popups) */
+@property (nonatomic, strong) IBOutlet JUInspectorViewContainer *fetchIndexInspectorContainer;
+@property (nonatomic, strong) IBOutlet JUInspectorView *fetchIndexElementsInspector;
+@property (nonatomic, strong) IBOutlet NSTableView *fetchIndexElementTable;
+@property (nonatomic, strong) IBOutlet NSSegmentedControl *fetchIndexElementSegmentedControl;
+
 /* Inspector pane chrome */
 @property (nonatomic, strong) IBOutlet DMTabBar *inspectorTabBar;
 @property (nonatomic, strong) IBOutlet NSTabView *inspectorTabView;      /* Identity | Data Model */
@@ -82,6 +90,10 @@
 @property (nonatomic, strong) IBOutlet NSTextField *entityRenamingField;
 /* Identity page: the model version's Identifier. */
 @property (nonatomic, strong) IBOutlet NSTextField *modelIdentifierField;
+
+/* Fetch index inspector */
+@property (nonatomic, strong) IBOutlet NSTextField *fetchIndexNameField;
+@property (nonatomic, strong) IBOutlet NSTextField *fetchIndexPredicateField;
 
 /* Fetch request inspector */
 @property (nonatomic, strong) IBOutlet NSTextField *fetchNameField;
@@ -156,6 +168,8 @@
 - (IBAction)addEntity:(id)sender;
 - (IBAction)addFetchRequest:(id)sender;
 - (IBAction)addConfiguration:(id)sender;
+- (IBAction)addFetchIndex:(id)sender;          /* to the selected entity */
+- (IBAction)fetchIndexElementSegmentClicked:(id)sender;
 - (IBAction)removeEntity:(id)sender;
 - (IBAction)addAttribute:(id)sender;
 - (IBAction)removeAttribute:(id)sender;
