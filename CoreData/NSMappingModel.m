@@ -9,6 +9,8 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSMappingModel.h>
+#import <Foundation/NSExpression.h>
+#import <Foundation/NSPredicate.h>
 #import <CoreData/NSEntityMapping.h>
 #import <CoreData/NSPropertyMapping.h>
 #import <CoreData/NSManagedObjectModel.h>
@@ -157,6 +159,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    if(data==nil)
     return nil;
 
+   /* A mapping model is made of predicates and expressions, whose archive
+      class names gnustep-base registers in +initialize; poke the classes
+      before unarchiving, or reading a mapping model as the very first
+      CoreData call fails with "no class for name 'NSKeyPathExpression'".
+      The managed object model's loader does the same. */
+   [NSPredicate class];
+   [NSExpression class];
+
    NSKeyedUnarchiver *unarchiver=[[NSKeyedUnarchiver alloc] initForReadingWithData:data];
    NSMappingModel    *result=[[unarchiver decodeObjectForKey:@"root"] retain];
 
@@ -164,6 +174,33 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    [data release];
 
    return result;
+}
+
+/* A mapping model compiled by Xcode is a keyed archive, and these are the
+   keys it carries - the same ones this writes, so a model written here can
+   be read there. */
+-(id)initWithCoder:(NSCoder *)coder {
+   if((self=[super init])==nil)
+    return nil;
+
+   if([coder allowsKeyedCoding])
+    _entityMappings=[[coder decodeObjectForKey:@"NSEntityMappings"] copy];
+   else
+    _entityMappings=[[coder decodeObject] copy];
+
+   if(_entityMappings==nil)
+    _entityMappings=[[NSArray alloc] init];
+
+   return self;
+}
+
+-(void)encodeWithCoder:(NSCoder *)coder {
+   if([coder allowsKeyedCoding]){
+    [coder encodeObject:_entityMappings forKey:@"NSEntityMappings"];
+    [coder encodeObject:[self entityMappingsByName] forKey:@"NSEntityMappingsByName"];
+   }
+   else
+    [coder encodeObject:_entityMappings];
 }
 
 -(NSArray *)entityMappings {

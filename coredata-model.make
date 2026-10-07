@@ -8,6 +8,7 @@
 #     APP_NAME = MyApp
 #     MyApp_OBJC_FILES = ...
 #     MyApp_XCDATAMODELD_FILES = Model.xcdatamodeld
+#     MyApp_XCMAPPINGMODEL_FILES = ModelV1ToV2.xcmappingmodel
 #
 #     include $(GNUSTEP_MAKEFILES)/coredata-model.make
 #     include $(GNUSTEP_MAKEFILES)/application.make
@@ -39,13 +40,20 @@
 
 MOMC ?= momc
 
+# And the mapping-model compiler, for a project that migrates a store with
+# a mapping model of its own: <target>_XCMAPPINGMODEL_FILES compiles each
+# .xcmappingmodel to the .cdm a migration loads, and adds it to the
+# target's resources.  Override with MAPC=... as with MOMC.
+MAPC ?= mapc
+
 _CD_MODEL_TARGETS = $(FRAMEWORK_NAME) $(APP_NAME) $(TOOL_NAME) \
                     $(BUNDLE_NAME) $(LIBRARY_NAME) $(CTOOL_NAME)
 
 define _cd_model_template
 $(1)_COMPILED_MODELS = \
     $$(patsubst %.xcdatamodeld,%.momd,$$($(1)_XCDATAMODELD_FILES)) \
-    $$(patsubst %.xcdatamodel,%.mom,$$($(1)_XCDATAMODEL_FILES))
+    $$(patsubst %.xcdatamodel,%.mom,$$($(1)_XCDATAMODEL_FILES)) \
+    $$(patsubst %.xcmappingmodel,%.cdm,$$($(1)_XCMAPPINGMODEL_FILES))
 $(1)_RESOURCE_FILES += $$($(1)_COMPILED_MODELS)
 _CD_ALL_COMPILED_MODELS += $$($(1)_COMPILED_MODELS)
 endef
@@ -115,6 +123,9 @@ _cd-force-model-compile:
 
 %.mom: %.xcdatamodel _cd-force-model-compile
 	$(MOMC) $< $@
+
+%.cdm: %.xcmappingmodel _cd-force-model-compile
+	$(MAPC) $< $@
 
 # What every generation waits for: a project whose momc is built in the
 # tree makes this depend on it.

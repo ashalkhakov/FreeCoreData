@@ -14,10 +14,10 @@
 		CE39E302304400000075866A /* CodegenFixture.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = CE39E300304400000075866A /* CodegenFixture.xcdatamodeld */; };
 		CE39E304304400000075866A /* CodegenBuildTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E303304400000075866A /* CodegenBuildTests.m */; };
 		CE39E307304400000075866A /* CGBBook.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E306304400000075866A /* CGBBook.m */; };
+		CE9400000000000000AD0001 /* NSManagedObjectPredicateTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9400000000000000AD0002 /* NSManagedObjectPredicateTests.m */; };
 		CE9446BA30371F9600D23BA1 /* NSTransformableAttributeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */; };
 		CE9446BC30373B5C00D23BA1 /* NSDerivedAttributeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */; };
 		CE9446BE30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */; };
-		CE9400000000000000AD0001 /* NSManagedObjectPredicateTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9400000000000000AD0002 /* NSManagedObjectPredicateTests.m */; };
 		CE9446C0303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */; };
 		CE9446C2303B0C0000D23BA1 /* MomcCompiledModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C1303B0C0000D23BA1 /* MomcCompiledModelTests.m */; };
 		CE9446C6303B0C0000D23BA1 /* MomcFixture.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C3303B0C0000D23BA1 /* MomcFixture.xcdatamodeld */; };
@@ -25,7 +25,11 @@
 		CE9446CA303C0D0000D23BA1 /* NSManagedObjectContextUndoTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446C9303C0D0000D23BA1 /* NSManagedObjectContextUndoTests.m */; };
 		CE9446CC303C0D0000D23BA1 /* MomcSerializerTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446CB303C0D0000D23BA1 /* MomcSerializerTests.m */; };
 		CE9446CE303C0D0000D23BA1 /* CDModelCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446CD303C0D0000D23BA1 /* CDModelCompiler.m */; };
+		CEAA10003077AA0000AAAAAA /* CDMappingCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = CEAA10013077AA0000AAAAAA /* CDMappingCompiler.m */; };
+		CEAA20003077BB0000BBBBBB /* CDMappingSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = CEAA20013077BB0000BBBBBB /* CDMappingSerializer.m */; };
 		CE9446D0303C0D0000D23BA1 /* CDModelSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = CE9446CF303C0D0000D23BA1 /* CDModelSerializer.m */; };
+		CECF115030755D22002C292E /* MappingFixture.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = CECF114E30755D22002C292E /* MappingFixture.xcdatamodeld */; };
+		CECF115730756465002C292E /* MappingFixture.xcmappingmodel in Sources */ = {isa = PBXBuildFile; fileRef = CECF115630756465002C292E /* MappingFixture.xcmappingmodel */; };
 		CED0149F3032FF59009517DE /* NSPersistentStoreRequestTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014993032FF59009517DE /* NSPersistentStoreRequestTests.m */; };
 		CED014A03032FF59009517DE /* NSIncrementalStoreNodeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014933032FF59009517DE /* NSIncrementalStoreNodeTests.m */; };
 		CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014963032FF59009517DE /* NSManagedObjectModelTests.m */; };
@@ -65,10 +69,10 @@
 		CE39E303304400000075866A /* CodegenBuildTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CodegenBuildTests.m; path = Tests/CodegenBuildTests.m; sourceTree = "<group>"; };
 		CE39E305304400000075866A /* CGBBook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CGBBook.h; path = Tests/CGBBook.h; sourceTree = "<group>"; };
 		CE39E306304400000075866A /* CGBBook.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CGBBook.m; path = Tests/CGBBook.m; sourceTree = "<group>"; };
+		CE9400000000000000AD0002 /* NSManagedObjectPredicateTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectPredicateTests.m; path = Tests/NSManagedObjectPredicateTests.m; sourceTree = "<group>"; };
 		CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSTransformableAttributeTests.m; path = Tests/NSTransformableAttributeTests.m; sourceTree = "<group>"; };
 		CE9446BB30373B5C00D23BA1 /* NSDerivedAttributeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSDerivedAttributeTests.m; path = Tests/NSDerivedAttributeTests.m; sourceTree = "<group>"; };
 		CE9446BD30390AAA00D23BA1 /* NSCountAndExistingObjectTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSCountAndExistingObjectTests.m; path = Tests/NSCountAndExistingObjectTests.m; sourceTree = "<group>"; };
-		CE9400000000000000AD0002 /* NSManagedObjectPredicateTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectPredicateTests.m; path = Tests/NSManagedObjectPredicateTests.m; sourceTree = "<group>"; };
 		CE9446BF303A0BBB00D23BA1 /* NSPendingChangesFetchTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSPendingChangesFetchTests.m; path = Tests/NSPendingChangesFetchTests.m; sourceTree = "<group>"; };
 		CE9446C1303B0C0000D23BA1 /* MomcCompiledModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MomcCompiledModelTests.m; path = Tests/MomcCompiledModelTests.m; sourceTree = "<group>"; };
 		CE9446C4303B0C0000D23BA1 /* MomcFixture.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = MomcFixture.xcdatamodel; sourceTree = "<group>"; };
@@ -77,9 +81,16 @@
 		CE9446C9303C0D0000D23BA1 /* NSManagedObjectContextUndoTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSManagedObjectContextUndoTests.m; path = Tests/NSManagedObjectContextUndoTests.m; sourceTree = "<group>"; };
 		CE9446CB303C0D0000D23BA1 /* MomcSerializerTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MomcSerializerTests.m; path = Tests/MomcSerializerTests.m; sourceTree = "<group>"; };
 		CE9446CD303C0D0000D23BA1 /* CDModelCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelCompiler.m; path = Tools/momc/CDModelCompiler.m; sourceTree = "<group>"; };
+		CEAA10013077AA0000AAAAAA /* CDMappingCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDMappingCompiler.m; path = Tools/mapc/CDMappingCompiler.m; sourceTree = "<group>"; };
+		CEAA20013077BB0000BBBBBB /* CDMappingSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDMappingSerializer.m; path = Tools/mapc/CDMappingSerializer.m; sourceTree = "<group>"; };
+		CEAA20023077BB0000BBBBBB /* CDMappingSerializer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDMappingSerializer.h; path = Tools/mapc/CDMappingSerializer.h; sourceTree = "<group>"; };
+		CEAA10023077AA0000AAAAAA /* CDMappingCompiler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDMappingCompiler.h; path = Tools/mapc/CDMappingCompiler.h; sourceTree = "<group>"; };
 		CE9446CF303C0D0000D23BA1 /* CDModelSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelSerializer.m; path = Tools/momc/CDModelSerializer.m; sourceTree = "<group>"; };
 		CEB4D298303E0B2600A2DCCB /* CDModelCompiler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelCompiler.h; path = Tools/momc/CDModelCompiler.h; sourceTree = "<group>"; };
 		CEB4D299303E0B2600A2DCCB /* CDModelSerializer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelSerializer.h; path = Tools/momc/CDModelSerializer.h; sourceTree = "<group>"; };
+		CECF114F30755D22002C292E /* MappingFixture.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = MappingFixture.xcdatamodel; sourceTree = "<group>"; };
+		CECF115130755E35002C292E /* MappingFixture 2.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "MappingFixture 2.xcdatamodel"; sourceTree = "<group>"; };
+		CECF115630756465002C292E /* MappingFixture.xcmappingmodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcmappingmodel; name = MappingFixture.xcmappingmodel; path = Tests/MappingFixture.xcmappingmodel; sourceTree = "<group>"; };
 		CED0148F3032FF59009517DE /* MappingModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MappingModelTests.m; path = Tests/MappingModelTests.m; sourceTree = "<group>"; };
 		CED014903032FF59009517DE /* MemoryIncrementalStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MemoryIncrementalStore.h; path = Tests/MemoryIncrementalStore.h; sourceTree = "<group>"; };
 		CED014913032FF59009517DE /* MemoryIncrementalStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MemoryIncrementalStore.m; path = Tests/MemoryIncrementalStore.m; sourceTree = "<group>"; };
@@ -134,6 +145,7 @@
 		24DFAD7E3B56719996E6F208 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				CECF115630756465002C292E /* MappingFixture.xcmappingmodel */,
 				CEFAB8283063BE9700CDADDD /* NSPersistentHistoryTests.m */,
 				CEFAB8263063AE0E00CDADDD /* NSTransientRelationshipTests.m */,
 				CEFAB8243062DA0B00CDADDD /* NSBatchRequestTests.m */,
@@ -152,6 +164,10 @@
 				CE9446CB303C0D0000D23BA1 /* MomcSerializerTests.m */,
 				CEB4D298303E0B2600A2DCCB /* CDModelCompiler.h */,
 				CE9446CD303C0D0000D23BA1 /* CDModelCompiler.m */,
+				CEAA10023077AA0000AAAAAA /* CDMappingCompiler.h */,
+				CEAA20023077BB0000BBBBBB /* CDMappingSerializer.h */,
+				CEAA20013077BB0000BBBBBB /* CDMappingSerializer.m */,
+				CEAA10013077AA0000AAAAAA /* CDMappingCompiler.m */,
 				CEB4D299303E0B2600A2DCCB /* CDModelSerializer.h */,
 				CE9446CF303C0D0000D23BA1 /* CDModelSerializer.m */,
 				CE39E2D7304325FD0075866A /* CDCodeGenerator.h */,
@@ -183,6 +199,7 @@
 				CED0149C3032FF59009517DE /* VersionHashTests.m */,
 				CED0149D3032FF59009517DE /* VersioningTestModels.h */,
 				CED0149E3032FF59009517DE /* VersioningTestModels.m */,
+				CECF114E30755D22002C292E /* MappingFixture.xcdatamodeld */,
 			);
 			name = Tests;
 			sourceTree = "<group>";
@@ -259,6 +276,7 @@
 			files = (
 				CEFAB8293063BE9700CDADDD /* NSPersistentHistoryTests.m in Sources */,
 				CED0149F3032FF59009517DE /* NSPersistentStoreRequestTests.m in Sources */,
+				CECF115030755D22002C292E /* MappingFixture.xcdatamodeld in Sources */,
 				CED014A03032FF59009517DE /* NSIncrementalStoreNodeTests.m in Sources */,
 				CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */,
 				CEFAB8233062D47200CDADDD /* NSAsynchronousFetchTests.m in Sources */,
@@ -294,10 +312,13 @@
 				CE9446CC303C0D0000D23BA1 /* MomcSerializerTests.m in Sources */,
 				CEFAB8213062CC1800CDADDD /* NSPersistentContainerTests.m in Sources */,
 				CE9446CE303C0D0000D23BA1 /* CDModelCompiler.m in Sources */,
+				CEAA10003077AA0000AAAAAA /* CDMappingCompiler.m in Sources */,
+				CEAA20003077BB0000BBBBBB /* CDMappingSerializer.m in Sources */,
 				CE9446D0303C0D0000D23BA1 /* CDModelSerializer.m in Sources */,
 				CED014C13032FF59009517DE /* NSManagedObjectValidationTests.m in Sources */,
 				CEFAB81D3062B58E00CDADDD /* NSManagedObjectContextConcurrencyTests.m in Sources */,
 				CED014C33032FF59009517DE /* NSManagedObjectLifecycleTests.m in Sources */,
+				CECF115730756465002C292E /* MappingFixture.xcmappingmodel in Sources */,
 				CE9446BA30371F9600D23BA1 /* NSTransformableAttributeTests.m in Sources */,
 				CED014C53032FF59009517DE /* NSMergePolicyTests.m in Sources */,
 			);
@@ -404,6 +425,18 @@
 			currentVersion = CE9446C5303B0C0000D23BA1 /* MomcFixture 2.xcdatamodel */;
 			name = MomcFixture.xcdatamodeld;
 			path = Tests/MomcFixture.xcdatamodeld;
+			sourceTree = "<group>";
+			versionGroupType = wrapper.xcdatamodel;
+		};
+		CECF114E30755D22002C292E /* MappingFixture.xcdatamodeld */ = {
+			isa = XCVersionGroup;
+			children = (
+				CECF115130755E35002C292E /* MappingFixture 2.xcdatamodel */,
+				CECF114F30755D22002C292E /* MappingFixture.xcdatamodel */,
+			);
+			currentVersion = CECF115130755E35002C292E /* MappingFixture 2.xcdatamodel */;
+			name = MappingFixture.xcdatamodeld;
+			path = Tests/MappingFixture.xcdatamodeld;
 			sourceTree = "<group>";
 			versionGroupType = wrapper.xcdatamodel;
 		};

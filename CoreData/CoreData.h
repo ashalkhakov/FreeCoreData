@@ -44,6 +44,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSIncrementalStoreNode.h>
 #import <CoreData/NSPropertyMapping.h>
 #import <CoreData/NSEntityMapping.h>
+#import <CoreData/NSFetchRequestExpression.h>
 #import <CoreData/NSMappingModel.h>
 #import <CoreData/NSEntityMigrationPolicy.h>
 #import <CoreData/NSMigrationManager.h>

@@ -26,6 +26,50 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    [super dealloc];
 }
 
+/* The keys Xcode's compiled mapping models carry. */
+-(id)initWithCoder:(NSCoder *)coder {
+   if((self=[super init])==nil)
+    return nil;
+
+   if(![coder allowsKeyedCoding]){
+    [NSException raise:NSInvalidArgumentException format:@"%@ needs a keyed archive",[self class]];
+    return nil;
+   }
+
+   _name=[[coder decodeObjectForKey:@"NSMappingName"] copy];
+   _mappingType=[coder decodeIntForKey:@"NSMappingType"];
+   _sourceEntityName=[[coder decodeObjectForKey:@"NSSourceEntityName"] copy];
+   _destinationEntityName=[[coder decodeObjectForKey:@"NSDestinationEntityName"] copy];
+   _sourceEntityVersionHash=[[coder decodeObjectForKey:@"NSSourceEntityVersionHash"] copy];
+   _destinationEntityVersionHash=[[coder decodeObjectForKey:@"NSDestinationEntityVersionHash"] copy];
+   _attributeMappings=[[coder decodeObjectForKey:@"NSAttributeMappings"] copy];
+   _relationshipMappings=[[coder decodeObjectForKey:@"NSRelationshipMappings"] copy];
+   _sourceExpression=[[coder decodeObjectForKey:@"NSSourceExpression"] retain];
+   _entityMigrationPolicyClassName=[[coder decodeObjectForKey:@"NSEntityMigrationPolicyClassName"] copy];
+   _userInfo=[[coder decodeObjectForKey:@"NSUserInfo"] copy];
+
+   return self;
+}
+
+-(void)encodeWithCoder:(NSCoder *)coder {
+   if(![coder allowsKeyedCoding]){
+    [NSException raise:NSInvalidArgumentException format:@"%@ needs a keyed archive",[self class]];
+    return;
+   }
+
+   [coder encodeObject:_name forKey:@"NSMappingName"];
+   [coder encodeInt:_mappingType forKey:@"NSMappingType"];
+   [coder encodeObject:_sourceEntityName forKey:@"NSSourceEntityName"];
+   [coder encodeObject:_destinationEntityName forKey:@"NSDestinationEntityName"];
+   [coder encodeObject:_sourceEntityVersionHash forKey:@"NSSourceEntityVersionHash"];
+   [coder encodeObject:_destinationEntityVersionHash forKey:@"NSDestinationEntityVersionHash"];
+   [coder encodeObject:_attributeMappings forKey:@"NSAttributeMappings"];
+   [coder encodeObject:_relationshipMappings forKey:@"NSRelationshipMappings"];
+   [coder encodeObject:_sourceExpression forKey:@"NSSourceExpression"];
+   [coder encodeObject:_entityMigrationPolicyClassName forKey:@"NSEntityMigrationPolicyClassName"];
+   [coder encodeObject:_userInfo forKey:@"NSUserInfo"];
+}
+
 -(NSString *)name {
    if(_name!=nil)
     return _name;

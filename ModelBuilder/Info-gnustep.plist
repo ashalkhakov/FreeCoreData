@@ -17,6 +17,13 @@
       NSDocumentClass = MBDocument;
     },
     {
+      NSName = "Core Data Mapping Model";
+      NSHumanReadableName = "Core Data Mapping Model";
+      NSUnixExtensions = ("xcmappingmodel");
+      NSRole = Editor;
+      NSDocumentClass = MBMappingDocument;
+    },
+    {
       NSName = "Core Data Model Version";
       NSHumanReadableName = "Core Data Model Version";
       NSUnixExtensions = ("xcdatamodel");

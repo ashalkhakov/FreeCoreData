@@ -13,9 +13,11 @@ OBJC = clang
 
 APP_NAME = ModelBuilder
 ModelBuilder_OBJC_FILES = main.m MBDocument.m MBEditors.m MBWindowController.m \
+	MBMappingDocument.m MBMappingWindowController.m MBNewMappingController.m \
 	../Tools/momc/CDModelCompiler.m ../Tools/momc/CDModelSerializer.m \
 	../Tools/momc/CDModelMutator.m \
 	../Tools/momc/CDCodeGenerator.m \
+	../Tools/mapc/CDMappingCompiler.m ../Tools/mapc/CDMappingSerializer.m \
 	MBStepperTextField.m \
 	ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.m \
 	ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.m \
@@ -23,13 +25,15 @@ ModelBuilder_OBJC_FILES = main.m MBDocument.m MBEditors.m MBWindowController.m \
 	ThirdParty/JUInspectorView/Source/JUInspectorView.m \
 	ThirdParty/JUInspectorView/Source/JUInspectorViewContainer.m \
 	ThirdParty/JUInspectorView/Source/JUInspectorViewHeader.m
-ModelBuilder_RESOURCE_FILES = MainMenu.xib MBDocumentWindow.xib Info-gnustep.plist \
+ModelBuilder_RESOURCE_FILES = MainMenu.xib MBDocumentWindow.xib MBMappingWindow.xib \
+	MBNewMappingPanel.xib \
+	Info-gnustep.plist \
 	ModelBuilder.png
 ModelBuilder_MAIN_MODEL_FILE = MainMenu.xib
 ModelBuilder_APPLICATION_ICON = ModelBuilder.png
 
 # Repo-root layout: headers/framework sit one directory up.
-ModelBuilder_INCLUDE_DIRS = -I.. -I../Tools/momc \
+ModelBuilder_INCLUDE_DIRS = -I.. -I../Tools/momc -I../Tools/mapc \
 	-IThirdParty/DMTabBar/DMTabBar/DMTabBar \
 	-IThirdParty/JUInspectorView/Source
 ModelBuilder_OBJC_LIBS += -lCoreData
@@ -47,4 +51,5 @@ after-all::
 	@dst="$(GNUSTEP_OBJ_DIR)/$(APP_NAME).app/Resources"; \
 	if [ ! -d "$$dst" ]; then dst="./$(APP_NAME).app/Resources"; fi; \
 	mkdir -p "$$dst"; \
-	cp -f MainMenu.xib MBDocumentWindow.xib Info-gnustep.plist "$$dst/"
+	cp -f MainMenu.xib MBDocumentWindow.xib MBMappingWindow.xib MBNewMappingPanel.xib \
+	   Info-gnustep.plist "$$dst/"

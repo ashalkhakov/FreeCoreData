@@ -1,31 +1,44 @@
 /* This file is part of the CoreData framework port for GNUstep.
    Original file — not derived from Cocotron.
 
-   GNUstep port adaptations are released under the same MIT license.
+   Copyright (c) 2026 the GNUstep CoreData port contributors.
+   Released under the MIT license.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
+/* mapc - compiles a mapping model's source (.xcmappingmodel) into the
+   .cdm a migration loads, as Xcode's mapc does.  The compiler lives in
+   CDMappingCompiler; this file is only the command line. */
 #import <Foundation/Foundation.h>
+#import "CDMappingCompiler.h"
 
-@class NSExpression;
-
-@interface NSPropertyMapping : NSObject {
-    NSString *_name;
-    NSExpression *_valueExpression;
-    NSDictionary *_userInfo;
-    NSArray *_propertyTransforms;
+static void usage(void){
+   fprintf(stderr,"usage: mapc <Mapping.xcmappingmodel> <Mapping.cdm>\n");
+   exit(1);
 }
 
-- (NSString *)name;
-- (void)setName:(NSString *)name;
+int main(int argc,const char *argv[]){
+   @autoreleasepool {
+      NSArray *arguments=[[NSProcessInfo processInfo] arguments];
 
-- (NSExpression *)valueExpression;
-- (void)setValueExpression:(NSExpression *)expression;
+      if([arguments count]!=3)
+       usage();
 
-- (NSDictionary *)userInfo;
-- (void)setUserInfo:(NSDictionary *)userInfo;
+      [CDMappingCompiler setWarningHandler:^(NSString *message){
+        fprintf(stderr,"mapc: warning: %s\n",[message UTF8String]);
+       }];
 
-@end
+      NSString *source=[arguments objectAtIndex:1];
+      NSString *destination=[arguments objectAtIndex:2];
+      NSError  *error=nil;
+
+      if(![CDMappingCompiler compileMappingModelAtPath:source toPath:destination error:&error]){
+       fprintf(stderr,"mapc: error: %s\n",[[error localizedDescription] UTF8String]);
+       return 1;
+      }
+   }
+   return 0;
+}

@@ -39,6 +39,11 @@
                                     <action selector="newDocument:" target="-1" id="ANEW"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="New Mapping Model…" id="MNEWMAP">
+                                <connections>
+                                    <action selector="newMappingModel:" target="-1" id="ANEWMAP"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Open…" keyEquivalent="o" id="MOPEN">
                                 <connections>
                                     <action selector="openDocument:" target="-1" id="AOPEN"/>
