@@ -147,12 +147,12 @@ int main(void)
     CHECK(xml != nil, "serialize model with the new features");
     CHECK([xml rangeOfString:@"elementID=\"OldPerson\""].location != NSNotFound,
           "entity renaming spelled elementID");
-    CHECK([xml rangeOfString:@"renamingIdentifier=\"years\""].location != NSNotFound,
-          "attribute renamingIdentifier serialized");
-    CHECK([xml rangeOfString:@"renamingIdentifier=\"animals\""].location != NSNotFound,
-          "relationship renamingIdentifier serialized");
-    CHECK([xml rangeOfString:@"renamingIdentifier=\"name\""].location == NSNotFound,
-          "defaulted renamingIdentifier not serialized");
+    CHECK([xml rangeOfString:@"elementID=\"years\""].location != NSNotFound,
+          "attribute renaming spelled elementID");
+    CHECK([xml rangeOfString:@"elementID=\"animals\""].location != NSNotFound,
+          "relationship renaming spelled elementID");
+    CHECK([xml rangeOfString:@"elementID=\"name\""].location == NSNotFound,
+          "defaulted renaming ID not serialized");
     CHECK([xml rangeOfString:@"usesScalarValueType=\"YES\""].location != NSNotFound,
           "usesScalarValueType serialized");
     CHECK([xml rangeOfString:@"minValueString=\"0\""].location != NSNotFound &&

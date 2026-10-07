@@ -454,6 +454,60 @@ static NSManagedObjectModel *RenamingTestModel(BOOL renamed)
     [files removeItemAtPath:root error:NULL];
 }
 
+/* An expression's structure, printed the same on both platforms: a
+   variable as $name, a constant as its value, a function call as
+   operand.function(arguments). */
+static NSString *MBExpressionShape(NSExpression *expression)
+{
+    if (expression == nil) return @"nil";
+    switch ([expression expressionType]) {
+        case NSVariableExpressionType:
+            return [@"$" stringByAppendingString:[expression variable]];
+        case NSConstantValueExpressionType:
+            return [[expression constantValue] description];
+        case NSFunctionExpressionType: {
+            NSMutableArray *arguments = [NSMutableArray array];
+            for (NSExpression *argument in [expression arguments])
+                [arguments addObject:MBExpressionShape(argument)];
+            return [NSString stringWithFormat:@"%@.%@(%@)", MBExpressionShape([expression operand]),
+                    [expression function], [arguments componentsJoinedByString:@", "]];
+        }
+        default:
+            return [expression description];
+    }
+}
+
+/* An inferred mapping fills every property as Apple's does: an attribute
+   the source has is read from it by valueForKey:, a new one is left to
+   its default, and every relationship the source has goes through the
+   manager by the source relationship's name. */
+- (void)testAnInferredMappingFillsEveryPropertyAsApplesDoes
+{
+    NSError *error = nil;
+    NSMappingModel *inferred = [NSMappingModel
+        inferredMappingModelForSourceModel:[self fixtureModelNamed:@"MappingFixture"]
+                          destinationModel:[self fixtureModelNamed:@"MappingFixture 2"]
+                                     error:&error];
+
+    XCTAssertNotNil(inferred, @"%@", error);
+
+    NSMutableDictionary *shapes = [NSMutableDictionary dictionary];
+
+    for (NSEntityMapping *mapping in [inferred entityMappings])
+        for (NSPropertyMapping *property in [[mapping attributeMappings] arrayByAddingObjectsFromArray:
+                                                [mapping relationshipMappings] ?: @[]])
+            shapes[[NSString stringWithFormat:@"%@.%@", [mapping name], [property name]]] =
+                MBExpressionShape([property valueExpression]);
+
+    XCTAssertEqualObjects(shapes[@"IEM_Transform_Note.text"], @"$source.valueForKey:(text)");
+    XCTAssertEqualObjects(shapes[@"IEM_Transform_Note.writer"], @"nil", @"new: left to its default");
+    XCTAssertEqualObjects(shapes[@"IEM_Transform_Note.tags"],
+        @"$manager.destinationInstancesForSourceRelationshipNamed:sourceInstances:(tags, $source.valueForKey:(tags))");
+    XCTAssertEqualObjects(shapes[@"IEM_Copy_Tag.label"], @"$source.valueForKey:(label)");
+    XCTAssertEqualObjects(shapes[@"IEM_Copy_Tag.notes"],
+        @"$manager.destinationInstancesForSourceRelationshipNamed:sourceInstances:(notes, $source.valueForKey:(notes))");
+}
+
 - (void)testTheMappingModelCompiledHereIsTheOneXcodeCompiled
 {
     NSMappingModel *ours = [self fixtureMappingCompiledHere];

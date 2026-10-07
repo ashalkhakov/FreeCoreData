@@ -106,34 +106,34 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         source entity's name (a renamed entity's old one). */
      [mapping setName:[NSString stringWithFormat:@"IEM_%@_%@",([mapping mappingType]==NSCopyEntityMappingType)?@"Copy":@"Transform",[sourceEntity name]]];
 
-     /* Apple creates an attribute mapping for every destination attribute:
-        attributes that also exist in the source migrate by direct copy,
-        new attributes get a mapping without a value expression so they
-        keep their default values. Relationship mappings are only created
-        for relationships present in both versions. */
+     /* Apple creates an attribute mapping for every destination attribute
+        and a relationship mapping for every destination relationship the
+        source has, each with the expression that reads it from the source
+        object - by its old name, for one with a renaming identifier.  A
+        new attribute gets no expression, and so keeps its default. */
      for(NSPropertyDescription *property in [destinationEntity properties]){
       NSString *propertyName=[property name];
-      /* A renamed property (renaming identifier): read from the source's
-         by its old name, with the expressions Apple's inferred mappings
-         carry. */
       NSString *oldName=[property renamingIdentifier];
       BOOL      renamed=(oldName!=nil && ![oldName isEqualToString:propertyName] && [sourceProperties objectForKey:oldName]!=nil);
       NSString *sourcePropertyName=renamed?oldName:propertyName;
+      id        sourceProperty=[sourceProperties objectForKey:sourcePropertyName];
       NSExpression *read=[NSExpression expressionWithFormat:@"FUNCTION($source, 'valueForKey:', %@)",sourcePropertyName];
 
       if([property isKindOfClass:[NSAttributeDescription class]]){
        NSPropertyMapping *propertyMapping=[[[NSPropertyMapping alloc] init] autorelease];
        [propertyMapping setName:propertyName];
-       if(renamed)
+       if([sourceProperty isKindOfClass:[NSAttributeDescription class]])
         [propertyMapping setValueExpression:read];
        [attributeMappings addObject:propertyMapping];
       }
-      else if([property isKindOfClass:[NSRelationshipDescription class]] && [sourceProperties objectForKey:sourcePropertyName]!=nil){
+      else if([property isKindOfClass:[NSRelationshipDescription class]] && [sourceProperty isKindOfClass:[NSRelationshipDescription class]]){
        NSPropertyMapping *propertyMapping=[[[NSPropertyMapping alloc] init] autorelease];
        [propertyMapping setName:propertyName];
-       if(renamed)
-        [propertyMapping setValueExpression:[NSExpression expressionWithFormat:
-         @"FUNCTION($manager, 'destinationInstancesForSourceRelationshipNamed:sourceInstances:', %@, %@)",sourcePropertyName,read]];
+       /* Built, not formatted: a format's %@ splices an expression in on
+          Apple's Foundation and wraps it as a constant on gnustep-base. */
+       [propertyMapping setValueExpression:[NSExpression expressionForFunction:[NSExpression expressionForVariable:@"manager"]
+                                                                  selectorName:@"destinationInstancesForSourceRelationshipNamed:sourceInstances:"
+                                                                     arguments:[NSArray arrayWithObjects:[NSExpression expressionForConstantValue:sourcePropertyName],read,nil]]];
        [relationshipMappings addObject:propertyMapping];
       }
      }
