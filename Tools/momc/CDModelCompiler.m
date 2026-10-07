@@ -35,6 +35,7 @@ static void warnf(NSString *format,...){
 }
 
 static void failf(NSString *format,...) __attribute__((noreturn));
+static void compileFetchIndexes(NSXMLElement *entityElement,NSEntityDescription *entity);
 static void failf(NSString *format,...){
    va_list arguments;
    va_start(arguments,format);
@@ -470,6 +471,11 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
     [parent setSubentities:children];
    }
 
+   /* Pass 5: fetch indexes, last - Apple's CoreData drops an entity's
+      indexes when its subentities, or their properties, are set. */
+   for(NSString *entityName in entitiesByName)
+    compileFetchIndexes([elementsByName objectForKey:entityName],[entitiesByName objectForKey:entityName]);
+
    NSManagedObjectModel *model=[[NSManagedObjectModel alloc] init];
 
    [model setEntities:[entitiesByName allValues]];
@@ -536,6 +542,113 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
    return model;
 }
 
+/* An entity's fetch indexes, as Xcode writes them:
+
+     <fetchIndex name="byTitle" partialIndexPredicate="title != nil">
+         <fetchIndexElement property="title" type="Binary" order="ascending"/>
+         <fetchIndexElement expression="lowercase:(name)" expressionType="String" type="Binary" order="ascending"/>
+     </fetchIndex>
+
+   and Xcode's older Indexed checkbox, indexed="YES" on an attribute, which
+   Apple's momc turns into an index named by<Name>Index after the others.
+   An R-tree element must be an Integer 16, Integer 32 or Float attribute,
+   which Apple's momc checks too. */
+static void compileFetchIndexes(NSXMLElement *entityElement,NSEntityDescription *entity){
+   NSMutableArray *indexes=[NSMutableArray array];
+   NSDictionary   *properties=[entity propertiesByName];
+
+   for(NSXMLElement *indexElement in [entityElement elementsForName:@"fetchIndex"]){
+    NSString       *indexName=attr(indexElement,@"name");
+    NSMutableArray *elements=[NSMutableArray array];
+    NSUInteger      position=0,expressions=0;
+
+    if([indexName length]==0)
+     failf(@"%@: <fetchIndex> without a name",[entity name]);
+
+    for(NSXMLElement *element in [indexElement elementsForName:@"fetchIndexElement"]){
+     NSString              *context=[NSString stringWithFormat:@"%@|%@[%lu]",[entity name],indexName,(unsigned long)position++];
+     NSString              *typeString=attr(element,@"type");
+     NSString              *order=attr(element,@"order");
+     NSFetchIndexElementType type=NSFetchIndexElementTypeBinary;
+     NSPropertyDescription *property=nil;
+
+     if(typeString==nil || [typeString isEqualToString:@"Binary"])
+      type=NSFetchIndexElementTypeBinary;
+     else if([typeString isEqualToString:@"RTree"])
+      type=NSFetchIndexElementTypeRTree;
+     else
+      failf(@"%@: unknown index element type '%@'",context,typeString);
+
+     if(attr(element,@"property")!=nil){
+      property=[properties objectForKey:attr(element,@"property")];
+      if(property==nil)
+       failf(@"%@: %@ has no property named %@",context,[entity name],attr(element,@"property"));
+     }
+     else if(attr(element,@"expression")!=nil){
+      NSExpressionDescription *description=[[NSExpressionDescription alloc] init];
+      NSExpression            *expression=nil;
+
+      @try {
+       expression=[NSExpression expressionWithFormat:attr(element,@"expression")];
+      }
+      @catch(NSException *exception){
+       failf(@"%@: cannot parse the expression '%@': %@",context,attr(element,@"expression"),[exception reason]);
+      }
+      [description setName:[NSString stringWithFormat:@"expression%lu",(unsigned long)++expressions]];
+      [description setExpression:expression];
+      [description setExpressionResultType:attributeTypeFromString(attr(element,@"expressionType")?:@"Undefined",context)];
+      property=description;
+     }
+     else
+      failf(@"%@: an index element names a property or an expression",context);
+
+     if(type==NSFetchIndexElementTypeRTree){
+      NSAttributeType attributeType=[property isKindOfClass:[NSAttributeDescription class]]
+          ?[(NSAttributeDescription *)property attributeType]:NSUndefinedAttributeType;
+
+      if(attributeType!=NSInteger16AttributeType && attributeType!=NSInteger32AttributeType && attributeType!=NSFloatAttributeType)
+       failf(@"%@: R-Tree elements only support the Integer 16, Integer 32, and Float attribute types.",context);
+     }
+
+     NSFetchIndexElementDescription *indexElement=[[NSFetchIndexElementDescription alloc] initWithProperty:property collationType:type];
+
+     [indexElement setAscending:![order isEqualToString:@"descending"]];
+     [elements addObject:indexElement];
+    }
+
+    if([elements count]==0)
+     failf(@"%@|%@: a fetch index has at least one element",[entity name],indexName);
+
+    NSFetchIndexDescription *index=[[NSFetchIndexDescription alloc] initWithName:indexName elements:elements];
+    NSString                *partial=attr(indexElement,@"partialIndexPredicate");
+
+    if([partial length]>0){
+     @try {
+      [index setPartialIndexPredicate:[NSPredicate predicateWithFormat:partial]];
+     }
+     @catch(NSException *exception){
+      failf(@"%@|%@: cannot parse the partial index predicate '%@': %@",[entity name],indexName,partial,[exception reason]);
+     }
+    }
+    [indexes addObject:index];
+   }
+
+   for(NSXMLElement *attributeElement in [entityElement elementsForName:@"attribute"]){
+    if(!boolAttr(attributeElement,@"indexed"))
+     continue;
+
+    NSString *name=attr(attributeElement,@"name");
+    NSString *indexName=[NSString stringWithFormat:@"by%@%@Index",[[name substringToIndex:1] uppercaseString],[name substringFromIndex:1]];
+    NSFetchIndexElementDescription *element=[[NSFetchIndexElementDescription alloc] initWithProperty:[properties objectForKey:name]
+                                                                                       collationType:NSFetchIndexElementTypeBinary];
+
+    [indexes addObject:[[NSFetchIndexDescription alloc] initWithName:indexName elements:[NSArray arrayWithObject:element]]];
+   }
+
+   if([indexes count]>0)
+    [entity setIndexes:indexes];
+}
+
 static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
    NSString *contentsPath=[xcdatamodelPath stringByAppendingPathComponent:@"contents"];
    NSData   *data=[NSData dataWithContentsOfFile:contentsPath];
@@ -548,8 +661,21 @@ static NSManagedObjectModel *compileModel(NSString *xcdatamodelPath){
 
 /* --- artifact writing ----------------------------------------------- */
 
+/* CoreData's: see -[NSPropertyDescription encodeWithCoder:]. */
+@interface NSPropertyDescription (CDCompiledArchive)
++ (void)_setArchivesIndexedFlag:(BOOL)value;
+@end
+
+/* Archived as Xcode compiles: no indexed flags, so that loading the model
+   adds no index beyond the ones it declares. */
 static void writeMom(NSManagedObjectModel *model,NSString *path){
    NSData *data=nil;
+
+   /* This port's CoreData only; Apple's archives as Apple's does. */
+   BOOL omitsIndexedFlags=[NSPropertyDescription respondsToSelector:@selector(_setArchivesIndexedFlag:)];
+
+   if(omitsIndexedFlags)
+    [NSPropertyDescription _setArchivesIndexedFlag:NO];
 
 #if !defined(__APPLE__)
    /* gnustep-base releases up to and including 1.31.1 implement
@@ -583,6 +709,8 @@ static void writeMom(NSManagedObjectModel *model,NSString *path){
 #else
    data=[NSKeyedArchiver archivedDataWithRootObject:model];
 #endif
+   if(omitsIndexedFlags)
+    [NSPropertyDescription _setArchivesIndexedFlag:YES];
 
    if(![data writeToFile:path atomically:YES])
     failf(@"cannot write %@",path);

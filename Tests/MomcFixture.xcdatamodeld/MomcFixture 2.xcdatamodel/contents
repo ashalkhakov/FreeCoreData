@@ -4,12 +4,22 @@
         <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="payload" optional="YES" attributeType="Transformable" valueTransformerName="NSSecureUnarchiveFromData" customClassName="NSDictionary"/>
         <attribute name="externalID" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
-        <attribute name="homepage" optional="YES" attributeType="URI"/>
+        <attribute name="homepage" optional="YES" attributeType="URI" indexed="YES"/>
         <attribute name="subtitle" optional="YES" attributeType="String" elementID="tagline"/>
         <attribute name="title" attributeType="String" defaultValueString="Untitled"/>
         <attribute name="titleUpper" optional="YES" attributeType="String" derived="YES" derivationExpression="uppercase:(title)"/>
         <attribute name="wordCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
         <relationship name="author" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Author" inverseName="articles" inverseEntity="Author" elementID="writer"/>
+        <fetchIndex name="byTitle">
+            <fetchIndexElement property="title" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byAuthorNewest" partialIndexPredicate="createdAt != nil">
+            <fetchIndexElement property="author" type="Binary" order="ascending"/>
+            <fetchIndexElement property="createdAt" type="Binary" order="descending"/>
+        </fetchIndex>
+        <fetchIndex name="byLength">
+            <fetchIndexElement property="wordCount" type="RTree"/>
+        </fetchIndex>
     </entity>
     <entity name="Author" representedClassName="NSManagedObject" syncable="YES">
         <attribute name="name" attributeType="String"/>
@@ -23,6 +33,9 @@
     </entity>
     <entity name="FeaturedArticle" representedClassName="NSManagedObject" parentEntity="Article" syncable="YES">
         <attribute name="badge" optional="YES" attributeType="String"/>
+        <fetchIndex name="byBadge">
+            <fetchIndexElement property="badge" type="Binary" order="descending"/>
+        </fetchIndex>
     </entity>
     <configuration name="Publishing">
         <memberEntity name="Article"/>

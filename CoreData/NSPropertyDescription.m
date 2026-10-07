@@ -8,6 +8,8 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSPropertyDescription.h>
 #import <CoreData/NSEntityDescription.h>
+#import <CoreData/NSAttributeDescription.h>
+#import <CoreData/NSRelationshipDescription.h>
 #import "CoreDataUtilities.h"
 #import "CoreDataVersioning-Private.h"
 #import <Foundation/NSCoder.h>
@@ -16,9 +18,21 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 /* NSEntityDescription.m: keeps the entity's by-name table in step. */
 @interface NSEntityDescription (PropertyRenaming)
 - (void) _property: (NSPropertyDescription *) property didChangeNameFrom: (NSString *) oldName;
+- (BOOL) _propertyIsIndexed: (NSPropertyDescription *) property;
+- (void) _property: (NSPropertyDescription *) property setIndexed: (BOOL) value;
 @end
 
 @implementation NSPropertyDescription
+
+/* Whether an archive says which attributes are indexed.  An Apple keyed
+   archive does, and reading one back makes an index of each - which
+   Xcode's compiled model (.omo) does not, so momc turns it off: a model
+   compiled here loads as a model Xcode built does. */
+static BOOL archivesIndexedFlag=YES;
+
++ (void) _setArchivesIndexedFlag: (BOOL) value {
+   archivesIndexedFlag=value;
+}
 
 -init {
    _entity=nil;
@@ -68,6 +82,8 @@ static NSArray *predicatesFromArchivedObjects(NSArray *objects){
    _validationWarnings=[[coder decodeObjectForKey: @"NSValidationWarnings"] copy];
    _versionHashModifier=[[coder decodeObjectForKey: @"NSVersionHashModifier"] copy];
    _renamingIdentifier=[[coder decodeObjectForKey: @"NSRenamingIdentifier"] copy];
+   /* Read by the entity, which makes an index of it. */
+   _indexed=[coder decodeBoolForKey: @"NSIsIndexed"];
    
    return self;
 }
@@ -103,6 +119,37 @@ static NSArray *predicatesFromArchivedObjects(NSArray *objects){
     [coder encodeObject:_versionHashModifier forKey: @"NSVersionHashModifier"];
    if(_renamingIdentifier!=nil)
     [coder encodeObject:_renamingIdentifier forKey: @"NSRenamingIdentifier"];
+   /* Apple writes the flag for attributes only: a relationship is always
+      indexed. */
+   if(archivesIndexedFlag && [self isKindOfClass:[NSAttributeDescription class]] && [self isIndexed])
+    [coder encodeBool:YES forKey: @"NSIsIndexed"];
+}
+
+
+- (BOOL) isIndexed {
+   if([self isKindOfClass:[NSRelationshipDescription class]])
+    return YES;
+   if(_entity!=nil)
+    return [_entity _propertyIsIndexed:self];
+
+   return _indexed;
+}
+
+- (void) setIndexed: (BOOL) value {
+   if([self isKindOfClass:[NSRelationshipDescription class]])
+    return;
+   if(_entity!=nil)
+    [_entity _property:self setIndexed:value];
+   else
+    _indexed=value;
+}
+
+/* Taken by the entity when the property joins it. */
+- (BOOL) _takeIndexedFlag {
+   BOOL value=_indexed;
+
+   _indexed=NO;
+   return value;
 }
 
 

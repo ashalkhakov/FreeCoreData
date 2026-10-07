@@ -286,6 +286,90 @@ static NSString *const kRichModelXML = @""
    preserveValueOnDeletion, which this project invented and wrote for a
    while, means nothing to either - checked here so it cannot come back
    as a second, private spelling. */
+static NSString *const kIndexedModelXML = @""
+"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+"<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\" sourceLanguage=\"Objective-C\">\n"
+"  <entity name=\"Note\" representedClassName=\"NSManagedObject\" syncable=\"YES\">\n"
+"    <attribute name=\"lat\" optional=\"YES\" attributeType=\"Float\" usesScalarValueType=\"YES\"/>\n"
+"    <attribute name=\"legacy\" optional=\"YES\" attributeType=\"String\" indexed=\"YES\"/>\n"
+"    <attribute name=\"name\" optional=\"YES\" attributeType=\"String\"/>\n"
+"    <attribute name=\"stamp\" optional=\"YES\" attributeType=\"Date\"/>\n"
+"    <relationship name=\"folder\" optional=\"YES\" maxCount=\"1\" deletionRule=\"Nullify\" destinationEntity=\"Folder\" inverseName=\"notes\" inverseEntity=\"Folder\"/>\n"
+"    <fetchIndex name=\"byName\">\n"
+"      <fetchIndexElement property=\"name\" type=\"Binary\" order=\"ascending\"/>\n"
+"    </fetchIndex>\n"
+"    <fetchIndex name=\"byFolderNewest\" partialIndexPredicate=\"stamp != nil\">\n"
+"      <fetchIndexElement property=\"folder\" type=\"Binary\" order=\"ascending\"/>\n"
+"      <fetchIndexElement property=\"stamp\" type=\"Binary\" order=\"descending\"/>\n"
+"    </fetchIndex>\n"
+"    <fetchIndex name=\"byPlace\">\n"
+"      <fetchIndexElement property=\"lat\" type=\"RTree\"/>\n"
+"    </fetchIndex>\n"
+"    <fetchIndex name=\"byLowerName\">\n"
+"      <fetchIndexElement expression=\"lowercase:(name)\" expressionType=\"String\" type=\"Binary\" order=\"ascending\"/>\n"
+"    </fetchIndex>\n"
+"  </entity>\n"
+"  <entity name=\"Folder\" representedClassName=\"NSManagedObject\" syncable=\"YES\">\n"
+"    <relationship name=\"notes\" optional=\"YES\" toMany=\"YES\" deletionRule=\"Nullify\" destinationEntity=\"Note\" inverseName=\"folder\" inverseEntity=\"Note\"/>\n"
+"  </entity>\n"
+"</model>\n";
+
+/* (Elements are matched by their opening tag: Apple's NSXMLDocument
+   writes an empty one as a pair, gnustep-base's closes it.)
+   Fetch indexes are written back as Xcode writes them - between the
+   properties and the constraints, the Indexed checkbox as the index it
+   compiled to - and read back the same. */
+- (void)testFetchIndexesRoundTrip
+{
+    NSManagedObjectModel *original = [self compileXML:kIndexedModelXML named:@"indexed"];
+    NSError *error = nil;
+    NSString *serialized = [CDModelSerializer contentsXMLForModel:original error:&error];
+
+    XCTAssertNotNil(serialized, @"%@", error);
+    XCTAssertTrue([serialized rangeOfString:@"<fetchIndex name=\"byFolderNewest\" partialIndexPredicate=\"stamp != nil\">"].location != NSNotFound, @"%@", serialized);
+    XCTAssertTrue([serialized rangeOfString:@"<fetchIndexElement property=\"stamp\" type=\"Binary\" order=\"descending\""].location != NSNotFound);
+    XCTAssertTrue([serialized rangeOfString:@"<fetchIndexElement property=\"lat\" type=\"RTree\""].location != NSNotFound);
+    XCTAssertTrue([serialized rangeOfString:@"<fetchIndexElement expression=\"lowercase:(name)\" expressionType=\"String\" type=\"Binary\" order=\"ascending\""].location != NSNotFound, @"%@", serialized);
+    XCTAssertTrue([serialized rangeOfString:@"<fetchIndex name=\"byLegacyIndex\">"].location != NSNotFound, @"the checkbox, as the index it became");
+    XCTAssertTrue([serialized rangeOfString:@"indexed=\"YES\""].location == NSNotFound);
+
+    NSManagedObjectModel *reparsed = [self compileXML:serialized named:@"reindexed"];
+    NSEntityDescription *note = [[reparsed entitiesByName] objectForKey:@"Note"];
+
+    XCTAssertEqualObjects([[note indexes] valueForKey:@"name"],
+                          (@[ @"byName", @"byFolderNewest", @"byPlace", @"byLowerName", @"byLegacyIndex" ]));
+
+    NSFetchIndexDescription *lower = [[note indexes] objectAtIndex:3];
+    NSPropertyDescription *expression = [[[lower elements] firstObject] property];
+
+    XCTAssertTrue([expression isKindOfClass:[NSExpressionDescription class]]);
+    NSExpression *lowered = [(NSExpressionDescription *)expression expression];
+
+    XCTAssertEqual([lowered expressionType], NSFunctionExpressionType);
+    XCTAssertTrue([[lowered function] hasPrefix:@"lowercase"], @"%@", [lowered function]);
+    XCTAssertEqualObjects([[[lowered arguments] firstObject] keyPath], @"name");
+    XCTAssertEqual([(NSExpressionDescription *)expression expressionResultType], NSStringAttributeType);
+    XCTAssertTrue([[[note attributesByName] objectForKey:@"legacy"] isIndexed]);
+
+    /* And it stays put. */
+    XCTAssertEqualObjects([CDModelSerializer contentsXMLForModel:reparsed error:&error], serialized);
+}
+
+/* Apple's momc refuses an R-tree element on anything but a small number. */
+- (void)testAnRTreeOfTextIsRefused
+{
+    NSString *xml = [kIndexedModelXML stringByReplacingOccurrencesOfString:@"<fetchIndexElement property=\"lat\" type=\"RTree\"/>"
+                                                                withString:@"<fetchIndexElement property=\"name\" type=\"RTree\"/>"];
+    NSString *modelDir = [self.scratchDir stringByAppendingPathComponent:@"rtree.xcdatamodel"];
+    NSError *error = nil;
+
+    [[NSFileManager defaultManager] createDirectoryAtPath:modelDir withIntermediateDirectories:YES attributes:nil error:NULL];
+    [xml writeToFile:[modelDir stringByAppendingPathComponent:@"contents"] atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+
+    XCTAssertNil([CDModelCompiler compileModelAtPath:modelDir error:&error]);
+    XCTAssertTrue([[error localizedDescription] rangeOfString:@"R-Tree elements only support"].location != NSNotFound, @"%@", error);
+}
+
 - (void)testPreserveAfterDeletionIsXcodesSpelling
 {
     NSString *head = @"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"

@@ -168,6 +168,47 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects([[[article attributesByName] objectForKey:@"title"] renamingIdentifier], @"title");
 }
 
+/* Fetch indexes, as both compilers carry them over: the ones declared, in
+   order, and the Indexed checkbox compiled to byHomepageIndex after them.
+   (Loaded from Xcode's compiled .omo, as an app loads it - a keyed .mom
+   archive would gain an index named after each indexed attribute.) */
+- (void)testFetchIndexes
+{
+    NSEntityDescription *article = [[self.model entitiesByName] objectForKey:@"Article"];
+    NSEntityDescription *featured = [[self.model entitiesByName] objectForKey:@"FeaturedArticle"];
+    NSMutableDictionary *indexes = [NSMutableDictionary dictionary];
+
+    for (NSFetchIndexDescription *index in [article indexes])
+        [indexes setObject:index forKey:[index name]];
+
+    XCTAssertEqualObjects([[article indexes] valueForKey:@"name"],
+                          (@[ @"byTitle", @"byAuthorNewest", @"byLength", @"byHomepageIndex" ]));
+
+    NSFetchIndexDescription *newest = [indexes objectForKey:@"byAuthorNewest"];
+    NSArray *elements = [newest elements];
+
+    XCTAssertEqual([elements count], (NSUInteger)2);
+    XCTAssertEqualObjects([[elements objectAtIndex:0] propertyName], @"author");
+    XCTAssertTrue([[[elements objectAtIndex:0] property] isKindOfClass:[NSRelationshipDescription class]]);
+    XCTAssertTrue([[elements objectAtIndex:0] isAscending]);
+    XCTAssertEqualObjects([[elements objectAtIndex:1] propertyName], @"createdAt");
+    XCTAssertFalse([[elements objectAtIndex:1] isAscending]);
+    XCTAssertEqualObjects([[newest partialIndexPredicate] predicateFormat], @"createdAt != nil");
+    XCTAssertEqual([newest entity], article);
+
+    NSFetchIndexElementDescription *length = [[[indexes objectForKey:@"byLength"] elements] firstObject];
+
+    XCTAssertEqual([length collationType], NSFetchIndexElementTypeRTree);
+
+    XCTAssertTrue([[[article attributesByName] objectForKey:@"title"] isIndexed]);
+    XCTAssertTrue([[[article attributesByName] objectForKey:@"homepage"] isIndexed]);
+    XCTAssertFalse([[[article attributesByName] objectForKey:@"wordCount"] isIndexed], @"an R-tree does not make it so");
+    XCTAssertFalse([[[article attributesByName] objectForKey:@"createdAt"] isIndexed]);
+
+    /* A subentity has its own, and not its superentity's. */
+    XCTAssertEqualObjects([[featured indexes] valueForKey:@"name"], @[ @"byBadge" ]);
+}
+
 - (void)testSubentities
 {
     NSEntityDescription *article =

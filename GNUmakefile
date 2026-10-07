@@ -11,6 +11,8 @@ CoreData_OBJC_FILES = \
 	CoreData/NSAttributeDescription.m \
 	CoreData/NSDerivedAttributeDescription.m \
 	CoreData/NSExpressionDescription.m \
+	CoreData/NSFetchIndexDescription.m \
+	CoreData/NSFetchIndexElementDescription.m \
 	CoreData/NSRelationshipDescription.m \
 	CoreData/NSFetchedPropertyDescription.m \
 	CoreData/NSPersistentStoreRequest.m \
@@ -61,6 +63,8 @@ CoreData_HEADER_FILES = \
 	NSAttributeDescription.h \
 	NSDerivedAttributeDescription.h \
 	NSExpressionDescription.h \
+	NSFetchIndexDescription.h \
+	NSFetchIndexElementDescription.h \
 	NSAtomicStore.h \
 	NSAtomicStoreCacheNode.h \
 	NSEntityDescription.h \

@@ -7,6 +7,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import "NSEntityDescription-Private.h"
+#import "NSFetchIndexDescription-Private.h"
 #import <CoreData/NSManagedObjectContext.h>
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSPersistentStoreCoordinator.h>
@@ -18,6 +19,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "CoreDataUtilities.h"
 #import "CoreDataVersioning-Private.h"
 #import <objc/runtime.h>
+
+/* NSPropertyDescription.m: the indexed flag of a property not yet in an
+   entity (or just decoded), handed over once. */
+@interface NSPropertyDescription (FetchIndexes)
+- (BOOL) _takeIndexedFlag;
+@end
 #import <ctype.h>
 #import <string.h>
 #import <stdint.h>
@@ -238,6 +245,24 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     _renamingIdentifier= [[coder decodeObjectForKey: @"NSRenamingIdentifier"] retain];
     _uniquenessConstraints = [[coder decodeObjectForKey: @"NSUniquenessConstraints"] retain];
     _compoundIndexes = [[coder decodeObjectForKey: @"NSCompoundIndexes"] retain];
+    /* Apple makes an index of every attribute archived as indexed, named
+       after it, ahead of the archived indexes - which is how a compiled
+       model comes to have a "title" index beside the "byTitle" its source
+       declared.  One already archived under that name is not made twice,
+       so a model survives being archived again unchanged. */
+    {
+     NSArray        *archived = [coder decodeObjectForKey: @"NSFetchIndexDescriptions"];
+     NSSet          *names = [NSSet setWithArray: [archived valueForKey: @"name"]];
+     NSMutableArray *indexes = [NSMutableArray array];
+
+     for(NSPropertyDescription *property in _properties)
+        if([property _takeIndexedFlag] && [property isKindOfClass: [NSAttributeDescription class]] &&
+           ![names containsObject: [property name]])
+            [indexes addObject: [self _singlePropertyIndexFor: property]];
+     if(archived != nil)
+        [indexes addObjectsFromArray: archived];
+     [self setIndexes: indexes];
+    }
     /* Apple's momc only writes the flag when the entity is abstract. */
     _isAbstract = [coder decodeBoolForKey: @"NSIsAbstract"];
     
@@ -361,6 +386,8 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
 	[coder encodeObject:_uniquenessConstraints forKey: @"NSUniquenessConstraints"];
     if([_compoundIndexes count]>0)
 	[coder encodeObject:_compoundIndexes forKey: @"NSCompoundIndexes"];
+    if([_indexes count]>0)
+	[coder encodeObject:_indexes forKey: @"NSFetchIndexDescriptions"];
     /* Mirror Apple's momc: the flag is only written when YES. */
     if(_isAbstract)
 	[coder encodeBool:YES forKey: @"NSIsAbstract"];
@@ -591,6 +618,11 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
    _properties=properties;
    [_propertiesByName release];
    _propertiesByName=byName;
+
+   /* A property marked indexed before it joined: its index now. */
+   for(NSPropertyDescription *property in _properties)
+    if([property _takeIndexedFlag])
+     [self _property:property setIndexed:YES];
 }
 
 
@@ -801,6 +833,74 @@ static void appendPropertyNameCandidates(NSMutableArray *candidates,NSString *se
    value=[value copy];
    [_compoundIndexes release];
    _compoundIndexes=value;
+}
+
+
+-(NSArray *)indexes {
+   return (_indexes!=nil)?_indexes:[NSArray array];
+}
+
+
+-(void)setIndexes:(NSArray *)value {
+   if(_hasBeenInstantiated) {
+    NSLog(@"Attempt to modify entity after instantiating it.");
+    return;
+   }
+
+   value=[value copy];
+   for(NSFetchIndexDescription *index in _indexes)
+    if([index entity]==self && ![value containsObject:index])
+     [index _setEntity:nil];
+   for(NSFetchIndexDescription *index in value)
+    [index _setEntity:self];
+   [_indexes release];
+   _indexes=value;
+}
+
+/* An index of one property, named after it: what -setIndexed: makes. */
+-(NSFetchIndexDescription *)_singlePropertyIndexFor:(NSPropertyDescription *)property {
+   NSFetchIndexElementDescription *element=[[[NSFetchIndexElementDescription alloc] initWithProperty:property
+                                                                                      collationType:NSFetchIndexElementTypeBinary] autorelease];
+
+   return [[[NSFetchIndexDescription alloc] initWithName:[property name] elements:[NSArray arrayWithObject:element]] autorelease];
+}
+
+static BOOL indexIsOnlyOf(NSFetchIndexDescription *index,NSPropertyDescription *property){
+   NSArray *elements=[index elements];
+
+   if([elements count]!=1)
+    return NO;
+
+   NSFetchIndexElementDescription *element=[elements objectAtIndex:0];
+
+   /* Apple's rule: an ascending binary index of the property alone,
+      partial or not. */
+   return [element collationType]==NSFetchIndexElementTypeBinary && [element isAscending] &&
+          [[element propertyName] isEqualToString:[property name]];
+}
+
+-(BOOL)_propertyIsIndexed:(NSPropertyDescription *)property {
+   for(NSFetchIndexDescription *index in _indexes)
+    if(indexIsOnlyOf(index,property))
+     return YES;
+
+   return NO;
+}
+
+-(void)_property:(NSPropertyDescription *)property setIndexed:(BOOL)value {
+   if(value==[self _propertyIsIndexed:property])
+    return;
+
+   NSMutableArray *indexes=[NSMutableArray arrayWithArray:[self indexes]];
+
+   if(value)
+    [indexes addObject:[self _singlePropertyIndexFor:property]];
+   else {
+    for(NSFetchIndexDescription *index in [[indexes copy] autorelease])
+     if(indexIsOnlyOf(index,property))
+      [indexes removeObject:index];
+   }
+   [self setIndexes:indexes];
 }
 
 
