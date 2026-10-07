@@ -664,6 +664,32 @@ static MYSQL *myConnect(CDMySQLStore *store,NSURL *url,NSDictionary *options,NSE
    return @"SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()";
 }
 
+-(NSString *)indexesInSchemaSQL {
+   return @"SELECT DISTINCT index_name FROM information_schema.statistics WHERE table_schema = DATABASE()";
+}
+
+/* Neither MySQL nor MariaDB has partial indexes: a fetch index's predicate
+   is dropped, and the index covers every row. */
+-(BOOL)supportsPartialIndexes {
+   return NO;
+}
+
+/* A text or blob column is indexed by a prefix, which MySQL insists on.
+   191 characters of utf8mb4 is 764 bytes, so even four such columns fit
+   InnoDB's 3072-byte key. */
+-(NSString *)indexedColumn:(NSString *)column attributeType:(NSUInteger)attributeType {
+   switch(attributeType){
+    case NSStringAttributeType:
+    case NSURIAttributeType:
+    case NSBinaryDataAttributeType:
+    case NSTransformableAttributeType:
+    case NSUndefinedAttributeType:
+     return [column stringByAppendingString:@"(191)"];
+    default:
+     return column;
+   }
+}
+
 /* MySQL says so in EXTRA ("STORED GENERATED"), where PostgreSQL has a
    column of its own. */
 -(BOOL)introspectedColumnIsGenerated:(NSString *)flag {

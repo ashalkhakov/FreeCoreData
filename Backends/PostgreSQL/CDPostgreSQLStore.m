@@ -417,6 +417,15 @@ static NSString *postgresParameterText(id parameter){
    return @"SELECT table_name FROM information_schema.tables WHERE table_schema = ANY (current_schemas(false))";
 }
 
+-(NSString *)indexesInSchemaSQL {
+   return @"SELECT indexname FROM pg_indexes WHERE schemaname = ANY (current_schemas(false))";
+}
+
+/* PostgreSQL indexes some of a table's rows as readily as all of them. */
+-(BOOL)supportsPartialIndexes {
+   return YES;
+}
+
 -(BOOL)introspectedColumnIsGenerated:(NSString *)flag {
    return [flag isEqualToString:@"ALWAYS"];
 }

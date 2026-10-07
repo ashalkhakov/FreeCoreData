@@ -194,7 +194,15 @@ typedef enum {
 - (NSString *)tableExistsSQL;                        /* $1 is the table name */
 - (NSString *)columnsInTableSQL;                     /* $1 is the table; columns: name, type, generated */
 - (NSString *)tablesInSchemaSQL;
+- (NSString *)indexesInSchemaSQL;                    /* one column: the index's name */
 - (BOOL)introspectedColumnIsGenerated:(NSString *)flag;
+
+/* Indexes.  Whether an index can be partial (CREATE INDEX ... WHERE);
+   without, a fetch index's partial predicate is dropped and the index
+   covers every row.  And what an indexed column is written as - MySQL
+   indexes only a prefix of a text or blob column.  Both optional. */
+- (BOOL)supportsPartialIndexes;
+- (NSString *)indexedColumn:(NSString *)column attributeType:(NSUInteger)attributeType;
 
 /* Migration DDL */
 - (NSString *)renameColumnSQLForTable:(NSString *)table from:(NSString *)oldName definition:(NSString *)definition;

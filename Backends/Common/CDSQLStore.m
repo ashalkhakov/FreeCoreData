@@ -1454,7 +1454,7 @@ static BOOL historySupportedByFramework(void){
     }
    }
 
-   return YES;
+   return [self _createIndexesForEntities:sortedEntities error:error];
 }
 
 -(BOOL)_loadEntityIDs:(NSError **)error {
@@ -4437,6 +4437,163 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    return YES;
 }
 
+/* ------------------------------------------------------------------ */
+#pragma mark - Indexes
+/* ------------------------------------------------------------------ */
+
+/* The indexes Core Data's SQLite store makes - on a join table's second
+   column then its first, on the entity column of a table shared by
+   subentities, on each to-one's foreign key, and each fetch index - named
+   as it names them, and made where the store lacks them: when the schema
+   is created, and when it is brought up to a model.  An index this store
+   cannot express (an R-tree, an expression, a to-many) is left out, as is
+   a fetch index that is only a to-one, its foreign key's index being it;
+   a partial predicate the dialect or the translator cannot take is
+   dropped, the index then covering every row. */
+-(BOOL)_createIndexesForEntities:(NSArray *)entities error:(NSError **)error {
+   NSMutableSet *existing=[NSMutableSet set];
+   id<CDSQLResult> result=[self execute:[self indexesInSchemaSQL] parameters:nil error:error];
+
+   if(result==nil)
+    return NO;
+
+   NSUInteger row,count=[result rowCount];
+
+   for(row=0;row<count;row++){
+    NSString *name=[result stringAtRow:row column:0];
+
+    if(name!=nil)
+     [existing addObject:[name lowercaseString]];
+   }
+
+   NSMutableArray *statements=[NSMutableArray array];
+   NSMutableSet   *joins=[NSMutableSet set];
+
+   for(NSEntityDescription *entity in entities)
+    for(NSRelationshipDescription *relationship in [[entity relationshipsByName] allValues]){
+     if(!relationshipUsesJoinTable(relationship))
+      continue;
+
+     NSDictionary *join=[self _joinSpecForRelationship:relationship];
+     NSString     *table=[join objectForKey:@"table"];
+
+     if([joins containsObject:table])
+      continue;
+     [joins addObject:table];
+
+     NSString *second=[join objectForKey:@"destinationColumn"];
+
+     [statements addObject:[NSArray arrayWithObjects:[NSString stringWithFormat:@"%@_%@_INDEX",table,second],table,
+                               [NSString stringWithFormat:@"%@, %@",quoted(second),quoted([join objectForKey:@"ownerColumn"])],@"",nil]];
+    }
+
+   for(NSEntityDescription *entity in entities){
+    if([entity superentity]!=nil)
+     continue;
+
+    NSString            *table=tableNameForEntity(entity);
+    NSMutableDictionary *properties=[NSMutableDictionary dictionary];
+
+    if([[entity subentities] count]>0)
+     [statements addObject:[NSArray arrayWithObjects:[NSString stringWithFormat:@"%@_Z_ENT_INDEX",table],table,quoted(@"Z_ENT"),@"",nil]];
+
+    collectPropertiesOfEntitySubtree(entity,properties);
+    for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
+     NSPropertyDescription *property=[properties objectForKey:name];
+
+     if([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany]){
+      NSString *column=columnNameForProperty(name);
+
+      [statements addObject:[NSArray arrayWithObjects:[NSString stringWithFormat:@"%@_%@_INDEX",table,column],table,quoted(column),@"",nil]];
+     }
+    }
+   }
+
+   for(NSEntityDescription *entity in entities)
+    for(NSFetchIndexDescription *index in [entity indexes]){
+     NSArray *statement=[self _indexStatementForFetchIndex:index];
+
+     if(statement!=nil)
+      [statements addObject:statement];
+    }
+
+   NSUInteger limit=[self maximumIdentifierLength];
+
+   for(NSArray *statement in statements){
+    NSString *name=[statement objectAtIndex:0];
+
+    if(limit>0 && [name length]>limit)
+     name=[name substringToIndex:limit];
+    if([existing containsObject:[name lowercaseString]])
+     continue;
+
+    NSString *where=[statement objectAtIndex:3];
+    NSString *sql=[NSString stringWithFormat:@"CREATE INDEX %@ ON %@ (%@)%@",quoted(name),quoted([statement objectAtIndex:1]),
+                                             [statement objectAtIndex:2],[where length]>0?[@" WHERE " stringByAppendingString:where]:@""];
+
+    if(![self _command:sql parameters:nil error:error])
+     return NO;
+    [existing addObject:[name lowercaseString]];
+   }
+
+   return YES;
+}
+
+/* name, table, columns, WHERE - or nil for an index this store leaves out. */
+-(NSArray *)_indexStatementForFetchIndex:(NSFetchIndexDescription *)index {
+   NSEntityDescription *entity=[index entity];
+   NSArray             *elements=[index elements];
+   NSMutableArray      *columns=[NSMutableArray array];
+
+   if([elements count]==0)
+    return nil;
+
+   for(NSFetchIndexElementDescription *element in elements){
+    NSPropertyDescription *property=[element property];
+    NSString              *column;
+
+    if([element collationType]!=NSFetchIndexElementTypeBinary)
+     return nil;
+    if([property isKindOfClass:[NSRelationshipDescription class]]){
+     if([(NSRelationshipDescription *)property isToMany] || [elements count]==1)
+      return nil;
+     column=quoted(columnNameForProperty([property name]));
+    }
+    else if([property isKindOfClass:[NSAttributeDescription class]] && ![property isTransient]){
+     column=quoted(columnNameForProperty([property name]));
+     if([self respondsToSelector:@selector(indexedColumn:attributeType:)])
+      column=[self indexedColumn:column attributeType:[(NSAttributeDescription *)property attributeType]];
+    }
+    else
+     return nil;
+
+    [columns addObject:[NSString stringWithFormat:@"%@ %@",column,[element isAscending]?@"ASC":@"DESC"]];
+   }
+
+   NSString *where=@"";
+
+   if([index partialIndexPredicate]!=nil && [self respondsToSelector:@selector(supportsPartialIndexes)] && [self supportsPartialIndexes]){
+    NSMutableArray *bindings=[NSMutableArray array];
+    NSString       *clause=[self _translatePredicate:[index partialIndexPredicate] entity:entity bindings:bindings];
+
+    /* No alias in an index, and no parameters: each $n becomes its
+       value, last first so that $1 does not take $10's place. */
+    clause=[clause stringByReplacingOccurrencesOfString:[CDSQLOuterAlias stringByAppendingString:@"."] withString:@""];
+    for(NSUInteger n=[bindings count];clause!=nil && n>0;n--){
+     id        value=[bindings objectAtIndex:n-1];
+     NSString *literal=(value==[NSNull null])?@"NULL"
+         :[NSString stringWithFormat:@"'%@'",[[value description] stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
+
+     clause=[clause stringByReplacingOccurrencesOfString:[NSString stringWithFormat:@"$%lu",(unsigned long)n] withString:literal];
+    }
+    if(clause!=nil)
+     where=clause;
+   }
+
+   return [NSArray arrayWithObjects:[NSString stringWithFormat:@"Z_%@_%@",[entity name],[index name]],tableNameForEntity(entity),
+                                    [columns componentsJoinedByString:@", "],where,nil];
+}
+
 /* Reconciles one root entity's table with the columns the model asks for. */
 -(BOOL)_migrateTableForRootEntity:(NSEntityDescription *)entity amongEntities:(NSArray *)entities error:(NSError **)error {
    NSString *table=tableNameForEntity(entity);
@@ -4653,6 +4810,10 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     if(![self _command:[self dropTableSQLForTable:table] parameters:nil error:error])
      return NO;
    }
+
+   /* Its indexes too: the ones this model wants and the store lacks. */
+   if(![self _createIndexesForEntities:sortedEntities error:error])
+    return NO;
 
    /* The store now matches the model, and says so. */
    NSManagedObjectModel *model=[[self persistentStoreCoordinator] managedObjectModel];

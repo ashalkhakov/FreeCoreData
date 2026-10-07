@@ -32,8 +32,11 @@ transformable-attribute machinery), `NSDerivedAttributeDescription`
 (with the derivation engine), `NSRelationshipDescription`,
 `NSFetchedPropertyDescription`, and `NSExpressionDescription` (a
 computed column for dictionary fetches). Entities know their
-`subentities`/`superentity`, `uniquenessConstraints` and
-`compoundIndexes`, and compute per-entity version hashes. Description
+`subentities`/`superentity`, `uniquenessConstraints`, their fetch
+`indexes` (`NSFetchIndexDescription`s of `NSFetchIndexElementDescription`s;
+a property's `isIndexed` is worked out from them) and the deprecated
+`compoundIndexes`, and compute per-entity version hashes, which indexes
+take no part in. Description
 objects freeze once a model is used by a coordinator (the
 `_hasBeenInstantiated` guard).
 
@@ -265,6 +268,14 @@ saved before its members cannot update rows that do not exist yet. Bookkeeping
 tables: `Z_METADATA` (`Z_VERSION`, `Z_UUID`, `Z_PLIST` — the metadata
 plist carries store type, UUID and the model's version hashes) and
 `Z_PRIMARYKEY` (per-entity `Z_MAX` for primary-key allocation).
+The indexes are Apple's too, made with the schema: one on a join table's
+second column then its first, `Z<ROOT>_Z_ENT_INDEX` where subentities
+share a table, `Z<ROOT>_Z<REL>_INDEX` on each to-one's foreign key, and
+`Z_<Entity>_<name>` for each fetch index (`COLLATE BINARY ASC|DESC`, its
+partial predicate translated into the `WHERE`). Like Apple's macOS store
+it makes nothing of an R-tree element, nor of an index that is only a
+to-one, and an existing store keeps the indexes it has. The SQL backends
+make the same ones, and also when they bring a schema up to a model.
 Predicates that translate to SQL run in the database; others are
 evaluated in memory over fetched rows. Same-table plain-copy derived
 attributes become `GENERATED ALWAYS AS (...) STORED` columns (excluded

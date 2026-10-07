@@ -34,6 +34,7 @@
 		CED014A03032FF59009517DE /* NSIncrementalStoreNodeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014933032FF59009517DE /* NSIncrementalStoreNodeTests.m */; };
 		CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014963032FF59009517DE /* NSManagedObjectModelTests.m */; };
 		CED014A23032FF59009517DE /* MappingModelTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED0148F3032FF59009517DE /* MappingModelTests.m */; };
+		F1D0000000000000000000B1 /* FetchIndexTests.m in Sources */ = {isa = PBXBuildFile; fileRef = F1D0000000000000000000F1 /* FetchIndexTests.m */; };
 		CED014A33032FF59009517DE /* NSXMLPersistentStoreTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED0149A3032FF59009517DE /* NSXMLPersistentStoreTests.m */; };
 		CED014A43032FF59009517DE /* NSPersistentStoreCoordinatorTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED014973032FF59009517DE /* NSPersistentStoreCoordinatorTests.m */; };
 		CED014A53032FF59009517DE /* VersionHashTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CED0149C3032FF59009517DE /* VersionHashTests.m */; };
@@ -92,6 +93,7 @@
 		CECF115130755E35002C292E /* MappingFixture 2.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "MappingFixture 2.xcdatamodel"; sourceTree = "<group>"; };
 		CECF115630756465002C292E /* MappingFixture.xcmappingmodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcmappingmodel; name = MappingFixture.xcmappingmodel; path = Tests/MappingFixture.xcmappingmodel; sourceTree = "<group>"; };
 		CED0148F3032FF59009517DE /* MappingModelTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MappingModelTests.m; path = Tests/MappingModelTests.m; sourceTree = "<group>"; };
+		F1D0000000000000000000F1 /* FetchIndexTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FetchIndexTests.m; path = Tests/FetchIndexTests.m; sourceTree = "<group>"; };
 		CED014903032FF59009517DE /* MemoryIncrementalStore.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = MemoryIncrementalStore.h; path = Tests/MemoryIncrementalStore.h; sourceTree = "<group>"; };
 		CED014913032FF59009517DE /* MemoryIncrementalStore.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MemoryIncrementalStore.m; path = Tests/MemoryIncrementalStore.m; sourceTree = "<group>"; };
 		CED014923032FF59009517DE /* NSFetchRequestTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = NSFetchRequestTests.m; path = Tests/NSFetchRequestTests.m; sourceTree = "<group>"; };
@@ -179,6 +181,7 @@
 				CE39E300304400000075866A /* CodegenFixture.xcdatamodeld */,
 				CE9446B930371F9600D23BA1 /* NSTransformableAttributeTests.m */,
 				CED0148F3032FF59009517DE /* MappingModelTests.m */,
+				F1D0000000000000000000F1 /* FetchIndexTests.m */,
 				CED014903032FF59009517DE /* MemoryIncrementalStore.h */,
 				CED014913032FF59009517DE /* MemoryIncrementalStore.m */,
 				CED014923032FF59009517DE /* NSFetchRequestTests.m */,
@@ -281,6 +284,7 @@
 				CED014A13032FF59009517DE /* NSManagedObjectModelTests.m in Sources */,
 				CEFAB8233062D47200CDADDD /* NSAsynchronousFetchTests.m in Sources */,
 				CED014A23032FF59009517DE /* MappingModelTests.m in Sources */,
+				F1D0000000000000000000B1 /* FetchIndexTests.m in Sources */,
 				CE39E2DB304326280075866A /* CodeGeneratorTests.m in Sources */,
 				CE39E304304400000075866A /* CodegenBuildTests.m in Sources */,
 				CE39E307304400000075866A /* CGBBook.m in Sources */,
@@ -365,6 +369,7 @@
 				CLANG_ENABLE_OBJC_ARC = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				OTHER_LDFLAGS = "-lsqlite3";
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -377,6 +382,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				OTHER_LDFLAGS = "-lsqlite3";
 				SDKROOT = macosx;
 			};
 			name = Release;
