@@ -122,6 +122,12 @@ NSString * const NSMigrationEntityPolicyKey=@"entityPolicy";
      }
     }
     else {
+     /* What the manager hands back is a collection, for a to-one too:
+        its one object. */
+     if(alreadyDestination && [value respondsToSelector:@selector(countByEnumeratingWithState:objects:count:)])
+      value=[[value objectEnumerator] nextObject];
+     if(value==nil)
+      continue;
      NSManagedObject *destinationRelated=alreadyDestination?value:[manager _destinationInstanceForSourceInstance:value];
 
      if(destinationRelated!=nil)

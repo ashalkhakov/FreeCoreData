@@ -41,7 +41,7 @@ jobs:
       # Pin this to a commit rather than a branch: it is what the cache key
       # below is made of, so a moving branch would keep serving a prefix
       # built from patches that have since changed.
-      GNUSTEP_PATCHES_REF: 0b19ede3cd7ddc7e958130a856bea1a49e66c0f8
+      GNUSTEP_PATCHES_REF: 4d5599fcec9e35e1e62affb387b6a47a66c11fdc
     defaults:
       run:
         working-directory: ${{ env.SRC_PATH }}

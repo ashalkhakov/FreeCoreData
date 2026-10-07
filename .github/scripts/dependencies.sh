@@ -43,7 +43,7 @@ mkdir -p "$DEPS_PATH"
 # patch invalidates the cached prefix. A branch name builds whatever is on it
 # that day and the cache will not notice.
 GNUSTEP_PATCHES_URL=${GNUSTEP_PATCHES_URL:-https://github.com/ashalkhakov/gnustep-patches.git}
-GNUSTEP_PATCHES_REF=${GNUSTEP_PATCHES_REF:-0b19ede3cd7ddc7e958130a856bea1a49e66c0f8}
+GNUSTEP_PATCHES_REF=${GNUSTEP_PATCHES_REF:-4d5599fcec9e35e1e62affb387b6a47a66c11fdc}
 GNUSTEP_PATCHES_DIR="$DEPS_PATH/gnustep-patches"
 
 install_gnustep_patches() {
@@ -202,7 +202,9 @@ install_eau_theme() {
     echo "::group::Eau theme"
     cd "$DEPS_PATH"
     . "$GNUSTEP_SH"
-    git clone -q --depth 1 https://github.com/gershwin-desktop/gershwin-eau-theme.git Eau
+    # dev, not main: Gershwin merges only into dev, and the Eau patch in
+    # gnustep-patches is made against it.
+    git clone -q --depth 1 -b ${EAU_BRANCH:-dev} https://github.com/gershwin-desktop/gershwin-eau-theme.git Eau
     cd Eau
     apply_gnustep_patches gershwin-eau-theme
     # The theme uses blocks, and nothing in a theme bundle's link line pulls

@@ -65,12 +65,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSMutableArray *entityMappings=[NSMutableArray array];
 
    NSDictionary *sourceEntities=[sourceModel entitiesByName];
-   NSDictionary *destinationEntities=[destinationModel entitiesByName];
    NSMutableSet *seenNames=[NSMutableSet set];
+   NSMutableSet *mappedSources=[NSMutableSet set];
 
    for(NSEntityDescription *destinationEntity in [destinationModel entities]){
     NSString            *name=[destinationEntity name];
-    NSEntityDescription *sourceEntity=[sourceEntities objectForKey:name];
+    /* What it was called: its renaming identifier (Xcode's Renaming ID),
+       which is its name when it has none. */
+    NSString            *sourceName=[destinationEntity renamingIdentifier];
+    NSEntityDescription *sourceEntity=sourceName!=nil?[sourceEntities objectForKey:sourceName]:nil;
     NSEntityMapping     *mapping=[[[NSEntityMapping alloc] init] autorelease];
 
     /* The model registers entities under multiple keys; process each
@@ -78,6 +81,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     if([seenNames containsObject:name])
      continue;
     [seenNames addObject:name];
+    if(sourceEntity==nil)
+     sourceEntity=[sourceEntities objectForKey:name];
+    if(sourceEntity!=nil)
+     [mappedSources addObject:[sourceEntity name]];
 
     [mapping setDestinationEntityName:name];
     [mapping setDestinationEntityVersionHash:[destinationEntity versionHash]];
@@ -91,29 +98,42 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
      NSMutableArray *relationshipMappings=[NSMutableArray array];
      NSDictionary   *sourceProperties=[sourceEntity propertiesByName];
 
-     [mapping setSourceEntityName:name];
+     [mapping setSourceEntityName:[sourceEntity name]];
      [mapping setSourceEntityVersionHash:[sourceEntity versionHash]];
      [mapping setMappingType:[[sourceEntity versionHash] isEqual:[destinationEntity versionHash]]?NSCopyEntityMappingType:NSTransformEntityMappingType];
 
-     /* Apple names inferred entity mappings IEM_<Type>_<EntityName>. */
-     [mapping setName:[NSString stringWithFormat:@"IEM_%@_%@",([mapping mappingType]==NSCopyEntityMappingType)?@"Copy":@"Transform",name]];
+     /* Apple names inferred entity mappings IEM_<Type>_<EntityName>, the
+        source entity's name (a renamed entity's old one). */
+     [mapping setName:[NSString stringWithFormat:@"IEM_%@_%@",([mapping mappingType]==NSCopyEntityMappingType)?@"Copy":@"Transform",[sourceEntity name]]];
 
-     /* Apple creates an attribute mapping for every destination attribute:
-        attributes that also exist in the source migrate by direct copy,
-        new attributes get a mapping without a value expression so they
-        keep their default values. Relationship mappings are only created
-        for relationships present in both versions. */
+     /* Apple creates an attribute mapping for every destination attribute
+        and a relationship mapping for every destination relationship the
+        source has, each with the expression that reads it from the source
+        object - by its old name, for one with a renaming identifier.  A
+        new attribute gets no expression, and so keeps its default. */
      for(NSPropertyDescription *property in [destinationEntity properties]){
       NSString *propertyName=[property name];
+      NSString *oldName=[property renamingIdentifier];
+      BOOL      renamed=(oldName!=nil && ![oldName isEqualToString:propertyName] && [sourceProperties objectForKey:oldName]!=nil);
+      NSString *sourcePropertyName=renamed?oldName:propertyName;
+      id        sourceProperty=[sourceProperties objectForKey:sourcePropertyName];
+      NSExpression *read=[NSExpression expressionWithFormat:@"FUNCTION($source, 'valueForKey:', %@)",sourcePropertyName];
 
       if([property isKindOfClass:[NSAttributeDescription class]]){
        NSPropertyMapping *propertyMapping=[[[NSPropertyMapping alloc] init] autorelease];
        [propertyMapping setName:propertyName];
+       if([sourceProperty isKindOfClass:[NSAttributeDescription class]])
+        [propertyMapping setValueExpression:read];
        [attributeMappings addObject:propertyMapping];
       }
-      else if([property isKindOfClass:[NSRelationshipDescription class]] && [sourceProperties objectForKey:propertyName]!=nil){
+      else if([property isKindOfClass:[NSRelationshipDescription class]] && [sourceProperty isKindOfClass:[NSRelationshipDescription class]]){
        NSPropertyMapping *propertyMapping=[[[NSPropertyMapping alloc] init] autorelease];
        [propertyMapping setName:propertyName];
+       /* Built, not formatted: a format's %@ splices an expression in on
+          Apple's Foundation and wraps it as a constant on gnustep-base. */
+       [propertyMapping setValueExpression:[NSExpression expressionForFunction:[NSExpression expressionForVariable:@"manager"]
+                                                                  selectorName:@"destinationInstancesForSourceRelationshipNamed:sourceInstances:"
+                                                                     arguments:[NSArray arrayWithObjects:[NSExpression expressionForConstantValue:sourcePropertyName],read,nil]]];
        [relationshipMappings addObject:propertyMapping];
       }
      }
@@ -125,15 +145,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [entityMappings addObject:mapping];
    }
 
-   /* Entities removed in the destination model. */
+   /* Entities removed in the destination model: those no destination
+      entity was mapped from. */
    for(NSEntityDescription *sourceEntity in [sourceModel entities]){
     NSString *name=[sourceEntity name];
 
-    if([seenNames containsObject:name])
+    if([mappedSources containsObject:name])
      continue;
-    [seenNames addObject:name];
+    [mappedSources addObject:name];
 
-    if([destinationEntities objectForKey:name]==nil){
+    {
      NSEntityMapping *mapping=[[[NSEntityMapping alloc] init] autorelease];
 
      [mapping setSourceEntityName:name];
