@@ -301,8 +301,11 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
       [attribute setDefaultValue:defaultValue];
      if(userInfoFromElement(attributeElement)!=nil)
       [attribute setUserInfo:userInfoFromElement(attributeElement)];
-     if(attr(attributeElement,@"renamingIdentifier")!=nil)
-      [attribute setRenamingIdentifier:attr(attributeElement,@"renamingIdentifier")];
+     /* The renaming identifier (Xcode's Renaming ID): spelled elementID
+        on attributes and relationships too, as on entities - Apple's momc
+        reads nothing else. */
+     if(attr(attributeElement,@"elementID")!=nil)
+      [attribute setRenamingIdentifier:attr(attributeElement,@"elementID")];
      [CDModelCompiler setAttribute:attribute
                usesScalarValueType:boolAttr(attributeElement,@"usesScalarValueType")];
 
@@ -361,8 +364,8 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
       [relationship setTransient:YES];
      if(attr(relationshipElement,@"versionHashModifier")!=nil)
       [relationship setVersionHashModifier:attr(relationshipElement,@"versionHashModifier")];
-     if(attr(relationshipElement,@"renamingIdentifier")!=nil)
-      [relationship setRenamingIdentifier:attr(relationshipElement,@"renamingIdentifier")];
+     if(attr(relationshipElement,@"elementID")!=nil)
+      [relationship setRenamingIdentifier:attr(relationshipElement,@"elementID")];
 
      if(boolAttr(relationshipElement,@"toMany")){
       [relationship setMinCount:[attr(relationshipElement,@"minCount") intValue]];

@@ -39,7 +39,7 @@ static NSString *const kRichModelXML = @""
 "    <attribute name=\"titleUpper\" optional=\"YES\" attributeType=\"String\" derived=\"YES\" derivationExpression=\"uppercase:(title)\"/>\n"
 "    <attribute name=\"titleCopy\" optional=\"YES\" attributeType=\"String\" derived=\"YES\" derivationExpression=\"title\"/>\n"
 "    <attribute name=\"stamp\" optional=\"YES\" attributeType=\"Date\" derived=\"YES\" derivationExpression=\"now()\"/>\n"
-"    <attribute name=\"wordCount\" optional=\"YES\" attributeType=\"Integer 32\" defaultValueString=\"7\" renamingIdentifier=\"wc\" usesScalarValueType=\"YES\" minValueString=\"0\" maxValueString=\"100000\"/>\n"
+"    <attribute name=\"wordCount\" optional=\"YES\" attributeType=\"Integer 32\" defaultValueString=\"7\" elementID=\"wc\" usesScalarValueType=\"YES\" minValueString=\"0\" maxValueString=\"100000\"/>\n"
 "    <attribute name=\"rating\" optional=\"YES\" attributeType=\"Double\" defaultValueString=\"1.5\"/>\n"
 "    <attribute name=\"price\" optional=\"YES\" attributeType=\"Decimal\" defaultValueString=\"9.99\"/>\n"
 "    <attribute name=\"published\" optional=\"YES\" attributeType=\"Boolean\" defaultValueString=\"YES\"/>\n"
@@ -60,7 +60,7 @@ static NSString *const kRichModelXML = @""
 "  </entity>\n"
 "  <entity name=\"Author\" representedClassName=\"NSManagedObject\" codeGenerationType=\"class\" syncable=\"YES\">\n"
 "    <attribute name=\"name\" attributeType=\"String\"/>\n"
-"    <relationship name=\"articles\" optional=\"YES\" toMany=\"YES\" ordered=\"YES\" minCount=\"1\" maxCount=\"12\" deletionRule=\"Cascade\" renamingIdentifier=\"posts\" destinationEntity=\"Article\" inverseName=\"author\" inverseEntity=\"Article\">\n"
+"    <relationship name=\"articles\" optional=\"YES\" toMany=\"YES\" ordered=\"YES\" minCount=\"1\" maxCount=\"12\" deletionRule=\"Cascade\" elementID=\"posts\" destinationEntity=\"Article\" inverseName=\"author\" inverseEntity=\"Article\">\n"
 "      <userInfo>\n"
 "        <entry key=\"hint\" value=\"ordered shelf\"/>\n"
 "      </userInfo>\n"
@@ -221,8 +221,8 @@ static NSString *const kRichModelXML = @""
         [[original configurations] sortedArrayUsingSelector:@selector(compare:)]);
     XCTAssertEqual([[reparsed entitiesForConfiguration:@"Publishing"] count], (NSUInteger)3);
 
-    /* Renaming identifiers: entities spell theirs elementID, properties
-       renamingIdentifier; unset ones report the current name. */
+    /* Renaming identifiers: elementID, on entities and properties alike,
+       as Xcode writes them; unset ones report the current name. */
     XCTAssertEqualObjects([articleB renamingIdentifier], @"Post");
     NSAttributeDescription *wordCountB = [[articleB attributesByName] objectForKey:@"wordCount"];
     XCTAssertEqualObjects([wordCountB renamingIdentifier], @"wc");

@@ -50,6 +50,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSFetchRequest *)fetchRequestForSourceEntityNamed:(NSString *)entityName predicateString:(NSString *)predicateString;
 
 - (NSArray *)destinationInstancesForEntityMappingNamed:(NSString *)mappingName sourceInstances:(NSArray *)sourceInstances;
+/* The destination instances of a source relationship's objects, whatever
+   entity mapping made them: what inferred mappings of a renamed
+   relationship fill it with.  sourceInstances: a related object, or a
+   collection of them (nil: none). */
+- (NSArray *)destinationInstancesForSourceRelationshipNamed:(NSString *)relationshipName sourceInstances:(id)sourceInstances;
 - (NSArray *)sourceInstancesForEntityMappingNamed:(NSString *)mappingName destinationInstances:(NSArray *)destinationInstances;
 
 - (float)migrationProgress;

@@ -207,7 +207,7 @@ static NSXMLElement *elementForAttribute(NSAttributeDescription *attribute,NSStr
    {
     NSString *renaming=[attribute renamingIdentifier];
     if(renaming!=nil && ![renaming isEqualToString:[attribute name]])
-     setAttr(element,@"renamingIdentifier",renaming);
+     setAttr(element,@"elementID",renaming);
    }
 
    /* Validation: re-emit the canonical predicate shapes in Xcode's
@@ -252,7 +252,7 @@ static NSXMLElement *elementForRelationship(NSRelationshipDescription *relations
    {
     NSString *renaming=[relationship renamingIdentifier];
     if(renaming!=nil && ![renaming isEqualToString:[relationship name]])
-     setAttr(element,@"renamingIdentifier",renaming);
+     setAttr(element,@"elementID",renaming);
    }
 
    if([relationship isToMany]){

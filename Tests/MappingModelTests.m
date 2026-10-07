@@ -20,6 +20,55 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 @interface MappingModelTests : XCTestCase
 @end
 
+/* A folder of notes: Folder(made) <-> Note(touched, folder); renamed,
+   Box(made) <-> Note(edited, box), each renaming identifier the old name. */
+static NSAttributeDescription *RenamingTestAttribute(NSString *name, NSString *was)
+{
+    NSAttributeDescription *a = [[NSAttributeDescription alloc] init];
+    [a setName:name];
+    [a setAttributeType:NSStringAttributeType];
+    [a setOptional:YES];
+    if (was != nil)
+        [a setRenamingIdentifier:was];
+    return a;
+}
+
+static NSManagedObjectModel *RenamingTestModel(BOOL renamed)
+{
+    NSEntityDescription *note = [[NSEntityDescription alloc] init];
+    NSEntityDescription *folder = [[NSEntityDescription alloc] init];
+    NSRelationshipDescription *in = [[NSRelationshipDescription alloc] init];
+    NSRelationshipDescription *notes = [[NSRelationshipDescription alloc] init];
+
+    [note setName:@"Note"];
+    [note setManagedObjectClassName:@"NSManagedObject"];
+    [folder setName:renamed ? @"Box" : @"Folder"];
+    [folder setManagedObjectClassName:@"NSManagedObject"];
+    if (renamed)
+        [folder setRenamingIdentifier:@"Folder"];
+    [in setName:renamed ? @"box" : @"folder"];
+    if (renamed)
+        [in setRenamingIdentifier:@"folder"];
+    [in setDestinationEntity:folder];
+    [in setMinCount:0];
+    [in setMaxCount:1];
+    [in setOptional:YES];
+    [notes setName:@"notes"];
+    [notes setDestinationEntity:note];
+    [notes setMinCount:0];
+    [notes setMaxCount:0];
+    [notes setOptional:YES];
+    [in setInverseRelationship:notes];
+    [notes setInverseRelationship:in];
+    [note setProperties:[NSArray arrayWithObjects:RenamingTestAttribute(renamed ? @"edited" : @"touched", renamed ? @"touched" : nil),
+                                                  RenamingTestAttribute(@"text", nil), in, nil]];
+    [folder setProperties:[NSArray arrayWithObjects:RenamingTestAttribute(@"made", nil), notes, nil]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObjects:note, folder, nil]];
+    return model;
+}
+
 @implementation MappingModelTests
 
 - (void)testInferredMappingModel
@@ -735,6 +784,74 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
             XCTAssertEqual([entityMapping mappingType],
                            (NSEntityMappingType)NSRemoveEntityMappingType);
     }
+}
+
+/* An entity, an attribute and a relationship renamed (Xcode's Renaming
+   ID): the inferred mapping reads each from its old name, as Apple's does,
+   and nothing is lost. */
+- (void)testAnInferredMappingFollowsRenamingIdentifiers
+{
+    NSError *error = nil;
+    NSManagedObjectModel *sourceModel = RenamingTestModel(NO);
+    NSManagedObjectModel *destinationModel = RenamingTestModel(YES);
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:
+        [[NSProcessInfo processInfo] globallyUniqueString]];
+
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES
+                                               attributes:nil error:NULL];
+
+    NSURL *sourceURL = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"source.sqlite"]];
+    NSPersistentStoreCoordinator *sourcePSC = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:sourceModel];
+
+    XCTAssertNotNil([sourcePSC addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+                                                      URL:sourceURL options:nil error:&error], @"open: %@", error);
+    NSManagedObjectContext *sourceCtx = [[NSManagedObjectContext alloc] init];
+    [sourceCtx setPersistentStoreCoordinator:sourcePSC];
+    NSManagedObject *folder = [NSEntityDescription insertNewObjectForEntityForName:@"Folder" inManagedObjectContext:sourceCtx];
+    NSManagedObject *note = [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:sourceCtx];
+    [folder setValue:@"monday" forKey:@"made"];
+    [note setValue:@"tuesday" forKey:@"touched"];
+    [note setValue:@"milk" forKey:@"text"];
+    [note setValue:folder forKey:@"folder"];
+    XCTAssertTrue([sourceCtx save:&error], @"save: %@", error);
+    XCTAssertTrue([sourcePSC removePersistentStore:[[sourcePSC persistentStores] lastObject] error:&error], @"%@", error);
+
+    NSMappingModel *mapping = [NSMappingModel inferredMappingModelForSourceModel:sourceModel
+                                                                 destinationModel:destinationModel error:&error];
+    XCTAssertNotNil(mapping, @"%@", error);
+    NSEntityMapping *boxes = nil;
+    for (NSEntityMapping *m in [mapping entityMappings])
+        if ([[m destinationEntityName] isEqualToString:@"Box"])
+            boxes = m;
+    XCTAssertEqualObjects([boxes sourceEntityName], @"Folder", @"Box was Folder");
+    XCTAssertEqualObjects([boxes name], @"IEM_Transform_Folder");
+    XCTAssertEqual([[mapping entityMappings] count], (NSUInteger)2, @"nothing added, nothing removed: %@", [mapping entityMappings]);
+
+    NSURL *destinationURL = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"destination.sqlite"]];
+    NSMigrationManager *manager = [[NSMigrationManager alloc] initWithSourceModel:sourceModel destinationModel:destinationModel];
+
+    XCTAssertTrue([manager migrateStoreFromURL:sourceURL type:NSSQLiteStoreType options:nil
+                              withMappingModel:mapping toDestinationURL:destinationURL
+                               destinationType:NSSQLiteStoreType destinationOptions:nil
+                                         error:&error], @"migrate: %@", error);
+    [manager reset];
+
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:destinationModel];
+    XCTAssertNotNil([psc addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+                                                URL:destinationURL options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+    NSArray *migrated = [ctx executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Note"] error:&error];
+
+    XCTAssertEqual([migrated count], (NSUInteger)1, @"%@", error);
+    NSManagedObject *moved = [migrated lastObject];
+    XCTAssertEqualObjects([moved valueForKey:@"edited"], @"tuesday", @"touched, renamed edited");
+    XCTAssertEqualObjects([moved valueForKey:@"text"], @"milk");
+    XCTAssertEqualObjects([[moved valueForKey:@"box"] valueForKey:@"made"], @"monday", @"folder, renamed box, to Folder renamed Box");
+    XCTAssertEqual([[[moved valueForKey:@"box"] valueForKey:@"notes"] count], (NSUInteger)1);
+
+    [psc removePersistentStore:[[psc persistentStores] lastObject] error:NULL];
+    [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
 @end

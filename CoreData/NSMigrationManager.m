@@ -137,6 +137,25 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    return result;
 }
 
+-(NSArray *)destinationInstancesForSourceRelationshipNamed:(NSString *)relationshipName sourceInstances:(id)sourceInstances {
+   NSMutableArray *result=[NSMutableArray array];
+   id              collection=sourceInstances;
+
+   if(sourceInstances==nil)
+    return result;
+   if(![sourceInstances respondsToSelector:@selector(countByEnumeratingWithState:objects:count:)])
+    collection=[NSArray arrayWithObject:sourceInstances];
+
+   for(NSManagedObject *source in collection){
+    NSManagedObject *destination=[self _destinationInstanceForSourceInstance:source];
+
+    if(destination!=nil)
+     [result addObject:destination];
+   }
+
+   return result;
+}
+
 -(NSArray *)sourceInstancesForEntityMappingNamed:(NSString *)mappingName destinationInstances:(NSArray *)destinationInstances {
    NSDictionary   *association=[_associationsByMappingName objectForKey:mappingName];
    NSArray        *sources=[association objectForKey:@"sources"];

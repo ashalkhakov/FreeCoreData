@@ -156,6 +156,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqual([authorRel deleteRule], NSNullifyDeleteRule);
 }
 
+/* Xcode's Renaming ID, spelled elementID on properties as on entities:
+   both compilers carry it over; unset, it is the name. */
+- (void)testRenamingIdentifiers
+{
+    NSEntityDescription *article =
+        [[self.model entitiesByName] objectForKey:@"Article"];
+
+    XCTAssertEqualObjects([[[article attributesByName] objectForKey:@"subtitle"] renamingIdentifier], @"tagline");
+    XCTAssertEqualObjects([[[article relationshipsByName] objectForKey:@"author"] renamingIdentifier], @"writer");
+    XCTAssertEqualObjects([[[article attributesByName] objectForKey:@"title"] renamingIdentifier], @"title");
+}
+
 - (void)testSubentities
 {
     NSEntityDescription *article =
