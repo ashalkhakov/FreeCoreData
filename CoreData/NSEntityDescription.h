@@ -30,6 +30,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSMutableDictionary *_selectorPropertyMap;
     NSArray *_uniquenessConstraints;
     NSArray *_compoundIndexes;
+    NSArray *_indexes;
     BOOL _isAbstract;
     BOOL _hasBeenInstantiated;
 }
@@ -81,6 +82,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    implementations (and tooling) to consume. */
 - (NSArray *)uniquenessConstraints;
 - (void)setUniquenessConstraints:(NSArray *)value;
+
+/* The entity's fetch indexes (NSFetchIndexDescription), its own and not
+   its superentity's.  Setting them makes each one this entity's.  An
+   index takes no part in the version hash. */
+- (NSArray *)indexes;
+- (void)setIndexes:(NSArray *)value;
 
 /* Deprecated on Apple (replaced by fetch indexes); verified on macOS,
    the setter is a no-op there and the getter returns an empty array.

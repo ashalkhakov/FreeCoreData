@@ -326,6 +326,40 @@ static NSXMLElement *elementForEntity(NSEntityDescription *entity){
     [element addChild:elementForRelationship([relationships objectForKey:name],[entity name])];
    }
 
+   /* Fetch indexes, between the properties and the constraints, as Xcode
+      writes them.  An index the runtime made of an indexed attribute when
+      it read an archive is one of them too. */
+   for(NSFetchIndexDescription *index in [entity indexes]){
+    NSXMLElement *indexElement=[NSXMLElement elementWithName:@"fetchIndex"];
+
+    setAttr(indexElement,@"name",[index name]);
+    if([index partialIndexPredicate]!=nil)
+     setAttr(indexElement,@"partialIndexPredicate",[[index partialIndexPredicate] predicateFormat]);
+
+    for(NSFetchIndexElementDescription *indexed in [index elements]){
+     NSXMLElement          *item=[NSXMLElement elementWithName:@"fetchIndexElement"];
+     NSPropertyDescription *property=[indexed property];
+
+     if([property isKindOfClass:[NSExpressionDescription class]]){
+      NSExpression *expression=[(NSExpressionDescription *)property expression];
+      NSUInteger    type=[expression expressionType];
+
+      /* In Xcode's spelling where the derivation writer has it (gnustep-base
+         prints a function's arguments in a second pair of parentheses). */
+      setAttr(item,@"expression",(type==NSKeyPathExpressionType || type==NSFunctionExpressionType)
+          ?derivationString(expression,[entity name]):[expression description]);
+      setAttr(item,@"expressionType",[CDModelCompiler nameForAttributeType:[(NSExpressionDescription *)property expressionResultType]]);
+     }
+     else
+      setAttr(item,@"property",[indexed propertyName]);
+     setAttr(item,@"type",([indexed collationType]==NSFetchIndexElementTypeRTree)?@"RTree":@"Binary");
+     if([indexed collationType]!=NSFetchIndexElementTypeRTree)
+      setAttr(item,@"order",[indexed isAscending]?@"ascending":@"descending");
+     [indexElement addChild:item];
+    }
+    [element addChild:indexElement];
+   }
+
    NSArray *constraints=[entity uniquenessConstraints];
 
    if([constraints count]>0){

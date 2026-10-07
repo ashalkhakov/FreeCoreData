@@ -45,6 +45,19 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    many-to-many backed by a join table. */
 NSManagedObjectModel *CDSQLTestModel(void);
 
+/* What a test reads the server's catalogue through: the store's own
+   connection, and the dialect's query for its indexes (CDSQLStore.h). */
+@protocol CDSQLStoreCatalogue
+- (id)execute:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
+- (NSString *)indexesInSchemaSQL;
+- (BOOL)supportsPartialIndexes;
+@end
+
+@protocol CDSQLCatalogueRows
+- (NSUInteger)rowCount;
+- (NSString *)stringAtRow:(NSUInteger)row column:(NSUInteger)column;
+@end
+
 @interface CDSQLStoreTestCase : XCTestCase
 @property (nonatomic, strong) NSManagedObjectModel *model;
 @property (nonatomic, strong) NSURL *storeURL;

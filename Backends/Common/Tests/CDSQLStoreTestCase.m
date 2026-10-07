@@ -120,6 +120,28 @@ NSManagedObjectModel *CDSQLTestModel(void)
     [manager setProperties:@[ reports ]];
     [person setSubentities:@[ manager ]];
 
+    /* Fetch indexes: a plain one, a descending partial one, a to-one with
+       a text attribute, a to-one alone (its foreign key's index already),
+       and one of the subentity's, which lives on Person's table. */
+    NSDictionary *byName = [person propertiesByName];
+    NSFetchIndexElementDescription *(^element)(NSString *, BOOL) = ^(NSString *name, BOOL ascending) {
+        NSPropertyDescription *property = byName[name] ?: [manager propertiesByName][name];
+        NSFetchIndexElementDescription *element =
+            [[NSFetchIndexElementDescription alloc] initWithProperty:property collationType:NSFetchIndexElementTypeBinary];
+        [element setAscending:ascending];
+        return element;
+    };
+    NSFetchIndexDescription *adults = [[NSFetchIndexDescription alloc] initWithName:@"byAdults" elements:@[ element(@"age", NO) ]];
+
+    [adults setPartialIndexPredicate:[NSPredicate predicateWithFormat:@"age > 17"]];
+    [person setIndexes:@[
+        [[NSFetchIndexDescription alloc] initWithName:@"byName" elements:@[ element(@"name", YES) ]],
+        adults,
+        [[NSFetchIndexDescription alloc] initWithName:@"byEmployerAndName" elements:@[ element(@"employer", YES), element(@"name", YES) ]],
+        [[NSFetchIndexDescription alloc] initWithName:@"byEmployer" elements:@[ element(@"employer", YES) ]],
+    ]];
+    [manager setIndexes:@[ [[NSFetchIndexDescription alloc] initWithName:@"byReports" elements:@[ element(@"reports", NO) ]] ]];
+
     NSAttributeDescription *companyName = [[NSAttributeDescription alloc] init];
     [companyName setName:@"name"];
     [companyName setAttributeType:NSStringAttributeType];

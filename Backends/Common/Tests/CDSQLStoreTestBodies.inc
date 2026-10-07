@@ -813,6 +813,54 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects([[[employees firstObject] entity] name], @"Manager");
 }
 
+/* The indexes Core Data's SQLite store would make, made on the server:
+   join table, entity column, foreign key, and the model's fetch indexes -
+   but not a fetch index that is only a to-one, whose foreign key is
+   indexed already.  Where the server has partial indexes, byAdults is
+   one. */
+- (void)testTheSchemaHasTheModelsIndexes
+{
+    if (![self databaseAvailable]) return;
+
+    NSPersistentStoreCoordinator *coordinator = [self.context persistentStoreCoordinator];
+    id<CDSQLStoreCatalogue> store = (id<CDSQLStoreCatalogue>)[[coordinator persistentStores] firstObject];
+    NSError *error = nil;
+    id<CDSQLCatalogueRows> rows = [store execute:[store indexesInSchemaSQL] parameters:nil error:&error];
+    NSMutableSet *names = [NSMutableSet set];
+
+    XCTAssertNotNil(rows, @"%@", error);
+    for (NSUInteger row = 0; row < [rows rowCount]; row++)
+        [names addObject:[[rows stringAtRow:row column:0] lowercaseString]];
+
+    for (NSString *name in @[ @"ZPERSON_ZEMPLOYER_INDEX", @"ZPERSON_Z_ENT_INDEX", @"Z_Person_byName", @"Z_Person_byAdults",
+                              @"Z_Person_byEmployerAndName", @"Z_Manager_byReports" ])
+        XCTAssertTrue([names containsObject:[name lowercaseString]], @"%@ in %@", name, names);
+    XCTAssertFalse([names containsObject:@"z_person_byemployer"], @"the foreign key's index is that index");
+
+    BOOL joinIndexed = NO;
+
+    for (NSString *name in names)
+        if ([name hasPrefix:@"z_"] && [name rangeOfString:@"friends"].location != NSNotFound && [name hasSuffix:@"_index"])
+            joinIndexed = YES;
+    XCTAssertTrue(joinIndexed, @"the friends join table's index in %@", names);
+
+    /* PostgreSQL's own words for it: descending, and only the adults. */
+    if ([store supportsPartialIndexes]) {
+        id<CDSQLCatalogueRows> definition = [store execute:@"SELECT indexdef FROM pg_indexes WHERE indexname = 'Z_Person_byAdults'"
+                                                parameters:nil error:&error];
+        NSString *sql = [definition rowCount] > 0 ? [definition stringAtRow:0 column:0] : nil;
+
+        XCTAssertTrue([sql rangeOfString:@"DESC"].location != NSNotFound, @"%@", sql);
+        XCTAssertTrue([sql rangeOfString:@"WHERE"].location != NSNotFound && [sql rangeOfString:@"17"].location != NSNotFound, @"%@", sql);
+    }
+
+    /* An index the server has is not made twice when the store is opened
+       again (MySQL has no CREATE INDEX IF NOT EXISTS). */
+    NSManagedObjectContext *again = [self newContext];
+
+    XCTAssertNotNil([[again persistentStoreCoordinator] persistentStores].firstObject);
+}
+
 - (void)testConfigurationLimitsTheStoreToItsEntities
 {
     if (![self databaseAvailable]) return;

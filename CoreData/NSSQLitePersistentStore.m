@@ -11,6 +11,8 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import "NSSQLitePersistentStore.h"
 #import <CoreData/NSIncrementalStoreNode.h>
+#import <CoreData/NSFetchIndexDescription.h>
+#import <CoreData/NSFetchIndexElementDescription.h>
 #import <CoreData/NSPersistentStoreCoordinator.h>
 #import <CoreData/NSPersistentStoreRequest.h>
 #import <CoreData/NSSaveChangesRequest.h>
@@ -753,7 +755,8 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
     }
    }
 
-   NSMutableSet *createdJoinTables=[NSMutableSet set];
+   NSMutableSet   *createdJoinTables=[NSMutableSet set];
+   NSMutableArray *joinTables=[NSMutableArray array];
 
    for(NSEntityDescription *entity in sortedEntities){
     /* One table per root entity holding the entire entity subtree. */
@@ -830,10 +833,163 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 
      if(!executeSQL(DATABASE,sql,error))
       return NO;
+     [joinTables addObject:join];
     }
    }
 
+   return [self _createIndexesForEntities:sortedEntities joinTables:joinTables error:error];
+}
+
+/* The indexes Apple's store creates with the schema, named as it names
+   them:
+
+     <join table>_<second column>_INDEX   on a join table's second column,
+                                          then its first
+     Z<ROOT>_Z_ENT_INDEX                  on the entity column of a table
+                                          shared by subentities
+     Z<ROOT>_Z<RELATIONSHIP>_INDEX        on each to-one's foreign key
+     Z_<Entity>_<index name>              each fetch index of each entity,
+                                          COLLATE BINARY ASC|DESC, with the
+                                          partial predicate as its WHERE
+
+   A fetch index that is only a to-one is its foreign key's index already,
+   and Apple's store makes nothing more of it; nor of an R-tree index, on
+   macOS.  An index this store cannot express - an element that is an
+   expression, or a to-many - is left out rather than failing the store,
+   and so is a partial predicate it cannot translate, the index then
+   covering every row.  Like Apple's, indexes are made with the schema: a
+   store that already exists keeps the ones it has. */
+-(BOOL)_createIndexesForEntities:(NSArray *)entities joinTables:(NSArray *)joinTables error:(NSError **)error {
+   for(NSDictionary *join in joinTables){
+    NSString *table=[join objectForKey:@"table"];
+    NSString *owner=[join objectForKey:@"ownerColumn"];
+    NSString *destination=[join objectForKey:@"destinationColumn"];
+
+    if(!executeSQL(DATABASE,[NSString stringWithFormat:@"CREATE INDEX IF NOT EXISTS %@_%@_INDEX ON %@ (%@, %@)",table,destination,table,destination,owner],error))
+     return NO;
+   }
+
+   for(NSEntityDescription *entity in entities){
+    if([entity superentity]!=nil)
+     continue;
+
+    NSString            *table=tableNameForEntity(entity);
+    NSMutableDictionary *properties=[NSMutableDictionary dictionary];
+
+    if([[entity subentities] count]>0 &&
+       !executeSQL(DATABASE,[NSString stringWithFormat:@"CREATE INDEX IF NOT EXISTS %@_Z_ENT_INDEX ON %@ (Z_ENT)",table,table],error))
+     return NO;
+
+    collectPropertiesOfEntitySubtree(entity,properties);
+    for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
+     NSPropertyDescription *property=[properties objectForKey:name];
+
+     if(![property isKindOfClass:[NSRelationshipDescription class]] || [(NSRelationshipDescription *)property isToMany])
+      continue;
+
+     NSString *column=columnNameForProperty(name);
+
+     if(!executeSQL(DATABASE,[NSString stringWithFormat:@"CREATE INDEX IF NOT EXISTS %@_%@_INDEX ON %@ (%@)",table,column,table,column],error))
+      return NO;
+    }
+   }
+
+   for(NSEntityDescription *entity in entities)
+    for(NSFetchIndexDescription *index in [entity indexes]){
+     NSString *sql=[self _createSQLForFetchIndex:index];
+
+     if(sql!=nil && !executeSQL(DATABASE,sql,error))
+      return NO;
+    }
+
    return YES;
+}
+
+/* A bound value of a translated predicate, written into the SQL: an index's
+   WHERE clause cannot take parameters.  nil for one that has no literal. */
+static NSString *sqlLiteralForBinding(NSDictionary *binding){
+   NSPropertyDescription *property=[binding objectForKey:@"property"];
+   id                     value=[binding objectForKey:@"value"];
+
+   if(value==nil || value==[NSNull null])
+    return @"NULL";
+   if(![property isKindOfClass:[NSAttributeDescription class]])
+    return [NSString stringWithFormat:@"%lld",[value longLongValue]];
+
+   switch([(NSAttributeDescription *)property attributeType]){
+    case NSInteger16AttributeType:
+    case NSInteger32AttributeType:
+    case NSInteger64AttributeType:
+     return [NSString stringWithFormat:@"%lld",[value longLongValue]];
+    case NSBooleanAttributeType:
+     return [value boolValue]?@"1":@"0";
+    case NSDoubleAttributeType:
+    case NSFloatAttributeType:
+     return [NSString stringWithFormat:@"%.17g",[value doubleValue]];
+    case NSDateAttributeType:
+     return [NSString stringWithFormat:@"%.17g",[value timeIntervalSinceReferenceDate]];
+    case NSStringAttributeType:
+    case NSDecimalAttributeType:
+     return [NSString stringWithFormat:@"'%@'",[[value description] stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
+    default:
+     return nil;
+   }
+}
+
+-(NSString *)_createSQLForFetchIndex:(NSFetchIndexDescription *)index {
+   NSEntityDescription *entity=[index entity];
+   NSArray             *elements=[index elements];
+   NSMutableArray      *columns=[NSMutableArray array];
+
+   if([elements count]==0)
+    return nil;
+
+   for(NSFetchIndexElementDescription *element in elements){
+    NSPropertyDescription *property=[element property];
+
+    if([element collationType]!=NSFetchIndexElementTypeBinary)
+     return nil;
+    if([property isKindOfClass:[NSRelationshipDescription class]]){
+     if([(NSRelationshipDescription *)property isToMany])
+      return nil;
+     if([elements count]==1)
+      return nil; /* the foreign key's own index */
+    }
+    else if(![property isKindOfClass:[NSAttributeDescription class]] || [property isTransient])
+     return nil;
+
+    [columns addObject:[NSString stringWithFormat:@"%@ COLLATE BINARY %@",columnNameForProperty([property name]),[element isAscending]?@"ASC":@"DESC"]];
+   }
+
+   NSString *table=tableNameForEntity(entity);
+   NSString *sql=[NSString stringWithFormat:@"CREATE INDEX IF NOT EXISTS Z_%@_%@ ON %@ (%@)",[entity name],[index name],table,[columns componentsJoinedByString:@", "]];
+   NSString *where=nil;
+
+   if([index partialIndexPredicate]!=nil){
+    NSMutableArray *bindings=[NSMutableArray array];
+    NSString       *clause=[self _translatePredicate:[index partialIndexPredicate] entity:entity bindings:bindings];
+
+    /* Written the way Apple's store writes it: bare column names (the
+       clause holds no literal yet, so every quote is an identifier's),
+       then each parameter's value in its place. */
+    clause=[clause stringByReplacingOccurrencesOfString:@"\"" withString:@""];
+    for(NSDictionary *binding in bindings){
+     NSString *literal=sqlLiteralForBinding(binding);
+     NSRange   placeholder=[clause rangeOfString:@"?"];
+
+     if(literal==nil || placeholder.location==NSNotFound){
+      clause=nil;
+      break;
+     }
+     clause=[clause stringByReplacingCharactersInRange:placeholder withString:literal];
+    }
+    where=clause;
+   }
+
+   if(where!=nil)
+    sql=[sql stringByAppendingFormat:@" WHERE %@",where];
+
+   return sql;
 }
 
 -(BOOL)_loadEntityIDs:(NSError **)error {

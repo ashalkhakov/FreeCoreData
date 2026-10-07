@@ -49,6 +49,7 @@ CoreDataTests_OBJC_FILES = \
 	NSPersistentHistoryTests.m \
 	VersionHashTests.m \
 	MappingModelTests.m \
+	FetchIndexTests.m \
 	StoreVersioningTests.m
 
 CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData -I../Tools/momc -I../Tools/mapc
@@ -58,7 +59,7 @@ CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData -I../Tools/momc -I../Tools/mapc
 FRAMEWORK_BUILD_DIR = $(CURDIR)/../CoreData.framework/Versions/Current
 
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
-CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest
+CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest -lsqlite3
 
 XCTEST ?= xctest
 

@@ -263,6 +263,112 @@ static BOOL MBValuesEqual(id a, id b)
   [self didChange:@"constraintRows" from:old];
 }
 
+- (NSArray *)fetchIndexRows
+{
+  NSMutableArray *rows = [NSMutableArray array];
+  for (NSFetchIndexDescription *index in [self.entity indexes]) {
+    NSMutableArray *elements = [NSMutableArray array];
+    for (NSFetchIndexElementDescription *element in index.elements) {
+      NSMutableDictionary *row = [NSMutableDictionary dictionary];
+      NSPropertyDescription *property = element.property;
+      if ([property isKindOfClass:[NSExpressionDescription class]]) row[@"expression"] = property;
+      else row[@"property"] = element.propertyName ?: @"";
+      if (element.collationType == NSFetchIndexElementTypeRTree) row[@"rtree"] = @YES;
+      if (!element.isAscending) row[@"ascending"] = @NO;
+      [elements addObject:row];
+    }
+    NSMutableDictionary *row = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+        index.name ?: @"", @"name", elements, @"elements", nil];
+    if (index.partialIndexPredicate) row[@"predicate"] = index.partialIndexPredicate.predicateFormat;
+    [rows addObject:row];
+  }
+  return rows;
+}
+
+- (void)setFetchIndexRows:(NSArray *)rows
+{
+  id old = self.fetchIndexRows;
+  NSEntityDescription *entity = self.entity;
+  NSMutableArray *indexes = [NSMutableArray array];
+
+  for (NSDictionary *row in rows) {
+    NSMutableArray *elements = [NSMutableArray array];
+    for (NSDictionary *item in row[@"elements"]) {
+      NSPropertyDescription *property = item[@"expression"] ?: entity.propertiesByName[item[@"property"]];
+      if (!property) continue;   /* a property since removed */
+      NSFetchIndexElementDescription *element = nil;
+      @try {
+        element = [[NSFetchIndexElementDescription alloc]
+            initWithProperty:property
+               collationType:[item[@"rtree"] boolValue] ? NSFetchIndexElementTypeRTree : NSFetchIndexElementTypeBinary];
+      } @catch (NSException *exception) {
+        [self failWith:[NSString stringWithFormat:@"%@: %@", row[@"name"], exception.reason]];
+        return;
+      }
+      element.ascending = item[@"ascending"] ? [item[@"ascending"] boolValue] : YES;
+      [elements addObject:element];
+    }
+    NSFetchIndexDescription *index = [[NSFetchIndexDescription alloc] initWithName:row[@"name"] elements:elements];
+    NSString *format = row[@"predicate"];
+    if (format.length) {
+      @try {
+        index.partialIndexPredicate = [NSPredicate predicateWithFormat:format];
+      } @catch (NSException *exception) {
+        [self failWith:[NSString stringWithFormat:@"%@ is not a predicate: %@", format, exception.reason]];
+        return;
+      }
+    }
+    [indexes addObject:index];
+  }
+  /* Apple's CoreData refuses a name the entity has already - the same
+     index's included - so the old ones go first. */
+  [entity setIndexes:@[]];
+  [entity setIndexes:indexes];
+  [self didChange:@"fetchIndexRows" from:old];
+}
+
+/* A new index, named like Xcode's, on the entity's first attribute. */
+- (NSString *)addFetchIndex
+{
+  NSMutableArray *rows = [self.fetchIndexRows mutableCopy];
+  NSString *name = @"index";
+  NSArray *taken = [rows valueForKey:@"name"];
+  for (NSUInteger n = 2; [taken containsObject:name]; n++)
+    name = [NSString stringWithFormat:@"index%lu", (unsigned long)n];
+  NSString *first = [[[self.entity.attributesByName allKeys] sortedArrayUsingSelector:@selector(compare:)] firstObject];
+  NSArray *elements = first ? @[ @{ @"property" : first } ] : @[];
+  [rows addObject:@{ @"name" : name, @"elements" : elements }];
+  self.fetchIndexRows = rows;
+  return name;
+}
+
+- (void)removeFetchIndexNamed:(NSString *)name
+{
+  NSMutableArray *rows = [NSMutableArray array];
+  for (NSDictionary *row in self.fetchIndexRows)
+    if (![row[@"name"] isEqualToString:name]) [rows addObject:row];
+  self.fetchIndexRows = rows;
+}
+
+/* Before a property goes: out of every index that names it, and an index
+   left with nothing goes with it. */
+- (void)removeFromFetchIndexesPropertyNamed:(NSString *)name
+{
+  NSMutableArray *rows = [NSMutableArray array];
+  BOOL changed = NO;
+  for (NSDictionary *row in self.fetchIndexRows) {
+    NSMutableArray *elements = [NSMutableArray array];
+    for (NSDictionary *item in row[@"elements"])
+      if ([item[@"property"] isEqualToString:name]) changed = YES;
+      else [elements addObject:item];
+    if (elements.count == 0 && [row[@"elements"] count] > 0) continue;
+    NSMutableDictionary *kept = [row mutableCopy];
+    kept[@"elements"] = elements;
+    [rows addObject:kept];
+  }
+  if (changed) self.fetchIndexRows = rows;
+}
+
 - (NSString *)addAttribute
 {
   NSEntityDescription *entity = self.entity;
@@ -280,7 +386,10 @@ static BOOL MBValuesEqual(id a, id b)
   NSEntityDescription *entity = self.entity;
   NSAttributeDescription *attribute = entity.attributesByName[name];
   if (!attribute) return;
+  [_document beginEdit:nil];
+  [self removeFromFetchIndexesPropertyNamed:name];
   [_document removeProperty:attribute];
+  [_document endEdit];
 }
 
 - (NSString *)addRelationship
@@ -306,7 +415,10 @@ static BOOL MBValuesEqual(id a, id b)
   NSEntityDescription *entity = self.entity;
   NSRelationshipDescription *relationship = entity.relationshipsByName[name];
   if (!relationship) return;
+  [_document beginEdit:nil];
+  [self removeFromFetchIndexesPropertyNamed:name];
   [_document removeProperty:relationship];   /* unwires the inverse's pointer back */
+  [_document endEdit];
 }
 
 @end

@@ -16,6 +16,7 @@
 #import <CoreData/CoreData.h>
 #import "MBDocument.h"
 #import "MBWindowController.h"
+#import "MBEditors.h"
 #import "CDModelCompiler.h"
 #import "CDModelSerializer.h"
 #import "JUInspectorView.h"
@@ -37,6 +38,9 @@ static NSString *kModelXML =
 @"    <attribute name=\"cDate\" optional=\"YES\" attributeType=\"Date\"/>\n"
 @"    <attribute name=\"dBool\" optional=\"YES\" attributeType=\"Boolean\" defaultValueString=\"YES\"/>\n"
 @"    <relationship name=\"others\" optional=\"YES\" toMany=\"YES\" deletionRule=\"Nullify\" destinationEntity=\"Other\" inverseName=\"thing\" inverseEntity=\"Other\"/>\n"
+@"    <fetchIndex name=\"byString\">\n"
+@"      <fetchIndexElement property=\"aString\" type=\"Binary\" order=\"ascending\"/>\n"
+@"    </fetchIndex>\n"
 @"  </entity>\n"
 @"  <entity name=\"Other\" representedClassName=\"NSManagedObject\" syncable=\"YES\">\n"
 @"    <attribute name=\"tag\" optional=\"YES\" attributeType=\"String\"/>\n"
@@ -507,6 +511,86 @@ int main(void)
     [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)defaultRow]
                byExtendingSelection:NO];
     CHECK([wc.modelIdentifierField.stringValue isEqualToString:@""], "the field shows the model's value again");
+
+    SCENARIO("Fetch indexes are listed under their entity and edited there");
+    /* GIVEN Thing with the fetch index byString on aString
+       WHEN Thing is opened in the source list and byString selected
+       THEN the center shows its elements and the inspector its name
+       AND an element is added, reordered, made an R-tree, renamed and
+           narrowed, each as one undo step, and removing the attribute
+           an element names takes it out of the index */
+    id thingItem = nil;
+    for (NSInteger r = 0; r < wc.sourceList.numberOfRows; r++)
+      if ([[[wc.sourceList itemAtRow:r] valueForKey:@"name"] isEqual:@"Thing"]) thingItem = [wc.sourceList itemAtRow:r];
+    CHECK(thingItem && [wc outlineView:wc.sourceList isItemExpandable:thingItem]
+              && [wc outlineView:wc.sourceList numberOfChildrenOfItem:thingItem] == 1,
+          "Thing opens to its one fetch index");
+    CHECK(wc.fetchIndexElementTable && wc.fetchIndexNameField && wc.fetchIndexPredicateField
+              && wc.fetchIndexElementSegmentedControl && wc.fetchIndexElementsInspector,
+          "the fetch index outlets are connected");
+    [wc.sourceList expandItem:thingItem];
+    id indexItem = [wc outlineView:wc.sourceList child:0 ofItem:thingItem];
+    [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)[wc.sourceList rowForItem:indexItem]]
+               byExtendingSelection:NO];
+    CHECK([[[wc.centerTabView selectedTabViewItem] label] isEqualToString:@"Fetch Index"], "the center shows the index");
+    CHECK([[[wc.inspectorKindTabView selectedTabViewItem] label] isEqualToString:@"Fetch Index Inspector"]
+              && [wc.fetchIndexNameField.stringValue isEqualToString:@"byString"],
+          "and the inspector its name");
+    CHECK([wc.fetchIndexElementTable numberOfRows] == 1, "one element listed");
+
+    NSEntityDescription *indexedThing = doc.model.entitiesByName[@"Thing"];
+    [wc.fetchIndexElementSegmentedControl setSelectedSegment:0];
+    [wc fetchIndexElementSegmentClicked:wc.fetchIndexElementSegmentedControl];
+    NSFetchIndexDescription *edited = [[indexedThing indexes] firstObject];
+    CHECK([wc.fetchIndexElementTable numberOfRows] == 2 && [[[edited.elements lastObject] propertyName] isEqualToString:@"bInt"],
+          "+ adds the next property, bInt");
+
+    NSTableColumn *elementOrderColumn = [wc.fetchIndexElementTable tableColumnWithIdentifier:@"order"];
+    NSTableColumn *elementTypeColumn = [wc.fetchIndexElementTable tableColumnWithIdentifier:@"type"];
+    [wc tableView:wc.fetchIndexElementTable setObjectValue:@1 forTableColumn:elementOrderColumn row:1];
+    CHECK(![[[[indexedThing indexes] firstObject] elements].lastObject isAscending], "Order makes it descending");
+    [doc.undoManager undo];
+    CHECK([[[[indexedThing indexes] firstObject] elements].lastObject isAscending], "and undo ascending again");
+    /* An earlier scenario retyped bInt; an R-tree wants a small number. */
+    [MBAttributeEditor editorForAttributeNamed:@"bInt" entity:indexedThing document:doc].typeName = @"Integer 32";
+    [wc tableView:wc.fetchIndexElementTable setObjectValue:@1 forTableColumn:elementTypeColumn row:1];
+    CHECK([[[[indexedThing indexes] firstObject] elements].lastObject collationType] == NSFetchIndexElementTypeRTree,
+          "Type makes the Integer 32 an R-tree element");
+
+    [wc.fetchIndexPredicateField setStringValue:@"aString != nil"];
+    [wc inspectorChanged:wc.fetchIndexPredicateField];
+    CHECK([[[[[indexedThing indexes] firstObject] partialIndexPredicate] predicateFormat] isEqualToString:@"aString != nil"],
+          "the partial predicate is set, and reads back as written");
+    [wc.fetchIndexNameField setStringValue:@"byStringAndCount"];
+    [wc inspectorChanged:wc.fetchIndexNameField];
+    CHECK([[[[indexedThing indexes] firstObject] name] isEqualToString:@"byStringAndCount"]
+              && [[[wc.sourceList itemAtRow:wc.sourceList.selectedRow] valueForKey:@"name"] isEqualToString:@"byStringAndCount"],
+          "renaming it renames it in the list, still selected");
+
+    [doc beginEdit:@"Remove"];
+    [[MBEntityEditor editorForEntityNamed:@"Thing" document:doc] removeAttributeNamed:@"bInt"];
+    [doc endEdit];
+    CHECK([[[[indexedThing indexes] firstObject] elements] count] == 1, "removing bInt takes it out of the index");
+    [doc.undoManager undo];
+    CHECK([[[[indexedThing indexes] firstObject] elements] count] == 2 && indexedThing.attributesByName[@"bInt"],
+          "and undo puts both back");
+
+    NSString *written = [CDModelSerializer contentsXMLForModel:doc.model entityLayouts:nil error:&error];
+    CHECK([written rangeOfString:@"<fetchIndex name=\"byStringAndCount\" partialIndexPredicate=\"aString != nil\">"].location != NSNotFound
+              && [written rangeOfString:@"property=\"bInt\" type=\"RTree\""].location != NSNotFound,
+          "and it is written as Xcode writes it");
+
+    id otherItem = nil;
+    for (NSInteger r = 0; r < wc.sourceList.numberOfRows; r++)
+      if ([[[wc.sourceList itemAtRow:r] valueForKey:@"name"] isEqual:@"Other"]) otherItem = [wc.sourceList itemAtRow:r];
+    [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)[wc.sourceList rowForItem:otherItem]]
+               byExtendingSelection:NO];
+    [wc addFetchIndex:nil];
+    CHECK([[doc.model.entitiesByName[@"Other"] indexes] count] == 1
+              && [[[wc.sourceList itemAtRow:wc.sourceList.selectedRow] valueForKey:@"name"] isEqualToString:@"index"],
+          "Add Fetch Index makes one on Other, selected");
+    [wc removeSourceItem:nil];
+    CHECK([[doc.model.entitiesByName[@"Other"] indexes] count] == 0, "and − removes it");
 
     printf("---\n%d passed, %d failed\n", passed, failed);
     exit(failed ? 1 : 0);   /* skip pool teardown */

@@ -19,6 +19,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSDictionary *_userInfo;
     NSArray *_validationPredicates;
     NSArray *_validationWarnings;
+    BOOL _indexed;              /* until the property joins an entity */
 }
 
 - (NSEntityDescription *)entity;
@@ -37,6 +38,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 /* Apple semantics: returns the name when never explicitly set. */
 - (NSString *)renamingIdentifier;
 - (void)setRenamingIdentifier:(NSString *)value;
+
+/* Whether a fetch index covers the property: for an attribute, whether it
+   is the only element of an ascending binary index of its entity, partial
+   or not; a relationship is
+   always indexed, by its foreign key.  Setting it adds (or removes) an
+   index named after the property, as Apple does. */
+- (BOOL)isIndexed;
+- (void)setIndexed:(BOOL)value;
 
 - (void)setName:(NSString *)value;
 - (void)setOptional:(BOOL)value;
