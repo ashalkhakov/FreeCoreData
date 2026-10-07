@@ -48,6 +48,12 @@ NSString * const NSPersistentHistoryTokenKey=@"historyToken";
 /* Implemented by stores that track persistent history (the SQLite
    store); other store classes are simply skipped when a token is
    assembled. */
+@interface NSPersistentStore(CDModelCache)
+/* Implemented by store classes that keep the model in the store (the
+   SQLite one does); asked only when the bundles hold no matching model. */
++(NSManagedObjectModel *)_cachedModelForPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options;
+@end
+
 @interface NSPersistentStore(CDHistoryTracking)
 -(BOOL)_historyTrackingEnabled;
 -(long long)_lastHistoryTransactionNumber;
@@ -144,6 +150,13 @@ static NSMutableDictionary *_storeTypes=nil;
 
    NSManagedObjectModel *sourceModel=[NSManagedObjectModel mergedModelFromBundles:nil forStoreMetadata:metadata];
 
+   /* Failing that, the model the store itself was written with, which is
+      where Apple looks too (its Z_MODELCACHE): a model built in code, or
+      one whose compiled copy is no longer in any bundle, is otherwise a
+      store nothing can migrate. */
+   if(sourceModel==nil && [class respondsToSelector:@selector(_cachedModelForPersistentStoreWithURL:options:)])
+    sourceModel=[class _cachedModelForPersistentStoreWithURL:storeURL options:options];
+
    if(sourceModel==nil){
     if(error!=NULL)
      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSMigrationMissingSourceModelError userInfo:[NSDictionary dictionaryWithObject:@"Can't find source model for migration" forKey:NSLocalizedDescriptionKey]];
@@ -164,7 +177,22 @@ static NSMutableDictionary *_storeTypes=nil;
    NSURL              *temporaryURL=[NSURL fileURLWithPath:[[storeURL path] stringByAppendingString:@"~migrated"]];
    NSMigrationManager *manager=[[[NSMigrationManager alloc] initWithSourceModel:sourceModel destinationModel:_model] autorelease];
 
-   if(![manager migrateStoreFromURL:storeURL type:storeType options:nil withMappingModel:mappingModel toDestinationURL:temporaryURL destinationType:storeType destinationOptions:nil error:error])
+   /* The store's own options go to both ends of the migration.  Chiefly
+      NSPersistentHistoryTrackingKey: a store that tracks history has to
+      migrate into one that does, or the destination keeps the source's
+      UUID - the same store, as far as any token says - while starting its
+      transaction numbering again, and a token held from before the
+      migration then names a transaction that will not come round again
+      for as many saves as the store had made.  The migration's own keys
+      do not travel, and neither does read-only: the destination is
+      written to by definition. */
+   NSMutableDictionary *migrationOptions=[NSMutableDictionary dictionaryWithDictionary:(options!=nil)?options:[NSDictionary dictionary]];
+
+   [migrationOptions removeObjectForKey:NSMigratePersistentStoresAutomaticallyOption];
+   [migrationOptions removeObjectForKey:NSInferMappingModelAutomaticallyOption];
+   [migrationOptions removeObjectForKey:NSReadOnlyPersistentStoreOption];
+
+   if(![manager migrateStoreFromURL:storeURL type:storeType options:migrationOptions withMappingModel:mappingModel toDestinationURL:temporaryURL destinationType:storeType destinationOptions:migrationOptions error:error])
     return NO;
 
    /* Release the manager's stores (closing their connections, e.g. SQLite

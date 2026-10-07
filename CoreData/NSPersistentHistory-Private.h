@@ -21,6 +21,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSPersistentHistoryTransaction.m). */
 NSAttributeDescription *CDHistoryEntityAttribute(NSString *name,NSAttributeType type);
 
+#import "NSSQLitePersistentStore.h"
+
 @interface NSPersistentHistoryToken (CDPrivate)
 
 /* positions: store identifier -> NSNumber (last transaction number). */
@@ -68,4 +70,22 @@ NSAttributeDescription *CDHistoryEntityAttribute(NSString *name,NSAttributeType 
 - (NSPersistentHistoryToken *)_anchorToken;
 - (int64_t)_anchorTransactionNumber;   /* -1: none */
 
+@end
+
+/* What NSMigrationManager carries into the SQLite store it migrated to, so
+   that the store comes through a migration as the same store, as on Apple:
+   its history (the source's transactions under their numbers, each change's
+   entity and key as they are in the destination), and a transaction marking
+   the migration itself. */
+@interface NSSQLitePersistentStore (CDMigrationHistory)
+- (long long)_primaryKeyOfObjectID:(NSManagedObjectID *)objectID;
+/* entityNames: source entity name to destination entity name; primaryKeys:
+   destination entity name to {source key: destination key}. A change of an
+   entity the destination has not is left out; one of an object not migrated
+   (deleted since, say) gets a key no object of the destination has. */
+- (BOOL)_adoptHistoryOfStoreAtURL:(NSURL *)sourceURL
+                      entityNames:(NSDictionary *)entityNames
+                      primaryKeys:(NSDictionary *)primaryKeys
+                           author:(NSString *)author
+                            error:(NSError **)error;
 @end

@@ -312,6 +312,90 @@ static id attributeValueFromColumn(sqlite3_stmt *statement,int index,NSAttribute
 
 /* Reads the store metadata from the Z_METADATA table of an open database.
    Returns nil (with error set) when the table is missing or unreadable. */
+/* The model a store's data conforms to, kept in the store itself, so a
+   migration can find the model to migrate from when no bundle holds it -
+   a model built in code is in no bundle at all.  Apple keeps one too, in
+   Z_MODELCACHE, but its content is a private format of its own, so this
+   is a table of this port's with an archive this port can read; neither
+   framework reads the other's, and a store without one falls back to the
+   bundles, which is what every store written before this had. */
+static NSString * const CDModelCacheTable=@"Z_CDMODELCACHE";
+
+static NSData *archivedModel(NSManagedObjectModel *model){
+   if(model==nil)
+    return nil;
+
+   [NSPredicate class];   /* register the archive class aliases */
+   [NSExpression class];
+
+   return [NSKeyedArchiver archivedDataWithRootObject:model];
+}
+
+static NSManagedObjectModel *modelFromCache(sqlite3 *database){
+   if(!tableExists(database,CDModelCacheTable))
+    return nil;
+
+   sqlite3_stmt         *statement=prepareStatement(database,[NSString stringWithFormat:@"SELECT Z_CONTENT FROM %@",CDModelCacheTable],NULL);
+   NSManagedObjectModel *model=nil;
+
+   if(statement==NULL)
+    return nil;
+
+   if(sqlite3_step(statement)==SQLITE_ROW && sqlite3_column_type(statement,0)==SQLITE_BLOB){
+    NSData *data=[NSData dataWithBytes:sqlite3_column_blob(statement,0)
+                                length:sqlite3_column_bytes(statement,0)];
+
+    [NSPredicate class];
+    [NSExpression class];
+
+    NSKeyedUnarchiver *unarchiver=[[NSKeyedUnarchiver alloc] initForReadingWithData:data];
+
+    @try {
+     /* Retained before the unarchiver goes, autoreleased for the caller:
+        -decodeObjectForKey: hands back nothing of its own. */
+     model=[[[unarchiver decodeObjectForKey:@"root"] retain] autorelease];
+    }
+    @catch(NSException *exception){
+     /* A blob this library cannot read is simply no cache. */
+     model=nil;
+    }
+    [unarchiver release];
+
+    if(![model isKindOfClass:[NSManagedObjectModel class]])
+     model=nil;
+   }
+   sqlite3_finalize(statement);
+
+   return model;
+}
+
+static BOOL writeModelCache(sqlite3 *database,NSManagedObjectModel *model,NSError **error){
+   NSData *archive=archivedModel(model);
+
+   if(archive==nil)
+    return YES;   /* nothing to keep; the bundles are still there */
+
+   if(!executeSQL(database,[NSString stringWithFormat:@"CREATE TABLE IF NOT EXISTS %@ (Z_CONTENT BLOB)",CDModelCacheTable],error))
+    return NO;
+   if(!executeSQL(database,[NSString stringWithFormat:@"DELETE FROM %@",CDModelCacheTable],error))
+    return NO;
+
+   sqlite3_stmt *statement=prepareStatement(database,[NSString stringWithFormat:@"INSERT INTO %@ (Z_CONTENT) VALUES (?)",CDModelCacheTable],error);
+
+   if(statement==NULL)
+    return NO;
+
+   sqlite3_bind_blob(statement,1,[archive bytes],(int)[archive length],SQLITE_TRANSIENT);
+
+   BOOL ok=(sqlite3_step(statement)==SQLITE_DONE);
+
+   if(!ok && error!=NULL)
+    *error=sqliteError(database,NSPersistentStoreSaveError,@"unable to keep the model in the store");
+   sqlite3_finalize(statement);
+
+   return ok;
+}
+
 static NSDictionary *readMetadata(sqlite3 *database,NSError **error){
    if(!tableExists(database,@"Z_METADATA")){
     if(error!=NULL)
@@ -440,6 +524,25 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
    sqlite3_close(database);
 
    return result;
+}
+
+/* The model the store at this URL was written with, or nil: what a
+   migration needs when no bundle holds the source model. */
++(NSManagedObjectModel *)_cachedModelForPersistentStoreWithURL:(NSURL *)url options:(NSDictionary *)options {
+   NSString *path=[url path];
+   sqlite3  *database=NULL;
+
+   if(path==nil || sqlite3_open_v2([path fileSystemRepresentation],&database,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){
+    if(database!=NULL)
+     sqlite3_close(database);
+    return nil;
+   }
+
+   NSManagedObjectModel *model=modelFromCache(database);
+
+   sqlite3_close(database);
+
+   return model;
 }
 
 +(BOOL)setMetadata:(NSDictionary *)metadata forPersistentStoreWithURL:(NSURL *)url error:(NSError **)error {
@@ -621,6 +724,9 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
    if(!executeSQL(DATABASE,@"CREATE TABLE Z_METADATA (Z_VERSION INTEGER PRIMARY KEY, Z_UUID VARCHAR(255), Z_PLIST BLOB)",error))
     return NO;
 
+   if(!writeModelCache(DATABASE,[[self persistentStoreCoordinator] managedObjectModel],error))
+    return NO;
+
    if(!executeSQL(DATABASE,@"CREATE TABLE Z_PRIMARYKEY (Z_ENT INTEGER PRIMARY KEY, Z_NAME VARCHAR, Z_SUPER INTEGER, Z_MAX INTEGER)",error))
     return NO;
 
@@ -791,6 +897,15 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 
     [super setMetadata:metadata];
 
+    /* A store written before this library kept the model, or by another
+       framework: the model it is being opened with is the one its data
+       conforms to - the coordinator has just checked that - so keep it,
+       and a later migration will have it to migrate from.  Read-only
+       stores stay as they are, and a failure here is not worth refusing
+       to open a store that is otherwise fine. */
+    if(![self isReadOnly] && !tableExists(DATABASE,CDModelCacheTable))
+     writeModelCache(DATABASE,[[self persistentStoreCoordinator] managedObjectModel],NULL);
+
     return [self _loadEntityIDs:error] && [self _prepareHistoryTracking:error];
    }
 
@@ -959,6 +1074,184 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
 
 -(long long)_primaryKeyOfObjectID:(NSManagedObjectID *)objectID {
    return primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID]);
+}
+
+/* The source store's history, adopted by this one (just made by
+   NSMigrationManager, which recorded its copying as a transaction of
+   inserts): what this store recorded is dropped, the source's transactions
+   come over under their own numbers - a history token taken from the
+   source reads the same here - with each change's entity and key made this
+   store's, and a transaction marks the migration, as Apple's does. */
+-(BOOL)_adoptHistoryOfStoreAtURL:(NSURL *)sourceURL
+                     entityNames:(NSDictionary *)entityNames
+                     primaryKeys:(NSDictionary *)primaryKeys
+                          author:(NSString *)author
+                           error:(NSError **)error {
+   if(!_historyTracking)
+    return YES;
+
+   NSDictionary        *entities=[[[self persistentStoreCoordinator] managedObjectModel] entitiesByName];
+   NSMutableDictionary *orphans=[NSMutableDictionary dictionary];
+   BOOL                 attached=NO,ok=NO;
+
+   if(!executeSQL(DATABASE,@"BEGIN",error))
+    return NO;
+
+   do {
+    if(!executeSQL(DATABASE,@"DELETE FROM Z_ACHANGE",error) ||
+       !executeSQL(DATABASE,@"DELETE FROM Z_ATRANSACTION",error))
+     break;
+    if(tableExists(DATABASE,@"sqlite_sequence") &&
+       !executeSQL(DATABASE,@"DELETE FROM sqlite_sequence WHERE name IN ('Z_ATRANSACTION', 'Z_ACHANGE')",error))
+     break;
+
+    sqlite3_stmt *attach=prepareStatement(DATABASE,@"ATTACH DATABASE ? AS cd_source",error);
+
+    if(attach==NULL)
+     break;
+    sqlite3_bind_text(attach,1,[[sourceURL path] UTF8String],-1,SQLITE_TRANSIENT);
+    attached=(sqlite3_step(attach)==SQLITE_DONE);
+    sqlite3_finalize(attach);
+    if(!attached){
+     if(error!=NULL)
+      *error=sqliteError(DATABASE,NSPersistentStoreOperationError,@"unable to read the migrated store's history");
+     break;
+    }
+
+    sqlite3_stmt *tables=prepareStatement(DATABASE,@"SELECT COUNT(*) FROM cd_source.sqlite_master WHERE type = 'table' AND name IN ('Z_ATRANSACTION', 'Z_ACHANGE')",error);
+    int           found=0;
+
+    if(tables==NULL)
+     break;
+    if(sqlite3_step(tables)==SQLITE_ROW)
+     found=sqlite3_column_int(tables,0);
+    sqlite3_finalize(tables);
+
+    if(found==2){
+     if(!executeSQL(DATABASE,@"INSERT INTO Z_ATRANSACTION (Z_PK, ZTIMESTAMP, ZAUTHOR, ZCONTEXTNAME, ZPROCESSID, ZBUNDLEID) SELECT Z_PK, ZTIMESTAMP, ZAUTHOR, ZCONTEXTNAME, ZPROCESSID, ZBUNDLEID FROM cd_source.Z_ATRANSACTION",error))
+      break;
+
+     sqlite3_stmt *changes=prepareStatement(DATABASE,@"SELECT Z_PK, ZTRANSACTIONID, ZCHANGETYPE, ZENTITY, ZENTITYPK, ZUPDATEDPROPERTIES, ZTOMBSTONE FROM cd_source.Z_ACHANGE ORDER BY Z_PK",error);
+     sqlite3_stmt *insert=prepareStatement(DATABASE,@"INSERT INTO Z_ACHANGE (Z_PK, ZTRANSACTIONID, ZCHANGETYPE, ZENTITY, ZENTITYPK, ZUPDATEDPROPERTIES, ZTOMBSTONE) VALUES (?, ?, ?, ?, ?, ?, ?)",error);
+     BOOL          failed=(changes==NULL || insert==NULL);
+
+     while(!failed && sqlite3_step(changes)==SQLITE_ROW){
+      const char *entityText=(const char *)sqlite3_column_text(changes,3);
+      NSString   *sourceName=entityText?[NSString stringWithUTF8String:entityText]:@"";
+      NSString   *name=[entityNames objectForKey:sourceName];
+      NSEntityDescription *entity=(name!=nil)?[entities objectForKey:name]:nil;
+
+      /* An entity the destination has not: its history goes with it. */
+      if(entity==nil)
+       continue;
+
+      /* Keyed by the source entity, whose primary-key space this number
+         belongs to: two source entities mapped into one destination
+         entity both count from 1, and keying by the destination would
+         make one's objects the other's. */
+      NSNumber *sourceKey=[NSNumber numberWithLongLong:sqlite3_column_int64(changes,4)];
+      NSNumber *key=[[primaryKeys objectForKey:sourceName] objectForKey:sourceKey];
+
+      /* An object not migrated (deleted before): a key of its own, never
+         one a migrated object has, the same for each of its changes. */
+      if(key==nil){
+       NSMutableDictionary *mine=[orphans objectForKey:sourceName];
+
+       if(mine==nil){
+        mine=[NSMutableDictionary dictionary];
+        [orphans setObject:mine forKey:sourceName];
+       }
+       key=[mine objectForKey:sourceKey];
+       if(key==nil){
+        long long fresh=[self _nextPrimaryKeyForEntity:entity error:error];
+
+        if(fresh==0){
+         failed=YES;
+         break;
+        }
+        key=[NSNumber numberWithLongLong:fresh];
+        [mine setObject:key forKey:sourceKey];
+       }
+      }
+
+      sqlite3_reset(insert);
+      sqlite3_clear_bindings(insert);
+      sqlite3_bind_int64(insert,1,sqlite3_column_int64(changes,0));
+      sqlite3_bind_int64(insert,2,sqlite3_column_int64(changes,1));
+      sqlite3_bind_int(insert,3,sqlite3_column_int(changes,2));
+      sqlite3_bind_text(insert,4,[name UTF8String],-1,SQLITE_TRANSIENT);
+      sqlite3_bind_int64(insert,5,[key longLongValue]);
+      if(sqlite3_column_type(changes,5)!=SQLITE_NULL)
+       sqlite3_bind_text(insert,6,(const char *)sqlite3_column_text(changes,5),-1,SQLITE_TRANSIENT);
+      if(sqlite3_column_type(changes,6)!=SQLITE_NULL)
+       sqlite3_bind_blob(insert,7,sqlite3_column_blob(changes,6),sqlite3_column_bytes(changes,6),SQLITE_TRANSIENT);
+      if(sqlite3_step(insert)!=SQLITE_DONE){
+       if(error!=NULL)
+        *error=sqliteError(DATABASE,NSPersistentStoreOperationError,@"unable to carry a history change over");
+       failed=YES;
+      }
+     }
+     if(changes!=NULL)
+      sqlite3_finalize(changes);
+     if(insert!=NULL)
+      sqlite3_finalize(insert);
+     if(failed)
+      break;
+    }
+
+    /* The number the migration's own transaction takes, and with it every
+       number this store hands out afterwards: above every number the
+       source ever gave out, not merely above the rows it still has.  A
+       purge leaves the table empty with its numbers spent, and a token
+       taken before the purge still names one of them - numbering from 1
+       again would put new transactions behind such a token, where nothing
+       would ever read them.  (Arbitrated on macOS: a store purged of
+       transactions 1 to 3 and then migrated goes on at 4.)
+
+       Given explicitly rather than left to AUTOINCREMENT, whose own
+       high-water mark went with the rows deleted above: sqlite_sequence
+       has no unique index on name, so it cannot simply be written back -
+       INSERT OR REPLACE appends a second row and which one SQLite then
+       believes is its business, not ours. */
+    long long     markerNumber=1;
+    sqlite3_stmt *high=prepareStatement(DATABASE,
+        found==2
+            ? @"SELECT MAX(COALESCE((SELECT seq FROM cd_source.sqlite_sequence WHERE name = 'Z_ATRANSACTION'), 0),"
+               "           COALESCE((SELECT MAX(Z_PK) FROM Z_ATRANSACTION), 0))"
+            : @"SELECT COALESCE((SELECT MAX(Z_PK) FROM Z_ATRANSACTION), 0)",error);
+
+    if(high==NULL)
+     break;
+    if(sqlite3_step(high)==SQLITE_ROW)
+     markerNumber=sqlite3_column_int64(high,0)+1;
+    sqlite3_finalize(high);
+
+    /* The migration itself: a transaction of its own, with no changes. */
+    sqlite3_stmt *marker=prepareStatement(DATABASE,@"INSERT INTO Z_ATRANSACTION (Z_PK, ZTIMESTAMP, ZAUTHOR, ZPROCESSID, ZBUNDLEID) VALUES (?, ?, ?, ?, ?)",error);
+    NSString     *processID=[NSString stringWithFormat:@"%d",(int)[[NSProcessInfo processInfo] processIdentifier]];
+    NSString     *bundleID=[[NSBundle mainBundle] bundleIdentifier]?:[[NSProcessInfo processInfo] processName];
+
+    if(marker==NULL)
+     break;
+    sqlite3_bind_int64(marker,1,markerNumber);
+    sqlite3_bind_double(marker,2,[[NSDate date] timeIntervalSinceReferenceDate]);
+    sqlite3_bind_text(marker,3,[author UTF8String],-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(marker,4,[processID UTF8String],-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(marker,5,[bundleID UTF8String],-1,SQLITE_TRANSIENT);
+    ok=(sqlite3_step(marker)==SQLITE_DONE);
+    sqlite3_finalize(marker);
+    if(!ok && error!=NULL)
+     *error=sqliteError(DATABASE,NSPersistentStoreOperationError,@"unable to record the migration in history");
+   } while(0);
+
+   if(ok)
+    ok=executeSQL(DATABASE,@"COMMIT",error);
+   if(!ok)
+    executeSQL(DATABASE,@"ROLLBACK",NULL);
+   if(attached)
+    executeSQL(DATABASE,@"DETACH DATABASE cd_source",NULL);
+
+   return ok;
 }
 
 /* The tombstone for a deletion: the last values of the entity's
@@ -2538,6 +2831,39 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
      anchorNumber=[request _anchorTransactionNumber];
     else if([request _anchorToken]!=nil)
      anchorNumber=[[request _anchorToken] _transactionNumberForStoreIdentifier:[self identifier]];
+   }
+
+   /* A token whose transaction has been purged is expired: the history it
+      names is gone, so the consumer cannot be told what it missed and has
+      to start again.  Arbitrated on macOS, where a purge through
+      transaction 4 expires the tokens at 1, 2 and 3 and leaves the one at
+      4 - that is, a token is expired exactly when it stands below the
+      oldest transaction the store still has. */
+   if(!byDate && [request _anchorToken]!=nil && anchorNumber>0 && ![request _isPurge]){
+    long long     oldest=0;
+    sqlite3_stmt *statement=prepareStatement(DATABASE,@"SELECT COALESCE(MIN(Z_PK), 0) FROM Z_ATRANSACTION",error);
+
+    if(statement==NULL)
+     return nil;
+    if(sqlite3_step(statement)==SQLITE_ROW)
+     oldest=sqlite3_column_int64(statement,0);
+    sqlite3_finalize(statement);
+
+    if(anchorNumber<oldest || oldest==0){
+     if(error!=NULL){
+      NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+      [userInfo setObject:[NSString stringWithFormat:@"Persistent History Token is expired for store at %@",[self URL]] forKey:@"message"];
+      [userInfo setObject:[NSString stringWithFormat:@"Persistent History Token is expired for store at %@",[self URL]] forKey:NSLocalizedDescriptionKey];
+      if([self identifier]!=nil)
+       [userInfo setObject:[self identifier] forKey:NSStoreUUIDKey];
+      if([[self URL] path]!=nil)
+       [userInfo setObject:[[self URL] path] forKey:NSFilePathErrorKey];
+
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentHistoryTokenExpiredError userInfo:userInfo];
+     }
+     return nil;
+    }
    }
 
    if([request _isPurge]){
