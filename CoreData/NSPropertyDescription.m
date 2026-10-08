@@ -12,6 +12,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSRelationshipDescription.h>
 #import "CoreDataUtilities.h"
 #import "CoreDataVersioning-Private.h"
+#import "NSManagedObjectModel-Private.h"
 #import <Foundation/NSCoder.h>
 #import <Foundation/Foundation.h>
 
@@ -121,7 +122,8 @@ static NSArray *predicatesFromArchivedObjects(NSArray *objects){
     [coder encodeObject:_renamingIdentifier forKey: @"NSRenamingIdentifier"];
    /* Apple writes the flag for attributes only: a relationship is always
       indexed. */
-   if(archivesIndexedFlag && [self isKindOfClass:[NSAttributeDescription class]] && [self isIndexed])
+   if(archivesIndexedFlag && ![coder isKindOfClass:[CDModelCopyArchiver class]] &&
+      [self isKindOfClass:[NSAttributeDescription class]] && [self isIndexed])
     [coder encodeBool:YES forKey: @"NSIsIndexed"];
 }
 

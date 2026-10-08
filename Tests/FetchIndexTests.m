@@ -207,6 +207,37 @@ static NSArray *names(NSArray *indexes)
     XCTAssertEqual([rtree collationType], NSFetchIndexElementTypeRTree);
 }
 
+/* A copy has the model's indexes and no others - unlike an archive read
+   back, no index is made of an attribute because it is indexed - so a model
+   copied again and again (an app copies its compiled model to add to it)
+   keeps what it declared. */
+- (void)testACopyKeepsExactlyTheIndexes
+{
+    NSAttributeDescription *a = attribute(@"a", NSStringAttributeType);
+    NSAttributeDescription *b = attribute(@"b", NSStringAttributeType);
+    NSEntityDescription *thing = entityWith(@"Thing", @[ a, b ]);
+    NSFetchIndexDescription *byB = [[NSFetchIndexDescription alloc] initWithName:@"byB" elements:@[
+        [[NSFetchIndexElementDescription alloc] initWithProperty:b collationType:NSFetchIndexElementTypeBinary] ]];
+
+    [thing setIndexes:@[ byB ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+
+    [model setEntities:@[ thing ]];
+
+    NSManagedObjectModel *copy = [model copy];
+    NSEntityDescription *entity = [[copy entitiesByName] objectForKey:@"Thing"];
+
+    XCTAssertEqualObjects(names([entity indexes]), @[ @"byB" ]);
+    XCTAssertTrue([[[entity attributesByName] objectForKey:@"b"] isIndexed], @"still indexed, by byB");
+    XCTAssertNotEqual(entity, thing, @"a copy of its own");
+    XCTAssertEqual([[[[entity indexes] firstObject] elements].firstObject property], [[entity attributesByName] objectForKey:@"b"]);
+
+    NSManagedObjectModel *again = [copy copy];
+
+    XCTAssertEqualObjects(names([[[again entitiesByName] objectForKey:@"Thing"] indexes]), @[ @"byB" ], @"and a copy of the copy");
+}
+
 /* Indexes are no part of the schema a store must migrate. */
 - (void)testIndexesLeaveTheVersionHashAlone
 {
