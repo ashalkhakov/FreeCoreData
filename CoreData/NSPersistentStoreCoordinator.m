@@ -15,6 +15,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSMappingModel.h>
 #import <CoreData/NSMigrationManager.h>
 #import <CoreData/NSEntityDescription.h>
+#import <CoreData/NSManagedObjectContext.h>
+#import <CoreData/NSFetchRequest.h>
+#import <CoreData/NSAttributeDescription.h>
+#import <CoreData/NSRelationshipDescription.h>
 #import "NSInMemoryPersistentStore.h"
 #import "NSSQLitePersistentStore.h"
 #import "NSManagedObjectID-Private.h"
@@ -310,9 +314,136 @@ static NSMutableDictionary *_storeTypes=nil;
    return YES;
 }
 
+/* Every object of store copied into target, which has the same
+   configuration: each entity's own objects (not its subentities', which
+   are fetched as themselves) with their attributes, then their
+   relationships pointed at the copies. Not saved. */
+-(BOOL)_copyObjectsOfStore:(NSPersistentStore *)store toStore:(NSPersistentStore *)target inContext:(NSManagedObjectContext *)context error:(NSError **)error {
+   NSMutableDictionary *copies=[NSMutableDictionary dictionary];
+   NSMutableArray      *originals=[NSMutableArray array];
+   NSArray             *stores=[NSArray arrayWithObject:store];
+   NSString            *configuration=[store configurationName];
+   /* No configuration: the default one, which has every entity. */
+   NSArray             *entities=(configuration!=nil)?[[self managedObjectModel] entitiesForConfiguration:configuration]:[[self managedObjectModel] entities];
+
+   for(NSEntityDescription *entity in entities){
+    if([entity isAbstract])
+     continue;
+
+    NSFetchRequest *fetch=[[[NSFetchRequest alloc] init] autorelease];
+
+    [fetch setEntity:entity];
+    [fetch setIncludesSubentities:NO];
+    [fetch setAffectedStores:stores];
+
+    NSArray *found=[context executeFetchRequest:fetch error:error];
+
+    if(found==nil)
+     return NO;
+
+    for(NSManagedObject *original in found){
+     NSManagedObject *copy=[NSEntityDescription insertNewObjectForEntityForName:[entity name] inManagedObjectContext:context];
+
+     [context assignObject:copy toPersistentStore:target];
+     for(NSAttributeDescription *attribute in [[entity attributesByName] allValues]){
+      if([attribute isTransient] || [attribute isKindOfClass:[NSDerivedAttributeDescription class]])
+       continue;
+      [copy setValue:[original valueForKey:[attribute name]] forKey:[attribute name]];
+     }
+     [copies setObject:copy forKey:[original objectID]];
+     [originals addObject:original];
+    }
+   }
+
+   for(NSManagedObject *original in originals){
+    NSManagedObject *copy=[copies objectForKey:[original objectID]];
+
+    for(NSRelationshipDescription *relationship in [[[original entity] relationshipsByName] allValues]){
+     if([relationship isTransient])
+      continue;
+
+     NSString *name=[relationship name];
+     id        value=[original valueForKey:name];
+
+     if(![relationship isToMany]){
+      [copy setValue:(value!=nil ? [copies objectForKey:[value objectID]] : nil) forKey:name];
+      continue;
+     }
+
+     NSMutableArray *related=[NSMutableArray array];
+
+     for(NSManagedObject *each in value){
+      NSManagedObject *mapped=[copies objectForKey:[each objectID]];
+
+      if(mapped!=nil)
+       [related addObject:mapped];
+     }
+     if([relationship isOrdered])
+      [copy setValue:[NSOrderedSet orderedSetWithArray:related] forKey:name];
+     else
+      [copy setValue:[NSSet setWithArray:related] forKey:name];
+    }
+   }
+   return YES;
+}
+
+/* As Apple's: a store of storeType at URL, with store's configuration,
+   given every object store has and its metadata (but its type and
+   UUID, the new store's own); then store is removed from the
+   coordinator (its file, or database, is left as it was). The new store
+   is returned; nil, with store left in place, when it cannot be made or
+   saved. Apple's also takes another coordinator's store; this one does
+   not (it fetches through itself). */
 -(NSPersistentStore *)migratePersistentStore:(NSPersistentStore *)store toURL:(NSURL *)URL options:(NSDictionary *)options withType:(NSString *)storeType error:(NSError **)error {
-    NSUnimplementedMethod();
+   if(![_stores containsObject:store]){
+    if(error!=NULL){
+     NSDictionary *userInfo=[NSDictionary dictionaryWithObject:@"The store to migrate is not one of this coordinator's" forKey:NSLocalizedDescriptionKey];
+
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:userInfo];
+    }
     return nil;
+   }
+
+   NSPersistentStore *target=[self addPersistentStoreWithType:storeType configuration:[store configurationName] URL:URL options:options error:error];
+
+   if(target==nil)
+    return nil;
+
+   NSAutoreleasePool      *pool=[NSAutoreleasePool new];
+   NSManagedObjectContext *context=[[NSManagedObjectContext alloc] init];
+   NSError                *failure=nil;
+   BOOL                    copied;
+
+   [context setPersistentStoreCoordinator:self];
+   [context setUndoManager:nil];
+   copied=[self _copyObjectsOfStore:store toStore:target inContext:context error:&failure];
+   if(copied){
+    NSMutableDictionary *metadata=[[[self metadataForPersistentStore:target] mutableCopy] autorelease];
+    NSDictionary        *old=[self metadataForPersistentStore:store];
+
+    for(NSString *key in old){
+     if([key isEqualToString:NSStoreTypeKey] || [key isEqualToString:NSStoreUUIDKey])
+      continue;
+     [metadata setObject:[old objectForKey:key] forKey:key];
+    }
+    [self setMetadata:metadata forPersistentStore:target];
+    copied=[context save:&failure];
+   }
+   [failure retain];
+   [context release];
+   [pool release];
+   [failure autorelease];
+
+   if(!copied){
+    [self removePersistentStore:target error:NULL];
+    if(error!=NULL)
+     *error=failure;
+    return nil;
+   }
+
+   [target retain];
+   [self removePersistentStore:store error:NULL];
+   return [target autorelease];
 }
 
 -(NSArray *)persistentStores {
