@@ -355,11 +355,15 @@ static NSMutableDictionary *_storeTypes=nil;
     }
    }
 
+   /* Ordered to-manys last: setting a relationship also sets its inverse,
+      and an inverse that is an ordered to-many takes each new member at its
+      end, so only a value set after every other keeps its order. */
+   for(int orderedPass=0;orderedPass<2;orderedPass++)
    for(NSManagedObject *original in originals){
     NSManagedObject *copy=[copies objectForKey:[original objectID]];
 
     for(NSRelationshipDescription *relationship in [[[original entity] relationshipsByName] allValues]){
-     if([relationship isTransient])
+     if([relationship isTransient] || [relationship isOrdered]!=(orderedPass==1))
       continue;
 
      NSString *name=[relationship name];
