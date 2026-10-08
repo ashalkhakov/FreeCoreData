@@ -250,18 +250,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     return model;
 }
 
-/* An ordered relationship keeps its order through a migration - to
-   another SQLite file and to memory - however the songs were inserted;
-   friends stay each other's. */
+/* An ordered relationship keeps its order through a migration - between
+   SQLite files and memory - however the songs were inserted; friends stay
+   each other's. */
 - (void)testMigratePersistentStoreKeepsOrderAndBothSides
 {
     NSManagedObjectModel *model = [self playlistModel];
 
-    for (NSString *type in @[ NSSQLiteStoreType, NSInMemoryStoreType ]) {
+    /* SQLite to SQLite, SQLite to memory, and memory to SQLite. */
+    for (NSArray *types in @[ @[ NSSQLiteStoreType, NSSQLiteStoreType ], @[ NSSQLiteStoreType, NSInMemoryStoreType ],
+                              @[ NSInMemoryStoreType, NSSQLiteStoreType ] ]) {
+        NSString *source = types[0], *type = types[1];
         NSURL *from = [self temporarySQLiteURL], *to = [self temporarySQLiteURL];
         NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
         NSError *error = nil;
-        NSPersistentStore *store = [psc addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:from options:nil error:&error];
+        NSPersistentStore *store = [psc addPersistentStoreWithType:source configuration:nil
+                                                               URL:[source isEqualToString:NSInMemoryStoreType] ? nil : from
+                                                           options:nil error:&error];
         XCTAssertNotNil(store, @"%@", error);
 
         NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
@@ -300,6 +305,122 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         XCTAssertEqual(found.count, (NSUInteger)2, @"%@", type);
         XCTAssertEqualObjects([[found[0] valueForKey:@"friends"] valueForKey:@"name"], [NSSet setWithObject:@"bob"], @"%@", type);
         XCTAssertEqualObjects([[found[1] valueForKey:@"friends"] valueForKey:@"name"], [NSSet setWithObject:@"ann"], @"%@", type);
+
+        [self removeSQLiteAt:from];
+        [self removeSQLiteAt:to];
+    }
+}
+
+
+/* More songs than one batch of a migration holds, in one playlist: all of
+   them arrive, in order. */
+- (void)testMigratingALargeStoreKeepsEverythingInOrder
+{
+    NSManagedObjectModel *model = [self playlistModel];
+    NSURL *from = [self temporarySQLiteURL], *to = [self temporarySQLiteURL];
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSError *error = nil;
+    NSPersistentStore *store = [psc addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:from options:nil error:&error];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    context.persistentStoreCoordinator = psc;
+    NSManagedObject *all = [NSEntityDescription insertNewObjectForEntityForName:@"Playlist" inManagedObjectContext:context];
+    [all setValue:@"all" forKey:@"name"];
+    NSMutableArray *order = [NSMutableArray array];
+    for (NSUInteger n = 0; n < 2500; n++) {
+        NSString *title = [NSString stringWithFormat:@"%04lu", (unsigned long)((n * 7919) % 2500)];
+        NSManagedObject *track = [NSEntityDescription insertNewObjectForEntityForName:@"Song" inManagedObjectContext:context];
+        [track setValue:title forKey:@"title"];
+        [[all mutableOrderedSetValueForKey:@"songs"] addObject:track];
+        [order addObject:title];
+    }
+    XCTAssertTrue([context save:&error], @"%@", error);
+
+    XCTAssertNotNil([psc migratePersistentStore:store toURL:to options:nil withType:NSSQLiteStoreType error:&error], @"%@", error);
+
+    NSPersistentStoreCoordinator *other = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    XCTAssertNotNil([other addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:to options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *reader = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    reader.persistentStoreCoordinator = other;
+    XCTAssertEqual([reader countForFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Song"] error:NULL], (NSUInteger)2500);
+    NSManagedObject *list = [[reader executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Playlist"] error:&error] firstObject];
+    XCTAssertEqualObjects([[[list valueForKey:@"songs"] array] valueForKey:@"title"], order);
+
+    [self removeSQLiteAt:from];
+    [self removeSQLiteAt:to];
+}
+
+/* Things whose names a stricter version of the model refuses: a store
+   holds them under the lax one, and the strict one - with the same version
+   hash - opens it, but cannot save copies of them. */
+- (NSManagedObjectModel *)thingModelStrict:(BOOL)strict
+{
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    name.name = @"name";
+    name.attributeType = NSStringAttributeType;
+    name.optional = YES;
+    if (strict)
+        [name setValidationPredicates:@[ [NSPredicate predicateWithFormat:@"length > 3"] ]
+               withValidationWarnings:@[ @"too short" ]];
+    NSEntityDescription *thing = [[NSEntityDescription alloc] init];
+    thing.name = @"Thing";
+    thing.properties = @[ name ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ thing ];
+    return model;
+}
+
+- (void)putThingsNamed:(NSArray *)names inStoreAt:(NSURL *)url
+{
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self thingModelStrict:NO]];
+    NSError *error = nil;
+    XCTAssertNotNil([psc addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    context.persistentStoreCoordinator = psc;
+    for (NSString *name in names)
+        [[NSEntityDescription insertNewObjectForEntityForName:@"Thing" inManagedObjectContext:context] setValue:name forKey:@"name"];
+    XCTAssertTrue([context save:&error], @"%@", error);
+    XCTAssertTrue([psc removePersistentStore:psc.persistentStores.firstObject error:&error], @"%@", error);
+}
+
+- (NSArray *)namesOfThingsAt:(NSURL *)url
+{
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self thingModelStrict:NO]];
+    NSError *error = nil;
+    XCTAssertNotNil([psc addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    context.persistentStoreCoordinator = psc;
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Thing"];
+    fetch.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ];
+    NSArray *names = [[context executeFetchRequest:fetch error:&error] valueForKey:@"name"];
+    [psc removePersistentStore:psc.persistentStores.firstObject error:NULL];
+    return names;
+}
+
+/* A migration that cannot save the copies fails, and the old store stays
+   in the coordinator; a store that was there already is left as it was,
+   and a new one holds nothing. */
+- (void)testAFailedMigrationChangesNothing
+{
+    for (NSNumber *targetExisted in @[ @NO, @YES ]) {
+        NSURL *from = [self temporarySQLiteURL], *to = [self temporarySQLiteURL];
+        [self putThingsNamed:@[ @"long enough", @"ab" ] inStoreAt:from];
+        if ([targetExisted boolValue])
+            [self putThingsNamed:@[ @"already here" ] inStoreAt:to];
+
+        NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self thingModelStrict:YES]];
+        NSError *error = nil;
+        NSPersistentStore *store = [psc addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:from options:nil error:&error];
+        XCTAssertNotNil(store, @"%@", error);
+
+        error = nil;
+        XCTAssertNil([psc migratePersistentStore:store toURL:to options:nil withType:NSSQLiteStoreType error:&error]);
+        XCTAssertNotNil(error);
+        XCTAssertEqualObjects(psc.persistentStores, @[ store ], @"the old store is still the coordinator's");
+        [psc removePersistentStore:store error:NULL];
+
+        XCTAssertEqualObjects([self namesOfThingsAt:to], [targetExisted boolValue] ? @[ @"already here" ] : @[],
+                              @"target existed: %@", targetExisted);
+        XCTAssertEqual([[self namesOfThingsAt:from] count], (NSUInteger)2);
 
         [self removeSQLiteAt:from];
         [self removeSQLiteAt:to];
