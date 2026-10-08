@@ -15,12 +15,21 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSMappingModel.h>
 #import <CoreData/NSMigrationManager.h>
 #import <CoreData/NSEntityDescription.h>
+#import <CoreData/NSManagedObjectContext.h>
+#import <CoreData/NSFetchRequest.h>
+#import <CoreData/NSAttributeDescription.h>
+#import <CoreData/NSRelationshipDescription.h>
 #import "NSInMemoryPersistentStore.h"
 #import "NSSQLitePersistentStore.h"
 #import "NSManagedObjectID-Private.h"
 #import "NSDerivedAttributeDescription-Private.h"
 #import "NSPersistentHistory-Private.h"
 #import "CoreDataUtilities.h"
+
+/* What the SQL backends' store classes answer (CDSQLStore.h). */
+@protocol CDDestroyableStore
++ (BOOL)destroyStoreAtURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
+@end
 
 NSString * const NSStoreTypeKey=@"NSStoreTypeKey";
 NSString * const NSStoreUUIDKey=@"NSStoreUUIDKey";
@@ -310,9 +319,273 @@ static NSMutableDictionary *_storeTypes=nil;
    return YES;
 }
 
--(NSPersistentStore *)migratePersistentStore:(NSPersistentStore *)store toURL:(NSURL *)URL options:(NSDictionary *)options withType:(NSString *)storeType error:(NSError **)error {
-    NSUnimplementedMethod();
+/* How many objects a migration holds at once: it works through a store a
+   batch at a time, saving and letting go of each, so that what it keeps
+   for the whole store is two object IDs per object. */
+enum { CDMigrationBatchSize=1000 };
+
+/* The objects to copy, a batch at a time: each entity's own (not its
+   subentities', which are fetched as themselves), as IDs, in batches of
+   one entity each. */
+-(NSArray *)_batchesOfStore:(NSPersistentStore *)store inContext:(NSManagedObjectContext *)context error:(NSError **)error {
+   NSString       *configuration=[store configurationName];
+   /* No configuration: the default one, which has every entity. */
+   NSArray        *entities=(configuration!=nil)?[[self managedObjectModel] entitiesForConfiguration:configuration]:[[self managedObjectModel] entities];
+   NSMutableArray *batches=[NSMutableArray array];
+
+   for(NSEntityDescription *entity in entities){
+    if([entity isAbstract])
+     continue;
+
+    NSFetchRequest *fetch=[[[NSFetchRequest alloc] init] autorelease];
+
+    [fetch setEntity:entity];
+    [fetch setIncludesSubentities:NO];
+    [fetch setResultType:NSManagedObjectIDResultType];
+    [fetch setAffectedStores:[NSArray arrayWithObject:store]];
+
+    NSArray *found=[context executeFetchRequest:fetch error:error];
+
+    if(found==nil)
+     return nil;
+
+    NSUInteger start;
+
+    for(start=0;start<[found count];start+=CDMigrationBatchSize)
+     [batches addObject:[found subarrayWithRange:NSMakeRange(start,MIN((NSUInteger)CDMigrationBatchSize,[found count]-start))]];
+   }
+   return batches;
+}
+
+/* One batch's objects, in one fetch, in the batch's order - with their
+   relationships too, when those are what is wanted. */
+-(NSArray *)_objectsOfBatch:(NSArray *)batch inStore:(NSPersistentStore *)store context:(NSManagedObjectContext *)context withRelationships:(BOOL)withRelationships error:(NSError **)error {
+   NSEntityDescription *entity=[[batch objectAtIndex:0] entity];
+   NSFetchRequest      *fetch=[[[NSFetchRequest alloc] init] autorelease];
+
+   [fetch setEntity:entity];
+   [fetch setIncludesSubentities:NO];
+   [fetch setAffectedStores:[NSArray arrayWithObject:store]];
+   [fetch setPredicate:[NSPredicate predicateWithFormat:@"self IN %@",batch]];
+   [fetch setReturnsObjectsAsFaults:NO];
+   if(withRelationships)
+    [fetch setRelationshipKeyPathsForPrefetching:[[entity relationshipsByName] allKeys]];
+
+   NSArray *found=[context executeFetchRequest:fetch error:error];
+
+   if(found==nil)
     return nil;
+
+   NSMutableDictionary *byID=[NSMutableDictionary dictionaryWithCapacity:[found count]];
+   NSMutableArray      *ordered=[NSMutableArray arrayWithCapacity:[batch count]];
+
+   for(NSManagedObject *object in found)
+    [byID setObject:object forKey:[object objectID]];
+   /* Any the fetch did not find - a store that cannot match IDs in a
+      predicate - is read by its ID, rather than left out. */
+   for(NSManagedObjectID *objectID in batch){
+    NSManagedObject *object=[byID objectForKey:objectID];
+
+    if(object==nil)
+     object=[context existingObjectWithID:objectID error:error];
+    if(object==nil)
+     return nil;
+    [ordered addObject:object];
+   }
+   return ordered;
+}
+
+/* Saves the batch and lets go of it - unless the copy is to be saved at
+   once, at the end - or fails with error set.  The error outlives the
+   batch's autorelease pool. */
+static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,BOOL atOnce,BOOL ok,NSError **error){
+   if(ok && !atOnce)
+    ok=[context save:error];
+   if(ok && !atOnce)
+    [context reset];
+   if(!ok && error!=NULL)
+    [*error retain];
+   [pool release];
+   if(!ok && error!=NULL)
+    [*error autorelease];
+   return ok;
+}
+
+/* Every object of store copied into target, which has the same
+   configuration, a batch at a time: their attributes first, recording the
+   copy of each; then their relationships, pointed at the copies - ordered
+   to-manys after every other, since setting a relationship sets its
+   inverse, and an inverse that is an ordered to-many takes each new member
+   at its end, so only a value set after every other keeps its order.
+
+   Each batch is saved and let go of, so a store of any size is copied in
+   the memory a batch takes - unless atOnce, when the copy is saved in one,
+   at the end, and a failure leaves the target as it was. */
+-(BOOL)_copyObjectsOfStore:(NSPersistentStore *)store toStore:(NSPersistentStore *)target inContext:(NSManagedObjectContext *)context atOnce:(BOOL)atOnce error:(NSError **)error {
+   NSArray             *batches=[self _batchesOfStore:store inContext:context error:error];
+   NSMutableDictionary *copies=[NSMutableDictionary dictionary];   /* original's ID -> copy's */
+
+   if(batches==nil)
+    return NO;
+
+   for(NSArray *batch in batches){
+    NSAutoreleasePool *pool=[NSAutoreleasePool new];
+    NSArray           *originals=[self _objectsOfBatch:batch inStore:store context:context withRelationships:NO error:error];
+    NSMutableArray    *made=[NSMutableArray array];
+
+    for(NSManagedObject *original in originals){
+     NSEntityDescription *entity=[original entity];
+     NSManagedObject     *copy=[NSEntityDescription insertNewObjectForEntityForName:[entity name] inManagedObjectContext:context];
+
+     [context assignObject:copy toPersistentStore:target];
+     for(NSAttributeDescription *attribute in [[entity attributesByName] allValues]){
+      if([attribute isTransient] || [attribute isKindOfClass:[NSDerivedAttributeDescription class]])
+       continue;
+      [copy setValue:[original valueForKey:[attribute name]] forKey:[attribute name]];
+     }
+     [made addObject:copy];
+    }
+
+    /* The copies' IDs are the ones they keep once they are saved, so
+       they are taken permanent ones now. */
+    BOOL ok=(originals!=nil) && [context obtainPermanentIDsForObjects:made error:error];
+
+    if(ok){
+     NSUInteger i;
+
+     for(i=0;i<[made count];i++)
+      [copies setObject:[[made objectAtIndex:i] objectID] forKey:[[originals objectAtIndex:i] objectID]];
+    }
+    if(!finishBatch(context,pool,atOnce,ok,error))
+     return NO;
+   }
+
+   int orderedPass;
+
+   for(orderedPass=0;orderedPass<2;orderedPass++)
+    for(NSArray *batch in batches){
+     NSAutoreleasePool *pool=[NSAutoreleasePool new];
+     NSArray           *originals=[self _objectsOfBatch:batch inStore:store context:context withRelationships:YES error:error];
+
+     for(NSManagedObject *original in originals){
+      NSManagedObject *copy=[context objectWithID:[copies objectForKey:[original objectID]]];
+
+      for(NSRelationshipDescription *relationship in [[[original entity] relationshipsByName] allValues]){
+       if([relationship isTransient] || [relationship isOrdered]!=(orderedPass==1))
+        continue;
+
+       NSString *name=[relationship name];
+       id        value=[original valueForKey:name];
+
+       if(![relationship isToMany]){
+        NSManagedObjectID *mapped=(value!=nil)?[copies objectForKey:[value objectID]]:nil;
+
+        [copy setValue:(mapped!=nil)?[context objectWithID:mapped]:nil forKey:name];
+        continue;
+       }
+
+       NSMutableArray *related=[NSMutableArray array];
+
+       for(NSManagedObject *each in value){
+        NSManagedObjectID *mapped=[copies objectForKey:[each objectID]];
+
+        if(mapped!=nil)
+         [related addObject:[context objectWithID:mapped]];
+       }
+       if([relationship isOrdered])
+        [copy setValue:[NSOrderedSet orderedSetWithArray:related] forKey:name];
+       else
+        [copy setValue:[NSSet setWithArray:related] forKey:name];
+      }
+     }
+     if(!finishBatch(context,pool,atOnce,originals!=nil,error))
+      return NO;
+    }
+   return atOnce?[context save:error]:YES;
+}
+
+/* A store made for a migration that did not finish is taken away again: a
+   SQLite file and the files beside it, or what a store class that knows how
+   to destroy its stores (the SQL backends) destroys. */
+-(void)_destroyStoreAtURL:(NSURL *)URL type:(NSString *)storeType options:(NSDictionary *)options {
+   Class storeClass=[[[self class] registeredStoreTypes] objectForKey:storeType];
+
+   if([storeClass respondsToSelector:@selector(destroyStoreAtURL:options:error:)]){
+    [(Class<CDDestroyableStore>)storeClass destroyStoreAtURL:URL options:options error:NULL];
+    return;
+   }
+   if([URL isFileURL]){
+    NSFileManager *files=[NSFileManager defaultManager];
+
+    for(NSString *suffix in [NSArray arrayWithObjects:@"",@"-wal",@"-shm",@"-journal",nil])
+     [files removeItemAtPath:[[URL path] stringByAppendingString:suffix] error:NULL];
+   }
+}
+
+/* As Apple's: a store of storeType at URL, with store's configuration,
+   given every object store has and its metadata (but its type and UUID,
+   the new store's own); then store is removed from the coordinator (its
+   file, or database, is left as it was).  The new store is returned; nil,
+   with store left in place, when it cannot be made or filled.
+
+   A new store is filled a batch at a time, so that a large store moves in
+   little memory, and one that cannot be filled is destroyed again - where
+   Apple's, which saves the copy in one, leaves its empty file.  Into a
+   store that was there already (a migration adds to it, as Apple's does)
+   the copy is saved in one, so that a failure leaves it as it was.
+
+   Apple's also takes another coordinator's store; this one does not (it
+   fetches through itself). */
+-(NSPersistentStore *)migratePersistentStore:(NSPersistentStore *)store toURL:(NSURL *)URL options:(NSDictionary *)options withType:(NSString *)storeType error:(NSError **)error {
+   if(![_stores containsObject:store]){
+    if(error!=NULL){
+     NSDictionary *userInfo=[NSDictionary dictionaryWithObject:@"The store to migrate is not one of this coordinator's" forKey:NSLocalizedDescriptionKey];
+
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:userInfo];
+    }
+    return nil;
+   }
+
+   BOOL existed=(URL!=nil && [[self class] metadataForPersistentStoreOfType:storeType URL:URL options:options error:NULL]!=nil);
+   NSPersistentStore *target=[self addPersistentStoreWithType:storeType configuration:[store configurationName] URL:URL options:options error:error];
+
+   if(target==nil)
+    return nil;
+
+   NSAutoreleasePool      *pool=[NSAutoreleasePool new];
+   NSManagedObjectContext *context=[[NSManagedObjectContext alloc] init];
+   NSError                *failure=nil;
+   BOOL                    copied;
+   NSMutableDictionary    *metadata=[[[self metadataForPersistentStore:target] mutableCopy] autorelease];
+   NSDictionary           *old=[self metadataForPersistentStore:store];
+
+   for(NSString *key in old){
+    if([key isEqualToString:NSStoreTypeKey] || [key isEqualToString:NSStoreUUIDKey])
+     continue;
+    [metadata setObject:[old objectForKey:key] forKey:key];
+   }
+   [self setMetadata:metadata forPersistentStore:target];
+
+   [context setPersistentStoreCoordinator:self];
+   [context setUndoManager:nil];
+   copied=[self _copyObjectsOfStore:store toStore:target inContext:context atOnce:existed error:&failure];
+   [failure retain];
+   [context release];
+   [pool release];
+   [failure autorelease];
+
+   if(!copied){
+    [self removePersistentStore:target error:NULL];
+    if(!existed)
+     [self _destroyStoreAtURL:URL type:storeType options:options];
+    if(error!=NULL)
+     *error=failure;
+    return nil;
+   }
+
+   [target retain];
+   [self removePersistentStore:store error:NULL];
+   return [target autorelease];
 }
 
 -(NSArray *)persistentStores {
