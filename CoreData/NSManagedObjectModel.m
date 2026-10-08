@@ -12,11 +12,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #import <Foundation/Foundation.h>
 #import "CoreDataUtilities.h"
+#import "NSManagedObjectModel-Private.h"
 
 
 /* NSEntityDescription.m: an entity knows the model it belongs to. */
 @interface NSEntityDescription (ModelMembership)
 -(void)_setManagedObjectModel:(NSManagedObjectModel *)model;
+@end
+
+@implementation CDModelCopyArchiver
 @end
 
 @implementation NSManagedObjectModel
@@ -153,12 +157,19 @@ static NSArray *allModelPathsInBundle(NSBundle *bundle){
    in use - new entities and properties, whose relationships, inverses,
    sub- and super-entities and fetch request templates refer to the copy's
    own.  The keyed archive a compiled model is read from carries exactly
-   that graph, so a round trip through it makes the copy. */
+   that graph, so a round trip through it makes the copy - its indexes
+   the model's, none added (CDModelCopyArchiver). */
 -copyWithZone:(NSZone *)zone {
    [NSPredicate class];   /* archive class aliases; see -initWithContentsOfURL: */
    [NSExpression class];
 
-   NSData            *data=[NSKeyedArchiver archivedDataWithRootObject:self];
+   NSMutableData       *data=[NSMutableData data];
+   CDModelCopyArchiver *archiver=[[CDModelCopyArchiver alloc] initForWritingWithMutableData:data];
+
+   [archiver encodeObject:self forKey:@"root"];
+   [archiver finishEncoding];
+   [archiver release];
+
    NSKeyedUnarchiver *unarchiver=[[NSKeyedUnarchiver alloc] initForReadingWithData:data];
    NSManagedObjectModel *copy=[[unarchiver decodeObjectForKey:@"root"] retain];
 
