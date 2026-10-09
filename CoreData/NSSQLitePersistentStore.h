@@ -43,6 +43,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
        (mirroring Apple's ATRANSACTION/ACHANGE tables). */
     BOOL _historyTracking;
     BOOL _postsRemoteChangeNotification;
+
+    /* Rows a fetch read with its object IDs, by object ID, for the first
+       fault of each to take (one query for a fetch, as Apple's row cache,
+       rather than one a fault); emptied by every write. */
+    NSMutableDictionary *_prefetched;
 }
 
 @end

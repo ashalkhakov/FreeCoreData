@@ -349,19 +349,10 @@ static char CDContextQueueSpecificKey;
 }
 
 -(void)dealloc {
-   NSArray *registered=[_registeredObjects allObjects];
-
    if(_requestedProcessPendingChanges)
     [[NSRunLoop mainRunLoop] cancelPerformSelector: @selector(_processPendingChangesForRequest)
                              target: self
                              argument: nil];
-
-   for(NSManagedObject *check in registered){
-    NSArray *properties=[[[check entity] propertiesByName] allKeys];
-
-    for(NSString *key in properties)
-     [check removeObserver:self forKeyPath:key];
-   }
 
    if(_storeCoordinator!=nil)
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSPersistentStoreCoordinatorStoresDidChangeNotification object:_storeCoordinator];
@@ -443,13 +434,6 @@ static char CDContextQueueSpecificKey;
      NSManagedObjectID *objectID=[check objectID];
         
      if([objectID persistentStore]==store){
-     
-     NSEntityDescription *entity=[check entity];
-      NSArray             *properties=[[entity propertiesByName] allKeys];
-
-      for(NSString *key in properties)
-       [check removeObserver:self forKeyPath:key];
-
       [_registeredObjects removeObject:check];
       [_insertedObjects removeObject:check];
       [_updatedObjects removeObject:check];
@@ -567,13 +551,6 @@ static char CDContextQueueSpecificKey;
    [_undoManager removeAllActions];
    [self _clearUndoEventCapture];
 
-   for(NSManagedObject *object in [[_registeredObjects copy] autorelease]){
-    NSArray *properties=[[[object entity] propertiesByName] allKeys];
-
-    for(NSString *key in properties)
-     [object removeObserver:self forKeyPath:key];
-   }
-
    [_registeredObjects removeAllObjects];
    [_insertedObjects removeAllObjects];
    [_updatedObjects removeAllObjects];
@@ -596,11 +573,6 @@ static char CDContextQueueSpecificKey;
    }
 
    for(NSManagedObject *inserted in [[_insertedObjects copy] autorelease]){
-    NSArray *properties=[[[inserted entity] propertiesByName] allKeys];
-
-    for(NSString *key in properties)
-     [inserted removeObserver:self forKeyPath:key];
-
     [_registeredObjects removeObject:inserted];
     NSMapRemove(_objectIdToObject,[inserted objectID]);
    }
@@ -636,18 +608,8 @@ static char CDContextQueueSpecificKey;
    [_registeredObjects addObject:object];
    NSMapInsert(_objectIdToObject,[object objectID],object);
 
-   NSEntityDescription *entity=[object entity];
-   NSArray             *properties=[[entity propertiesByName] allKeys];
-
-   /* No old or new values asked for: -observeValueForKeyPath: needs only
-      to know that something changed.  Asked for, KVO reads them with
-      -valueForKey:, which for a to-many is a set proxy that retains this
-      context; gnustep-base keeps the old one, and the context, its
-      objects and their values were never let go of (relating an object
-      to another, as a server does on every upsert of a child row). */
-   for(NSString *key in properties){
-    [object addObserver:self forKeyPath:key options:0 context:nil];
-   }
+   /* Not observed: the object tells this context of its changes itself
+      (-_object:didChangeValueForKey:). */
 }
 
 
@@ -1838,9 +1800,6 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    for(NSManagedObject *object in leaving){
     [[object retain] autorelease];   /* the sets below may hold the last reference */
 
-    for(NSString *key in [[[object entity] propertiesByName] allKeys])
-     [object removeObserver:self forKeyPath:key];
-
     [_registeredObjects removeObject:object];
     NSMapRemove(_objectIdToObject,[object objectID]);
 
@@ -2107,11 +2066,6 @@ static id CDUndoRestoredValue(id value){
     [self deleteObject:object];
 
     if(neverSaved){
-     NSArray *properties=[[[object entity] propertiesByName] allKeys];
-
-     for(NSString *key in properties)
-      [object removeObserver:self forKeyPath:key];
-
      [_registeredObjects removeObject:object];
      [_insertedObjects removeObject:object];
      [_updatedObjects removeObject:object];
@@ -2128,7 +2082,10 @@ static id CDUndoRestoredValue(id value){
    [self processPendingChanges];
 }
 
--(void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+-(void)_object:(NSManagedObject *)object didChangeValueForKey:(NSString *)key {
+   /* Its properties' changes only, as the observation it replaces. */
+   if([[[object entity] propertiesByName] objectForKey:key]==nil)
+    return;
    if(NSMapGet(_objectIdToObject,[object objectID])==object){
     [_updatedObjects addObject:object];
 

@@ -23,6 +23,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    Registration is suspended (recursively) around work that must never
    be undoable, e.g. fault realization / awakeFromFetch. */
 - (void)_object:(NSManagedObject *)object willChangeValueForKey:(NSString *)key;
+/* After a change of one of its properties (didChangeValueForKey: and the
+   to-many forms): the object is updated in this context. */
+- (void)_object:(NSManagedObject *)object didChangeValueForKey:(NSString *)key;
 - (void)_disableUndoRegistration;
 - (void)_enableUndoRegistration;
 

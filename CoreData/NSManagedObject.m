@@ -167,7 +167,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    _objectID=[objectID copy];
    _context=context;
    _committedValues = nil;
-   _changedValues = [[NSMutableDictionary alloc] init];
+   /* Made at the first change (-_changes): most objects a fetch brings
+      are only read. */
+   _changedValues = nil;
    _isFault=YES;
    return self;
 }
@@ -197,6 +199,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    [self awakeFromInsert];
 
    return self;
+}
+
+/* What changed, made when first needed. */
+-(NSMutableDictionary *)_changes {
+   if(_changedValues==nil)
+    _changedValues=[[NSMutableDictionary alloc] init];
+   return _changedValues;
 }
 
 -(void)dealloc {
@@ -261,7 +270,7 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
     id value=[_changedValues objectForKey:key];
     id replaced=CDValueReplacingObjectIDs(value,replacements);
     if(replaced!=value)
-     [_changedValues setObject:replaced forKey:key];
+     [[self _changes] setObject:replaced forKey:key];
    }
    if(_committedValues!=nil){
     NSMutableDictionary *committed=nil;
@@ -354,7 +363,7 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
      break;
     }
    if(!anyTransient)
-    return _changedValues;
+    return (_changedValues!=nil)?(NSDictionary *)_changedValues:[NSDictionary dictionary];
 
    NSMutableDictionary *persistent=[NSMutableDictionary dictionary];
 
@@ -657,7 +666,7 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
     NSPropertyDescription *property=[properties objectForKey:name];
 
     if(value==[NSNull null]){
-     [_changedValues setObject:[NSNull null] forKey:name];
+     [[self _changes] setObject:[NSNull null] forKey:name];
      continue;
     }
     if([value isKindOfClass:[CDRelationshipFault class]])
@@ -667,18 +676,18 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
      NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
 
      if(![relationship isToMany])
-      [_changedValues setObject:value forKey:name];
+      [[self _changes] setObject:value forKey:name];
      else {
       id members=[relationship isOrdered]?(id)[NSMutableArray array]:(id)[NSMutableSet set];
 
       for(NSManagedObjectID *memberID in value)
        [members addObject:memberID];
-      [_changedValues setObject:members forKey:name];
+      [[self _changes] setObject:members forKey:name];
      }
      continue;
     }
 
-    [_changedValues setObject:value forKey:name];
+    [[self _changes] setObject:value forKey:name];
    }
 }
 
@@ -1045,6 +1054,25 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
    [super willChangeValueForKey:key];
 }
 
+/* And after it, the context told that the object changed - as Apple's
+   objects tell theirs, rather than the context observing every property
+   of every object it has (twelve KVO observers and their bookkeeping for
+   an object of twelve properties, and every setter through KVO). */
+-(void)didChangeValueForKey:(NSString *)key {
+   [super didChangeValueForKey:key];
+   [_context _object:self didChangeValueForKey:key];
+}
+
+-(void)didChangeValueForKey:(NSString *)key withSetMutation:(NSKeyValueSetMutationKind)mutation usingObjects:(NSSet *)objects {
+   [super didChangeValueForKey:key withSetMutation:mutation usingObjects:objects];
+   [_context _object:self didChangeValueForKey:key];
+}
+
+-(void)didChange:(NSKeyValueChange)change valuesAtIndexes:(NSIndexSet *)indexes forKey:(NSString *)key {
+   [super didChange:change valuesAtIndexes:indexes forKey:key];
+   [_context _object:self didChangeValueForKey:key];
+}
+
 -(NSMutableSet *) mutableSetValueForKey:(NSString *) key {
    return [[[NSManagedObjectMutableSet alloc] initWithManagedObject:self key:key] autorelease];
 }
@@ -1127,7 +1155,7 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
    if(value==nil)
     value=[NSNull null];
 
-   [_changedValues setObject:value forKey:key];
+   [[self _changes] setObject:value forKey:key];
 }
 
 /* Private: drops the pending change for key so the committed value shows
@@ -1330,7 +1358,8 @@ static BOOL _valueIsEmpty(NSPropertyDescription *property,id value){
 -(NSString *)description {
    NSMutableDictionary *values=[NSMutableDictionary dictionaryWithDictionary:[self _committedValues]];
    
-   [values addEntriesFromDictionary:_changedValues];
+   if(_changedValues!=nil)
+    [values addEntriesFromDictionary:_changedValues];
    
    return [NSString stringWithFormat:@"<%@ %p:objectID=%@ entity name=%@, values=%@>",
            NSStringFromClass([self class]),self,_objectID,[self entity],values];

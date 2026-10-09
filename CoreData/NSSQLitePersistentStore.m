@@ -491,6 +491,7 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
     sqlite3_close(DATABASE);
    [_entityIDs release];
    [_entityNamesByID release];
+   [_prefetched release];
    [super dealloc];
 }
 
@@ -2016,6 +2017,22 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
 
    NSMutableArray *objects=[NSMutableArray array];
 
+   /* Their rows read now, in a few queries, for their faults to take:
+      those the context has not read already (a row it would not take
+      would stay until the next write). */
+   if([request resultType]==NSManagedObjectResultType && [request includesPropertyValues] && [objectIDs count]>0){
+    NSMutableArray *unread=[NSMutableArray array];
+
+    for(NSManagedObjectID *objectID in objectIDs){
+     NSManagedObject *registered=[context objectRegisteredForID:objectID];
+
+     if(registered==nil || [registered isFault])
+      [unread addObject:objectID];
+    }
+    if([unread count]>0)
+     [self _prefetchRowsForObjectIDs:unread];
+   }
+
    for(NSManagedObjectID *objectID in objectIDs)
     [objects addObject:[context objectWithID:objectID]];
 
@@ -3246,6 +3263,8 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    if([request requestType]==NSFetchRequestType)
     return [self _executeFetchRequest:(NSFetchRequest *)request withContext:context error:error];
 
+   [self _forgetPrefetchedRows];
+
    if([request requestType]==NSSaveRequestType)
     return [self _executeSaveRequest:(NSSaveChangesRequest *)request withContext:context error:error];
 
@@ -3301,44 +3320,32 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    return [[self newObjectIDForEntity:entity referenceObject:referenceObjectForPrimaryKey(primaryKey)] autorelease];
 }
 
--(NSIncrementalStoreNode *)newValuesForObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError **)error {
-   NSEntityDescription *entity=[objectID entity];
-   NSDictionary        *properties=propertiesForEntityChain(entity);
-   long long            primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID]);
-   NSMutableArray      *names=[NSMutableArray array];
-   NSMutableArray      *selectColumns=[NSMutableArray arrayWithObject:@"Z_OPT"];
+/* The names of an entity's row columns a node has (attributes and
+   to-ones), in the order they are selected after Z_OPT. */
+static NSArray *rowNamesOfEntity(NSDictionary *properties){
+   NSMutableArray *names=[NSMutableArray array];
 
    for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
     NSPropertyDescription *property=[properties objectForKey:name];
 
     if([property isKindOfClass:[NSAttributeDescription class]] ||
-       ([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany])){
+       ([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany]))
      [names addObject:name];
-     [selectColumns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(name)]];
-    }
    }
+   return names;
+}
 
-   NSString     *sql=[NSString stringWithFormat:@"SELECT %@ FROM \"%@\" WHERE Z_PK = %lld",[selectColumns componentsJoinedByString:@", "],tableNameForEntity(entity),primaryKey];
-   sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
-
-   if(statement==NULL)
-    return nil;
-
-   if(sqlite3_step(statement)!=SQLITE_ROW){
-    sqlite3_finalize(statement);
-    if(error!=NULL)
-     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectReferentialIntegrityError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"CoreData could not fulfill a fault for %@",objectID] forKey:NSLocalizedDescriptionKey]];
-    return nil;
-   }
-
-   uint64_t             version=(uint64_t)sqlite3_column_int64(statement,0);
+/* A row's node: Z_OPT in column first, then names' columns (+1, retained). */
+-(NSIncrementalStoreNode *)_newNodeForObjectID:(NSManagedObjectID *)objectID statement:(sqlite3_stmt *)statement first:(int)first
+                                         names:(NSArray *)names properties:(NSDictionary *)properties {
+   uint64_t             version=(uint64_t)sqlite3_column_int64(statement,first);
    NSMutableDictionary *values=[NSMutableDictionary dictionary];
    NSUInteger           i,count=[names count];
 
    for(i=0;i<count;i++){
     NSString              *name=[names objectAtIndex:i];
     NSPropertyDescription *property=[properties objectForKey:name];
-    int                    column=(int)(i+1);
+    int                    column=first+(int)(i+1);
 
     if([property isKindOfClass:[NSAttributeDescription class]]){
      id value=attributeValueFromColumn(statement,column,(NSAttributeDescription *)property);
@@ -3353,9 +3360,118 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     }
    }
 
-   sqlite3_finalize(statement);
-
    return [[NSIncrementalStoreNode alloc] initWithObjectID:objectID withValues:values version:version];
+}
+
+/* The rows of objects a fetch found, read in a query a few hundred at a
+   time and kept for their first faults (-newValuesForObjectWithID:).
+   Without it each object's row was a query of its own when it was first
+   read: a list of 20,000 objects, 20,000 queries. */
+-(void)_prefetchRowsForObjectIDs:(NSArray *)objectIDs {
+   NSMutableDictionary *byEntity=[NSMutableDictionary dictionary];
+
+   for(NSManagedObjectID *objectID in objectIDs){
+    NSString       *name=[[objectID entity] name];
+    NSMutableArray *list=[byEntity objectForKey:name];
+
+    if(list==nil){
+     list=[NSMutableArray array];
+     [byEntity setObject:list forKey:name];
+    }
+    [list addObject:objectID];
+   }
+
+   @synchronized(self){
+    if(_prefetched==nil)
+     _prefetched=[[NSMutableDictionary alloc] init];
+   }
+
+   for(NSString *entityName in byEntity){
+    NSArray             *ids=[byEntity objectForKey:entityName];
+    NSEntityDescription *entity=[[ids objectAtIndex:0] entity];
+    NSDictionary        *properties=propertiesForEntityChain(entity);
+    NSArray             *names=rowNamesOfEntity(properties);
+    NSMutableArray      *selectColumns=[NSMutableArray arrayWithObjects:@"Z_PK",@"Z_OPT",nil];
+    NSMutableDictionary *byKey=[NSMutableDictionary dictionary];
+
+    for(NSString *name in names)
+     [selectColumns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(name)]];
+    for(NSManagedObjectID *objectID in ids)
+     [byKey setObject:objectID forKey:[NSNumber numberWithLongLong:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID])]];
+
+    NSArray   *keys=[byKey allKeys];
+    NSUInteger at;
+
+    for(at=0;at<[keys count];at+=500){
+     NSAutoreleasePool *pool=[NSAutoreleasePool new];
+     NSArray           *chunk=[keys subarrayWithRange:NSMakeRange(at,MIN((NSUInteger)500,[keys count]-at))];
+     NSString          *sql=[NSString stringWithFormat:@"SELECT %@ FROM \"%@\" WHERE Z_PK IN (%@)",[selectColumns componentsJoinedByString:@", "],
+                                                       tableNameForEntity(entity),[chunk componentsJoinedByString:@", "]];
+     sqlite3_stmt      *statement=prepareStatement(DATABASE,sql,NULL);
+
+     while(statement!=NULL && sqlite3_step(statement)==SQLITE_ROW){
+      NSManagedObjectID      *objectID=[byKey objectForKey:[NSNumber numberWithLongLong:sqlite3_column_int64(statement,0)]];
+      NSIncrementalStoreNode *node;
+
+      if(objectID==nil)
+       continue;
+      node=[self _newNodeForObjectID:objectID statement:statement first:1 names:names properties:properties];
+      @synchronized(self){
+       [_prefetched setObject:node forKey:objectID];
+      }
+      [node release];
+     }
+     if(statement!=NULL)
+      sqlite3_finalize(statement);
+     [pool release];
+    }
+   }
+}
+
+/* Every write: what was read before it may be old now. */
+-(void)_forgetPrefetchedRows {
+   @synchronized(self){
+    [_prefetched removeAllObjects];
+   }
+}
+
+-(NSIncrementalStoreNode *)newValuesForObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError **)error {
+   /* Read already, with the fetch that found it: taken (once). */
+   @synchronized(self){
+    NSIncrementalStoreNode *node=[[_prefetched objectForKey:objectID] retain];
+
+    if(node!=nil){
+     [_prefetched removeObjectForKey:objectID];
+     return node;
+    }
+   }
+
+   NSEntityDescription *entity=[objectID entity];
+   NSDictionary        *properties=propertiesForEntityChain(entity);
+   long long            primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID]);
+   NSArray             *names=rowNamesOfEntity(properties);
+   NSMutableArray      *selectColumns=[NSMutableArray arrayWithObject:@"Z_OPT"];
+
+   for(NSString *name in names)
+    [selectColumns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(name)]];
+
+   NSString     *sql=[NSString stringWithFormat:@"SELECT %@ FROM \"%@\" WHERE Z_PK = %lld",[selectColumns componentsJoinedByString:@", "],tableNameForEntity(entity),primaryKey];
+   sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
+
+   if(statement==NULL)
+    return nil;
+
+   if(sqlite3_step(statement)!=SQLITE_ROW){
+    sqlite3_finalize(statement);
+    if(error!=NULL)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectReferentialIntegrityError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"CoreData could not fulfill a fault for %@",objectID] forKey:NSLocalizedDescriptionKey]];
+    return nil;
+   }
+
+   NSIncrementalStoreNode *node=[self _newNodeForObjectID:objectID statement:statement first:0 names:names properties:properties];
+
+   sqlite3_finalize(statement);
+   return node;
 }
 
 -(id)newValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError **)error {

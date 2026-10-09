@@ -182,6 +182,18 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     return model;
 }
 
+/* Counts what it is told of. */
+@interface LifecycleKVOWatcher : NSObject
+@property (nonatomic) int told;
+@end
+
+@implementation LifecycleKVOWatcher
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    self.told++;
+}
+@end
+
 @interface NSManagedObjectLifecycleTests : XCTestCase
 
 @property (nonatomic, strong) NSManagedObjectModel *model;
@@ -1003,6 +1015,108 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertNil(weakContext, @"the context, let go of");
     for (NSString *suffix in @[ @"", @"-wal", @"-shm" ])
         [[NSFileManager defaultManager] removeItemAtPath:[url.path stringByAppendingString:suffix] error:NULL];
+}
+
+/* A model of one entity with a name, and a SQLite store of it with a few
+   rows saved: for the tests of what a fetch does. */
+- (NSPersistentStoreCoordinator *)coordinatorWithItems:(NSArray<NSString *> *)names url:(NSURL **)urlOut
+{
+    NSEntityDescription *item = [[NSEntityDescription alloc] init];
+    item.name = @"FetchedItem";
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    name.name = @"name";
+    name.attributeType = NSStringAttributeType;
+    name.optional = YES;
+    item.properties = @[ name ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ item ];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                            [NSString stringWithFormat:@"fetched-%@.sqlite", [[NSProcessInfo processInfo] globallyUniqueString]]]];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *writer = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    writer.persistentStoreCoordinator = coordinator;
+    [writer performBlockAndWait:^{
+        for (NSString *n in names) [[NSEntityDescription insertNewObjectForEntityForName:@"FetchedItem" inManagedObjectContext:writer] setValue:n forKey:@"name"];
+        XCTAssertTrue([writer save:NULL]);
+    }];
+    *urlOut = url;
+    return coordinator;
+}
+
+- (void)removeStoreAt:(NSURL *)url
+{
+    for (NSString *suffix in @[ @"", @"-wal", @"-shm" ])
+        [[NSFileManager defaultManager] removeItemAtPath:[url.path stringByAppendingString:suffix] error:NULL];
+}
+
+/* Its context does not observe a fetched object (Apple's does not either):
+   the object tells it of its changes. */
+- (void)testAFetchedObjectIsNotObserved
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:@[ @"a", @"b" ] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        NSArray *items = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"] error:NULL];
+        XCTAssertEqual(items.count, 2u);
+        for (NSManagedObject *item in items) {
+            [item valueForKey:@"name"];
+            XCTAssertTrue(item.observationInfo == NULL, @"no observers on %@", item);
+        }
+        [items[0] setValue:@"changed" forKey:@"name"];
+        XCTAssertTrue([context.updatedObjects containsObject:items[0]], @"its change known to its context all the same");
+        XCTAssertTrue(context.hasChanges);
+    }];
+    [self removeStoreAt:url];
+}
+
+/* An object fetched as a fault, its row saved anew by another context
+   before it is read: it reads the new row, not what its fetch read. */
+- (void)testAFaultReadsTheRowAsItIsWhenItFires
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:@[ @"old" ] url:&url];
+    NSManagedObjectContext *reader = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    reader.persistentStoreCoordinator = coordinator;
+    NSManagedObjectContext *writer = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    writer.persistentStoreCoordinator = coordinator;
+    __block NSManagedObject *fault = nil;
+    [reader performBlockAndWait:^{
+        fault = [[reader executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"] error:NULL] firstObject];
+        XCTAssertTrue(fault.isFault);
+    }];
+    [writer performBlockAndWait:^{
+        NSManagedObject *same = [[writer executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"] error:NULL] firstObject];
+        [same setValue:@"new" forKey:@"name"];
+        XCTAssertTrue([writer save:NULL]);
+    }];
+    [reader performBlockAndWait:^{
+        XCTAssertEqualObjects([fault valueForKey:@"name"], @"new");
+    }];
+    [self removeStoreAt:url];
+}
+
+/* One who observes a managed object (a binding) is told of its changes
+   still, though its context is not an observer. */
+- (void)testObserversOfAnObjectAreToldOfItsChanges
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:@[ @"a" ] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        NSManagedObject *item = [[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"] error:NULL] firstObject];
+        LifecycleKVOWatcher *watcher = [[LifecycleKVOWatcher alloc] init];
+        [item addObserver:watcher forKeyPath:@"name" options:NSKeyValueObservingOptionNew context:NULL];
+        [item setValue:@"b" forKey:@"name"];
+        [item removeObserver:watcher forKeyPath:@"name"];
+        XCTAssertGreaterThanOrEqual(watcher.told, 1, @"told of the change");
+        XCTAssertTrue([context.updatedObjects containsObject:item]);
+    }];
+    [self removeStoreAt:url];
 }
 
 @end
