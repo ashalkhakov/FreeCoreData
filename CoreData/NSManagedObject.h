@@ -16,6 +16,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSDictionary *_committedValues;
     NSMutableDictionary *_changedValues;
     unsigned long long _storeVersion;
+    /* The row a fetch read for this fault, until its first read takes it
+       (or the object goes away), and how many writes its store had made
+       then. */
+    id _prefetchedRow;
+    unsigned long long _prefetchedGeneration;
 }
 
 - initWithEntity:(NSEntityDescription *)entity insertIntoManagedObjectContext:(NSManagedObjectContext *)context;

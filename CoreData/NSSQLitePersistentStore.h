@@ -44,10 +44,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     BOOL _historyTracking;
     BOOL _postsRemoteChangeNotification;
 
-    /* Rows a fetch read with its object IDs, by object ID, for the first
-       fault of each to take (one query for a fetch, as Apple's row cache,
-       rather than one a fault); emptied by every write. */
-    NSMutableDictionary *_prefetched;
+    /* How many writes the store has made: a row a fetch handed an object
+       is used only if none has been made since (see -_writeGeneration). */
+    unsigned long long _writeGeneration;
 }
 
 @end

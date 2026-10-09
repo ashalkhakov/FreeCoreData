@@ -8,6 +8,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSManagedObject.h>
 #import "NSManagedObjectID-Private.h"
+#import "NSManagedObject-Private.h"
 #import "NSManagedObjectContext-Private.h"
 #import "NSEntityDescription-Private.h"
 #import <CoreData/NSAttributeDescription.h>
@@ -211,6 +212,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 -(void)dealloc {
    [self didTurnIntoFault];
    
+   [_prefetchedRow release];
    [_objectID release];
    [_committedValues release];
    [_changedValues release];
@@ -330,6 +332,22 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
 
 -(void)_setFault:(BOOL)isFault {
    _isFault=isFault;
+   /* Turned into a fault again (refreshed): read again, not from a fetch. */
+   if(isFault){
+    [_prefetchedRow release];
+    _prefetchedRow=nil;
+   }
+}
+
+/* As Apple's row cache keeps a row while an object holds it: the object
+   holds it, and it goes with the object. */
+-(void)_holdPrefetchedRow:(NSIncrementalStoreNode *)row generation:(unsigned long long)generation {
+   if(!_isFault)
+    return;
+   [row retain];
+   [_prefetchedRow release];
+   _prefetchedRow=row;
+   _prefetchedGeneration=generation;
 }
 
 - (BOOL) hasFaultForRelationshipNamed:(NSString *) key {
@@ -380,7 +398,14 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
    /* Store round trips are serialized through the coordinator's
       recursive lock (contexts on different queues share the stores). */
    [[_context persistentStoreCoordinator] lock];
-   node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
+   /* The row its fetch read, unless the store has written since. */
+   if(_prefetchedRow!=nil && [store respondsToSelector:@selector(_writeGeneration)] &&
+      [(id<CDRowPrefetchingStore>)store _writeGeneration]==_prefetchedGeneration)
+    node=[_prefetchedRow retain];
+   else
+    node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
+   [_prefetchedRow release];
+   _prefetchedRow=nil;
    [[_context persistentStoreCoordinator] unlock];
    /* The version these values are, for the optimistic lock of the next
       save. */

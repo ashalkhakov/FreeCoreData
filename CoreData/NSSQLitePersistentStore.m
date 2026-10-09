@@ -491,7 +491,6 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
     sqlite3_close(DATABASE);
    [_entityIDs release];
    [_entityNamesByID release];
-   [_prefetched release];
    [super dealloc];
 }
 
@@ -2017,9 +2016,13 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
 
    NSMutableArray *objects=[NSMutableArray array];
 
-   /* Their rows read now, in a few queries, for their faults to take:
-      those the context has not read already (a row it would not take
-      would stay until the next write). */
+   /* Their rows read now, in a few queries, and handed to the objects
+      for their first reads: those the context has not read already.  An
+      object keeps its row until it takes it, and a row nobody takes goes
+      with its object - as Apple's row cache keeps a row while an object
+      holds it. */
+   NSDictionary *rows=nil;
+
    if([request resultType]==NSManagedObjectResultType && [request includesPropertyValues] && [objectIDs count]>0){
     NSMutableArray *unread=[NSMutableArray array];
 
@@ -2030,11 +2033,17 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
       [unread addObject:objectID];
     }
     if([unread count]>0)
-     [self _prefetchRowsForObjectIDs:unread];
+     rows=[self _rowsForObjectIDs:unread];
    }
 
-   for(NSManagedObjectID *objectID in objectIDs)
-    [objects addObject:[context objectWithID:objectID]];
+   for(NSManagedObjectID *objectID in objectIDs){
+    NSManagedObject        *object=[context objectWithID:objectID];
+    NSIncrementalStoreNode *row=[rows objectForKey:objectID];
+
+    if(row!=nil)
+     [object _holdPrefetchedRow:row generation:_writeGeneration];
+    [objects addObject:object];
+   }
 
    if([request predicate]!=nil && !predicateInSQL){
     CDRowsOfStore rows={ self,context };
@@ -3263,7 +3272,8 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    if([request requestType]==NSFetchRequestType)
     return [self _executeFetchRequest:(NSFetchRequest *)request withContext:context error:error];
 
-   [self _forgetPrefetchedRows];
+   /* A write: rows read before it may be old now. */
+   _writeGeneration++;
 
    if([request requestType]==NSSaveRequestType)
     return [self _executeSaveRequest:(NSSaveChangesRequest *)request withContext:context error:error];
@@ -3363,11 +3373,12 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
    return [[NSIncrementalStoreNode alloc] initWithObjectID:objectID withValues:values version:version];
 }
 
-/* The rows of objects a fetch found, read in a query a few hundred at a
-   time and kept for their first faults (-newValuesForObjectWithID:).
-   Without it each object's row was a query of its own when it was first
-   read: a list of 20,000 objects, 20,000 queries. */
--(void)_prefetchRowsForObjectIDs:(NSArray *)objectIDs {
+/* The rows of objects a fetch found, by object ID, read in a query a few
+   hundred at a time, for the objects' first reads.  Without it each
+   object's row was a query of its own when it was first read: a list of
+   20,000 objects, 20,000 queries. */
+-(NSDictionary *)_rowsForObjectIDs:(NSArray *)objectIDs {
+   NSMutableDictionary *rows=[NSMutableDictionary dictionaryWithCapacity:[objectIDs count]];
    NSMutableDictionary *byEntity=[NSMutableDictionary dictionary];
 
    for(NSManagedObjectID *objectID in objectIDs){
@@ -3379,11 +3390,6 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
      [byEntity setObject:list forKey:name];
     }
     [list addObject:objectID];
-   }
-
-   @synchronized(self){
-    if(_prefetched==nil)
-     _prefetched=[[NSMutableDictionary alloc] init];
    }
 
    for(NSString *entityName in byEntity){
@@ -3416,9 +3422,7 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
       if(objectID==nil)
        continue;
       node=[self _newNodeForObjectID:objectID statement:statement first:1 names:names properties:properties];
-      @synchronized(self){
-       [_prefetched setObject:node forKey:objectID];
-      }
+      [rows setObject:node forKey:objectID];
       [node release];
      }
      if(statement!=NULL)
@@ -3426,26 +3430,14 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
      [pool release];
     }
    }
+   return rows;
 }
 
-/* Every write: what was read before it may be old now. */
--(void)_forgetPrefetchedRows {
-   @synchronized(self){
-    [_prefetched removeAllObjects];
-   }
+-(unsigned long long)_writeGeneration {
+   return _writeGeneration;
 }
 
 -(NSIncrementalStoreNode *)newValuesForObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError **)error {
-   /* Read already, with the fetch that found it: taken (once). */
-   @synchronized(self){
-    NSIncrementalStoreNode *node=[[_prefetched objectForKey:objectID] retain];
-
-    if(node!=nil){
-     [_prefetched removeObjectForKey:objectID];
-     return node;
-    }
-   }
-
    NSEntityDescription *entity=[objectID entity];
    NSDictionary        *properties=propertiesForEntityChain(entity);
    long long            primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID]);

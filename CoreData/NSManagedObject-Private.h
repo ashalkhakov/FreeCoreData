@@ -11,6 +11,15 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSManagedObject.h>
 
+@class NSIncrementalStoreNode, NSMapTable;
+
+/* A store whose fetches hand their objects their rows (the SQLite store):
+   how many writes it has made, so that a row read before the last of them
+   is not used. */
+@protocol CDRowPrefetchingStore
+- (unsigned long long)_writeGeneration;
+@end
+
 @interface NSManagedObject (private)
 /* The permanent ID its store gave, for its temporary one. */
 -(void)_setObjectID:(NSManagedObjectID *)objectID;
@@ -24,6 +33,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    context entirely, as on Apple. */
 - (void)_setManagedObjectContext:(NSManagedObjectContext *)context;
 - (NSDictionary *)_committedValues;
+/* The row a fetch read for this fault, for its first read - if its store
+   has made no write since (generation).  Held only by a fault; given up
+   when the object goes away or is turned into a fault again. */
+- (void)_holdPrefetchedRow:(NSIncrementalStoreNode *)row generation:(unsigned long long)generation;
 - (NSDictionary *)_cachedCommittedValues;
 - (void)_invalidateCommittedValues;
 /* The version of the incremental store's row this object's committed
