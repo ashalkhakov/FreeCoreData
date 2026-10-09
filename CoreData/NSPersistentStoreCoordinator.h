@@ -25,6 +25,9 @@ COREDATA_EXPORT NSString *const NSMigratePersistentStoresAutomaticallyOption;
 COREDATA_EXPORT NSString *const NSReadOnlyPersistentStoreOption;
 COREDATA_EXPORT NSString *const NSInferMappingModelAutomaticallyOption;
 COREDATA_EXPORT NSString *const NSIgnorePersistentStoreVersioningOption;
+/* A SQLite store added with this set to YES rebuilds its file (VACUUM),
+   giving back the space of deleted rows.  Other stores ignore it. */
+COREDATA_EXPORT NSString *const NSSQLiteManualVacuumOption;
 
 COREDATA_EXPORT NSString *const NSPersistentStoreCoordinatorStoresDidChangeNotification;
 COREDATA_EXPORT NSString *const NSAddedPersistentStoresKey;

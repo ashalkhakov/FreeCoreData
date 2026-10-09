@@ -38,6 +38,7 @@ NSString * const NSStoreModelVersionIdentifiersKey=@"NSStoreModelVersionIdentifi
 
 NSString * const NSXMLStoreType=@"NSXMLStoreType";
 NSString * const NSSQLiteStoreType=@"SQLite";
+NSString * const NSSQLiteManualVacuumOption=@"NSSQLiteManualVacuumOption";
 NSString * const NSInMemoryStoreType=@"NSInMemoryStoreType";
 NSString * const NSMigratePersistentStoresAutomaticallyOption=@"NSMigratePersistentStoresAutomaticallyOption";
 NSString * const NSReadOnlyPersistentStoreOption=@"NSReadOnlyPersistentStoreOption";
@@ -588,8 +589,10 @@ static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,
    return [target autorelease];
 }
 
+/* A copy, as Apple's: a caller removing stores while it goes through
+   them goes through the stores there were. */
 -(NSArray *)persistentStores {
-   return _stores;
+   return [[_stores copy] autorelease];
 }
 
 -(NSPersistentStore *)persistentStoreForURL:(NSURL *)URL {

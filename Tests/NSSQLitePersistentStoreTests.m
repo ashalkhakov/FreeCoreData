@@ -263,6 +263,85 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects(objectID, [[employees lastObject] objectID]);
 }
 
+/* -- vacuum ------------------------------------------------------------ */
+
+static NSManagedObjectModel *blobModel(void)
+{
+    NSAttributeDescription *data = [[NSAttributeDescription alloc] init];
+    data.name = @"data";
+    data.attributeType = NSBinaryDataAttributeType;
+    data.optional = YES;
+    NSEntityDescription *blob = [[NSEntityDescription alloc] init];
+    blob.name = @"Blob";
+    blob.properties = @[ data ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ blob ];
+    return model;
+}
+
+/* The store added and let go of again, so that its file is all written. */
+- (void)closeStoreOf:(NSManagedObjectContext *)context
+{
+    NSPersistentStoreCoordinator *psc = [context persistentStoreCoordinator];
+    [context reset];
+    for (NSPersistentStore *store in [psc persistentStores])
+        XCTAssertTrue([psc removePersistentStore:store error:NULL]);
+}
+
+- (unsigned long long)storeFileSize
+{
+    return [[[NSFileManager defaultManager] attributesOfItemAtPath:[self.storeURL path] error:NULL] fileSize];
+}
+
+/* A big-endian 32-bit field of the SQLite file header. */
+- (uint32_t)headerFieldAt:(NSUInteger)offset
+{
+    NSData *header = [[NSFileHandle fileHandleForReadingAtPath:[self.storeURL path]] readDataOfLength:100];
+    const uint8_t *bytes = [header bytes];
+    XCTAssertEqual([header length], (NSUInteger)100);
+    return ([header length] < 100) ? 0 : ((uint32_t)bytes[offset] << 24 | (uint32_t)bytes[offset + 1] << 16 |
+                                          (uint32_t)bytes[offset + 2] << 8 | (uint32_t)bytes[offset + 3]);
+}
+
+/* A store's file is made with incremental auto-vacuum, as Apple makes it:
+   the header's largest root page (52) is set, and its incremental flag
+   (64) is 1. */
+- (void)testANewStoreFileVacuumsIncrementally
+{
+    NSManagedObjectContext *context = [self contextWithModel:blobModel() options:nil];
+    [self closeStoreOf:context];
+
+    XCTAssertNotEqual([self headerFieldAt:52], (uint32_t)0);
+    XCTAssertEqual([self headerFieldAt:64], (uint32_t)1);
+}
+
+/* Deleted rows leave their space in the file, until the store is added
+   with NSSQLiteManualVacuumOption. */
+- (void)testTheManualVacuumOptionGivesBackTheSpaceOfDeletedRows
+{
+    XCTAssertEqualObjects(NSSQLiteManualVacuumOption, @"NSSQLiteManualVacuumOption");
+
+    NSManagedObjectContext *context = [self contextWithModel:blobModel() options:nil];
+    NSData *data = [NSMutableData dataWithLength:4000];
+    for (int i = 0; i < 1000; i++)
+        [[NSEntityDescription insertNewObjectForEntityForName:@"Blob" inManagedObjectContext:context] setValue:data forKey:@"data"];
+    XCTAssertTrue([context save:NULL]);
+    for (NSManagedObject *blob in [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Blob"] error:NULL])
+        [context deleteObject:blob];
+    XCTAssertTrue([context save:NULL]);
+    [self closeStoreOf:context];
+
+    unsigned long long full = [self storeFileSize];
+    XCTAssertGreaterThan(full, 4000000ULL);
+
+    [self closeStoreOf:[self contextWithModel:blobModel() options:nil]];
+    XCTAssertEqual([self storeFileSize], full, @"not given back unasked");
+
+    NSManagedObjectContext *vacuumed = [self contextWithModel:blobModel() options:@{ NSSQLiteManualVacuumOption : @YES }];
+    [self closeStoreOf:vacuumed];
+    XCTAssertLessThan([self storeFileSize], 200000ULL);
+}
+
 - (void)testMetadataContainsTypeUUIDAndVersionHashes
 {
     [self populateStore];
