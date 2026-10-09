@@ -1062,12 +1062,26 @@ static NSString *sqlLiteralForBinding(NSDictionary *binding){
     if(![self isReadOnly] && !tableExists(DATABASE,CDModelCacheTable))
      writeModelCache(DATABASE,[[self persistentStoreCoordinator] managedObjectModel],NULL);
 
+    /* Asked to: the file rebuilt, the space of deleted rows given back,
+       as Apple's store does when it is added. */
+    id vacuumOption=[[self options] objectForKey:NSSQLiteManualVacuumOption];
+
+    if(![self isReadOnly] && [vacuumOption respondsToSelector:@selector(boolValue)] && [vacuumOption boolValue] &&
+       !executeSQL(DATABASE,@"VACUUM",error))
+     return NO;
+
     return [self _loadEntityIDs:error] && [self _prepareHistoryTracking:error];
    }
 
    /* New (or empty) file: create the schema and stamp the metadata with
       the version hashes of the model in use, so compatibility can be
-      checked when the store is reopened later. */
+      checked when the store is reopened later.  Its pages are kept so
+      that the space of deleted rows can be given back without rewriting
+      the file - incremental auto-vacuum, as Apple's store creates its
+      files; it can only be chosen before the first table. */
+   if(!executeSQL(DATABASE,@"PRAGMA auto_vacuum = INCREMENTAL",error))
+    return NO;
+
    if(!executeSQL(DATABASE,@"BEGIN",error))
     return NO;
 
