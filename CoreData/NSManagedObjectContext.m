@@ -394,6 +394,8 @@ static char CDContextQueueSpecificKey;
    [_pendingDeletedObjects release];
    [_pendingRefreshedObjects release];
    NSFreeMapTable(_objectIdToObject);
+   [_mergePolicy release];
+   [_lock release];
    [super dealloc];
 }
 

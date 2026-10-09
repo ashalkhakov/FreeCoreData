@@ -887,4 +887,59 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertTrue([[person valueForKey:@"pets"] containsObject:pet]);
 }
 
+/* What an object and its context hold is let go of with them: the values
+   a fetched object read from its row (a server's every request reads
+   rows; kept, they add up), and the context's merge policy. */
+- (void)testAnObjectAndItsContextLetGoOfWhatTheyHeld
+{
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    entity.name = @"Blob";
+    NSAttributeDescription *data = [[NSAttributeDescription alloc] init];
+    data.name = @"data";
+    data.attributeType = NSBinaryDataAttributeType;
+    data.optional = YES;
+    entity.properties = @[ data ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ entity ];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                            [NSString stringWithFormat:@"letgo-%@.sqlite", [[NSProcessInfo processInfo] globallyUniqueString]]]];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *writer = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    writer.persistentStoreCoordinator = coordinator;
+    [writer performBlockAndWait:^{
+        NSManagedObject *blob = [NSEntityDescription insertNewObjectForEntityForName:@"Blob" inManagedObjectContext:writer];
+        [blob setValue:[NSMutableData dataWithLength:4096] forKey:@"data"];
+        XCTAssertTrue([writer save:NULL]);
+        [writer reset];
+    }];
+
+    __weak NSData *weakValue = nil;
+    __weak id weakPolicy = nil;
+    @autoreleasepool {
+        NSManagedObjectContext *reader = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+        reader.persistentStoreCoordinator = coordinator;
+        id policy = [[NSMergePolicy alloc] initWithMergeType:NSMergeByPropertyObjectTrumpMergePolicyType];
+        reader.mergePolicy = policy;
+        weakPolicy = policy;
+        policy = nil;
+        __block NSData *read = nil;
+        [reader performBlockAndWait:^{
+            NSManagedObject *blob = [[reader executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Blob"] error:NULL] firstObject];
+            read = [blob valueForKey:@"data"];
+        }];
+        XCTAssertEqual(read.length, 4096u);
+        weakValue = read;
+        read = nil;
+        reader = nil;
+    }
+    // A private queue's last block may still be finishing.
+    for (int i = 0; i < 100 && (weakValue || weakPolicy); i++) [NSThread sleepForTimeInterval:0.01];
+    XCTAssertNil(weakValue, @"the row's values, let go of with the object");
+    XCTAssertNil(weakPolicy, @"the merge policy, with its context");
+    for (NSString *suffix in @[ @"", @"-wal", @"-shm" ])
+        [[NSFileManager defaultManager] removeItemAtPath:[url.path stringByAppendingString:suffix] error:NULL];
+}
+
 @end
