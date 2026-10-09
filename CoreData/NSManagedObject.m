@@ -371,24 +371,65 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
 /* Persistent properties only, matching Apple's documentation and its
    behavior (Mac-arbitrated): a transient change dirties the object -
    -hasChanges says so - but is never reported here. */
+/* An object's ID, or the ID itself: a pending relationship value may
+   hold either. */
+static id CDIDOf(id objectOrID){
+   return [objectOrID isKindOfClass:[NSManagedObject class]]?[objectOrID objectID]:objectOrID;
+}
+
+/* Whether value, the pending change of property, is the value saved:
+   a to-one as its object's ID, a to-many as the IDs of its members.  An
+   unfired to-many is not fired to tell, so a change to it counts. */
+static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id committed){
+   if(committed==nil)
+    committed=[NSNull null];
+   if(value==[NSNull null] || committed==[NSNull null])
+    return value==committed;
+   if([committed isKindOfClass:[CDRelationshipFault class]])
+    return NO;
+   if(![property isKindOfClass:[NSRelationshipDescription class]])
+    return [value isEqual:committed];
+   if(![(NSRelationshipDescription *)property isToMany])
+    return [CDIDOf(value) isEqual:committed];
+
+   if([(NSRelationshipDescription *)property isOrdered]){
+    NSMutableArray *ids=[NSMutableArray arrayWithCapacity:[value count]];
+
+    for(id member in value)
+     [ids addObject:CDIDOf(member)];
+    return [ids isEqual:([committed isKindOfClass:[NSOrderedSet class]]?[committed array]:[committed allObjects])];
+   }
+
+   NSMutableSet *ids=[NSMutableSet setWithCapacity:[value count]];
+
+   for(id member in value)
+    [ids addObject:CDIDOf(member)];
+   return [ids isEqualToSet:([committed isKindOfClass:[NSSet class]]?committed:[NSSet setWithArray:[committed allObjects]])];
+}
+
 -(NSDictionary *)changedValues {
-   NSDictionary *properties=[[self entity] propertiesByName];
-   BOOL          anyTransient=NO;
+   if([_changedValues count]==0)
+    return [NSDictionary dictionary];
 
-   for(NSString *name in _changedValues)
-    if([[properties objectForKey:name] isTransient]){
-     anyTransient=YES;
-     break;
-    }
-   if(!anyTransient)
-    return (_changedValues!=nil)?(NSDictionary *)_changedValues:[NSDictionary dictionary];
+   NSDictionary        *properties=[[self entity] propertiesByName];
+   NSDictionary        *committed=[self isInserted]?nil:[self _committedValues];
+   NSMutableDictionary *changed=[NSMutableDictionary dictionaryWithCapacity:[_changedValues count]];
 
-   NSMutableDictionary *persistent=[NSMutableDictionary dictionary];
+   for(NSString *name in _changedValues){
+    NSPropertyDescription *property=[properties objectForKey:name];
+    id                     value=[_changedValues objectForKey:name];
 
-   for(NSString *name in _changedValues)
-    if(![[properties objectForKey:name] isTransient])
-     [persistent setObject:[_changedValues objectForKey:name] forKey:name];
-   return persistent;
+    if([property isTransient])
+     continue;
+    if(committed!=nil && CDValueIsCommitted(property,value,[committed objectForKey:name]))
+     continue;
+    [changed setObject:value forKey:name];
+   }
+   return changed;
+}
+
+-(BOOL)hasPersistentChangedValues {
+   return [[self changedValues] count]>0;
 }
 
 -(NSDictionary *)_committedValuesFromIncrementalStore:(NSIncrementalStore *)store {

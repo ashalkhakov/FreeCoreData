@@ -1209,6 +1209,109 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     [self removeStoreAt:url];
 }
 
+/* A context holding a saved node with a name, a number, a parent and a
+   child. */
+- (NSManagedObjectContext *)contextWithSavedNode:(NSManagedObject **)nodeOut parent:(NSManagedObject **)parentOut url:(NSURL **)urlOut
+{
+    NSEntityDescription *node = [[NSEntityDescription alloc] init];
+    node.name = @"SameNode";
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    name.name = @"name";
+    name.attributeType = NSStringAttributeType;
+    name.optional = YES;
+    NSAttributeDescription *number = [[NSAttributeDescription alloc] init];
+    number.name = @"number";
+    number.attributeType = NSInteger32AttributeType;
+    number.optional = YES;
+    NSRelationshipDescription *parent = [[NSRelationshipDescription alloc] init];
+    parent.name = @"parent";
+    parent.destinationEntity = node;
+    parent.maxCount = 1;
+    parent.optional = YES;
+    NSRelationshipDescription *children = [[NSRelationshipDescription alloc] init];
+    children.name = @"children";
+    children.destinationEntity = node;
+    children.maxCount = 0;
+    children.optional = YES;
+    parent.inverseRelationship = children;
+    children.inverseRelationship = parent;
+    node.properties = @[ name, number, parent, children ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ node ];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                            [NSString stringWithFormat:@"same-%@.sqlite", [[NSProcessInfo processInfo] globallyUniqueString]]]];
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil error:NULL]);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    NSManagedObject *up = [NSEntityDescription insertNewObjectForEntityForName:@"SameNode" inManagedObjectContext:context];
+    NSManagedObject *down = [NSEntityDescription insertNewObjectForEntityForName:@"SameNode" inManagedObjectContext:context];
+    [down setValue:@"x" forKey:@"name"];
+    [down setValue:@5 forKey:@"number"];
+    [down setValue:up forKey:@"parent"];
+    NSManagedObject *child = [NSEntityDescription insertNewObjectForEntityForName:@"SameNode" inManagedObjectContext:context];
+    [child setValue:down forKey:@"parent"];
+    XCTAssertTrue([context save:NULL]);
+    *nodeOut = down;
+    *parentOut = up;
+    *urlOut = url;
+    return context;
+}
+
+/* A saved value set again is no changed value, though the object is
+   updated still, as on Apple. */
+- (void)testSettingASavedValueAgainChangesNoValue
+{
+    NSManagedObject *node = nil, *parent = nil;
+    NSURL *url = nil;
+    NSManagedObjectContext *context = [self contextWithSavedNode:&node parent:&parent url:&url];
+    [node setValue:[NSMutableString stringWithString:@"x"] forKey:@"name"];
+    [node setValue:@5.0 forKey:@"number"];
+    [node setValue:parent forKey:@"parent"];
+    [node setValue:[NSSet setWithSet:[node valueForKey:@"children"]] forKey:@"children"];
+    XCTAssertEqualObjects(node.changedValues, @{});
+    XCTAssertFalse(node.hasPersistentChangedValues);
+    XCTAssertTrue(node.isUpdated);
+    XCTAssertTrue(context.hasChanges);
+    XCTAssertTrue([context save:NULL]);
+    [self removeStoreAt:url];
+}
+
+/* A value changed and set back to what was saved is no changed value;
+   one that differs is. */
+- (void)testAValueSetBackToItsSavedValueIsNoChangedValue
+{
+    NSManagedObject *node = nil, *parent = nil;
+    NSURL *url = nil;
+    NSManagedObjectContext *context = [self contextWithSavedNode:&node parent:&parent url:&url];
+    [node setValue:nil forKey:@"name"];
+    [node setValue:nil forKey:@"parent"];
+    XCTAssertEqualObjects([NSSet setWithArray:node.changedValues.allKeys], ([NSSet setWithObjects:@"name", @"parent", nil]));
+    XCTAssertTrue(node.hasPersistentChangedValues);
+    [node setValue:@"x" forKey:@"name"];
+    [node setValue:parent forKey:@"parent"];
+    XCTAssertEqualObjects(node.changedValues, @{});
+    [node setValue:@"y" forKey:@"name"];
+    XCTAssertEqualObjects(node.changedValues, @{ @"name" : @"y" });
+    XCTAssertTrue(node.hasPersistentChangedValues);
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqualObjects(node.changedValues, @{});
+    [self removeStoreAt:url];
+}
+
+/* An object not yet saved has every value it was given changed. */
+- (void)testAnInsertedObjectHasTheValuesItWasGivenChanged
+{
+    NSManagedObject *node = nil, *parent = nil;
+    NSURL *url = nil;
+    NSManagedObjectContext *context = [self contextWithSavedNode:&node parent:&parent url:&url];
+    NSManagedObject *inserted = [NSEntityDescription insertNewObjectForEntityForName:@"SameNode" inManagedObjectContext:context];
+    [inserted setValue:@"z" forKey:@"name"];
+    XCTAssertEqualObjects(inserted.changedValues, @{ @"name" : @"z" });
+    XCTAssertTrue(inserted.hasPersistentChangedValues);
+    [self removeStoreAt:url];
+}
+
 /* One who observes a managed object (a binding) is told of its changes
    still, though its context is not an observer. */
 - (void)testObserversOfAnObjectAreToldOfItsChanges

@@ -43,7 +43,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)awakeFromFetch;
 - (void)awakeFromInsert;
 - (void)prepareForDeletion;
+/* The persistent properties whose values differ from those last read
+   or saved: one set back to its saved value is left out, as on Apple,
+   though the object is still updated. */
 - (NSDictionary *)changedValues;
+/* YES when changedValues has anything in it. */
+- (BOOL)hasPersistentChangedValues;
 - (NSDictionary *)committedValuesForKeys:(NSArray *)keys;
 - (void)dealloc;
 - (void)didSave;
