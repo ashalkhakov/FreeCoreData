@@ -639,8 +639,14 @@ static char CDContextQueueSpecificKey;
    NSEntityDescription *entity=[object entity];
    NSArray             *properties=[[entity propertiesByName] allKeys];
 
+   /* No old or new values asked for: -observeValueForKeyPath: needs only
+      to know that something changed.  Asked for, KVO reads them with
+      -valueForKey:, which for a to-many is a set proxy that retains this
+      context; gnustep-base keeps the old one, and the context, its
+      objects and their values were never let go of (relating an object
+      to another, as a server does on every upsert of a child row). */
    for(NSString *key in properties){
-    [object addObserver:self forKeyPath:key options:NSKeyValueObservingOptionNew|NSKeyValueObservingOptionOld context:nil];
+    [object addObserver:self forKeyPath:key options:0 context:nil];
    }
 }
 
