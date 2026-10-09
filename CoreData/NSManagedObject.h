@@ -16,6 +16,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     NSDictionary *_committedValues;
     NSMutableDictionary *_changedValues;
     unsigned long long _storeVersion;
+    /* The row a fetch read for this fault, until its first read takes it
+       (or the object goes away), and how many writes its store had made
+       then. */
+    id _prefetchedRow;
+    unsigned long long _prefetchedGeneration;
 }
 
 - initWithEntity:(NSEntityDescription *)entity insertIntoManagedObjectContext:(NSManagedObjectContext *)context;
@@ -38,7 +43,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)awakeFromFetch;
 - (void)awakeFromInsert;
 - (void)prepareForDeletion;
+/* The persistent properties whose values differ from those last read
+   or saved: one set back to its saved value is left out, as on Apple,
+   though the object is still updated. */
 - (NSDictionary *)changedValues;
+/* YES when changedValues has anything in it. */
+- (BOOL)hasPersistentChangedValues;
 - (NSDictionary *)committedValuesForKeys:(NSArray *)keys;
 - (void)dealloc;
 - (void)didSave;

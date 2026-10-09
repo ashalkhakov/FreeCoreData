@@ -37,6 +37,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <Foundation/NSExpression.h>
 #import "NSPersistentStoreCoordinator-Private.h"
 #import "CDObjectConstants-Private.h"
+#import "CDBatchFaultingArray.h"
 #import <Foundation/NSUndoManager.h>
 #import <Foundation/NSNull.h>
 #import "CoreDataUtilities.h"
@@ -349,19 +350,10 @@ static char CDContextQueueSpecificKey;
 }
 
 -(void)dealloc {
-   NSArray *registered=[_registeredObjects allObjects];
-
    if(_requestedProcessPendingChanges)
     [[NSRunLoop mainRunLoop] cancelPerformSelector: @selector(_processPendingChangesForRequest)
                              target: self
                              argument: nil];
-
-   for(NSManagedObject *check in registered){
-    NSArray *properties=[[[check entity] propertiesByName] allKeys];
-
-    for(NSString *key in properties)
-     [check removeObserver:self forKeyPath:key];
-   }
 
    if(_storeCoordinator!=nil)
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSPersistentStoreCoordinatorStoresDidChangeNotification object:_storeCoordinator];
@@ -443,13 +435,6 @@ static char CDContextQueueSpecificKey;
      NSManagedObjectID *objectID=[check objectID];
         
      if([objectID persistentStore]==store){
-     
-     NSEntityDescription *entity=[check entity];
-      NSArray             *properties=[[entity propertiesByName] allKeys];
-
-      for(NSString *key in properties)
-       [check removeObserver:self forKeyPath:key];
-
       [_registeredObjects removeObject:check];
       [_insertedObjects removeObject:check];
       [_updatedObjects removeObject:check];
@@ -567,13 +552,6 @@ static char CDContextQueueSpecificKey;
    [_undoManager removeAllActions];
    [self _clearUndoEventCapture];
 
-   for(NSManagedObject *object in [[_registeredObjects copy] autorelease]){
-    NSArray *properties=[[[object entity] propertiesByName] allKeys];
-
-    for(NSString *key in properties)
-     [object removeObserver:self forKeyPath:key];
-   }
-
    [_registeredObjects removeAllObjects];
    [_insertedObjects removeAllObjects];
    [_updatedObjects removeAllObjects];
@@ -596,11 +574,6 @@ static char CDContextQueueSpecificKey;
    }
 
    for(NSManagedObject *inserted in [[_insertedObjects copy] autorelease]){
-    NSArray *properties=[[[inserted entity] propertiesByName] allKeys];
-
-    for(NSString *key in properties)
-     [inserted removeObserver:self forKeyPath:key];
-
     [_registeredObjects removeObject:inserted];
     NSMapRemove(_objectIdToObject,[inserted objectID]);
    }
@@ -636,18 +609,8 @@ static char CDContextQueueSpecificKey;
    [_registeredObjects addObject:object];
    NSMapInsert(_objectIdToObject,[object objectID],object);
 
-   NSEntityDescription *entity=[object entity];
-   NSArray             *properties=[[entity propertiesByName] allKeys];
-
-   /* No old or new values asked for: -observeValueForKeyPath: needs only
-      to know that something changed.  Asked for, KVO reads them with
-      -valueForKey:, which for a to-many is a set proxy that retains this
-      context; gnustep-base keeps the old one, and the context, its
-      objects and their values were never let go of (relating an object
-      to another, as a server does on every upsert of a child row). */
-   for(NSString *key in properties){
-    [object addObserver:self forKeyPath:key options:0 context:nil];
-   }
+   /* Not observed: the object tells this context of its changes itself
+      (-_object:didChangeValueForKey:). */
 }
 
 
@@ -1080,7 +1043,8 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    context shaped itself; a store handling a pass-through request is
    responsible for its own options. */
 -(void)_finalizeFetchedObjects:(NSArray *)objects request:(NSFetchRequest *)request {
-   if([request resultType]!=NSManagedObjectResultType)
+   /* A batched answer finalizes each batch as it reads it. */
+   if([request resultType]!=NSManagedObjectResultType || [objects respondsToSelector:@selector(_finalizesItsBatches)])
     return;
 
    BOOL     realize=![request returnsObjectsAsFaults];
@@ -1095,6 +1059,31 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 
     for(NSString *keyPath in keyPaths)
      [object valueForKeyPath:keyPath];
+   }
+}
+
+-(void)_prefetchRowsForObjects:(NSArray *)objects fromStore:(NSPersistentStore *)store {
+   if(![store respondsToSelector:@selector(_rowsForObjectIDs:)] || ![store respondsToSelector:@selector(_writeGeneration)])
+    return;
+
+   NSMutableArray *unread=[NSMutableArray array];
+
+   for(NSManagedObject *object in objects)
+    if([object isFault] && [[object objectID] persistentStore]==store)
+     [unread addObject:[object objectID]];
+
+   if([unread count]==0)
+    return;
+
+   id<CDRowPrefetchingStore> reader=(id<CDRowPrefetchingStore>)store;
+   unsigned long long        generation=[reader _writeGeneration];
+   NSDictionary             *rows=[reader _rowsForObjectIDs:unread];
+
+   for(NSManagedObject *object in objects){
+    NSIncrementalStoreNode *row=[rows objectForKey:[object objectID]];
+
+    if(row!=nil)
+     [object _holdPrefetchedRow:row generation:generation];
    }
 }
 
@@ -1297,7 +1286,30 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
        !(resultType==NSDictionaryResultType &&
          [self _dictionaryRequestNeedsContextShaping:fetchRequest] &&
          !storeShapes)){
-     NSArray *passed=[(NSIncrementalStore *)[affectedStores objectAtIndex:0] executeRequest:fetchRequest withContext:self error:error];
+     NSIncrementalStore *store=[affectedStores objectAtIndex:0];
+     BOOL                readsRows=[store respondsToSelector:@selector(_rowsForObjectIDs:)] &&
+                                   [store respondsToSelector:@selector(_writeGeneration)];
+
+     /* With a batch size, only the IDs now: an object is registered, and
+        the rows of its batch read, when it or another of its batch is
+        first asked for, as on Apple. */
+     if(resultType==NSManagedObjectResultType && [fetchRequest fetchBatchSize]>0 && readsRows){
+      NSFetchRequest *identities=[[fetchRequest copy] autorelease];
+      NSArray        *objectIDs;
+
+      [identities setResultType:NSManagedObjectIDResultType];
+      objectIDs=[store executeRequest:identities withContext:self error:error];
+      if(objectIDs==nil)
+       return nil;
+      return [[[CDBatchFaultingArray alloc] initWithObjectIDs:objectIDs store:store context:self request:fetchRequest] autorelease];
+     }
+
+     NSArray *passed=[store executeRequest:fetchRequest withContext:self error:error];
+
+     /* The rows of the faults found, read now in a few queries rather
+        than one query each as they are first read. */
+     if(passed!=nil && resultType==NSManagedObjectResultType && [fetchRequest includesPropertyValues])
+      [self _prefetchRowsForObjects:passed fromStore:store];
 
      /* Realization options are enforced here too - a store is free to
         return faults regardless of them (realizing an already-realized
@@ -1838,9 +1850,6 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    for(NSManagedObject *object in leaving){
     [[object retain] autorelease];   /* the sets below may hold the last reference */
 
-    for(NSString *key in [[[object entity] propertiesByName] allKeys])
-     [object removeObserver:self forKeyPath:key];
-
     [_registeredObjects removeObject:object];
     NSMapRemove(_objectIdToObject,[object objectID]);
 
@@ -2107,11 +2116,6 @@ static id CDUndoRestoredValue(id value){
     [self deleteObject:object];
 
     if(neverSaved){
-     NSArray *properties=[[[object entity] propertiesByName] allKeys];
-
-     for(NSString *key in properties)
-      [object removeObserver:self forKeyPath:key];
-
      [_registeredObjects removeObject:object];
      [_insertedObjects removeObject:object];
      [_updatedObjects removeObject:object];
@@ -2128,7 +2132,10 @@ static id CDUndoRestoredValue(id value){
    [self processPendingChanges];
 }
 
--(void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+-(void)_object:(NSManagedObject *)object didChangeValueForKey:(NSString *)key {
+   /* Its properties' changes only, as the observation it replaces. */
+   if([[[object entity] propertiesByName] objectForKey:key]==nil)
+    return;
    if(NSMapGet(_objectIdToObject,[object objectID])==object){
     [_updatedObjects addObject:object];
 

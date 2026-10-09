@@ -43,6 +43,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
        (mirroring Apple's ATRANSACTION/ACHANGE tables). */
     BOOL _historyTracking;
     BOOL _postsRemoteChangeNotification;
+
+    /* How many writes the store has made: a row a fetch handed an object
+       is used only if none has been made since (see -_writeGeneration). */
+    unsigned long long _writeGeneration;
 }
 
 @end

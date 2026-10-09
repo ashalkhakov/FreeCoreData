@@ -70,6 +70,15 @@ false there.  `PostgreSQL` does exactly this, and reports history as an
 unsupported request type when built against Apple's framework.  See the individual backend's
 README for what it does and does not implement.
 
+Reading rows ahead works the other way round: the framework asks the store,
+by `respondsToSelector:`, so the store implements two methods and imports
+nothing.  `-_rowsForObjectIDs:` reads many rows in a few queries, and
+`-_writeGeneration` counts the store's writes.  With them, FreeCoreData reads
+the rows of the faults a fetch found in one query per 500 rather than one per
+fault. A fetch with a `fetchBatchSize` reads them one batch at a time, as
+Apple's SQLite store does. A row read before the store's last write is not
+used. Apple's framework never calls the two methods.
+
 ## What the backends share
 
 `Common/` holds the half of a SQL backend that does not depend on which

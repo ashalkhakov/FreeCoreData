@@ -182,6 +182,18 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     return model;
 }
 
+/* Counts what it is told of. */
+@interface LifecycleKVOWatcher : NSObject
+@property (nonatomic) int told;
+@end
+
+@implementation LifecycleKVOWatcher
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    self.told++;
+}
+@end
+
 @interface NSManagedObjectLifecycleTests : XCTestCase
 
 @property (nonatomic, strong) NSManagedObjectModel *model;
@@ -1003,6 +1015,321 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertNil(weakContext, @"the context, let go of");
     for (NSString *suffix in @[ @"", @"-wal", @"-shm" ])
         [[NSFileManager defaultManager] removeItemAtPath:[url.path stringByAppendingString:suffix] error:NULL];
+}
+
+/* A model of one entity with a name, and a SQLite store of it with a few
+   rows saved: for the tests of what a fetch does. */
+- (NSPersistentStoreCoordinator *)coordinatorWithItems:(NSArray<NSString *> *)names url:(NSURL **)urlOut
+{
+    NSEntityDescription *item = [[NSEntityDescription alloc] init];
+    item.name = @"FetchedItem";
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    name.name = @"name";
+    name.attributeType = NSStringAttributeType;
+    name.optional = YES;
+    item.properties = @[ name ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ item ];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                            [NSString stringWithFormat:@"fetched-%@.sqlite", [[NSProcessInfo processInfo] globallyUniqueString]]]];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *writer = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    writer.persistentStoreCoordinator = coordinator;
+    [writer performBlockAndWait:^{
+        for (NSString *n in names) [[NSEntityDescription insertNewObjectForEntityForName:@"FetchedItem" inManagedObjectContext:writer] setValue:n forKey:@"name"];
+        XCTAssertTrue([writer save:NULL]);
+    }];
+    *urlOut = url;
+    return coordinator;
+}
+
+- (void)removeStoreAt:(NSURL *)url
+{
+    for (NSString *suffix in @[ @"", @"-wal", @"-shm" ])
+        [[NSFileManager defaultManager] removeItemAtPath:[url.path stringByAppendingString:suffix] error:NULL];
+}
+
+/* Its context does not observe a fetched object (Apple's does not either):
+   the object tells it of its changes. */
+- (void)testAFetchedObjectIsNotObserved
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:@[ @"a", @"b" ] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        NSArray *items = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"] error:NULL];
+        XCTAssertEqual(items.count, 2u);
+        for (NSManagedObject *item in items) {
+            [item valueForKey:@"name"];
+            XCTAssertTrue(item.observationInfo == NULL, @"no observers on %@", item);
+        }
+        [items[0] setValue:@"changed" forKey:@"name"];
+        XCTAssertTrue([context.updatedObjects containsObject:items[0]], @"its change known to its context all the same");
+        XCTAssertTrue(context.hasChanges);
+    }];
+    [self removeStoreAt:url];
+}
+
+/* An object fetched as a fault, its row saved anew by another context
+   before it is read: it reads the new row, not what its fetch read. */
+- (void)testAFaultReadsTheRowAsItIsWhenItFires
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:@[ @"old" ] url:&url];
+    NSManagedObjectContext *reader = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    reader.persistentStoreCoordinator = coordinator;
+    NSManagedObjectContext *writer = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    writer.persistentStoreCoordinator = coordinator;
+    __block NSManagedObject *fault = nil;
+    [reader performBlockAndWait:^{
+        fault = [[reader executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"] error:NULL] firstObject];
+        XCTAssertTrue(fault.isFault);
+    }];
+    [writer performBlockAndWait:^{
+        NSManagedObject *same = [[writer executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"] error:NULL] firstObject];
+        [same setValue:@"new" forKey:@"name"];
+        XCTAssertTrue([writer save:NULL]);
+    }];
+    [reader performBlockAndWait:^{
+        XCTAssertEqualObjects([fault valueForKey:@"name"], @"new");
+    }];
+    [self removeStoreAt:url];
+}
+
+- (NSArray<NSString *> *)hundredNames
+{
+    NSMutableArray *names = [NSMutableArray array];
+    for (int i = 0; i < 100; i++) [names addObject:[NSString stringWithFormat:@"i%02d", i]];
+    return names;
+}
+
+- (NSFetchRequest *)batchedRequest
+{
+    NSFetchRequest *request = [NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"];
+    request.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ];
+    request.fetchBatchSize = 10;
+    return request;
+}
+
+/* A fetch with a batch size registers no object until one is asked for,
+   and then the ten of its batch, still faults. */
+- (void)testABatchedFetchRegistersAnObjectsBatchWhenItIsAskedFor
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:[self hundredNames] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        XCTAssertEqual([NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"].fetchBatchSize, 0u);
+        NSArray *found = [context executeFetchRequest:[self batchedRequest] error:NULL];
+        XCTAssertEqual(found.count, 100u);
+        XCTAssertEqual(context.registeredObjects.count, 0u);
+
+        NSManagedObject *item = found[15];
+        XCTAssertEqual(context.registeredObjects.count, 10u);
+        XCTAssertTrue(item.isFault);
+        XCTAssertEqualObjects([item valueForKey:@"name"], @"i15");
+        XCTAssertEqual([found indexOfObject:item], 15u);
+        XCTAssertEqual(context.registeredObjects.count, 10u);
+
+        NSMutableArray *names = [NSMutableArray array];
+        for (NSManagedObject *each in found) [names addObject:[each valueForKey:@"name"]];
+        XCTAssertEqualObjects(names, [self hundredNames]);
+        XCTAssertEqual(context.registeredObjects.count, 100u);
+    }];
+    [self removeStoreAt:url];
+}
+
+/* A batched fetch keeps to its predicate, its limit and its offset. */
+- (void)testABatchedFetchKeepsItsPredicateLimitAndOffset
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:[self hundredNames] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        NSFetchRequest *request = [self batchedRequest];
+        request.fetchLimit = 25;
+        NSArray *limited = [context executeFetchRequest:request error:NULL];
+        XCTAssertEqual(limited.count, 25u);
+        XCTAssertEqualObjects([limited.lastObject valueForKey:@"name"], @"i24");
+
+        request.fetchLimit = 0;
+        request.fetchOffset = 5;
+        NSArray *offset = [context executeFetchRequest:request error:NULL];
+        XCTAssertEqual(offset.count, 95u);
+        XCTAssertEqualObjects([offset.firstObject valueForKey:@"name"], @"i05");
+
+        request.fetchOffset = 0;
+        request.predicate = [NSPredicate predicateWithFormat:@"name BEGINSWITH %@", @"i1"];
+        NSArray *matching = [context executeFetchRequest:request error:NULL];
+        XCTAssertEqual(matching.count, 10u);
+        XCTAssertEqualObjects([matching[9] valueForKey:@"name"], @"i19");
+    }];
+    [self removeStoreAt:url];
+}
+
+/* A batched fetch made with changes pending answers with them. */
+- (void)testABatchedFetchIncludesPendingChanges
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:[self hundredNames] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        [[NSEntityDescription insertNewObjectForEntityForName:@"FetchedItem" inManagedObjectContext:context] setValue:@"a" forKey:@"name"];
+        NSArray *found = [context executeFetchRequest:[self batchedRequest] error:NULL];
+        XCTAssertEqual(found.count, 101u);
+        XCTAssertEqualObjects([found.firstObject valueForKey:@"name"], @"a");
+        XCTAssertEqualObjects([found.lastObject valueForKey:@"name"], @"i99");
+    }];
+    [self removeStoreAt:url];
+}
+
+/* A batched fetch that does not return faults realizes each batch as it
+   is read. */
+- (void)testABatchedFetchRealizesABatchWhenAskedTo
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:[self hundredNames] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        NSFetchRequest *request = [self batchedRequest];
+        request.returnsObjectsAsFaults = NO;
+        NSArray *found = [context executeFetchRequest:request error:NULL];
+        NSManagedObject *item = found[42];
+        XCTAssertFalse(item.isFault);
+        XCTAssertEqual(context.registeredObjects.count, 10u);
+        XCTAssertEqualObjects([item valueForKey:@"name"], @"i42");
+    }];
+    [self removeStoreAt:url];
+}
+
+/* A context holding a saved node with a name, a number, a parent and a
+   child. */
+- (NSManagedObjectContext *)contextWithSavedNode:(NSManagedObject **)nodeOut parent:(NSManagedObject **)parentOut url:(NSURL **)urlOut
+{
+    NSEntityDescription *node = [[NSEntityDescription alloc] init];
+    node.name = @"SameNode";
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    name.name = @"name";
+    name.attributeType = NSStringAttributeType;
+    name.optional = YES;
+    NSAttributeDescription *number = [[NSAttributeDescription alloc] init];
+    number.name = @"number";
+    number.attributeType = NSInteger32AttributeType;
+    number.optional = YES;
+    NSRelationshipDescription *parent = [[NSRelationshipDescription alloc] init];
+    parent.name = @"parent";
+    parent.destinationEntity = node;
+    parent.maxCount = 1;
+    parent.optional = YES;
+    NSRelationshipDescription *children = [[NSRelationshipDescription alloc] init];
+    children.name = @"children";
+    children.destinationEntity = node;
+    children.maxCount = 0;
+    children.optional = YES;
+    parent.inverseRelationship = children;
+    children.inverseRelationship = parent;
+    node.properties = @[ name, number, parent, children ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ node ];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                            [NSString stringWithFormat:@"same-%@.sqlite", [[NSProcessInfo processInfo] globallyUniqueString]]]];
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil error:NULL]);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    NSManagedObject *up = [NSEntityDescription insertNewObjectForEntityForName:@"SameNode" inManagedObjectContext:context];
+    NSManagedObject *down = [NSEntityDescription insertNewObjectForEntityForName:@"SameNode" inManagedObjectContext:context];
+    [down setValue:@"x" forKey:@"name"];
+    [down setValue:@5 forKey:@"number"];
+    [down setValue:up forKey:@"parent"];
+    NSManagedObject *child = [NSEntityDescription insertNewObjectForEntityForName:@"SameNode" inManagedObjectContext:context];
+    [child setValue:down forKey:@"parent"];
+    XCTAssertTrue([context save:NULL]);
+    *nodeOut = down;
+    *parentOut = up;
+    *urlOut = url;
+    return context;
+}
+
+/* A saved value set again is no changed value, though the object is
+   updated still, as on Apple. */
+- (void)testSettingASavedValueAgainChangesNoValue
+{
+    NSManagedObject *node = nil, *parent = nil;
+    NSURL *url = nil;
+    NSManagedObjectContext *context = [self contextWithSavedNode:&node parent:&parent url:&url];
+    [node setValue:[NSMutableString stringWithString:@"x"] forKey:@"name"];
+    [node setValue:@5.0 forKey:@"number"];
+    [node setValue:parent forKey:@"parent"];
+    [node setValue:[NSSet setWithSet:[node valueForKey:@"children"]] forKey:@"children"];
+    XCTAssertEqualObjects(node.changedValues, @{});
+    XCTAssertFalse(node.hasPersistentChangedValues);
+    XCTAssertTrue(node.isUpdated);
+    XCTAssertTrue(context.hasChanges);
+    XCTAssertTrue([context save:NULL]);
+    [self removeStoreAt:url];
+}
+
+/* A value changed and set back to what was saved is no changed value;
+   one that differs is. */
+- (void)testAValueSetBackToItsSavedValueIsNoChangedValue
+{
+    NSManagedObject *node = nil, *parent = nil;
+    NSURL *url = nil;
+    NSManagedObjectContext *context = [self contextWithSavedNode:&node parent:&parent url:&url];
+    [node setValue:nil forKey:@"name"];
+    [node setValue:nil forKey:@"parent"];
+    XCTAssertEqualObjects([NSSet setWithArray:node.changedValues.allKeys], ([NSSet setWithObjects:@"name", @"parent", nil]));
+    XCTAssertTrue(node.hasPersistentChangedValues);
+    [node setValue:@"x" forKey:@"name"];
+    [node setValue:parent forKey:@"parent"];
+    XCTAssertEqualObjects(node.changedValues, @{});
+    [node setValue:@"y" forKey:@"name"];
+    XCTAssertEqualObjects(node.changedValues, @{ @"name" : @"y" });
+    XCTAssertTrue(node.hasPersistentChangedValues);
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqualObjects(node.changedValues, @{});
+    [self removeStoreAt:url];
+}
+
+/* An object not yet saved has every value it was given changed. */
+- (void)testAnInsertedObjectHasTheValuesItWasGivenChanged
+{
+    NSManagedObject *node = nil, *parent = nil;
+    NSURL *url = nil;
+    NSManagedObjectContext *context = [self contextWithSavedNode:&node parent:&parent url:&url];
+    NSManagedObject *inserted = [NSEntityDescription insertNewObjectForEntityForName:@"SameNode" inManagedObjectContext:context];
+    [inserted setValue:@"z" forKey:@"name"];
+    XCTAssertEqualObjects(inserted.changedValues, @{ @"name" : @"z" });
+    XCTAssertTrue(inserted.hasPersistentChangedValues);
+    [self removeStoreAt:url];
+}
+
+/* One who observes a managed object (a binding) is told of its changes
+   still, though its context is not an observer. */
+- (void)testObserversOfAnObjectAreToldOfItsChanges
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:@[ @"a" ] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        NSManagedObject *item = [[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"] error:NULL] firstObject];
+        LifecycleKVOWatcher *watcher = [[LifecycleKVOWatcher alloc] init];
+        [item addObserver:watcher forKeyPath:@"name" options:NSKeyValueObservingOptionNew context:NULL];
+        [item setValue:@"b" forKey:@"name"];
+        [item removeObserver:watcher forKeyPath:@"name"];
+        XCTAssertGreaterThanOrEqual(watcher.told, 1, @"told of the change");
+        XCTAssertTrue([context.updatedObjects containsObject:item]);
+    }];
+    [self removeStoreAt:url];
 }
 
 @end

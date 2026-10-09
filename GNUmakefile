@@ -5,6 +5,7 @@ FRAMEWORK_NAME = CoreData
 CoreData_OBJC_FILES = \
 	CoreData/CoreDataErrors.m \
 	CoreData/CDObjectConstants.m \
+	CoreData/CDBatchFaultingArray.m \
 	CoreData/NSManagedObjectModel.m \
 	CoreData/NSEntityDescription.m \
 	CoreData/NSPropertyDescription.m \

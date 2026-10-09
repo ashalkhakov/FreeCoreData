@@ -47,6 +47,7 @@ extern NSString * const CDSQLStoreMigrateSchemaOption;
     NSMutableDictionary *_entityIDs;        /* entity name -> NSNumber (Z_ENT) */
     NSMutableDictionary *_entityNamesByID;  /* NSNumber (Z_ENT) -> entity name */
     NSMutableDictionary *_rowVersions;      /* "table/pk" -> NSNumber (Z_OPT) */
+    unsigned long long _writeGeneration;    /* writes made, against rows read ahead */
     BOOL _historyTracking;
     BOOL _postsRemoteChangeNotification;
     BOOL _inTransaction;

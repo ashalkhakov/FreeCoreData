@@ -3474,6 +3474,11 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    if(countOnly && predicateInSQL)
     return [NSArray arrayWithObject:[NSNumber numberWithUnsignedInteger:[objectIDs count]]];
 
+   /* IDs the query answered alone are the answer: no object is
+      registered for them. */
+   if([request resultType]==NSManagedObjectIDResultType && !filtersInMemory)
+    return objectIDs;
+
    NSMutableArray *objects=[NSMutableArray array];
 
    for(NSManagedObjectID *objectID in objectIDs)
@@ -4286,6 +4291,10 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
 }
 
 -(id)executeRequest:(NSPersistentStoreRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
+   /* A write: rows read ahead before it may be old now. */
+   if([request requestType]!=NSFetchRequestType)
+    _writeGeneration++;
+
    switch([request requestType]){
 
     case NSFetchRequestType:
@@ -5408,6 +5417,50 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    return [self _newNodeForObjectID:objectID error:error];
 }
 
+/* The properties a row holds a column for - attributes and to-ones - in
+   the order they are selected after "Z_OPT". */
+static NSArray *rowNamesOfProperties(NSDictionary *properties){
+   NSMutableArray *names=[NSMutableArray array];
+
+   for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
+    NSPropertyDescription *property=[properties objectForKey:name];
+
+    if([property isKindOfClass:[NSAttributeDescription class]] ||
+       ([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany]))
+     [names addObject:name];
+   }
+   return names;
+}
+
+/* The node of objectID from row of result, whose column first is "Z_OPT"
+   and those after it the columns of names. */
+-(NSIncrementalStoreNode *)_newNodeForObjectID:(NSManagedObjectID *)objectID result:(id<CDSQLResult>)result row:(int)row first:(int)first names:(NSArray *)names properties:(NSDictionary *)properties {
+   uint64_t             version=(uint64_t)[result longLongAtRow:row column:first];
+   NSMutableDictionary *values=[NSMutableDictionary dictionary];
+   NSUInteger           i,count=[names count];
+
+   /* Remembered so that an update of this row can be made conditional on
+      it still being the version this store handed out. */
+   [_rowVersions setObject:[NSNumber numberWithUnsignedLongLong:version] forKey:[self _versionKeyForObjectID:objectID]];
+
+   for(i=0;i<count;i++){
+    NSString              *name=[names objectAtIndex:i];
+    NSPropertyDescription *property=[properties objectForKey:name];
+    int                    column=first+(int)(i+1);
+
+    if([property isKindOfClass:[NSAttributeDescription class]]){
+     id value=attributeValueFromResult(result,row,column,(NSAttributeDescription *)property);
+
+     if(value!=nil)
+      [values setObject:value forKey:name];
+    }
+    else if(![result isNullAtRow:row column:column])
+     [values setObject:[self _objectIDForPrimaryKey:[result longLongAtRow:row column:column] declaredDestination:[(NSRelationshipDescription *)property destinationEntity]] forKey:name];
+   }
+
+   return [[NSIncrementalStoreNode alloc] initWithObjectID:objectID withValues:values version:version];
+}
+
 /* The body of -newValuesForObjectWithID:withContext:error:, reachable
    without a context: batch requests read stored rows with no context in
    hand, and that parameter is declared non-null. */
@@ -5415,18 +5468,11 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    NSEntityDescription *entity=[objectID entity];
    NSDictionary        *properties=propertiesForEntityChain(entity);
    long long            primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID]);
-   NSMutableArray      *names=[NSMutableArray array];
+   NSArray             *names=rowNamesOfProperties(properties);
    NSMutableArray      *selectColumns=[NSMutableArray arrayWithObject:@"\"Z_OPT\""];
 
-   for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
-    NSPropertyDescription *property=[properties objectForKey:name];
-
-    if([property isKindOfClass:[NSAttributeDescription class]] ||
-       ([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany])){
-     [names addObject:name];
-     [selectColumns addObject:quoted(columnNameForProperty(name))];
-    }
-   }
+   for(NSString *name in names)
+    [selectColumns addObject:quoted(columnNameForProperty(name))];
 
    NSString *sql=[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" = %lld",[selectColumns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),primaryKey];
    id<CDSQLResult> result=[self execute:sql parameters:nil error:error];
@@ -5435,37 +5481,75 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     return nil;
 
    if((int)[result rowCount]==0){
-        if(error!=NULL)
+    if(error!=NULL)
      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectReferentialIntegrityError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"CoreData could not fulfill a fault for %@",objectID] forKey:NSLocalizedDescriptionKey]];
     return nil;
    }
 
-   uint64_t             version=(uint64_t)[result longLongAtRow:0 column:0];
-   NSMutableDictionary *values=[NSMutableDictionary dictionary];
+   return [self _newNodeForObjectID:objectID result:result row:0 first:0 names:names properties:properties];
+}
 
-   /* Remembered so that an update of this row can be made conditional on
-      it still being the version this store handed out. */
-   [_rowVersions setObject:[NSNumber numberWithUnsignedLongLong:version] forKey:[self _versionKeyForObjectID:objectID]];
+/* The rows of objectIDs, by ID, read a few hundred to a query.  The
+   framework reads the rows of the faults a fetch found through this, and
+   the batches of a fetch with a batch size, rather than one query per
+   fault; it is not Apple's API, so Apple's framework never asks. */
+-(NSDictionary *)_rowsForObjectIDs:(NSArray *)objectIDs {
+   NSMutableDictionary *rows=[NSMutableDictionary dictionaryWithCapacity:[objectIDs count]];
+   NSMutableDictionary *byEntity=[NSMutableDictionary dictionary];
 
-   NSUInteger           i,count=[names count];
+   for(NSManagedObjectID *objectID in objectIDs){
+    NSString       *name=[[objectID entity] name];
+    NSMutableArray *list=[byEntity objectForKey:name];
 
-   for(i=0;i<count;i++){
-    NSString              *name=[names objectAtIndex:i];
-    NSPropertyDescription *property=[properties objectForKey:name];
-    int                    column=(int)(i+1);
-
-    if([property isKindOfClass:[NSAttributeDescription class]]){
-     id value=attributeValueFromResult(result,0,column,(NSAttributeDescription *)property);
-
-     if(value!=nil)
-      [values setObject:value forKey:name];
+    if(list==nil){
+     list=[NSMutableArray array];
+     [byEntity setObject:list forKey:name];
     }
-    else if(![result isNullAtRow:0 column:column])
-     [values setObject:[self _objectIDForPrimaryKey:[result longLongAtRow:0 column:column] declaredDestination:[(NSRelationshipDescription *)property destinationEntity]] forKey:name];
+    [list addObject:objectID];
    }
 
-   
-   return [[NSIncrementalStoreNode alloc] initWithObjectID:objectID withValues:values version:version];
+   for(NSString *entityName in byEntity){
+    NSArray             *ids=[byEntity objectForKey:entityName];
+    NSEntityDescription *entity=[[ids objectAtIndex:0] entity];
+    NSDictionary        *properties=propertiesForEntityChain(entity);
+    NSArray             *names=rowNamesOfProperties(properties);
+    NSMutableArray      *selectColumns=[NSMutableArray arrayWithObjects:@"\"Z_PK\"",@"\"Z_OPT\"",nil];
+    NSMutableDictionary *byKey=[NSMutableDictionary dictionary];
+
+    for(NSString *name in names)
+     [selectColumns addObject:quoted(columnNameForProperty(name))];
+    for(NSManagedObjectID *objectID in ids)
+     [byKey setObject:objectID forKey:[NSNumber numberWithLongLong:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID])]];
+
+    NSArray   *keys=[byKey allKeys];
+    NSUInteger at;
+
+    for(at=0;at<[keys count];at+=500){
+     NSAutoreleasePool *pool=[NSAutoreleasePool new];
+     NSArray           *chunk=[keys subarrayWithRange:NSMakeRange(at,MIN((NSUInteger)500,[keys count]-at))];
+     NSString          *sql=[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" IN (%@)",[selectColumns componentsJoinedByString:@", "],
+                                                       quoted(tableNameForEntity(entity)),[chunk componentsJoinedByString:@", "]];
+     id<CDSQLResult>    result=[self execute:sql parameters:nil error:NULL];
+     int                row,count=(result!=nil)?(int)[result rowCount]:0;
+
+     for(row=0;row<count;row++){
+      NSManagedObjectID      *objectID=[byKey objectForKey:[NSNumber numberWithLongLong:[result longLongAtRow:row column:0]]];
+      NSIncrementalStoreNode *node;
+
+      if(objectID==nil)
+       continue;
+      node=[self _newNodeForObjectID:objectID result:result row:row first:1 names:names properties:properties];
+      [rows setObject:node forKey:objectID];
+      [node release];
+     }
+     [pool release];
+    }
+   }
+   return rows;
+}
+
+-(unsigned long long)_writeGeneration {
+   return _writeGeneration;
 }
 
 -(id)newValueForRelationship:(NSRelationshipDescription *)relationship forObjectWithID:(NSManagedObjectID *)objectID withContext:(NSManagedObjectContext *)context error:(NSError **)error {
