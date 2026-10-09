@@ -942,4 +942,67 @@ static NSManagedObjectModel *LifecycleTestModel(void)
         [[NSFileManager defaultManager] removeItemAtPath:[url.path stringByAppendingString:suffix] error:NULL];
 }
 
+/* A context that related a new object to one it fetched (setting a
+   to-one whose inverse is a to-many) is let go of like any other. Its
+   observation of the related object kept it alive before. */
+- (void)testAContextThatRelatedObjectsIsLetGoOf
+{
+    NSEntityDescription *parent = [[NSEntityDescription alloc] init], *child = [[NSEntityDescription alloc] init];
+    parent.name = @"LetGoParent";
+    child.name = @"LetGoChild";
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    name.name = @"name";
+    name.attributeType = NSStringAttributeType;
+    name.optional = YES;
+    NSAttributeDescription *childName = [name copy];
+    NSRelationshipDescription *children = [[NSRelationshipDescription alloc] init], *up = [[NSRelationshipDescription alloc] init];
+    children.name = @"children";
+    children.destinationEntity = child;
+    children.minCount = 0;
+    children.maxCount = 0;
+    children.optional = YES;
+    children.deleteRule = NSCascadeDeleteRule;
+    up.name = @"parent";
+    up.destinationEntity = parent;
+    up.minCount = 0;
+    up.maxCount = 1;
+    up.optional = YES;
+    up.deleteRule = NSNullifyDeleteRule;
+    children.inverseRelationship = up;
+    up.inverseRelationship = children;
+    parent.properties = @[ name, children ];
+    child.properties = @[ childName, up ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ parent, child ];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                            [NSString stringWithFormat:@"relate-%@.sqlite", [[NSProcessInfo processInfo] globallyUniqueString]]]];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *writer = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    writer.persistentStoreCoordinator = coordinator;
+    [writer performBlockAndWait:^{
+        [[NSEntityDescription insertNewObjectForEntityForName:@"LetGoParent" inManagedObjectContext:writer] setValue:@"p" forKey:@"name"];
+        XCTAssertTrue([writer save:NULL]);
+    }];
+
+    __weak NSManagedObjectContext *weakContext = nil;
+    @autoreleasepool {
+        NSManagedObjectContext *relating = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+        relating.persistentStoreCoordinator = coordinator;
+        weakContext = relating;
+        [relating performBlockAndWait:^{
+            NSManagedObject *p = [[relating executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"LetGoParent"] error:NULL] firstObject];
+            NSManagedObject *c = [NSEntityDescription insertNewObjectForEntityForName:@"LetGoChild" inManagedObjectContext:relating];
+            [c setValue:p forKey:@"parent"];
+            XCTAssertTrue([relating save:NULL]);
+        }];
+        relating = nil;
+    }
+    for (int i = 0; i < 100 && weakContext; i++) [NSThread sleepForTimeInterval:0.01];
+    XCTAssertNil(weakContext, @"the context, let go of");
+    for (NSString *suffix in @[ @"", @"-wal", @"-shm" ])
+        [[NSFileManager defaultManager] removeItemAtPath:[url.path stringByAppendingString:suffix] error:NULL];
+}
+
 @end
