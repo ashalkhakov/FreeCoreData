@@ -311,6 +311,81 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects([[page firstObject] valueForKey:@"name"], @"alan");
 }
 
+/* A fetch with a batch size answers with every object, in order.  On
+   FreeCoreData the objects are registered a batch at a time, their rows
+   read a batch to a query, as Apple's SQLite store does; Apple's framework
+   does not batch for an incremental store, so only the answer is checked
+   there. */
+- (void)testABatchedFetchAnswersWithEveryObjectABatchAtATime
+{
+    if (![self databaseAvailable]) return;
+
+    for (int i = 0; i < 25; i++)
+        [self insertPersonNamed:[NSString stringWithFormat:@"p%02d", i] age:i];
+    if (![self save]) return;
+
+    NSManagedObjectContext *reopened = [self newContext];
+    NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+    [fetch setEntity:[[self.model entitiesByName] objectForKey:@"Person"]];
+    [fetch setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+    [fetch setFetchBatchSize:10];
+
+    NSError *error = nil;
+    NSArray *found = [reopened executeFetchRequest:fetch error:&error];
+    BOOL batches = (NSClassFromString(@"CDBatchFaultingArray") != nil);
+
+    XCTAssertEqual([found count], (NSUInteger)25, @"%@", error);
+    if (batches)
+        XCTAssertEqual([[reopened registeredObjects] count], (NSUInteger)0);
+
+    NSManagedObject *twelfth = [found objectAtIndex:12];
+
+    if (batches)
+        XCTAssertEqual([[reopened registeredObjects] count], (NSUInteger)10);
+    XCTAssertEqualObjects([twelfth valueForKey:@"name"], @"p12");
+    XCTAssertEqualObjects([twelfth valueForKey:@"age"], @12);
+
+    NSMutableArray *names = [NSMutableArray array];
+
+    for (NSManagedObject *person in found)
+        [names addObject:[person valueForKey:@"name"]];
+    XCTAssertEqual([names count], (NSUInteger)25);
+    XCTAssertEqualObjects([names lastObject], @"p24");
+
+    [fetch setFetchLimit:5];
+    [fetch setFetchOffset:20];
+    XCTAssertEqualObjects([[[reopened executeFetchRequest:fetch error:NULL] firstObject] valueForKey:@"name"], @"p20");
+}
+
+/* The rows of a fetch's faults are read with the fetch, but a fault fired
+   after another context saved its row through the same coordinator reads
+   the row as it then is. */
+- (void)testAFaultReadsItsRowAsSavedAfterItsFetch
+{
+    if (![self databaseAvailable]) return;
+
+    [self insertPersonNamed:@"Ada" age:36];
+    [self insertPersonNamed:@"Grace" age:45];
+    if (![self save]) return;
+
+    NSManagedObjectContext *reader = [self newContext];
+    NSManagedObjectContext *writer = [[NSManagedObjectContext alloc] init];
+    [writer setPersistentStoreCoordinator:[reader persistentStoreCoordinator]];
+
+    NSArray *read = [self fetchPeopleWithPredicate:[NSPredicate predicateWithFormat:@"name == %@", @"Ada"] sortDescriptors:nil context:reader];
+    NSArray *written = [self fetchPeopleWithPredicate:[NSPredicate predicateWithFormat:@"name == %@", @"Ada"] sortDescriptors:nil context:writer];
+
+    XCTAssertTrue([[read firstObject] isFault]);
+    [[written firstObject] setValue:@37 forKey:@"age"];
+    XCTAssertTrue([writer save:NULL]);
+    XCTAssertEqualObjects([[read firstObject] valueForKey:@"age"], @37);
+
+    NSManagedObjectContext *fresh = [self newContext];
+    NSArray *both = [self fetchPeopleWithPredicate:nil sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ] context:fresh];
+    XCTAssertEqualObjects([both valueForKey:@"name"], (@[ @"Ada", @"Grace" ]));
+    XCTAssertEqualObjects([both valueForKey:@"age"], (@[ @37, @45 ]));
+}
+
 - (void)testCountResultType
 {
     if (![self databaseAvailable]) return;

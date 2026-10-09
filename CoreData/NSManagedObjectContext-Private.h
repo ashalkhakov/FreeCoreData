@@ -11,7 +11,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSManagedObjectContext.h>
 
-@class NSAtomicStoreCacheNode;
+@class NSAtomicStoreCacheNode, NSPersistentStore;
 
 @interface NSManagedObjectContext (private)
 - (NSAtomicStoreCacheNode *)_cacheNodeForObjectID:(NSManagedObjectID *)objectID;
@@ -36,4 +36,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 /* Fetched objects made what the request asks of them: realized unless
    it returns faults, and the key paths it prefetches walked. */
 - (void)_finalizeFetchedObjects:(NSArray *)objects request:(NSFetchRequest *)request;
+
+/* The rows of those of objects that are still faults, read from store in
+   a few queries when it can (a CDRowPrefetchingStore) and handed to them
+   for their first reads. */
+- (void)_prefetchRowsForObjects:(NSArray *)objects fromStore:(NSPersistentStore *)store;
 @end

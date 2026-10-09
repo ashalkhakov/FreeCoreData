@@ -37,6 +37,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <Foundation/NSExpression.h>
 #import "NSPersistentStoreCoordinator-Private.h"
 #import "CDObjectConstants-Private.h"
+#import "CDBatchFaultingArray.h"
 #import <Foundation/NSUndoManager.h>
 #import <Foundation/NSNull.h>
 #import "CoreDataUtilities.h"
@@ -1061,6 +1062,31 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    }
 }
 
+-(void)_prefetchRowsForObjects:(NSArray *)objects fromStore:(NSPersistentStore *)store {
+   if(![store respondsToSelector:@selector(_rowsForObjectIDs:)] || ![store respondsToSelector:@selector(_writeGeneration)])
+    return;
+
+   NSMutableArray *unread=[NSMutableArray array];
+
+   for(NSManagedObject *object in objects)
+    if([object isFault] && [[object objectID] persistentStore]==store)
+     [unread addObject:[object objectID]];
+
+   if([unread count]==0)
+    return;
+
+   id<CDRowPrefetchingStore> reader=(id<CDRowPrefetchingStore>)store;
+   unsigned long long        generation=[reader _writeGeneration];
+   NSDictionary             *rows=[reader _rowsForObjectIDs:unread];
+
+   for(NSManagedObject *object in objects){
+    NSIncrementalStoreNode *row=[rows objectForKey:[object objectID]];
+
+    if(row!=nil)
+     [object _holdPrefetchedRow:row generation:generation];
+   }
+}
+
 /* Store access from every context funnels through the coordinator's
    recursive lock, serializing queue-confined contexts running on
    different threads (Apple's coordinator serializes internally the
@@ -1260,7 +1286,30 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
        !(resultType==NSDictionaryResultType &&
          [self _dictionaryRequestNeedsContextShaping:fetchRequest] &&
          !storeShapes)){
-     NSArray *passed=[(NSIncrementalStore *)[affectedStores objectAtIndex:0] executeRequest:fetchRequest withContext:self error:error];
+     NSIncrementalStore *store=[affectedStores objectAtIndex:0];
+     BOOL                readsRows=[store respondsToSelector:@selector(_rowsForObjectIDs:)] &&
+                                   [store respondsToSelector:@selector(_writeGeneration)];
+
+     /* With a batch size, only the IDs now: an object is registered, and
+        the rows of its batch read, when it or another of its batch is
+        first asked for, as on Apple. */
+     if(resultType==NSManagedObjectResultType && [fetchRequest fetchBatchSize]>0 && readsRows){
+      NSFetchRequest *identities=[[fetchRequest copy] autorelease];
+      NSArray        *objectIDs;
+
+      [identities setResultType:NSManagedObjectIDResultType];
+      objectIDs=[store executeRequest:identities withContext:self error:error];
+      if(objectIDs==nil)
+       return nil;
+      return [[[CDBatchFaultingArray alloc] initWithObjectIDs:objectIDs store:store context:self request:fetchRequest] autorelease];
+     }
+
+     NSArray *passed=[store executeRequest:fetchRequest withContext:self error:error];
+
+     /* The rows of the faults found, read now in a few queries rather
+        than one query each as they are first read. */
+     if(passed!=nil && resultType==NSManagedObjectResultType && [fetchRequest includesPropertyValues])
+      [self _prefetchRowsForObjects:passed fromStore:store];
 
      /* Realization options are enforced here too - a store is free to
         return faults regardless of them (realizing an already-realized

@@ -13,10 +13,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @class NSIncrementalStoreNode, NSMapTable;
 
-/* A store whose fetches hand their objects their rows (the SQLite store):
-   how many writes it has made, so that a row read before the last of them
-   is not used. */
+/* A store that reads many rows in one go (the SQLite store, and the SQL
+   backends, which implement these without the framework's headers): the
+   rows of objectIDs, by ID, read in a few queries; and how many writes it
+   has made, so that a row read before the last of them is not used.  A
+   context reads the rows of the faults a fetch found through it, and a
+   fetch with a batch size reads its batches through it. */
 @protocol CDRowPrefetchingStore
+- (NSDictionary *)_rowsForObjectIDs:(NSArray *)objectIDs;
 - (unsigned long long)_writeGeneration;
 @end
 
