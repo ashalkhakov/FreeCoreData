@@ -1042,7 +1042,8 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    context shaped itself; a store handling a pass-through request is
    responsible for its own options. */
 -(void)_finalizeFetchedObjects:(NSArray *)objects request:(NSFetchRequest *)request {
-   if([request resultType]!=NSManagedObjectResultType)
+   /* A batched answer finalizes each batch as it reads it. */
+   if([request resultType]!=NSManagedObjectResultType || [objects respondsToSelector:@selector(_finalizesItsBatches)])
     return;
 
    BOOL     realize=![request returnsObjectsAsFaults];

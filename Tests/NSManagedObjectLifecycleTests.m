@@ -1099,6 +1099,116 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     [self removeStoreAt:url];
 }
 
+- (NSArray<NSString *> *)hundredNames
+{
+    NSMutableArray *names = [NSMutableArray array];
+    for (int i = 0; i < 100; i++) [names addObject:[NSString stringWithFormat:@"i%02d", i]];
+    return names;
+}
+
+- (NSFetchRequest *)batchedRequest
+{
+    NSFetchRequest *request = [NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"];
+    request.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ];
+    request.fetchBatchSize = 10;
+    return request;
+}
+
+/* A fetch with a batch size registers no object until one is asked for,
+   and then the ten of its batch, still faults. */
+- (void)testABatchedFetchRegistersAnObjectsBatchWhenItIsAskedFor
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:[self hundredNames] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        XCTAssertEqual([NSFetchRequest fetchRequestWithEntityName:@"FetchedItem"].fetchBatchSize, 0u);
+        NSArray *found = [context executeFetchRequest:[self batchedRequest] error:NULL];
+        XCTAssertEqual(found.count, 100u);
+        XCTAssertEqual(context.registeredObjects.count, 0u);
+
+        NSManagedObject *item = found[15];
+        XCTAssertEqual(context.registeredObjects.count, 10u);
+        XCTAssertTrue(item.isFault);
+        XCTAssertEqualObjects([item valueForKey:@"name"], @"i15");
+        XCTAssertEqual([found indexOfObject:item], 15u);
+        XCTAssertEqual(context.registeredObjects.count, 10u);
+
+        NSMutableArray *names = [NSMutableArray array];
+        for (NSManagedObject *each in found) [names addObject:[each valueForKey:@"name"]];
+        XCTAssertEqualObjects(names, [self hundredNames]);
+        XCTAssertEqual(context.registeredObjects.count, 100u);
+    }];
+    [self removeStoreAt:url];
+}
+
+/* A batched fetch keeps to its predicate, its limit and its offset. */
+- (void)testABatchedFetchKeepsItsPredicateLimitAndOffset
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:[self hundredNames] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        NSFetchRequest *request = [self batchedRequest];
+        request.fetchLimit = 25;
+        NSArray *limited = [context executeFetchRequest:request error:NULL];
+        XCTAssertEqual(limited.count, 25u);
+        XCTAssertEqualObjects([limited.lastObject valueForKey:@"name"], @"i24");
+
+        request.fetchLimit = 0;
+        request.fetchOffset = 5;
+        NSArray *offset = [context executeFetchRequest:request error:NULL];
+        XCTAssertEqual(offset.count, 95u);
+        XCTAssertEqualObjects([offset.firstObject valueForKey:@"name"], @"i05");
+
+        request.fetchOffset = 0;
+        request.predicate = [NSPredicate predicateWithFormat:@"name BEGINSWITH %@", @"i1"];
+        NSArray *matching = [context executeFetchRequest:request error:NULL];
+        XCTAssertEqual(matching.count, 10u);
+        XCTAssertEqualObjects([matching[9] valueForKey:@"name"], @"i19");
+    }];
+    [self removeStoreAt:url];
+}
+
+/* A batched fetch made with changes pending answers with them. */
+- (void)testABatchedFetchIncludesPendingChanges
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:[self hundredNames] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        [[NSEntityDescription insertNewObjectForEntityForName:@"FetchedItem" inManagedObjectContext:context] setValue:@"a" forKey:@"name"];
+        NSArray *found = [context executeFetchRequest:[self batchedRequest] error:NULL];
+        XCTAssertEqual(found.count, 101u);
+        XCTAssertEqualObjects([found.firstObject valueForKey:@"name"], @"a");
+        XCTAssertEqualObjects([found.lastObject valueForKey:@"name"], @"i99");
+    }];
+    [self removeStoreAt:url];
+}
+
+/* A batched fetch that does not return faults realizes each batch as it
+   is read. */
+- (void)testABatchedFetchRealizesABatchWhenAskedTo
+{
+    NSURL *url = nil;
+    NSPersistentStoreCoordinator *coordinator = [self coordinatorWithItems:[self hundredNames] url:&url];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    [context performBlockAndWait:^{
+        NSFetchRequest *request = [self batchedRequest];
+        request.returnsObjectsAsFaults = NO;
+        NSArray *found = [context executeFetchRequest:request error:NULL];
+        NSManagedObject *item = found[42];
+        XCTAssertFalse(item.isFault);
+        XCTAssertEqual(context.registeredObjects.count, 10u);
+        XCTAssertEqualObjects([item valueForKey:@"name"], @"i42");
+    }];
+    [self removeStoreAt:url];
+}
+
 /* One who observes a managed object (a binding) is told of its changes
    still, though its context is not an observer. */
 - (void)testObserversOfAnObjectAreToldOfItsChanges

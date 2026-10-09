@@ -27,6 +27,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSFetchRequest-Private.h"
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSManagedObjectContext.h>
+#import "NSManagedObjectContext-Private.h"
 #import <CoreData/NSManagedObject.h>
 #import "NSManagedObject-Private.h"
 #import <CoreData/NSMergePolicy.h>
@@ -468,6 +469,110 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
 
    return result;
 }
+
+/* The answer to a fetch with a batch size, as Apple's batch-faulting
+   array: every object's ID is read when the fetch runs, but an object is
+   registered in the context, and its batch's rows read in one query,
+   only when it or another of its batch is first asked for. */
+@interface CDBatchFaultingArray : NSArray {
+   NSArray                 *_objectIDs;
+   NSSQLitePersistentStore *_store;
+   NSManagedObjectContext  *_context;
+   NSFetchRequest          *_request;
+   NSUInteger               _batchSize;
+   id                      *_objects;
+}
+-initWithObjectIDs:(NSArray *)objectIDs store:(NSSQLitePersistentStore *)store context:(NSManagedObjectContext *)context request:(NSFetchRequest *)request;
+@end
+
+@interface NSSQLitePersistentStore (CDBatchFaulting)
+-(void)_prefetchRowsForObjects:(NSArray *)objects;
+@end
+
+@implementation CDBatchFaultingArray
+
+-initWithObjectIDs:(NSArray *)objectIDs store:(NSSQLitePersistentStore *)store context:(NSManagedObjectContext *)context request:(NSFetchRequest *)request {
+   if((self=[super init])==nil)
+    return nil;
+   _objectIDs=[objectIDs copy];
+   _store=[store retain];
+   _context=[context retain];
+   _request=[request copy];
+   _batchSize=[request fetchBatchSize];
+   _objects=calloc(MAX([_objectIDs count],(NSUInteger)1),sizeof(id));
+   return self;
+}
+
+-(void)dealloc {
+   NSUInteger i,count=[_objectIDs count];
+
+   for(i=0;i<count;i++)
+    [_objects[i] release];
+   free(_objects);
+   [_objectIDs release];
+   [_store release];
+   [_context release];
+   [_request release];
+   [super dealloc];
+}
+
+-(NSUInteger)count {
+   return [_objectIDs count];
+}
+
+/* The context finalizes each batch as it is read, not the whole answer. */
+-(BOOL)_finalizesItsBatches {
+   return YES;
+}
+
+-(void)_readBatchAtIndex:(NSUInteger)index {
+   NSUInteger                    start=index-index%_batchSize;
+   NSUInteger                    end=MIN(start+_batchSize,[_objectIDs count]);
+   NSPersistentStoreCoordinator *coordinator=[_context persistentStoreCoordinator];
+   NSMutableArray               *batch=[NSMutableArray arrayWithCapacity:end-start];
+   NSUInteger                    i;
+
+   [coordinator lock];
+   NS_DURING
+    for(i=start;i<end;i++)
+     [batch addObject:[_context objectWithID:[_objectIDs objectAtIndex:i]]];
+    if([_request includesPropertyValues])
+     [_store _prefetchRowsForObjects:batch];
+   NS_HANDLER
+    [coordinator unlock];
+    [localException raise];
+   NS_ENDHANDLER
+   [coordinator unlock];
+
+   for(i=start;i<end;i++)
+    _objects[i]=[[batch objectAtIndex:i-start] retain];
+
+   [_context _finalizeFetchedObjects:batch request:_request];
+}
+
+-(id)objectAtIndex:(NSUInteger)index {
+   if(index>=[_objectIDs count])
+    [NSException raise:NSRangeException format:@"index %lu beyond bounds [0 .. %ld]",(unsigned long)index,(long)[_objectIDs count]-1];
+
+   if(_objects[index]==nil)
+    [self _readBatchAtIndex:index];
+
+   return _objects[index];
+}
+
+/* Found by ID, without reading any batch: an object of this context is
+   the one registered for its ID. */
+-(NSUInteger)indexOfObject:(id)object {
+   if(![object isKindOfClass:[NSManagedObject class]] || [object managedObjectContext]!=_context)
+    return NSNotFound;
+   return [_objectIDs indexOfObject:[object objectID]];
+}
+
+-(BOOL)containsObject:(id)object {
+   return [self indexOfObject:object]!=NSNotFound;
+}
+
+@end
 
 @implementation NSSQLitePersistentStore
 
@@ -2014,36 +2119,20 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    if(countOnly && predicateInSQL)
     return [NSArray arrayWithObject:[NSNumber numberWithUnsignedInteger:[objectIDs count]]];
 
+   /* With a batch size, nothing more is read until it is asked for: an
+      object is registered, and its batch's rows read, when it or one of
+      its batch is first touched.  A fetch that filters or sorts in
+      memory has to read every object anyway, and is answered whole. */
+   if([request resultType]==NSManagedObjectResultType && [request fetchBatchSize]>0 && !filtersInMemory)
+    return [[[CDBatchFaultingArray alloc] initWithObjectIDs:objectIDs store:self context:context request:request] autorelease];
+
    NSMutableArray *objects=[NSMutableArray array];
 
-   /* Their rows read now, in a few queries, and handed to the objects
-      for their first reads: those the context has not read already.  An
-      object keeps its row until it takes it, and a row nobody takes goes
-      with its object - as Apple's row cache keeps a row while an object
-      holds it. */
-   NSDictionary *rows=nil;
+   for(NSManagedObjectID *objectID in objectIDs)
+    [objects addObject:[context objectWithID:objectID]];
 
-   if([request resultType]==NSManagedObjectResultType && [request includesPropertyValues] && [objectIDs count]>0){
-    NSMutableArray *unread=[NSMutableArray array];
-
-    for(NSManagedObjectID *objectID in objectIDs){
-     NSManagedObject *registered=[context objectRegisteredForID:objectID];
-
-     if(registered==nil || [registered isFault])
-      [unread addObject:objectID];
-    }
-    if([unread count]>0)
-     rows=[self _rowsForObjectIDs:unread];
-   }
-
-   for(NSManagedObjectID *objectID in objectIDs){
-    NSManagedObject        *object=[context objectWithID:objectID];
-    NSIncrementalStoreNode *row=[rows objectForKey:objectID];
-
-    if(row!=nil)
-     [object _holdPrefetchedRow:row generation:_writeGeneration];
-    [objects addObject:object];
-   }
+   if([request resultType]==NSManagedObjectResultType && [request includesPropertyValues])
+    [self _prefetchRowsForObjects:objects];
 
    if([request predicate]!=nil && !predicateInSQL){
     CDRowsOfStore rows={ self,context };
@@ -3431,6 +3520,30 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
     }
    }
    return rows;
+}
+
+/* The rows of those of objects that are still faults, read now in a few
+   queries and handed to them for their first reads.  An object keeps its
+   row until it takes it, and a row nobody takes goes with its object -
+   as Apple's row cache keeps a row while an object holds it. */
+-(void)_prefetchRowsForObjects:(NSArray *)objects {
+   NSMutableArray *unread=[NSMutableArray array];
+
+   for(NSManagedObject *object in objects)
+    if([object isFault])
+     [unread addObject:[object objectID]];
+
+   if([unread count]==0)
+    return;
+
+   NSDictionary *rows=[self _rowsForObjectIDs:unread];
+
+   for(NSManagedObject *object in objects){
+    NSIncrementalStoreNode *row=[rows objectForKey:[object objectID]];
+
+    if(row!=nil)
+     [object _holdPrefetchedRow:row generation:_writeGeneration];
+   }
 }
 
 -(unsigned long long)_writeGeneration {

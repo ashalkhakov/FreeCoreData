@@ -32,4 +32,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 /* performBlockAndWait that tolerates legacy thread-confined contexts
    (runs inline there); used for parent-directed chain hops. */
 - (void)_performAsChainMemberAndWait:(void (^)(void))block;
+
+/* Fetched objects made what the request asks of them: realized unless
+   it returns faults, and the key paths it prefetches walked. */
+- (void)_finalizeFetchedObjects:(NSArray *)objects request:(NSFetchRequest *)request;
 @end
