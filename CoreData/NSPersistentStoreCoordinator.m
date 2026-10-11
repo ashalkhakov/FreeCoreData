@@ -176,12 +176,21 @@ static NSMutableDictionary *_storeTypes=nil;
 
    NSMappingModel *mappingModel=[NSMappingModel mappingModelFromBundles:nil forSourceModel:sourceModel destinationModel:_model];
 
-   if(mappingModel==nil && [[options objectForKey:NSInferMappingModelAutomaticallyOption] boolValue])
-    mappingModel=[NSMappingModel inferredMappingModelForSourceModel:sourceModel destinationModel:_model error:error];
+   NSError *inferenceError=nil;
 
+   if(mappingModel==nil && [[options objectForKey:NSInferMappingModelAutomaticallyOption] boolValue])
+    mappingModel=[NSMappingModel inferredMappingModelForSourceModel:sourceModel destinationModel:_model error:&inferenceError];
+
+   /* Why none could be inferred, if one was tried, goes with it - as
+      Apple's NSUnderlyingError. */
    if(mappingModel==nil){
-    if(error!=NULL)
-     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSMigrationMissingMappingModelError userInfo:[NSDictionary dictionaryWithObject:@"Can't find mapping model for migration" forKey:NSLocalizedDescriptionKey]];
+    if(error!=NULL){
+     NSMutableDictionary *userInfo=[NSMutableDictionary dictionaryWithObject:@"Can't find mapping model for migration" forKey:NSLocalizedDescriptionKey];
+
+     if(inferenceError!=nil)
+      [userInfo setObject:inferenceError forKey:NSUnderlyingErrorKey];
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSMigrationMissingMappingModelError userInfo:userInfo];
+    }
     return NO;
    }
 

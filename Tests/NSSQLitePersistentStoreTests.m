@@ -829,6 +829,185 @@ static NSData *filledData(NSUInteger length, char fill)
     XCTAssertEqual(memory.removedAll, 1);
 }
 
+/* -- migrating into and out of external storage -------------------------- */
+
+static NSManagedObjectModel *itemModel(BOOL external)
+{
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    name.name = @"name";
+    name.attributeType = NSStringAttributeType;
+    name.optional = YES;
+    NSAttributeDescription *data = [[NSAttributeDescription alloc] init];
+    data.name = @"data";
+    data.attributeType = NSBinaryDataAttributeType;
+    data.optional = YES;
+    data.allowsExternalBinaryDataStorage = external;
+    NSEntityDescription *item = [[NSEntityDescription alloc] init];
+    item.name = @"Item";
+    item.properties = @[ name, data ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ item ];
+    return model;
+}
+
+/* Values whose first byte is what marks a value inline (1) or outside (2),
+   one small, one large, and none. */
+static NSDictionary *migratedValues(void)
+{
+    NSMutableData *one = [filledData(10, 'x') mutableCopy], *two = [filledData(40, 'y') mutableCopy];
+    ((uint8_t *)[one mutableBytes])[0] = 1;
+    ((uint8_t *)[two mutableBytes])[0] = 2;
+    return @{ @"small" : filledData(10, 's'), @"starts1" : one, @"starts2" : two,
+              @"large" : filledData(300000, 'L'), @"none" : [NSNull null] };
+}
+
+- (void)fillItemsWithModel:(NSManagedObjectModel *)model
+{
+    NSManagedObjectContext *context = [self contextWithModel:model options:nil];
+    NSDictionary *values = migratedValues();
+    for (NSString *name in values) {
+        NSManagedObject *item = [NSEntityDescription insertNewObjectForEntityForName:@"Item" inManagedObjectContext:context];
+        [item setValue:name forKey:@"name"];
+        if (values[name] != [NSNull null])
+            [item setValue:values[name] forKey:@"data"];
+    }
+    XCTAssertTrue([context save:NULL]);
+    [self closeStoreOf:context];
+}
+
+/* The data column of each item, as stored, by name. */
+- (NSDictionary *)storedItemData
+{
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    NSMutableDictionary *stored = [NSMutableDictionary dictionary];
+
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    sqlite3_prepare_v2(database, "SELECT ZNAME, ZDATA FROM ZITEM", -1, &statement, NULL);
+    while (sqlite3_step(statement) == SQLITE_ROW)
+        stored[[NSString stringWithUTF8String:(const char *)sqlite3_column_text(statement, 0)]] =
+            (sqlite3_column_type(statement, 1) == SQLITE_NULL) ? [NSNull null]
+                : [NSData dataWithBytes:sqlite3_column_blob(statement, 1) length:sqlite3_column_bytes(statement, 1)];
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return stored;
+}
+
+- (void)assertItemsReadBackWithModel:(NSManagedObjectModel *)model options:(NSDictionary *)options skippingNone:(BOOL)skippingNone
+{
+    NSManagedObjectContext *context = [self contextWithModel:model options:options];
+    NSDictionary *values = migratedValues();
+    NSArray *items = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Item"] error:NULL];
+    XCTAssertEqual([items count], [values count]);
+    for (NSManagedObject *item in items) {
+        NSString *name = [item valueForKey:@"name"];
+        if (values[name] == [NSNull null]) {
+            if (!skippingNone)
+                XCTAssertNil([item valueForKey:@"data"], @"none stays none");
+        } else
+            XCTAssertEqualObjects([item valueForKey:@"data"], values[name], @"%@", name);
+    }
+    [self closeStoreOf:context];
+}
+
+/* With a mapping model of one's own, values move into external storage -
+   a byte in front of each, a large one into a file - and out of it again
+   - as they were, and the file gone - as Apple's do. */
+- (void)testAMappingModelMovesValuesIntoExternalStorageAndOut
+{
+    for (int into = 1; into >= 0; into--) {
+        NSManagedObjectModel *source = itemModel(!into), *destination = itemModel(into);
+        [self fillItemsWithModel:source];
+
+        NSEntityMapping *entityMapping = [[NSEntityMapping alloc] init];
+        entityMapping.name = @"ItemToItem";
+        entityMapping.mappingType = NSCopyEntityMappingType;
+        entityMapping.sourceEntityName = @"Item";
+        entityMapping.destinationEntityName = @"Item";
+        entityMapping.sourceEntityVersionHash = [source.entitiesByName[@"Item"] versionHash];
+        entityMapping.destinationEntityVersionHash = [destination.entitiesByName[@"Item"] versionHash];
+        entityMapping.sourceExpression = [NSExpression expressionWithFormat:
+            @"FETCH(FUNCTION($manager, \"fetchRequestForSourceEntityNamed:predicateString:\" , \"Item\", \"TRUEPREDICATE\"), $manager.sourceContext, NO)"];
+        NSMutableArray *propertyMappings = [NSMutableArray array];
+        for (NSString *name in @[ @"name", @"data" ]) {
+            NSPropertyMapping *propertyMapping = [[NSPropertyMapping alloc] init];
+            propertyMapping.name = name;
+            propertyMapping.valueExpression = [NSExpression expressionWithFormat:[NSString stringWithFormat:@"$source.%@", name]];
+            [propertyMappings addObject:propertyMapping];
+        }
+        entityMapping.attributeMappings = propertyMappings;
+        NSMappingModel *mapping = [[NSMappingModel alloc] init];
+        mapping.entityMappings = @[ entityMapping ];
+
+        NSURL *sourceURL = self.storeURL;
+        NSURL *destinationURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                    [[[NSProcessInfo processInfo] globallyUniqueString] stringByAppendingPathExtension:@"sqlite"]]];
+        NSMigrationManager *manager = [[NSMigrationManager alloc] initWithSourceModel:source destinationModel:destination];
+        NSError *error = nil;
+        XCTAssertTrue([manager migrateStoreFromURL:sourceURL type:NSSQLiteStoreType options:nil withMappingModel:mapping
+                                  toDestinationURL:destinationURL destinationType:NSSQLiteStoreType destinationOptions:nil error:&error], @"%@", error);
+        manager = nil;
+
+        self.storeURL = destinationURL;
+        NSDictionary *stored = [self storedItemData];
+        XCTAssertEqualObjects(stored[@"none"], [NSNull null]);
+        if (into) {
+            XCTAssertEqualObjects(stored[@"small"], ([@"\001ssssssssss" dataUsingEncoding:NSASCIIStringEncoding]));
+            XCTAssertEqual([stored[@"starts2"] length], (NSUInteger)41);
+            XCTAssertEqual(((const uint8_t *)[stored[@"large"] bytes])[0], 2);
+            XCTAssertEqual([[self externalFiles] count], (NSUInteger)1);
+        } else {
+            XCTAssertEqualObjects(stored[@"starts1"], migratedValues()[@"starts1"]);
+            XCTAssertEqualObjects(stored[@"large"], migratedValues()[@"large"]);
+            XCTAssertEqual([[self externalFiles] count], (NSUInteger)0);
+        }
+        [self assertItemsReadBackWithModel:destination options:nil skippingNone:NO];
+
+        [self removeStoreFilesAtURL:sourceURL];
+        NSString *sourcePath = [sourceURL path];
+        [[NSFileManager defaultManager] removeItemAtPath:[[sourcePath stringByDeletingLastPathComponent] stringByAppendingPathComponent:
+            [NSString stringWithFormat:@".%@_SUPPORT", [[sourcePath lastPathComponent] stringByDeletingPathExtension]]] error:NULL];
+        [self removeStoreFilesAtURL:destinationURL];
+        self.storeURL = sourceURL;
+    }
+}
+
+/* Inferred, a migration into external storage keeps every value, each now
+   with its byte in front (Apple's turns a nil value into empty data; this
+   one leaves it nil). */
+- (void)testAnInferredMigrationIntoExternalStorageKeepsTheValues
+{
+    [self fillItemsWithModel:itemModel(NO)];
+    NSDictionary *automatic = @{ NSMigratePersistentStoresAutomaticallyOption : @YES, NSInferMappingModelAutomaticallyOption : @YES };
+    BOOL apples = (NSClassFromString(@"NSSQLitePersistentStore") == nil);
+    [self assertItemsReadBackWithModel:itemModel(YES) options:automatic skippingNone:apples];
+
+    NSDictionary *stored = [self storedItemData];
+    for (NSString *name in @[ @"small", @"starts1", @"starts2", @"large" ]) {
+        uint8_t marker = ((const uint8_t *)[stored[name] bytes])[0];
+        XCTAssertTrue(marker == 1 || marker == 2, @"%@ is marked", name);
+    }
+}
+
+/* Inferred, a migration out of external storage is refused, as Apple
+   refuses it - even with no value kept outside - and the store is left as
+   it was; a mapping model of one's own does it. */
+- (void)testAnInferredMigrationOutOfExternalStorageIsRefused
+{
+    [self fillItemsWithModel:itemModel(YES)];
+    NSDictionary *before = [self storedItemData];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:itemModel(NO)];
+    NSDictionary *automatic = @{ NSMigratePersistentStoresAutomaticallyOption : @YES, NSInferMappingModelAutomaticallyOption : @YES };
+    NSError *error = nil;
+    NSPersistentStore *store = [coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:self.storeURL
+                                                               options:automatic error:&error];
+    XCTAssertNil(store);
+    XCTAssertEqual(error.code, (NSInteger)NSMigrationMissingMappingModelError);
+    XCTAssertEqual([error.userInfo[NSUnderlyingErrorKey] code], (NSInteger)NSInferredMappingModelError);
+    XCTAssertEqualObjects([self storedItemData], before);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)1);
+}
+
 - (void)testMetadataContainsTypeUUIDAndVersionHashes
 {
     [self populateStore];
