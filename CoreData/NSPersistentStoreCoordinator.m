@@ -21,6 +21,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSRelationshipDescription.h>
 #import "NSInMemoryPersistentStore.h"
 #import "NSSQLitePersistentStore.h"
+#import <CoreData/CDExternalDataStore.h>
 #import "NSManagedObjectID-Private.h"
 #import "NSDerivedAttributeDescription-Private.h"
 #import "NSPersistentHistory-Private.h"
@@ -543,6 +544,14 @@ static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,
 -(BOOL)destroyPersistentStoreAtURL:(NSURL *)URL withType:(NSString *)storeType options:(NSDictionary *)options error:(NSError **)error {
    Class storeClass=[[[self class] registeredStoreTypes] objectForKey:storeType];
 
+   /* External values kept where the options say: taken away too, where
+      they can be. */
+   id external=[options objectForKey:CDExternalDataStoreOption];
+
+   if([external respondsToSelector:@selector(removeAllDataWithError:)] &&
+      ![(id<CDExternalDataStore>)external removeAllDataWithError:error])
+    return NO;
+
    if([storeType isEqualToString:NSSQLiteStoreType])
     return [NSSQLitePersistentStore _destroyStoreAtURL:URL error:error];
    if([storeClass respondsToSelector:@selector(destroyStoreAtURL:options:error:)])
@@ -555,11 +564,16 @@ static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,
 -(BOOL)replacePersistentStoreAtURL:(NSURL *)destinationURL destinationOptions:(NSDictionary *)destinationOptions withPersistentStoreFromURL:(NSURL *)sourceURL sourceOptions:(NSDictionary *)sourceOptions storeType:(NSString *)storeType error:(NSError **)error {
    NSFileManager *files=[NSFileManager defaultManager];
 
-   if([storeType isEqualToString:NSSQLiteStoreType])
+   /* External values kept elsewhere than beside the files: a copy of the
+      files would name the source's, so the objects are copied instead. */
+   BOOL externalElsewhere=([sourceOptions objectForKey:CDExternalDataStoreOption]!=nil ||
+                           [destinationOptions objectForKey:CDExternalDataStoreOption]!=nil);
+
+   if([storeType isEqualToString:NSSQLiteStoreType] && !externalElsewhere)
     return [NSSQLitePersistentStore _replaceStoreAtURL:destinationURL withStoreAtURL:sourceURL error:error];
 
    /* A store kept in a file: the file copied. */
-   if([sourceURL isFileURL] && [destinationURL isFileURL]){
+   if([sourceURL isFileURL] && [destinationURL isFileURL] && ![storeType isEqualToString:NSSQLiteStoreType]){
     if(![files fileExistsAtPath:[sourceURL path]]){
      if(error!=NULL)
       *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadNoSuchFileError userInfo:[NSDictionary dictionaryWithObject:[sourceURL path] forKey:NSFilePathErrorKey]];
@@ -569,9 +583,21 @@ static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,
     return [files copyItemAtPath:[sourceURL path] toPath:[destinationURL path] error:error];
    }
 
-   /* Any other (a database on a server): the destination emptied, then
-      given every object of the source, through a coordinator of its own. */
-   if(![self destroyPersistentStoreAtURL:destinationURL withType:storeType options:destinationOptions error:error])
+   /* Any other (a database on a server, or values kept elsewhere): the
+      destination emptied, then given every object of the source, through
+      a coordinator of its own.  When both keep their values in one
+      external data store, what is kept there stays: the source's are
+      among it. */
+   NSDictionary *emptying=destinationOptions;
+   id            external=[destinationOptions objectForKey:CDExternalDataStoreOption];
+
+   if(external!=nil && external==[sourceOptions objectForKey:CDExternalDataStoreOption]){
+    NSMutableDictionary *withoutExternal=[NSMutableDictionary dictionaryWithDictionary:destinationOptions];
+
+    [withoutExternal removeObjectForKey:CDExternalDataStoreOption];
+    emptying=withoutExternal;
+   }
+   if(![self destroyPersistentStoreAtURL:destinationURL withType:storeType options:emptying error:error])
     return NO;
 
    NSPersistentStoreCoordinator *copier=[[[self class] alloc] initWithManagedObjectModel:_model];

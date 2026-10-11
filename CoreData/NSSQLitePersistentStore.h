@@ -48,12 +48,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
        is used only if none has been made since (see -_writeGeneration). */
     unsigned long long _writeGeneration;
 
-    /* External binary data (see allowsExternalBinaryDataStorage): the
-       files the request being executed has written, taken away again if
-       it fails, and those of the values it replaced or deleted, taken
+    /* External binary data (see allowsExternalBinaryDataStorage): where
+       it is kept (CDExternalDataStoreOption, or files beside the store),
+       the names the request being executed has written, taken away again
+       if it fails, and those of the values it replaced or deleted, taken
        away when it succeeds. */
-    NSMutableArray *_externalFilesWritten;
-    NSMutableArray *_externalFilesReleased;
+    id _externalDataStore;
+    NSMutableArray *_externalDataWritten;
+    NSMutableArray *_externalDataReleased;
 
     /* Saves to go before the free pages are looked at again (see
        -_givePagesBackAfterSave). */

@@ -14,6 +14,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSEntityDescription.h>
 #import <CoreData/NSExpressionDescription.h>
 #import <CoreData/NSFetchIndexDescription.h>
+#import <CoreData/CDExternalDataStore.h>
 #import <CoreData/NSFetchIndexElementDescription.h>
 #import <CoreData/NSFetchRequest.h>
 #import <CoreData/NSFetchedResultsController.h>

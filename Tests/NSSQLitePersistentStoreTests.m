@@ -20,6 +20,55 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "VersioningTestModels.h"
 #import <sqlite3.h>
 
+/* FreeCoreData's, declared here when building against Apple's. */
+#if __has_include(<CoreData/CDExternalDataStore.h>)
+#import <CoreData/CDExternalDataStore.h>
+#else
+@protocol CDExternalDataStore <NSObject>
+- (BOOL)writeData:(NSData *)data named:(NSString *)name error:(NSError **)error;
+- (NSData *)dataNamed:(NSString *)name;
+- (BOOL)removeDataNamed:(NSString *)name error:(NSError **)error;
+@optional
+- (BOOL)removeAllDataWithError:(NSError **)error;
+@end
+#endif
+
+/* Values kept in memory: what a store keeping its external values in S3,
+   say, looks like to it. */
+@interface MemoryExternalDataStore : NSObject <CDExternalDataStore>
+@property (nonatomic, strong) NSMutableDictionary *kept;
+@property (nonatomic, assign) int removedAll;
+@end
+
+@implementation MemoryExternalDataStore
+- (instancetype)init
+{
+    if ((self = [super init]) != nil)
+        _kept = [NSMutableDictionary dictionary];
+    return self;
+}
+- (BOOL)writeData:(NSData *)data named:(NSString *)name error:(NSError **)error
+{
+    self.kept[name] = [data copy];
+    return YES;
+}
+- (NSData *)dataNamed:(NSString *)name
+{
+    return self.kept[name];
+}
+- (BOOL)removeDataNamed:(NSString *)name error:(NSError **)error
+{
+    [self.kept removeObjectForKey:name];
+    return YES;
+}
+- (BOOL)removeAllDataWithError:(NSError **)error
+{
+    self.removedAll++;
+    [self.kept removeAllObjects];
+    return YES;
+}
+@end
+
 @interface NSSQLitePersistentStoreTests : XCTestCase
 
 @property (nonatomic, strong) NSURL *storeURL;
@@ -741,6 +790,43 @@ static NSData *filledData(NSUInteger length, char fill)
     XCTAssertTrue([coordinator destroyPersistentStoreAtURL:y withType:NSXMLStoreType options:nil error:&error], @"%@", error);
     XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:[y path]]);
     [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* A store told where to keep its external values (CDExternalDataStoreOption,
+   FreeCoreData's) keeps them there rather than in files beside it, and
+   lets go of them there as it does of its files. */
+- (void)testExternalValuesAreKeptWhereTheOptionsSay
+{
+    if (NSClassFromString(@"CDFileExternalDataStore") == nil)
+        return;
+
+    MemoryExternalDataStore *memory = [[MemoryExternalDataStore alloc] init];
+    NSDictionary *options = @{ @"CDExternalDataStoreOption" : memory };
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:options];
+    NSManagedObject *attachment = [self insertAttachmentNamed:@"a" data:filledData(200000, 'a') inContext:context];
+    [self insertAttachmentNamed:@"small" data:filledData(10, 's') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)1);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)0, @"no files beside the store");
+    NSData *stored = [self storedDataOfAttachmentNamed:@"a"];
+    NSString *name = [[NSString alloc] initWithBytes:(const uint8_t *)[stored bytes] + 1 length:36 encoding:NSASCIIStringEncoding];
+    XCTAssertEqualObjects([memory.kept allKeys], @[ name ]);
+
+    NSManagedObjectContext *reopened = [self contextWithModel:attachmentModel(NO) options:options];
+    XCTAssertEqualObjects([[self attachmentNamed:@"a" inContext:reopened] valueForKey:@"data"], filledData(200000, 'a'));
+
+    [attachment setValue:filledData(300000, 'b') forKey:@"data"];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)1);
+    XCTAssertNil(memory.kept[name], @"the value written over is let go of");
+    [context deleteObject:attachment];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)0);
+
+    [self closeStoreOf:context];
+    [self closeStoreOf:reopened];
+    XCTAssertTrue([context.persistentStoreCoordinator destroyPersistentStoreAtURL:self.storeURL withType:NSSQLiteStoreType options:options error:NULL]);
+    XCTAssertEqual(memory.removedAll, 1);
 }
 
 - (void)testMetadataContainsTypeUUIDAndVersionHashes
