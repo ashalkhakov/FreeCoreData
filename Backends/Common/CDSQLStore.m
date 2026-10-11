@@ -3801,14 +3801,19 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
 
    /* What an updated row holds for its external values now: a value the
       object has not changed keeps what it is kept under, unless the
-      object's value says it is kept under another name. */
+      object's value says it is kept under another name.  Read locking
+      the row (FOR UPDATE): no one changes what it names before this
+      request writes it, and the read takes no snapshot - MariaDB 11.6 on
+      (innodb_snapshot_isolation) refuses a write to a row changed since
+      a transaction's snapshot with an error, where the conditional
+      update below should find no row and report a conflict. */
    if(!isInsert && [externalAttributes count]>0){
     NSMutableArray *columns=[NSMutableArray array];
 
     for(NSAttributeDescription *attribute in externalAttributes)
      [columns addObject:quoted(columnNameForProperty([attribute name]))];
 
-    id<CDSQLResult> stored=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" = %lld",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),primaryKey] parameters:nil error:error];
+    id<CDSQLResult> stored=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" = %lld FOR UPDATE",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),primaryKey] parameters:nil error:error];
     NSUInteger      i;
 
     if(stored==nil)
@@ -4538,7 +4543,8 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    for(NSAttributeDescription *attribute in attributes)
     [columns addObject:quoted(columnNameForProperty([attribute name]))];
 
-   id<CDSQLResult> result=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),whereSQL] parameters:nil error:error];
+   /* Locking, as the row writer's read is, and for the same reasons. */
+   id<CDSQLResult> result=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@ FOR UPDATE",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),whereSQL] parameters:nil error:error];
    int             row,column;
 
    if(result==nil)
