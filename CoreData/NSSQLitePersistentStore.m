@@ -477,8 +477,8 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
    a value larger than 128 KiB - 2 and the name of a file in
    .<name>_SUPPORT/_EXTERNAL_DATA, a UUID ending in a NUL. */
 enum {
-   CDExternalDataInline=1,
-   CDExternalDataReference=2,
+   CDExternalMarkerInline=1,
+   CDExternalMarkerReference=2,
    CDExternalDataThreshold=131072,
 };
 
@@ -500,7 +500,7 @@ static NSString *externalReferenceName(const void *bytes,NSUInteger length){
    const uint8_t *stored=bytes;
    NSUInteger     end=1;
 
-   if(length<2 || stored[0]!=CDExternalDataReference)
+   if(length<2 || stored[0]!=CDExternalMarkerReference)
     return nil;
    while(end<length && stored[end]!=0)
     end++;
@@ -3606,7 +3606,7 @@ static long long pragmaValue(sqlite3 *database,NSString *pragma){
    id<CDExternalDataStore> external=[self _externalDataStore];
 
    if([value length]<=CDExternalDataThreshold){
-    marker=CDExternalDataInline;
+    marker=CDExternalMarkerInline;
     stored=[NSMutableData dataWithCapacity:[value length]+1];
     [stored appendBytes:&marker length:1];
     [stored appendData:value];
@@ -3617,17 +3617,17 @@ static long long pragmaValue(sqlite3 *database,NSString *pragma){
 
    /* A value read from this store, given to another row, is a copy of
       what is kept: its bytes need not be read for it. */
-   if([value isKindOfClass:[CDExternalReferenceData class]] &&
-      [(CDExternalReferenceData *)value _externalDataStore]==external &&
+   if([value conformsToProtocol:@protocol(CDExternalDataReference)] &&
+      [(id<CDExternalDataReference>)value externalDataStore]==external &&
       [external respondsToSelector:@selector(copyDataNamed:toName:error:)]){
-    if(![external copyDataNamed:[(CDExternalReferenceData *)value _externalDataName] toName:name error:error])
+    if(![external copyDataNamed:[(id<CDExternalDataReference>)value externalDataName] toName:name error:error])
      return nil;
    }
    else if(![external writeData:value named:name error:error])
     return nil;
    [_externalDataWritten addObject:name];
 
-   marker=CDExternalDataReference;
+   marker=CDExternalMarkerReference;
    stored=[NSMutableData dataWithBytes:&marker length:1];
    [stored appendData:[name dataUsingEncoding:NSASCIIStringEncoding]];
    [stored appendBytes:"" length:1];
@@ -3643,7 +3643,7 @@ static long long pragmaValue(sqlite3 *database,NSString *pragma){
 
    if(name!=nil)
     return [[self _externalDataStore] dataNamed:name];
-   if(length>0 && ((const uint8_t *)bytes)[0]==CDExternalDataInline)
+   if(length>0 && ((const uint8_t *)bytes)[0]==CDExternalMarkerInline)
     return [NSData dataWithBytes:(const uint8_t *)bytes+1 length:length-1];
    return [NSData dataWithBytes:bytes length:length];
 }

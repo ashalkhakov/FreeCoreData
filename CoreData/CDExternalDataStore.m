@@ -90,11 +90,11 @@ NSString * const CDExternalDataStoreOption=@"CDExternalDataStoreOption";
    [super dealloc];
 }
 
--(id<CDExternalDataStore>)_externalDataStore {
+-(id<CDExternalDataStore>)externalDataStore {
    return _store;
 }
 
--(NSString *)_externalDataName {
+-(NSString *)externalDataName {
    return _name;
 }
 
@@ -143,8 +143,8 @@ static void raiseMissingExternalFile(void){
    if(other==self)
     return YES;
    if([other isKindOfClass:[CDExternalReferenceData class]] &&
-      [(CDExternalReferenceData *)other _externalDataStore]==_store &&
-      [[(CDExternalReferenceData *)other _externalDataName] isEqualToString:_name])
+      [(CDExternalReferenceData *)other externalDataStore]==_store &&
+      [[(CDExternalReferenceData *)other externalDataName] isEqualToString:_name])
     return YES;
    if([other length]!=[self length])
     return NO;

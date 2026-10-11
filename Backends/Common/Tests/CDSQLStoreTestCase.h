@@ -54,6 +54,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    store given one with CDExternalDataStoreOption. */
 @interface CDSQLMemoryExternalDataStore : NSObject <CDExternalDataStore>
 @property (nonatomic, strong) NSMutableDictionary *kept;
+/* How many writes succeed before every one fails (a network gone), or
+   -1, the default, for none failing. */
+@property (nonatomic, assign) int writesBeforeFailing;
 @end
 
 /* A model with the shapes the store has to get right: every attribute type,

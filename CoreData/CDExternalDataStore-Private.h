@@ -16,7 +16,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    first needed - as Apple's _PFExternalReferenceData: a row that holds
    one costs a name, not the value, until someone looks.  Its length is
    the file's size.  A file gone by then is an exception, Apple's. */
-@interface CDExternalReferenceData : NSData {
+@interface CDExternalReferenceData : NSData <CDExternalDataReference> {
     CDFileExternalDataStore *_store;
     NSString *_name;
     NSData *_contents;
@@ -25,7 +25,5 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 - (instancetype)initWithStore:(CDFileExternalDataStore *)store name:(NSString *)name;
-- (id<CDExternalDataStore>)_externalDataStore;
-- (NSString *)_externalDataName;
 
 @end

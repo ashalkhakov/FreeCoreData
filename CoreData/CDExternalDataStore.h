@@ -25,8 +25,31 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    object kept in S3, say, suits a server.
 
    The store names each value (a UUID) and remembers the name in the
-   row; the external data store keeps the bytes.  It is called from the
-   store's own requests, under the coordinator's lock. */
+   row; the external data store keeps the bytes.
+
+   What an implementation - one keeping its values in S3, say - can rely
+   on, and has to provide:
+
+   - It is called from the store's own requests, on the thread the request
+     runs on, under the coordinator's lock: a call may block (a network
+     round trip), and holds up the store's other requests while it does.
+     It is called from several stores at once if it is given to several.
+   - A value is written before the request that writes its row commits.
+     A write that fails fails the request, and what the request had
+     written is taken away again.
+   - A value let go of (its row deleted, or written over) is taken away
+     only after the request commits.  Failing to take it away fails
+     nothing - the row no longer names it - so it is left over; an
+     implementation that cannot afford that sweeps for names no row
+     holds.
+   - A value it gives back may be read when its bytes are first needed
+     rather than when it is asked for: an NSData subclass answering
+     -bytes and -length (and, on GNUstep, -initWithBytesNoCopy:length:
+     freeWhenDone:, which -[NSData init] calls).  One that cannot read
+     its bytes by then raises.  Adopting CDExternalDataReference lets a
+     store copy it to another row without reading it.
+   - Names are UUID strings in upper case, unique to each value: a prefix
+     of one's own (a key in a bucket) is the implementation's to add. */
 @protocol CDExternalDataStore <NSObject>
 
 /* Keeps data under name.  A value is written before the request that
@@ -53,6 +76,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    written from the value's bytes. */
 - (BOOL)copyDataNamed:(NSString *)name toName:(NSString *)newName error:(NSError **)error;
 
+@end
+
+/* A value an external data store gave back that says where it is kept.
+   Given to another row of a store using the same external data store, it
+   is copied there with -copyDataNamed:toName:error: (a copy made by the
+   server, for S3) instead of being read and written again. */
+@protocol CDExternalDataReference <NSObject>
+- (id<CDExternalDataStore>)externalDataStore;
+- (NSString *)externalDataName;
 @end
 
 /* The option (an object conforming to CDExternalDataStore) that tells a

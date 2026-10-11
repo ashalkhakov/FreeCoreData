@@ -356,13 +356,22 @@ NSManagedObjectModel *CDSQLTestModel(void)
 
 - (instancetype)init
 {
-    if ((self = [super init]) != nil)
+    if ((self = [super init]) != nil) {
         _kept = [NSMutableDictionary dictionary];
+        _writesBeforeFailing = -1;
+    }
     return self;
 }
 
 - (BOOL)writeData:(NSData *)data named:(NSString *)name error:(NSError **)error
 {
+    if (self.writesBeforeFailing == 0) {
+        if (error != NULL)
+            *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil];
+        return NO;
+    }
+    if (self.writesBeforeFailing > 0)
+        self.writesBeforeFailing--;
     self.kept[name] = [data copy];
     return YES;
 }

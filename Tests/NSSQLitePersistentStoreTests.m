@@ -30,8 +30,94 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (BOOL)removeDataNamed:(NSString *)name error:(NSError **)error;
 @optional
 - (BOOL)removeAllDataWithError:(NSError **)error;
+- (BOOL)copyDataNamed:(NSString *)name toName:(NSString *)newName error:(NSError **)error;
+@end
+@protocol CDExternalDataReference <NSObject>
+- (id<CDExternalDataStore>)externalDataStore;
+- (NSString *)externalDataName;
 @end
 #endif
+
+/* Values kept the way a store keeping them in S3 would keep them: read
+   only when their bytes are needed (a GET), copied by the server, and
+   written by requests that can fail. */
+@class RemoteLikeExternalDataStore;
+
+@interface RemoteLikeData : NSData <CDExternalDataReference>
+@property (nonatomic, strong) RemoteLikeExternalDataStore *store;
+@property (nonatomic, copy) NSString *name;
+@end
+
+@interface RemoteLikeExternalDataStore : NSObject <CDExternalDataStore>
+@property (nonatomic, strong) NSMutableDictionary *kept;
+@property (nonatomic, assign) int writes, copies, loads, writesBeforeFailing;
+@end
+
+@implementation RemoteLikeData
+- (instancetype)initWithBytesNoCopy:(void *)bytes length:(NSUInteger)length freeWhenDone:(BOOL)freeWhenDone
+{
+    return self;   /* what GNUstep's -[NSData init] calls */
+}
+- (const void *)bytes
+{
+    self.store.loads++;
+    return [self.store.kept[self.name] bytes];
+}
+- (NSUInteger)length
+{
+    return [self.store.kept[self.name] length];   /* a HEAD, not a GET */
+}
+- (id<CDExternalDataStore>)externalDataStore
+{
+    return self.store;
+}
+- (NSString *)externalDataName
+{
+    return self.name;
+}
+@end
+
+@implementation RemoteLikeExternalDataStore
+- (instancetype)init
+{
+    if ((self = [super init]) != nil) {
+        _kept = [NSMutableDictionary dictionary];
+        _writesBeforeFailing = -1;
+    }
+    return self;
+}
+- (BOOL)writeData:(NSData *)data named:(NSString *)name error:(NSError **)error
+{
+    if (self.writesBeforeFailing == 0) {
+        if (error != NULL)
+            *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil];
+        return NO;
+    }
+    if (self.writesBeforeFailing > 0)
+        self.writesBeforeFailing--;
+    self.writes++;
+    self.kept[name] = [NSData dataWithBytes:[data bytes] length:[data length]];
+    return YES;
+}
+- (NSData *)dataNamed:(NSString *)name
+{
+    RemoteLikeData *data = [[RemoteLikeData alloc] init];
+    data.store = self;
+    data.name = name;
+    return data;
+}
+- (BOOL)removeDataNamed:(NSString *)name error:(NSError **)error
+{
+    [self.kept removeObjectForKey:name];
+    return YES;
+}
+- (BOOL)copyDataNamed:(NSString *)name toName:(NSString *)newName error:(NSError **)error
+{
+    self.copies++;
+    self.kept[newName] = self.kept[name];
+    return YES;
+}
+@end
 
 /* Values kept in memory: what a store keeping its external values in S3,
    say, looks like to it. */
@@ -1006,6 +1092,63 @@ static NSDictionary *migratedValues(void)
     XCTAssertEqual([error.userInfo[NSUnderlyingErrorKey] code], (NSInteger)NSInferredMappingModelError);
     XCTAssertEqualObjects([self storedItemData], before);
     XCTAssertEqual([[self externalFiles] count], (NSUInteger)1);
+}
+
+/* What an external data store that keeps its values remotely (S3, say)
+   needs of a store, shown with one that behaves like it: a value fetched
+   with its row is not downloaded until its bytes are used; one given to
+   another row is copied by the server, not downloaded; and a request
+   whose write fails fails, leaving nothing it wrote behind. */
+- (void)testARemoteExternalDataStoreIsUsedAsItWouldWant
+{
+    if (NSClassFromString(@"CDFileExternalDataStore") == nil)
+        return;
+
+    RemoteLikeExternalDataStore *remote = [[RemoteLikeExternalDataStore alloc] init];
+    NSDictionary *options = @{ @"CDExternalDataStoreOption" : remote };
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:options];
+    [self insertAttachmentNamed:@"a" data:filledData(200000, 'a') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual(remote.writes, 1);
+
+    NSManagedObjectContext *reader = [self contextWithModel:attachmentModel(NO) options:options];
+    NSData *value = [[self attachmentNamed:@"a" inContext:reader] valueForKey:@"data"];
+    XCTAssertEqual([value length], (NSUInteger)200000);
+    XCTAssertEqual(remote.loads, 0, @"fetched, not downloaded");
+
+    [self insertAttachmentNamed:@"b" data:value inContext:reader];
+    XCTAssertTrue([reader save:NULL]);
+    XCTAssertEqual(remote.copies, 1);
+    XCTAssertEqual(remote.writes, 1, @"copied by the server");
+    XCTAssertEqual(remote.loads, 0, @"and still not downloaded");
+    XCTAssertEqual([remote.kept count], (NSUInteger)2);
+
+    XCTAssertEqualObjects(value, filledData(200000, 'a'));
+    XCTAssertGreaterThan(remote.loads, 0, @"downloaded when its bytes are used");
+
+    remote.writesBeforeFailing = 1;
+    [self insertAttachmentNamed:@"c" data:filledData(200000, 'c') inContext:reader];
+    [self insertAttachmentNamed:@"d" data:filledData(200000, 'd') inContext:reader];
+    NSError *error = nil;
+    XCTAssertFalse([reader save:&error]);
+    XCTAssertEqual(error.code, (NSInteger)NSURLErrorTimedOut);
+    XCTAssertEqual([remote.kept count], (NSUInteger)2, @"what the failed save wrote is gone again");
+    XCTAssertEqual([[[self storedItemNames] allObjects] count], (NSUInteger)2, @"and no row was written");
+}
+
+- (NSSet *)storedItemNames
+{
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    NSMutableSet *names = [NSMutableSet set];
+
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    sqlite3_prepare_v2(database, "SELECT ZNAME FROM ZATTACHMENT", -1, &statement, NULL);
+    while (sqlite3_step(statement) == SQLITE_ROW)
+        [names addObject:[NSString stringWithUTF8String:(const char *)sqlite3_column_text(statement, 0)]];
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return names;
 }
 
 - (void)testMetadataContainsTypeUUIDAndVersionHashes
