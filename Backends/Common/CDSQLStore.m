@@ -984,6 +984,62 @@ static BOOL historySupportedByFramework(void){
 }
 
 /* ------------------------------------------------------------------ */
+#pragma mark - External binary data
+/* ------------------------------------------------------------------ */
+
+/* Where a store keeps the values it keeps outside its rows: FreeCoreData's
+   CDExternalDataStore, given with CDExternalDataStoreOption.  Declared
+   here, as the history additions are, when building against Apple's
+   framework, which has neither; there no store is ever given one. */
+#if !__has_include(<CoreData/CDExternalDataStore.h>)
+@protocol CDExternalDataStore <NSObject>
+- (BOOL)writeData:(NSData *)data named:(NSString *)name error:(NSError **)error;
+- (NSData *)dataNamed:(NSString *)name;
+- (BOOL)removeDataNamed:(NSString *)name error:(NSError **)error;
+@optional
+- (BOOL)removeAllDataWithError:(NSError **)error;
+- (BOOL)copyDataNamed:(NSString *)name toName:(NSString *)newName error:(NSError **)error;
+@end
+#endif
+
+/* A value an external data store gave, which knows where it is kept (the
+   file store's do): given to another row, it is copied there rather than
+   read and written again. */
+@interface NSData (CDExternalReference)
+-(id)_externalDataStore;
+-(NSString *)_externalDataName;
+@end
+
+/* A Binary Data attribute that allows external storage keeps every value
+   with a byte in front, as the SQLite store does (Apple's format): 1 and
+   the bytes, or - for a value larger than 128 KiB, when the store has an
+   external data store - 2 and the name it is kept under, ending in a NUL.
+   Without one every value is kept in its row. */
+enum {
+   CDExternalDataInline=1,
+   CDExternalDataReference=2,
+   CDExternalDataThreshold=131072,
+};
+
+static BOOL attributeStoresExternally(NSPropertyDescription *property){
+   return [property isKindOfClass:[NSAttributeDescription class]] &&
+          [(NSAttributeDescription *)property attributeType]==NSBinaryDataAttributeType &&
+          [(NSAttributeDescription *)property allowsExternalBinaryDataStorage];
+}
+
+/* The name stored bytes hold, or nil when they hold none. */
+static NSString *externalReferenceName(NSData *stored){
+   const uint8_t *bytes=[stored bytes];
+   NSUInteger     length=[stored length],end=1;
+
+   if(length<2 || bytes[0]!=CDExternalDataReference)
+    return nil;
+   while(end<length && bytes[end]!=0)
+    end++;
+   return [[[NSString alloc] initWithBytes:bytes+1 length:end-1 encoding:NSASCIIStringEncoding] autorelease];
+}
+
+/* ------------------------------------------------------------------ */
 #pragma mark - Batch results
 /* ------------------------------------------------------------------ */
 
@@ -1112,6 +1168,9 @@ static BOOL historySupportedByFramework(void){
    [_entityIDs release];
    [_entityNamesByID release];
    [_rowVersions release];
+   [_externalDataStore release];
+   [_externalDataWritten release];
+   [_externalDataReleased release];
    [super dealloc];
 }
 
@@ -3199,8 +3258,11 @@ static NSString * const CDSQLOuterAlias=@"t0";
 
      NSNumber *declaredType=[resultTypesByName objectForKey:name];
 
-     if([property isKindOfClass:[NSAttributeDescription class]])
+     if([property isKindOfClass:[NSAttributeDescription class]]){
       value=attributeValueFromResult(result,(int)i,(int)column,(NSAttributeDescription *)property);
+      if(value!=nil && attributeStoresExternally(property))
+       value=[self _valueOfStoredExternalData:value];
+     }
      else if(declaredType!=nil && [declaredType unsignedIntegerValue]!=NSUndefinedAttributeType){
       NSAttributeDescription *described=[[[NSAttributeDescription alloc] init] autorelease];
 
@@ -3720,12 +3782,54 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    NSMutableArray      *names=[NSMutableArray array];
    NSMutableArray      *parameters=[NSMutableArray array];
    NSNumber            *expectedVersion=nil;
+   NSArray             *externalAttributes=[self _externalAttributesOfEntity:entity];
+   NSMutableDictionary *storedExternal=[NSMutableDictionary dictionary];
+
+   /* What an updated row holds for its external values now: a value the
+      object has not changed keeps what it is kept under, unless the
+      object's value says it is kept under another name. */
+   if(!isInsert && [externalAttributes count]>0){
+    NSMutableArray *columns=[NSMutableArray array];
+
+    for(NSAttributeDescription *attribute in externalAttributes)
+     [columns addObject:quoted(columnNameForProperty([attribute name]))];
+
+    id<CDSQLResult> stored=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" = %lld",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),primaryKey] parameters:nil error:error];
+    NSUInteger      i;
+
+    if(stored==nil)
+     return NO;
+    if([stored rowCount]>0)
+     for(i=0;i<[externalAttributes count];i++)
+      if(![stored isNullAtRow:0 column:i])
+       [storedExternal setObject:[stored dataAtRow:0 column:i] forKey:[[externalAttributes objectAtIndex:i] name]];
+   }
 
    for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
     NSPropertyDescription *property=[properties objectForKey:name];
     id                     text=nil;
 
-    if([property isKindOfClass:[NSAttributeDescription class]]){
+    if(attributeStoresExternally(property)){
+     NSData   *stored=[storedExternal objectForKey:name];
+     NSString *storedName=externalReferenceName(stored);
+     id        current=[object valueForKey:name];
+
+     if(storedName!=nil && [[object changedValues] objectForKey:name]==nil &&
+        (![current respondsToSelector:@selector(_externalDataName)] || [[current _externalDataName] isEqualToString:storedName]))
+      text=parameterFromData(stored);
+     else {
+      if(storedName!=nil)
+       [_externalDataReleased addObject:storedName];
+      if(current!=nil){
+       NSData *encoded=[self _storedExternalValue:current error:error];
+
+       if(encoded==nil)
+        return NO;
+       text=parameterFromData(encoded);
+      }
+     }
+    }
+    else if([property isKindOfClass:[NSAttributeDescription class]]){
      NSAttributeDescription *attribute=(NSAttributeDescription *)property;
 
      /* A generated column is computed by PostgreSQL and cannot be
@@ -3854,6 +3958,11 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
       return NO;
     }
    }
+
+   /* What its external values are kept under goes when the request does. */
+   if(![self _releaseExternalDataOfAttributes:[self _externalAttributesOfEntity:entity] entity:entity
+                                        where:[NSString stringWithFormat:@"\"Z_PK\" = %lld",primaryKey] error:error])
+    return NO;
 
    NSString *sql=[NSString stringWithFormat:@"DELETE FROM %@ WHERE \"Z_PK\" = %lld",quoted(tableNameForEntity(entity)),primaryKey];
 
@@ -4100,6 +4209,13 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
      if(value==nil)
       continue;
 
+     /* Each row its own, as a save would write it. */
+     if(attributeStoresExternally(attribute) && value!=[NSNull null] &&
+        (value=[self _storedExternalValue:value error:error])==nil){
+      [self command:@"ROLLBACK" parameters:nil error:NULL];
+      return nil;
+     }
+
      id text=(value==[NSNull null])?nil:textParameterForAttribute(attribute,value);
 
      [columns addObject:quoted(columnNameForProperty(name))];
@@ -4159,6 +4275,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    NSDictionary   *updates=[request propertiesToUpdate];
    NSMutableArray *assignments=[NSMutableArray arrayWithObject:@"\"Z_OPT\" = \"Z_OPT\" + 1"];
    NSMutableArray *parameters=[NSMutableArray array];
+   NSMapTable     *externalUpdates=[NSMapTable strongToStrongObjectsMapTable];
 
    for(id key in updates){
     NSString              *name=[key isKindOfClass:[NSPropertyDescription class]]?[(NSPropertyDescription *)key name]:(NSString *)key;
@@ -4174,6 +4291,13 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
 
     if([value isKindOfClass:[NSExpression class]])
      value=[(NSExpression *)value expressionValueWithObject:nil context:nil];
+
+    /* Written row by row below: no two rows may share what a value is
+       kept under. */
+    if(attributeStoresExternally(property)){
+     [externalUpdates setObject:(value!=nil)?value:(id)[NSNull null] forKey:property];
+     continue;
+    }
 
     id text=(value==nil || value==[NSNull null])?nil:textParameterForAttribute((NSAttributeDescription *)property,value);
 
@@ -4200,6 +4324,28 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     if(![self command:sql parameters:parameters error:error]){
      [self command:@"ROLLBACK" parameters:nil error:NULL];
      return nil;
+    }
+
+    /* The external values: what the chunk's were kept under goes when the
+       request succeeds, and each row is given the value of its own. */
+    for(NSAttributeDescription *attribute in externalUpdates){
+     id value=[externalUpdates objectForKey:attribute];
+
+     if(![self _releaseExternalDataOfAttributes:[NSArray arrayWithObject:attribute] entity:entity
+                                          where:[NSString stringWithFormat:@"\"Z_PK\" IN (%@)",[keys componentsJoinedByString:@", "]] error:error]){
+      [self command:@"ROLLBACK" parameters:nil error:NULL];
+      return nil;
+     }
+     for(NSString *key in keys){
+      NSData *stored=(value==[NSNull null])?nil:[self _storedExternalValue:value error:error];
+
+      if((value!=[NSNull null] && stored==nil) ||
+         ![self command:[NSString stringWithFormat:@"UPDATE %@ SET %@ = $1 WHERE \"Z_PK\" = %@",quoted(tableNameForEntity(entity)),quoted(columnNameForProperty([attribute name])),key]
+             parameters:[NSArray arrayWithObject:(stored!=nil)?parameterFromData(stored):(id)[NSNull null]] error:error]){
+       [self command:@"ROLLBACK" parameters:nil error:NULL];
+       return nil;
+      }
+     }
     }
    }
 
@@ -4290,11 +4436,140 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    }
 }
 
--(id)executeRequest:(NSPersistentStoreRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
-   /* A write: rows read ahead before it may be old now. */
-   if([request requestType]!=NSFetchRequestType)
-    _writeGeneration++;
+/* -- External binary data ------------------------------------------- */
 
+-(id<CDExternalDataStore>)_externalDataStore {
+   if(_externalDataStore==nil){
+    id given=[[self options] objectForKey:@"CDExternalDataStoreOption"];
+
+    if([given conformsToProtocol:@protocol(CDExternalDataStore)])
+     _externalDataStore=[given retain];
+   }
+   return _externalDataStore;
+}
+
+/* What is stored for value of an attribute that allows external storage:
+   the bytes in the row, or the name they are kept under elsewhere. */
+-(NSData *)_storedExternalValue:(NSData *)value error:(NSError **)error {
+   id<CDExternalDataStore> external=[self _externalDataStore];
+   NSMutableData          *stored;
+   uint8_t                 marker;
+
+   if(external==nil || [value length]<=CDExternalDataThreshold){
+    marker=CDExternalDataInline;
+    stored=[NSMutableData dataWithCapacity:[value length]+1];
+    [stored appendBytes:&marker length:1];
+    [stored appendData:value];
+    return stored;
+   }
+
+   NSString *name=[[NSUUID UUID] UUIDString];
+
+   if([value respondsToSelector:@selector(_externalDataStore)] && [value _externalDataStore]==external &&
+      [external respondsToSelector:@selector(copyDataNamed:toName:error:)]){
+    if(![external copyDataNamed:[value _externalDataName] toName:name error:error])
+     return nil;
+   }
+   else if(![external writeData:value named:name error:error])
+    return nil;
+   [_externalDataWritten addObject:name];
+
+   marker=CDExternalDataReference;
+   stored=[NSMutableData dataWithBytes:&marker length:1];
+   [stored appendData:[name dataUsingEncoding:NSASCIIStringEncoding]];
+   [stored appendBytes:"" length:1];
+   return stored;
+}
+
+/* The value stored bytes stand for.  Bytes with no marker are a value
+   stored before the attribute allowed external storage. */
+-(NSData *)_valueOfStoredExternalData:(NSData *)stored {
+   NSString *name=externalReferenceName(stored);
+
+   if(name!=nil){
+    id<CDExternalDataStore> external=[self _externalDataStore];
+
+    if(external==nil)
+     NSLog(@"%@: a value is kept under %@ elsewhere, but the store was given no CDExternalDataStoreOption",[self type],name);
+    return [external dataNamed:name];
+   }
+   if([stored length]>0 && ((const uint8_t *)[stored bytes])[0]==CDExternalDataInline)
+    return [stored subdataWithRange:NSMakeRange(1,[stored length]-1)];
+   return stored;
+}
+
+/* The attributes of entity, and of its subentities, that allow external
+   storage. */
+-(NSArray *)_externalAttributesOfEntity:(NSEntityDescription *)entity {
+   NSMutableDictionary *properties=[NSMutableDictionary dictionary];
+   NSMutableArray      *result=[NSMutableArray array];
+
+   collectPropertiesOfEntityChain(entity,properties);
+   collectPropertiesOfEntitySubtree(entity,properties);
+   for(NSPropertyDescription *property in [properties allValues])
+    if(attributeStoresExternally(property))
+     [result addObject:property];
+   return result;
+}
+
+/* The names the rows of entity's table that whereSQL picks keep their
+   values under, let go of when the request succeeds: the rows are being
+   deleted, or these values written over. */
+-(BOOL)_releaseExternalDataOfAttributes:(NSArray *)attributes entity:(NSEntityDescription *)entity where:(NSString *)whereSQL error:(NSError **)error {
+   if([attributes count]==0 || [self _externalDataStore]==nil)
+    return YES;
+
+   NSMutableArray *columns=[NSMutableArray array];
+
+   for(NSAttributeDescription *attribute in attributes)
+    [columns addObject:quoted(columnNameForProperty([attribute name]))];
+
+   id<CDSQLResult> result=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),whereSQL] parameters:nil error:error];
+   int             row,column;
+
+   if(result==nil)
+    return NO;
+   for(row=0;row<(int)[result rowCount];row++)
+    for(column=0;column<(int)[columns count];column++)
+     if(![result isNullAtRow:row column:column]){
+      NSString *name=externalReferenceName([result dataAtRow:row column:column]);
+
+      if(name!=nil)
+       [_externalDataReleased addObject:name];
+     }
+   return YES;
+}
+
+/* After a write request: what it wrote goes if it failed, and what it let
+   go of goes if it succeeded. */
+-(void)_finishExternalDataOfRequestSucceeding:(BOOL)succeeded {
+   id<CDExternalDataStore> external=[self _externalDataStore];
+
+   for(NSString *name in (succeeded?_externalDataReleased:_externalDataWritten))
+    [external removeDataNamed:name error:NULL];
+   [_externalDataWritten removeAllObjects];
+   [_externalDataReleased removeAllObjects];
+}
+
+-(id)executeRequest:(NSPersistentStoreRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
+   if([request requestType]==NSFetchRequestType)
+    return [self _executeRequest:request withContext:context error:error];
+
+   /* A write: rows read ahead before it may be old now. */
+   _writeGeneration++;
+
+   if(_externalDataWritten==nil){
+    _externalDataWritten=[[NSMutableArray alloc] init];
+    _externalDataReleased=[[NSMutableArray alloc] init];
+   }
+
+   id result=[self _executeRequest:request withContext:context error:error];
+
+   [self _finishExternalDataOfRequestSucceeding:(result!=nil)];
+   return result;
+}
+
+-(id)_executeRequest:(NSPersistentStoreRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
    switch([request requestType]){
 
     case NSFetchRequestType:
@@ -5451,6 +5726,8 @@ static NSArray *rowNamesOfProperties(NSDictionary *properties){
     if([property isKindOfClass:[NSAttributeDescription class]]){
      id value=attributeValueFromResult(result,row,column,(NSAttributeDescription *)property);
 
+     if(value!=nil && attributeStoresExternally(property))
+      value=[self _valueOfStoredExternalData:value];
      if(value!=nil)
       [values setObject:value forKey:name];
     }

@@ -51,6 +51,14 @@ NSManagedObjectModel *CDSQLTestModel(void)
         [personProperties addObject:attribute];
     }
 
+    /* A Binary Data attribute that allows external storage. */
+    NSAttributeDescription *portrait = [[NSAttributeDescription alloc] init];
+    [portrait setName:@"portrait"];
+    [portrait setAttributeType:NSBinaryDataAttributeType];
+    [portrait setOptional:YES];
+    [portrait setAllowsExternalBinaryDataStorage:YES];
+    [personProperties addObject:portrait];
+
     NSRelationshipDescription *employer = [[NSRelationshipDescription alloc] init];
     [employer setName:@"employer"];
     [employer setDestinationEntity:company];
@@ -340,6 +348,34 @@ NSManagedObjectModel *CDSQLTestModel(void)
     XCTAssertTrue(saved, @"save failed: %@", error);
 
     return saved;
+}
+
+@end
+
+@implementation CDSQLMemoryExternalDataStore
+
+- (instancetype)init
+{
+    if ((self = [super init]) != nil)
+        _kept = [NSMutableDictionary dictionary];
+    return self;
+}
+
+- (BOOL)writeData:(NSData *)data named:(NSString *)name error:(NSError **)error
+{
+    self.kept[name] = [data copy];
+    return YES;
+}
+
+- (NSData *)dataNamed:(NSString *)name
+{
+    return self.kept[name];
+}
+
+- (BOOL)removeDataNamed:(NSString *)name error:(NSError **)error
+{
+    [self.kept removeObjectForKey:name];
+    return YES;
 }
 
 @end

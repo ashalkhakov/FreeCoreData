@@ -48,6 +48,13 @@ extern NSString * const CDSQLStoreMigrateSchemaOption;
     NSMutableDictionary *_entityNamesByID;  /* NSNumber (Z_ENT) -> entity name */
     NSMutableDictionary *_rowVersions;      /* "table/pk" -> NSNumber (Z_OPT) */
     unsigned long long _writeGeneration;    /* writes made, against rows read ahead */
+    /* External binary data, when the options name a CDExternalDataStore:
+       where it is kept, the names the request being executed has
+       written (taken away again if it fails) and those it let go of
+       (taken away when it succeeds). */
+    id _externalDataStore;
+    NSMutableArray *_externalDataWritten;
+    NSMutableArray *_externalDataReleased;
     BOOL _historyTracking;
     BOOL _postsRemoteChangeNotification;
     BOOL _inTransaction;

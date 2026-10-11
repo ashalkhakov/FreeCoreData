@@ -79,6 +79,29 @@ fault. A fetch with a `fetchBatchSize` reads them one batch at a time, as
 Apple's SQLite store does. A row read before the store's last write is not
 used. Apple's framework never calls the two methods.
 
+## External binary data
+
+A Binary Data attribute can allow external storage
+(`allowsExternalBinaryDataStorage`), as in Apple's Core Data, where a SQLite
+store then keeps a value larger than 128 KiB in a file of its own.  Neither
+server has anything to put such a value in but its own tables: PostgreSQL
+keeps a large `bytea` out of line in its TOAST table, and InnoDB a large
+`LONGBLOB` on overflow pages, both already, and neither has a column that is a
+file.  So these stores keep every value in its row, unless they are told
+where else to keep it.
+
+They are told with `CDExternalDataStoreOption`, a FreeCoreData addition: an
+object that keeps bytes under a name, gives them back, and takes them away
+(the `CDExternalDataStore` protocol).  Given one, a store keeps a value over
+128 KiB there and only its name in the row, and lets go of it when the value
+is written over or the row deleted, by a save or a batch request.  On a
+server that might be S3; `CDFileExternalDataStore` keeps them as files in a
+directory.  The column holds the SQLite store's format either way (a byte in
+front of each value: 1 and the bytes, or 2 and the name), so a store can be
+given one later and read what it wrote before.  The protocol is declared in
+the store's source, as the history additions are, so it still builds against
+Apple's CoreData, where nothing gives it one.
+
 ## What the backends share
 
 `Common/` holds the half of a SQL backend that does not depend on which

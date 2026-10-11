@@ -40,6 +40,22 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (BOOL)isPurgeRequest;
 @end
 
+/* Where a store keeps the values it keeps outside its rows: FreeCoreData's,
+   declared here when building against Apple's. */
+#if !__has_include(<CoreData/CDExternalDataStore.h>)
+@protocol CDExternalDataStore <NSObject>
+- (BOOL)writeData:(NSData *)data named:(NSString *)name error:(NSError **)error;
+- (NSData *)dataNamed:(NSString *)name;
+- (BOOL)removeDataNamed:(NSString *)name error:(NSError **)error;
+@end
+#endif
+
+/* Values kept in memory: what an object store such as S3 looks like to a
+   store given one with CDExternalDataStoreOption. */
+@interface CDSQLMemoryExternalDataStore : NSObject <CDExternalDataStore>
+@property (nonatomic, strong) NSMutableDictionary *kept;
+@end
+
 /* A model with the shapes the store has to get right: every attribute type,
    a to-one/to-many pair backed by a foreign key, an ordered to-many, and a
    many-to-many backed by a join table. */
@@ -56,6 +72,8 @@ NSManagedObjectModel *CDSQLTestModel(void);
 @protocol CDSQLCatalogueRows
 - (NSUInteger)rowCount;
 - (NSString *)stringAtRow:(NSUInteger)row column:(NSUInteger)column;
+- (BOOL)isNullAtRow:(NSUInteger)row column:(NSUInteger)column;
+- (NSData *)dataAtRow:(NSUInteger)row column:(NSUInteger)column;
 @end
 
 @interface CDSQLStoreTestCase : XCTestCase
