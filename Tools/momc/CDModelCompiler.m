@@ -289,6 +289,10 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
         out of the same file. */
      if(boolAttr(attributeElement,@"preserveAfterDeletion"))
       [attribute setPreservesValueInHistoryOnDeletion:YES];
+     /* "Allows External Storage", which Xcode's modeler offers for Binary
+        Data. */
+     if(boolAttr(attributeElement,@"allowsExternalBinaryDataStorage"))
+      [attribute setAllowsExternalBinaryDataStorage:YES];
      if(attr(attributeElement,@"versionHashModifier")!=nil)
       [attribute setVersionHashModifier:attr(attributeElement,@"versionHashModifier")];
      if(attr(attributeElement,@"valueTransformerName")!=nil)

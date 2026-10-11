@@ -11,7 +11,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSIncrementalStore.h>
 
-@class NSMutableDictionary, NSDictionary, NSString, NSURL, NSError;
+@class NSMutableDictionary, NSMutableArray, NSDictionary, NSString, NSURL, NSError;
 
 /* SQLite-backed incremental store (NSSQLiteStoreType).
 
@@ -47,6 +47,34 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     /* How many writes the store has made: a row a fetch handed an object
        is used only if none has been made since (see -_writeGeneration). */
     unsigned long long _writeGeneration;
+
+    /* External binary data (see allowsExternalBinaryDataStorage): where
+       it is kept (CDExternalDataStoreOption, or files beside the store),
+       the names the request being executed has written, taken away again
+       if it fails, and those of the values it replaced or deleted, taken
+       away when it succeeds. */
+    id _externalDataStore;
+    NSMutableArray *_externalDataWritten;
+    NSMutableArray *_externalDataReleased;
+
+    /* Saves to go before the free pages are looked at again (see
+       -_givePagesBackAfterSave). */
+    long long _savesBeforeMaintenance;
 }
 
 @end
+
+/* For the coordinator's -destroyPersistentStoreAtURL:... and
+   -replacePersistentStoreAtURL:...: a store's database emptied in its
+   file, or made a copy of another's, through SQLite's backup (so that
+   connections open to it stay good), and what is kept beside the file
+   taken away or copied too. */
+@interface NSSQLitePersistentStore (CDStoreFiles)
++ (BOOL)_destroyStoreAtURL:(NSURL *)url error:(NSError **)error;
++ (BOOL)_replaceStoreAtURL:(NSURL *)destination withStoreAtURL:(NSURL *)source error:(NSError **)error;
+@end
+
+/* The directory beside a SQLite store's file that holds what the store
+   keeps outside it - .<name>_SUPPORT, as Apple names it.  It goes where
+   the file goes. */
+NSString *CDSQLiteSupportDirectoryForStoreURL(NSURL *url);

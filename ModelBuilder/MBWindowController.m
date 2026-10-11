@@ -1020,6 +1020,11 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   self.transientCheckbox.state = attr.isTransient ? NSOnState : NSOffState;
   self.preserveCheckbox.state =
       attr.preservesValueInHistoryOnDeletion ? NSOnState : NSOffState;
+  /* As Xcode's: an option of Binary Data alone. */
+  BOOL binary = (attr.attributeType == NSBinaryDataAttributeType);
+  self.externalStorageCheckbox.enabled = binary;
+  self.externalStorageCheckbox.state =
+      (binary && attr.allowsExternalBinaryDataStorage) ? NSOnState : NSOffState;
 
   MBAttributeEditor *editor = [MBAttributeEditor
       editorForAttributeNamed:attr.name
@@ -1766,6 +1771,12 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   NSString *wantedType = self.attributeTypePopup.titleOfSelectedItem;
   BOOL typeChanged = ![wantedType isEqualToString:editor.typeName];
   editor.typeName = wantedType;   /* drops the stale default on change */
+  /* Binary Data alone may be kept outside the store: the option goes
+     when the type does. */
+  BOOL allowsExternal = (editor.attribute.attributeType == NSBinaryDataAttributeType &&
+                         self.externalStorageCheckbox.state == NSOnState);
+  if (allowsExternal != editor.allowsExternalBinaryDataStorage)
+    editor.allowsExternalBinaryDataStorage = allowsExternal;
   if (typeChanged) {
     /* the default-value UI belongs to the old type: switch the detail
        page and refill instead of applying stale controls */

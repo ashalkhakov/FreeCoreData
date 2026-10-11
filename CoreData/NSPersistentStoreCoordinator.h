@@ -72,6 +72,19 @@ COREDATA_EXPORT NSString *const NSPersistentHistoryTokenKey;
 
 - (BOOL)removePersistentStore:(NSPersistentStore *)store error:(NSError **)error;
 - (NSPersistentStore *)migratePersistentStore:(NSPersistentStore *)store toURL:(NSURL *)URL options:(NSDictionary *)options withType:(NSString *)storeType error:(NSError **)error;
+
+/* Empties the store of storeType at URL, as Apple's do: a SQLite store's
+   database is left empty in its file (so that a connection still open to
+   it sees an empty store, and the next one makes the schema again) and
+   what it keeps beside the file goes; a store of another type is
+   removed.  YES when there was nothing there. */
+- (BOOL)destroyPersistentStoreAtURL:(NSURL *)URL withType:(NSString *)storeType options:(NSDictionary *)options error:(NSError **)error;
+
+/* Makes the store at destinationURL a copy of the one at sourceURL: a
+   SQLite store's database (its UUID too) and what it keeps beside its
+   file; a file store's file; the objects of a store of any other type.
+   The destination need not exist; the source must. */
+- (BOOL)replacePersistentStoreAtURL:(NSURL *)destinationURL destinationOptions:(NSDictionary *)destinationOptions withPersistentStoreFromURL:(NSURL *)sourceURL sourceOptions:(NSDictionary *)sourceOptions storeType:(NSString *)storeType error:(NSError **)error;
 - (NSArray *)persistentStores;
 - (NSPersistentStore *)persistentStoreForURL:(NSURL *)URL;
 - (NSURL *)URLForPersistentStore:(NSPersistentStore *)store;

@@ -13,6 +13,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 NSString * const NSAffectedStoresErrorKey=@"NSAffectedStoresErrorKey";
 NSString * const NSDetailedErrorsKey=@"NSDetailedErrorsKey";
+NSString * const NSSQLiteErrorDomain=@"NSSQLiteErrorDomain";
 
 NSString * const NSValidationObjectErrorKey=@"NSValidationErrorObject";
 NSString * const NSValidationKeyErrorKey=@"NSValidationErrorKey";

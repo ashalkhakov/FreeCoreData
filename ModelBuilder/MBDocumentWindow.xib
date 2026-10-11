@@ -76,6 +76,7 @@
                 <outlet property="predicateSourceSegmentedControl" destination="Wva-LL-MAg" id="iL8-0p-wfx"/>
                 <outlet property="predicateSourceView" destination="J93-gW-vQB" id="OqD-1o-yZM"/>
                 <outlet property="predicateTabView" destination="X05-Wn-fda" id="HGN-Wkz-2YS"/>
+                <outlet property="externalStorageCheckbox" destination="xSt-Ch-k4b" id="xSt-Ou-t9c"/>
                 <outlet property="preserveCheckbox" destination="EkX-WR-hs9" id="5of-A75-Uyi"/>
                 <outlet property="propertySegmentedControl" destination="FB7-9F-aSh" id="CDm-O46-ayJ"/>
                 <outlet property="relationshipHashModifierField" destination="gqN-6C-rt8" id="KP4-GY0-8vD"/>
@@ -1821,6 +1822,17 @@
                                                                                                             </buttonCell>
                                                                                                             <connections>
                                                                                                                 <action selector="inspectorChanged:" target="-2" id="zvg-4a-5i3"/>
+                                                                                                            </connections>
+                                                                                                        </button>
+                                                                                                        <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="xSt-Ch-k4b">
+                                                                                                            <rect key="frame" x="73" y="15" width="160" height="16"/>
+                                                                                                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                                                                                            <buttonCell key="cell" type="check" title="Allows External Storage" bezelStyle="regularSquare" imagePosition="left" controlSize="small" inset="2" id="xSt-Ce-l2d">
+                                                                                                                <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                                                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                                            </buttonCell>
+                                                                                                            <connections>
+                                                                                                                <action selector="inspectorChanged:" target="-2" id="xSt-Ac-t5n"/>
                                                                                                             </connections>
                                                                                                         </button>
                                                                                                         <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="WaE-hU-M23">

@@ -21,6 +21,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSRelationshipDescription.h>
 #import "NSInMemoryPersistentStore.h"
 #import "NSSQLitePersistentStore.h"
+#import <CoreData/CDExternalDataStore.h>
 #import "NSManagedObjectID-Private.h"
 #import "NSDerivedAttributeDescription-Private.h"
 #import "NSPersistentHistory-Private.h"
@@ -175,16 +176,30 @@ static NSMutableDictionary *_storeTypes=nil;
 
    NSMappingModel *mappingModel=[NSMappingModel mappingModelFromBundles:nil forSourceModel:sourceModel destinationModel:_model];
 
-   if(mappingModel==nil && [[options objectForKey:NSInferMappingModelAutomaticallyOption] boolValue])
-    mappingModel=[NSMappingModel inferredMappingModelForSourceModel:sourceModel destinationModel:_model error:error];
+   NSError *inferenceError=nil;
 
+   if(mappingModel==nil && [[options objectForKey:NSInferMappingModelAutomaticallyOption] boolValue])
+    mappingModel=[NSMappingModel inferredMappingModelForSourceModel:sourceModel destinationModel:_model error:&inferenceError];
+
+   /* Why none could be inferred, if one was tried, goes with it - as
+      Apple's NSUnderlyingError. */
    if(mappingModel==nil){
-    if(error!=NULL)
-     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSMigrationMissingMappingModelError userInfo:[NSDictionary dictionaryWithObject:@"Can't find mapping model for migration" forKey:NSLocalizedDescriptionKey]];
+    if(error!=NULL){
+     NSMutableDictionary *userInfo=[NSMutableDictionary dictionaryWithObject:@"Can't find mapping model for migration" forKey:NSLocalizedDescriptionKey];
+
+     if(inferenceError!=nil)
+      [userInfo setObject:inferenceError forKey:NSUnderlyingErrorKey];
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSMigrationMissingMappingModelError userInfo:userInfo];
+    }
     return NO;
    }
 
-   NSURL              *temporaryURL=[NSURL fileURLWithPath:[[storeURL path] stringByAppendingString:@"~migrated"]];
+   /* Named so that its extension stays the store's own: the directory a
+      SQLite store keeps beside its file is named after the name before
+      it, and the migrated store's must not be the original's. */
+   NSString           *extension=[[storeURL path] pathExtension];
+   NSString           *temporaryPath=[[[storeURL path] stringByDeletingPathExtension] stringByAppendingString:@"~migrated"];
+   NSURL              *temporaryURL=[NSURL fileURLWithPath:([extension length]>0)?[temporaryPath stringByAppendingPathExtension:extension]:temporaryPath];
    NSMigrationManager *manager=[[[NSMigrationManager alloc] initWithSourceModel:sourceModel destinationModel:_model] autorelease];
 
    /* The store's own options go to both ends of the migration.  Chiefly
@@ -215,7 +230,18 @@ static NSMutableDictionary *_storeTypes=nil;
    if(![fileManager removeItemAtPath:[storeURL path] error:error])
     return NO;
 
-   return [fileManager moveItemAtPath:[temporaryURL path] toPath:[storeURL path] error:error];
+   if(![fileManager moveItemAtPath:[temporaryURL path] toPath:[storeURL path] error:error])
+    return NO;
+
+   /* What the store keeps beside its file (external binary data) goes
+      with it: the migrated store's in place of the original's. */
+   NSString *support=CDSQLiteSupportDirectoryForStoreURL(storeURL);
+   NSString *migratedSupport=CDSQLiteSupportDirectoryForStoreURL(temporaryURL);
+
+   [fileManager removeItemAtPath:support error:NULL];
+   if([fileManager fileExistsAtPath:migratedSupport] && ![fileManager moveItemAtPath:migratedSupport toPath:support error:error])
+    return NO;
+   return YES;
 }
 
 /* Stamps the store's metadata with the version hashes and identifiers of
@@ -520,7 +546,76 @@ static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,
 
     for(NSString *suffix in [NSArray arrayWithObjects:@"",@"-wal",@"-shm",@"-journal",nil])
      [files removeItemAtPath:[[URL path] stringByAppendingString:suffix] error:NULL];
+    [files removeItemAtPath:CDSQLiteSupportDirectoryForStoreURL(URL) error:NULL];
    }
+}
+
+-(BOOL)destroyPersistentStoreAtURL:(NSURL *)URL withType:(NSString *)storeType options:(NSDictionary *)options error:(NSError **)error {
+   Class storeClass=[[[self class] registeredStoreTypes] objectForKey:storeType];
+
+   /* External values kept where the options say: taken away too, where
+      they can be. */
+   id external=[options objectForKey:CDExternalDataStoreOption];
+
+   if([external respondsToSelector:@selector(removeAllDataWithError:)] &&
+      ![(id<CDExternalDataStore>)external removeAllDataWithError:error])
+    return NO;
+
+   if([storeType isEqualToString:NSSQLiteStoreType])
+    return [NSSQLitePersistentStore _destroyStoreAtURL:URL error:error];
+   if([storeClass respondsToSelector:@selector(destroyStoreAtURL:options:error:)])
+    return [(Class<CDDestroyableStore>)storeClass destroyStoreAtURL:URL options:options error:error];
+   if([URL isFileURL] && [[NSFileManager defaultManager] fileExistsAtPath:[URL path]])
+    return [[NSFileManager defaultManager] removeItemAtPath:[URL path] error:error];
+   return YES;
+}
+
+-(BOOL)replacePersistentStoreAtURL:(NSURL *)destinationURL destinationOptions:(NSDictionary *)destinationOptions withPersistentStoreFromURL:(NSURL *)sourceURL sourceOptions:(NSDictionary *)sourceOptions storeType:(NSString *)storeType error:(NSError **)error {
+   NSFileManager *files=[NSFileManager defaultManager];
+
+   /* External values kept elsewhere than beside the files: a copy of the
+      files would name the source's, so the objects are copied instead. */
+   BOOL externalElsewhere=([sourceOptions objectForKey:CDExternalDataStoreOption]!=nil ||
+                           [destinationOptions objectForKey:CDExternalDataStoreOption]!=nil);
+
+   if([storeType isEqualToString:NSSQLiteStoreType] && !externalElsewhere)
+    return [NSSQLitePersistentStore _replaceStoreAtURL:destinationURL withStoreAtURL:sourceURL error:error];
+
+   /* A store kept in a file: the file copied. */
+   if([sourceURL isFileURL] && [destinationURL isFileURL] && ![storeType isEqualToString:NSSQLiteStoreType]){
+    if(![files fileExistsAtPath:[sourceURL path]]){
+     if(error!=NULL)
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadNoSuchFileError userInfo:[NSDictionary dictionaryWithObject:[sourceURL path] forKey:NSFilePathErrorKey]];
+     return NO;
+    }
+    [files removeItemAtPath:[destinationURL path] error:NULL];
+    return [files copyItemAtPath:[sourceURL path] toPath:[destinationURL path] error:error];
+   }
+
+   /* Any other (a database on a server, or values kept elsewhere): the
+      destination emptied, then given every object of the source, through
+      a coordinator of its own.  When both keep their values in one
+      external data store, what is kept there stays: the source's are
+      among it. */
+   NSDictionary *emptying=destinationOptions;
+   id            external=[destinationOptions objectForKey:CDExternalDataStoreOption];
+
+   if(external!=nil && external==[sourceOptions objectForKey:CDExternalDataStoreOption]){
+    NSMutableDictionary *withoutExternal=[NSMutableDictionary dictionaryWithDictionary:destinationOptions];
+
+    [withoutExternal removeObjectForKey:CDExternalDataStoreOption];
+    emptying=withoutExternal;
+   }
+   if(![self destroyPersistentStoreAtURL:destinationURL withType:storeType options:emptying error:error])
+    return NO;
+
+   NSPersistentStoreCoordinator *copier=[[[self class] alloc] initWithManagedObjectModel:_model];
+   NSPersistentStore            *source=[copier addPersistentStoreWithType:storeType configuration:nil URL:sourceURL options:sourceOptions error:error];
+   BOOL                          copied=(source!=nil &&
+                                         [copier migratePersistentStore:source toURL:destinationURL options:destinationOptions withType:storeType error:error]!=nil);
+
+   [copier release];
+   return copied;
 }
 
 /* As Apple's: a store of storeType at URL, with store's configuration,

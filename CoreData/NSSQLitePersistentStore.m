@@ -43,6 +43,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <Foundation/Foundation.h>
 
 #import <sqlite3.h>
+#import "CDExternalDataStore-Private.h"
 
 #define DATABASE ((sqlite3 *)_database)
 
@@ -469,6 +470,126 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
    return result;
 }
 
+/* -- External binary data -------------------------------------------- */
+
+/* A Binary Data attribute that allows external storage keeps every value
+   with a byte in front, as Apple's store does: 1 and the bytes, or - for
+   a value larger than 128 KiB - 2 and the name of a file in
+   .<name>_SUPPORT/_EXTERNAL_DATA, a UUID ending in a NUL. */
+enum {
+   CDExternalMarkerInline=1,
+   CDExternalMarkerReference=2,
+   CDExternalDataThreshold=131072,
+};
+
+static BOOL attributeStoresExternally(NSPropertyDescription *property){
+   return [property isKindOfClass:[NSAttributeDescription class]] &&
+          [(NSAttributeDescription *)property attributeType]==NSBinaryDataAttributeType &&
+          [(NSAttributeDescription *)property allowsExternalBinaryDataStorage];
+}
+
+NSString *CDSQLiteSupportDirectoryForStoreURL(NSURL *url){
+   NSString *path=[url path];
+
+   return [[path stringByDeletingLastPathComponent] stringByAppendingPathComponent:
+              [NSString stringWithFormat:@".%@_SUPPORT",[[path lastPathComponent] stringByDeletingPathExtension]]];
+}
+
+/* The file name a stored reference holds, or nil when it holds none. */
+static NSString *externalReferenceName(const void *bytes,NSUInteger length){
+   const uint8_t *stored=bytes;
+   NSUInteger     end=1;
+
+   if(length<2 || stored[0]!=CDExternalMarkerReference)
+    return nil;
+   while(end<length && stored[end]!=0)
+    end++;
+   return [[[NSString alloc] initWithBytes:stored+1 length:end-1 encoding:NSASCIIStringEncoding] autorelease];
+}
+
+/* SQLite's own code for an error, in NSSQLiteErrorDomain. */
+static NSError *sqliteFileError(int code,NSString *path,NSString *what){
+   NSDictionary *userInfo=[NSDictionary dictionaryWithObjectsAndKeys:
+                              [NSString stringWithFormat:@"%@: %@ (%s)",what,path,sqlite3_errstr(code)],NSLocalizedDescriptionKey,
+                              path,NSFilePathErrorKey,nil];
+
+   return [NSError errorWithDomain:NSSQLiteErrorDomain code:code userInfo:userInfo];
+}
+
+/* to made a copy of from, page for page. */
+static int copyDatabase(sqlite3 *from,sqlite3 *to){
+   sqlite3_backup *backup=sqlite3_backup_init(to,"main",from,"main");
+
+   if(backup==NULL)
+    return sqlite3_errcode(to);
+   sqlite3_backup_step(backup,-1);
+   return sqlite3_backup_finish(backup);
+}
+
+@implementation NSSQLitePersistentStore (CDStoreFiles)
+
++(BOOL)_destroyStoreAtURL:(NSURL *)url error:(NSError **)error {
+   NSString      *path=[url path];
+   NSFileManager *files=[NSFileManager defaultManager];
+
+   if([files fileExistsAtPath:path]){
+    sqlite3 *empty=NULL,*database=NULL;
+    int      code=sqlite3_open(":memory:",&empty);
+
+    if(code==SQLITE_OK)
+     code=sqlite3_open_v2([path fileSystemRepresentation],&database,SQLITE_OPEN_READWRITE,NULL);
+    if(code==SQLITE_OK){
+     sqlite3_busy_timeout(database,5000);
+     code=copyDatabase(empty,database);
+    }
+    sqlite3_close(database);
+    sqlite3_close(empty);
+    if(code!=SQLITE_OK){
+     if(error!=NULL)
+      *error=sqliteFileError(code,path,@"unable to destroy the store");
+     return NO;
+    }
+   }
+   [files removeItemAtPath:CDSQLiteSupportDirectoryForStoreURL(url) error:NULL];
+   return YES;
+}
+
++(BOOL)_replaceStoreAtURL:(NSURL *)destination withStoreAtURL:(NSURL *)source error:(NSError **)error {
+   NSFileManager *files=[NSFileManager defaultManager];
+   sqlite3       *from=NULL,*to=NULL;
+   int            code=sqlite3_open_v2([[source path] fileSystemRepresentation],&from,SQLITE_OPEN_READONLY,NULL);
+
+   if(code!=SQLITE_OK){
+    sqlite3_close(from);
+    if(error!=NULL)
+     *error=sqliteFileError(code,[source path],@"unable to open the store to copy");
+    return NO;
+   }
+   [files createDirectoryAtPath:[[destination path] stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:NULL];
+   code=sqlite3_open_v2([[destination path] fileSystemRepresentation],&to,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE,NULL);
+   if(code==SQLITE_OK){
+    sqlite3_busy_timeout(to,5000);
+    code=copyDatabase(from,to);
+   }
+   sqlite3_close(to);
+   sqlite3_close(from);
+   if(code!=SQLITE_OK){
+    if(error!=NULL)
+     *error=sqliteFileError(code,[destination path],@"unable to replace the store");
+    return NO;
+   }
+
+   NSString *support=CDSQLiteSupportDirectoryForStoreURL(destination);
+   NSString *sourceSupport=CDSQLiteSupportDirectoryForStoreURL(source);
+
+   [files removeItemAtPath:support error:NULL];
+   if([files fileExistsAtPath:sourceSupport] && ![files copyItemAtPath:sourceSupport toPath:support error:error])
+    return NO;
+   return YES;
+}
+
+@end
+
 @implementation NSSQLitePersistentStore
 
 /* ------------------------------------------------------------------ */
@@ -491,6 +612,9 @@ static BOOL writeMetadata(sqlite3 *database,NSDictionary *metadata,NSError **err
     sqlite3_close(DATABASE);
    [_entityIDs release];
    [_entityNamesByID release];
+   [_externalDataStore release];
+   [_externalDataWritten release];
+   [_externalDataReleased release];
    [super dealloc];
 }
 
@@ -1718,6 +1842,14 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    if(![property isKindOfClass:[NSAttributeDescription class]])
     return nil;
 
+   /* An external value's column holds a marker and the bytes, or a file's
+      name: only whether there is a value at all is a question for SQL. */
+   if(attributeStoresExternally(property)){
+    if(constant!=nil || rhsIsCollection || (operator!=NSEqualToPredicateOperatorType && operator!=NSNotEqualToPredicateOperatorType))
+     return nil;
+    return [NSString stringWithFormat:@"%@ IS %@NULL",column,(operator==NSEqualToPredicateOperatorType)?@"":@"NOT "];
+   }
+
    NSAttributeDescription *attribute=(NSAttributeDescription *)property;
 
    if(!attributeComparesExactlyInSQL(attribute))
@@ -2221,12 +2353,54 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    NSMutableArray      *names=[NSMutableArray array];
    NSMutableArray      *values=[NSMutableArray array]; /* NSNull placeholders keep indexes aligned */
    NSMutableArray      *boundProperties=[NSMutableArray array];
+   NSArray             *externalAttributes=[self _externalAttributesOfEntity:entity];
+   NSMutableDictionary *storedExternal=[NSMutableDictionary dictionary];
+   BOOL                 rowAsRead=NO;
+
+   /* What an updated row holds for its external values now: a value the
+      object has not changed keeps its file, while the row is the version
+      the object read; one it has changed lets go of its file. */
+   if(!isInsert && [externalAttributes count]>0){
+    NSMutableArray *columns=[NSMutableArray arrayWithObject:@"Z_OPT"];
+
+    for(NSAttributeDescription *attribute in externalAttributes)
+     [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty([attribute name])]];
+
+    sqlite3_stmt *statement=prepareStatement(DATABASE,[NSString stringWithFormat:@"SELECT %@ FROM \"%@\" WHERE Z_PK = %lld",[columns componentsJoinedByString:@", "],tableNameForEntity(entity),primaryKey],error);
+
+    if(statement==NULL)
+     return NO;
+    if(sqlite3_step(statement)==SQLITE_ROW){
+     NSUInteger i;
+
+     rowAsRead=([object _storeVersion]!=0 && (unsigned long long)sqlite3_column_int64(statement,0)==[object _storeVersion]);
+     for(i=0;i<[externalAttributes count];i++)
+      if(sqlite3_column_type(statement,(int)i+1)!=SQLITE_NULL)
+       [storedExternal setObject:[NSData dataWithBytes:sqlite3_column_blob(statement,(int)i+1) length:sqlite3_column_bytes(statement,(int)i+1)]
+                          forKey:[[externalAttributes objectAtIndex:i] name]];
+    }
+    sqlite3_finalize(statement);
+   }
 
    for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
     NSPropertyDescription *property=[properties objectForKey:name];
     id                     value=nil;
 
-    if([property isKindOfClass:[NSDerivedAttributeDescription class]]){
+    if(attributeStoresExternally(property)){
+     NSData *stored=[storedExternal objectForKey:name];
+
+     if(rowAsRead && [[object changedValues] objectForKey:name]==nil)
+      value=stored;
+     else {
+      NSData *current=[object valueForKey:name];
+
+      if(externalReferenceName([stored bytes],[stored length])!=nil)
+       [_externalDataReleased addObject:externalReferenceName([stored bytes],[stored length])];
+      if(current!=nil && (value=[self _storedExternalValue:current error:error])==nil)
+       return NO;
+     }
+    }
+    else if([property isKindOfClass:[NSDerivedAttributeDescription class]]){
      /* Same-table generated columns are computed by SQLite and cannot be
         assigned; every other derivation is recomputed here, at save. */
      if([(NSDerivedAttributeDescription *)property _generatedColumnSourceName]!=nil)
@@ -2428,6 +2602,11 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
       return NO;
     }
    }
+
+   /* Its external values' files go when the save does. */
+   if(![self _releaseExternalDataOfAttributes:[self _externalAttributesOfEntity:entity] entity:entity
+                                        where:[NSString stringWithFormat:@"Z_PK = %lld",primaryKey] bindings:nil error:error])
+    return NO;
 
    NSString *sql=(expectedVersion!=0)
       ?[NSString stringWithFormat:@"DELETE FROM \"%@\" WHERE Z_PK = %lld AND Z_OPT = %llu",tableNameForEntity(entity),primaryKey,expectedVersion]
@@ -2667,6 +2846,12 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
       value=[(NSAttributeDescription *)property defaultValue];
      if(value==nil)
       continue;
+     /* Each row a file of its own, as a save would write it. */
+     if(attributeStoresExternally(property) && value!=[NSNull null] &&
+        (value=[self _storedExternalValue:value error:error])==nil){
+      executeSQL(DATABASE,@"ROLLBACK",NULL);
+      return nil;
+     }
 
      [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(name)]];
      [placeholders addObject:@"?"];
@@ -2763,6 +2948,7 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    NSMutableArray *boundAttributes=[NSMutableArray array];
    NSMutableArray *boundValues=[NSMutableArray array];
    NSDictionary   *updates=[request propertiesToUpdate];
+   NSMapTable     *externalUpdates=[NSMapTable strongToStrongObjectsMapTable];
 
    for(id key in updates){
     NSString              *name=[key isKindOfClass:[NSPropertyDescription class]]?[(NSPropertyDescription *)key name]:(NSString *)key;
@@ -2778,6 +2964,12 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
 
     if([value isKindOfClass:[NSExpression class]])
      value=[(NSExpression *)value expressionValueWithObject:nil context:nil];
+
+    /* Written row by row below: no two rows may share a file. */
+    if(attributeStoresExternally(property)){
+     [externalUpdates setObject:(value!=nil)?value:(id)[NSNull null] forKey:property];
+     continue;
+    }
 
     [assignments addObject:[NSString stringWithFormat:@"\"%@\" = ?",columnNameForProperty(name)]];
     [boundAttributes addObject:property];
@@ -2825,6 +3017,44 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
       *error=sqliteError(DATABASE,NSPersistentStoreSaveError,[NSString stringWithFormat:@"unable to batch update %@",[entity name]]);
      executeSQL(DATABASE,@"ROLLBACK",NULL);
      return nil;
+    }
+
+    /* The external values: the chunk's files go when the request
+       succeeds, and each row is given the value - a file of its own. */
+    for(NSAttributeDescription *attribute in externalUpdates){
+     id        value=[externalUpdates objectForKey:attribute];
+     NSString *where=[NSString stringWithFormat:@"Z_PK IN (%@)",[pks componentsJoinedByString:@", "]];
+
+     if(![self _releaseExternalDataOfAttributes:[NSArray arrayWithObject:attribute] entity:entity where:where bindings:nil error:error]){
+      executeSQL(DATABASE,@"ROLLBACK",NULL);
+      return nil;
+     }
+     for(NSString *pk in pks){
+      NSData       *stored=(value==[NSNull null])?nil:[self _storedExternalValue:value error:error];
+      sqlite3_stmt *update;
+
+      if(value!=[NSNull null] && stored==nil){
+       executeSQL(DATABASE,@"ROLLBACK",NULL);
+       return nil;
+      }
+      update=prepareStatement(DATABASE,[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = ? WHERE Z_PK = %@",tableNameForEntity(entity),columnNameForProperty([attribute name]),pk],error);
+      if(update==NULL){
+       executeSQL(DATABASE,@"ROLLBACK",NULL);
+       return nil;
+      }
+      if(stored==nil)
+       sqlite3_bind_null(update,1);
+      else
+       sqlite3_bind_blob(update,1,[stored bytes],(int)[stored length],SQLITE_TRANSIENT);
+      ok=(sqlite3_step(update)==SQLITE_DONE);
+      sqlite3_finalize(update);
+      if(!ok){
+       if(error!=NULL)
+        *error=sqliteError(DATABASE,NSPersistentStoreSaveError,[NSString stringWithFormat:@"unable to batch update %@",[entity name]]);
+       executeSQL(DATABASE,@"ROLLBACK",NULL);
+       return nil;
+      }
+     }
     }
    }
 
@@ -3268,6 +3498,64 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    /* A write: rows read before it may be old now. */
    _writeGeneration++;
 
+   if(_externalDataWritten==nil){
+    _externalDataWritten=[[NSMutableArray alloc] init];
+    _externalDataReleased=[[NSMutableArray alloc] init];
+   }
+
+   id result=[self _executeWriteRequest:request withContext:context error:error];
+
+   [self _finishExternalDataOfRequestSucceeding:(result!=nil)];
+   if(result!=nil && [request requestType]==NSSaveRequestType)
+    [self _givePagesBackAfterSave];
+   return result;
+}
+
+/* The single integer a pragma answers, or -1. */
+static long long pragmaValue(sqlite3 *database,NSString *pragma){
+   sqlite3_stmt *statement=prepareStatement(database,pragma,NULL);
+   long long     value=-1;
+
+   if(statement!=NULL && sqlite3_step(statement)==SQLITE_ROW)
+    value=sqlite3_column_int64(statement,0);
+   if(statement!=NULL)
+    sqlite3_finalize(statement);
+   return value;
+}
+
+/* Apple's store, after a save, now and then gives back pages the file
+   no longer uses (its files are made with incremental auto-vacuum): it
+   looks on the first save after it is opened and on every eleventh after
+   that.  Read from its post-save maintenance on macOS: nothing is done
+   while under 8192 pages are free and over 85% of the file is in use;
+   otherwise, with under 40% in use, all the free pages are given back
+   but as many as are in use, and else a fifth of them. */
+-(void)_givePagesBackAfterSave {
+   if(_savesBeforeMaintenance>0){
+    _savesBeforeMaintenance--;
+    return;
+   }
+   _savesBeforeMaintenance=10;
+
+   long long pages=pragmaValue(DATABASE,@"PRAGMA page_count");
+   long long free=pragmaValue(DATABASE,@"PRAGMA freelist_count");
+
+   if(pages<=0 || free<=0)
+    return;
+
+   long long used=pages-free;
+   double    inUse=(double)used/(double)pages;
+
+   if(free<8192 && inUse>0.85)
+    return;
+
+   long long toFree=(inUse<0.4)?free-used:free/5;
+
+   if(toFree>0)
+    executeSQL(DATABASE,[NSString stringWithFormat:@"PRAGMA incremental_vacuum(%lld)",toFree],NULL);
+}
+
+-(id)_executeWriteRequest:(NSPersistentStoreRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
    if([request requestType]==NSSaveRequestType)
     return [self _executeSaveRequest:(NSSaveChangesRequest *)request withContext:context error:error];
 
@@ -3287,6 +3575,141 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:@"Unsupported request type" forKey:NSLocalizedDescriptionKey]];
 
    return nil;
+}
+
+/* ------------------------------------------------------------------ */
+#pragma mark - External binary data
+/* ------------------------------------------------------------------ */
+
+-(NSString *)_externalDataDirectory {
+   return [CDSQLiteSupportDirectoryForStoreURL([self URL]) stringByAppendingPathComponent:@"_EXTERNAL_DATA"];
+}
+
+/* Where the external values are kept: what the options name, or files
+   beside the store, as Apple keeps them. */
+-(id<CDExternalDataStore>)_externalDataStore {
+   if(_externalDataStore==nil){
+    id given=[[self options] objectForKey:CDExternalDataStoreOption];
+
+    _externalDataStore=[given conformsToProtocol:@protocol(CDExternalDataStore)]
+       ?[given retain]
+       :[[CDFileExternalDataStore alloc] initWithDirectory:[self _externalDataDirectory]];
+   }
+   return _externalDataStore;
+}
+
+/* What is stored for value of an attribute that allows external storage:
+   the bytes inline, or the name they are kept under elsewhere. */
+-(NSData *)_storedExternalValue:(NSData *)value error:(NSError **)error {
+   NSMutableData          *stored;
+   uint8_t                 marker;
+   id<CDExternalDataStore> external=[self _externalDataStore];
+
+   if([value length]<=CDExternalDataThreshold){
+    marker=CDExternalMarkerInline;
+    stored=[NSMutableData dataWithCapacity:[value length]+1];
+    [stored appendBytes:&marker length:1];
+    [stored appendData:value];
+    return stored;
+   }
+
+   NSString *name=[[NSUUID UUID] UUIDString];
+
+   /* A value read from this store, given to another row, is a copy of
+      what is kept: its bytes need not be read for it. */
+   if([value conformsToProtocol:@protocol(CDExternalDataReference)] &&
+      [(id<CDExternalDataReference>)value externalDataStore]==external &&
+      [external respondsToSelector:@selector(copyDataNamed:toName:error:)]){
+    if(![external copyDataNamed:[(id<CDExternalDataReference>)value externalDataName] toName:name error:error])
+     return nil;
+   }
+   else if(![external writeData:value named:name error:error])
+    return nil;
+   [_externalDataWritten addObject:name];
+
+   marker=CDExternalMarkerReference;
+   stored=[NSMutableData dataWithBytes:&marker length:1];
+   [stored appendData:[name dataUsingEncoding:NSASCIIStringEncoding]];
+   [stored appendBytes:"" length:1];
+   return stored;
+}
+
+/* The value stored bytes stand for: one kept elsewhere is fetched only
+   when its bytes are first needed, where the external data store can.
+   Bytes with no marker are a value stored before the attribute allowed
+   external storage. */
+-(NSData *)_valueOfStoredExternalBytes:(const void *)bytes length:(NSUInteger)length {
+   NSString *name=externalReferenceName(bytes,length);
+
+   if(name!=nil)
+    return [[self _externalDataStore] dataNamed:name];
+   if(length>0 && ((const uint8_t *)bytes)[0]==CDExternalMarkerInline)
+    return [NSData dataWithBytes:(const uint8_t *)bytes+1 length:length-1];
+   return [NSData dataWithBytes:bytes length:length];
+}
+
+/* The attributes of entity, and of its subentities, that allow external
+   storage. */
+-(NSArray *)_externalAttributesOfEntity:(NSEntityDescription *)entity {
+   NSMutableDictionary *properties=[NSMutableDictionary dictionary];
+   NSMutableArray      *result=[NSMutableArray array];
+
+   collectPropertiesOfEntityChain(entity,properties);
+   collectPropertiesOfEntitySubtree(entity,properties);
+   for(NSPropertyDescription *property in [properties allValues])
+    if(attributeStoresExternally(property))
+     [result addObject:property];
+   return result;
+}
+
+/* The files of the rows of entity's table that whereSQL picks, to be
+   taken away when the request succeeds: the rows are being deleted, or
+   these values written over. */
+-(BOOL)_releaseExternalDataOfAttributes:(NSArray *)attributes entity:(NSEntityDescription *)entity where:(NSString *)whereSQL bindings:(NSArray *)bindings error:(NSError **)error {
+   if([attributes count]==0)
+    return YES;
+
+   NSMutableArray *columns=[NSMutableArray array];
+
+   for(NSAttributeDescription *attribute in attributes)
+    [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty([attribute name])]];
+
+   NSString     *sql=[NSString stringWithFormat:@"SELECT %@ FROM \"%@\" WHERE %@",[columns componentsJoinedByString:@", "],tableNameForEntity(entity),whereSQL];
+   sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
+   int           parameterIndex=1;
+
+   if(statement==NULL)
+    return NO;
+   for(NSDictionary *binding in bindings)
+    bindPredicateValue(statement,parameterIndex++,binding);
+
+   while(sqlite3_step(statement)==SQLITE_ROW){
+    int column;
+
+    for(column=0;column<(int)[columns count];column++){
+     NSString *name=externalReferenceName(sqlite3_column_blob(statement,column),sqlite3_column_bytes(statement,column));
+
+     if(name!=nil)
+      [_externalDataReleased addObject:name];
+    }
+   }
+   sqlite3_finalize(statement);
+   return YES;
+}
+
+/* After a write request: the values it wrote go if it failed, and those
+   it let go of go if it succeeded. */
+-(void)_finishExternalDataOfRequestSucceeding:(BOOL)succeeded {
+   NSArray *names=succeeded?_externalDataReleased:_externalDataWritten;
+
+   if([names count]>0){
+    id<CDExternalDataStore> external=[self _externalDataStore];
+
+    for(NSString *name in names)
+     [external removeDataNamed:name error:NULL];
+   }
+   [_externalDataWritten removeAllObjects];
+   [_externalDataReleased removeAllObjects];
 }
 
 /* ------------------------------------------------------------------ */
@@ -3351,7 +3774,12 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
     int                    column=first+(int)(i+1);
 
     if([property isKindOfClass:[NSAttributeDescription class]]){
-     id value=attributeValueFromColumn(statement,column,(NSAttributeDescription *)property);
+     id value;
+
+     if(attributeStoresExternally(property) && sqlite3_column_type(statement,column)!=SQLITE_NULL)
+      value=[self _valueOfStoredExternalBytes:sqlite3_column_blob(statement,column) length:sqlite3_column_bytes(statement,column)];
+     else
+      value=attributeValueFromColumn(statement,column,(NSAttributeDescription *)property);
 
      if(value!=nil)
       [values setObject:value forKey:name];

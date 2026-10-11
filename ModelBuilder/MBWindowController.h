@@ -139,6 +139,7 @@
 @property (nonatomic, strong) IBOutlet NSTextField *transformerField;
 @property (nonatomic, strong) IBOutlet NSTextField *transformableClassField;
 @property (nonatomic, strong) IBOutlet NSButton *preserveCheckbox;
+@property (nonatomic, strong) IBOutlet NSButton *externalStorageCheckbox;
 @property (nonatomic, strong) IBOutlet NSTableView *attributeUserInfoTable;
 @property (nonatomic, strong) IBOutlet NSSegmentedControl *attributeUserInfoSegmentedControl;
 @property (nonatomic, strong) IBOutlet NSTextField *attributeHashModifierField;

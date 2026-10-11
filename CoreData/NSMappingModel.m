@@ -9,6 +9,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSMappingModel.h>
+#import <CoreData/CoreDataErrors.h>
 #import <Foundation/NSExpression.h>
 #import <Foundation/NSPredicate.h>
 #import <CoreData/NSEntityMapping.h>
@@ -117,6 +118,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       BOOL      renamed=(oldName!=nil && ![oldName isEqualToString:propertyName] && [sourceProperties objectForKey:oldName]!=nil);
       NSString *sourcePropertyName=renamed?oldName:propertyName;
       id        sourceProperty=[sourceProperties objectForKey:sourcePropertyName];
+
+      /* Apple infers no mapping that moves a value kept outside the store
+         back into it: an attribute that allowed external storage and no
+         longer does is refused, even when no value is kept outside.  A
+         mapping model of one's own migrates it. */
+      if([sourceProperty isKindOfClass:[NSAttributeDescription class]] && [property isKindOfClass:[NSAttributeDescription class]] &&
+         [(NSAttributeDescription *)sourceProperty allowsExternalBinaryDataStorage] &&
+         ![(NSAttributeDescription *)property allowsExternalBinaryDataStorage]){
+       if(error!=NULL)
+        *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSInferredMappingModelError
+                               userInfo:[NSDictionary dictionaryWithObjectsAndKeys:
+                                           name,@"entity",
+                                           propertyName,@"property",
+                                           @"Unable to use inferred mapping to move external reference into store.",@"Reason",
+                                           nil]];
+       return nil;
+      }
       NSExpression *read=[NSExpression expressionWithFormat:@"FUNCTION($source, 'valueForKey:', %@)",sourcePropertyName];
 
       if([property isKindOfClass:[NSAttributeDescription class]]){

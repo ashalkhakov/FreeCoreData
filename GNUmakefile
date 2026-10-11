@@ -6,6 +6,7 @@ CoreData_OBJC_FILES = \
 	CoreData/CoreDataErrors.m \
 	CoreData/CDObjectConstants.m \
 	CoreData/CDBatchFaultingArray.m \
+	CoreData/CDExternalDataStore.m \
 	CoreData/NSManagedObjectModel.m \
 	CoreData/NSEntityDescription.m \
 	CoreData/NSPropertyDescription.m \
@@ -65,6 +66,7 @@ CoreData_HEADER_FILES = \
 	NSDerivedAttributeDescription.h \
 	NSExpressionDescription.h \
 	NSFetchIndexDescription.h \
+	CDExternalDataStore.h \
 	NSFetchIndexElementDescription.h \
 	NSAtomicStore.h \
 	NSAtomicStoreCacheNode.h \

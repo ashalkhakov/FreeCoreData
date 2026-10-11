@@ -14,6 +14,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 COREDATA_EXPORT NSString *const NSAffectedStoresErrorKey;
 COREDATA_EXPORT NSString *const NSDetailedErrorsKey;
+/* The domain of an error SQLite reported, its code SQLite's own. */
+COREDATA_EXPORT NSString *const NSSQLiteErrorDomain;
 
 COREDATA_EXPORT NSString *const NSValidationObjectErrorKey;
 COREDATA_EXPORT NSString *const NSValidationKeyErrorKey;

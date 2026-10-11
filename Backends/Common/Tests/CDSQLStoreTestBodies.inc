@@ -386,6 +386,224 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects([both valueForKey:@"age"], (@[ @37, @45 ]));
 }
 
+/* -- external binary data ---------------------------------------------- */
+
+static NSData *CDSQLFilled(NSUInteger length, char fill)
+{
+    NSMutableData *data = [NSMutableData dataWithLength:length];
+    memset([data mutableBytes], fill, length);
+    return data;
+}
+
+/* The portrait column of the person named name, as stored. */
+- (NSData *)storedPortraitOf:(NSString *)name inContext:(NSManagedObjectContext *)context
+{
+    id<CDSQLStoreCatalogue> store = (id)[[[context persistentStoreCoordinator] persistentStores] firstObject];
+    id<CDSQLCatalogueRows> rows = [store execute:@"SELECT \"ZPORTRAIT\" FROM \"ZPERSON\" WHERE \"ZNAME\" = $1"
+                                      parameters:@[ name ] error:NULL];
+    if ([rows rowCount] == 0 || [rows isNullAtRow:0 column:0])
+        return nil;
+    return [rows dataAtRow:0 column:0];
+}
+
+/* Given no external data store, a store keeps every value of an attribute
+   that allows external storage in its row - behind a 1, in the SQLite
+   store's format, however large. */
+- (void)testExternalValuesStayInTheirRowsWithoutAnExternalDataStore
+{
+    if (![self databaseAvailable]) return;
+
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" age:36];
+    [ada setValue:CDSQLFilled(300000, 'a') forKey:@"portrait"];
+    if (![self save]) return;
+
+    NSData *stored = [self storedPortraitOf:@"Ada" inContext:self.context];
+    XCTAssertEqual([stored length], (NSUInteger)300001);
+    XCTAssertEqual(((const uint8_t *)[stored bytes])[0], 1);
+
+    NSManagedObjectContext *reopened = [self newContext];
+    XCTAssertEqualObjects([[self personNamed:@"Ada" inContext:reopened] valueForKey:@"portrait"], CDSQLFilled(300000, 'a'));
+}
+
+/* Given one (CDExternalDataStoreOption), a store keeps a value larger than
+   128 KiB there, under a name its row holds behind a 2, and lets go of it
+   when the value is written over or the row deleted - by a save or a
+   batch request. */
+- (void)testExternalValuesAreKeptInTheExternalDataStoreGiven
+{
+    if (![self databaseAvailable]) return;
+
+    CDSQLMemoryExternalDataStore *memory = [[CDSQLMemoryExternalDataStore alloc] init];
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    options[@"CDExternalDataStoreOption"] = memory;
+    self.storeOptions = options;
+    self.context = [self newContext];
+
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" age:36];
+    [ada setValue:CDSQLFilled(300000, 'a') forKey:@"portrait"];
+    NSManagedObject *grace = [self insertPersonNamed:@"Grace" age:45];
+    [grace setValue:CDSQLFilled(10, 'g') forKey:@"portrait"];
+    if (![self save]) return;
+
+    XCTAssertEqual([memory.kept count], (NSUInteger)1);
+    NSData *stored = [self storedPortraitOf:@"Ada" inContext:self.context];
+    XCTAssertEqual([stored length], (NSUInteger)38);
+    XCTAssertEqual(((const uint8_t *)[stored bytes])[0], 2);
+    NSString *name = [[NSString alloc] initWithBytes:(const uint8_t *)[stored bytes] + 1 length:36 encoding:NSASCIIStringEncoding];
+    XCTAssertEqualObjects([memory.kept allKeys], @[ name ]);
+    XCTAssertEqual([[self storedPortraitOf:@"Grace" inContext:self.context] length], (NSUInteger)11);
+
+    NSManagedObjectContext *reopened = [self newContext];
+    XCTAssertEqualObjects([[self personNamed:@"Ada" inContext:reopened] valueForKey:@"portrait"], CDSQLFilled(300000, 'a'));
+
+    [ada setValue:@37 forKey:@"age"];
+    XCTAssertTrue([self save]);
+    XCTAssertEqualObjects([memory.kept allKeys], @[ name ], @"an unchanged value keeps its name");
+
+    [ada setValue:CDSQLFilled(200000, 'b') forKey:@"portrait"];
+    XCTAssertTrue([self save]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)1);
+    XCTAssertNil(memory.kept[name], @"the value written over is let go of");
+
+    NSBatchUpdateRequest *update = [[NSBatchUpdateRequest alloc] initWithEntityName:@"Person"];
+    update.propertiesToUpdate = @{ @"portrait" : CDSQLFilled(150000, 'u') };
+    XCTAssertNotNil([self.context executeRequest:update error:NULL]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)2, @"a value of its own for each row");
+
+    [self.context reset];   /* the batch update moved the rows on */
+    ada = [self personNamed:@"Ada" inContext:self.context];
+    [self.context deleteObject:ada];
+    XCTAssertTrue([self save]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)1);
+
+    NSFetchRequest *everyone = [[NSFetchRequest alloc] init];
+    [everyone setEntity:[[self.model entitiesByName] objectForKey:@"Person"]];
+    NSBatchDeleteRequest *delete = [[NSBatchDeleteRequest alloc] initWithFetchRequest:everyone];
+    XCTAssertNotNil([self.context executeRequest:delete error:NULL]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)0);
+}
+
+/* A save whose external data store fails a write (a network gone) fails,
+   and leaves behind neither its rows nor what it had written. */
+- (void)testASaveWhoseExternalWriteFailsLeavesNothingBehind
+{
+    if (![self databaseAvailable]) return;
+
+    CDSQLMemoryExternalDataStore *memory = [[CDSQLMemoryExternalDataStore alloc] init];
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    options[@"CDExternalDataStoreOption"] = memory;
+    self.storeOptions = options;
+    self.context = [self newContext];
+
+    memory.writesBeforeFailing = 1;
+    [[self insertPersonNamed:@"Ada" age:36] setValue:CDSQLFilled(200000, 'a') forKey:@"portrait"];
+    [[self insertPersonNamed:@"Grace" age:45] setValue:CDSQLFilled(200000, 'g') forKey:@"portrait"];
+    NSError *error = nil;
+    XCTAssertFalse([self.context save:&error]);
+    XCTAssertEqual(error.code, (NSInteger)NSURLErrorTimedOut);
+    XCTAssertEqual([memory.kept count], (NSUInteger)0, @"what it wrote is gone again");
+
+    NSManagedObjectContext *fresh = [self newContext];
+    XCTAssertEqual([[self fetchPeopleWithPredicate:nil sortDescriptors:nil context:fresh] count], (NSUInteger)0);
+}
+
+/* The fixture's model, with picture - a plain Binary Data attribute -
+   allowing external storage or not. */
+static NSManagedObjectModel *CDSQLModelWithExternalPictures(BOOL external)
+{
+    NSManagedObjectModel *model = CDSQLTestModel();
+    [[[[model entitiesByName] objectForKey:@"Person"] attributesByName][@"picture"] setAllowsExternalBinaryDataStorage:external];
+    return model;
+}
+
+- (NSManagedObjectContext *)contextMigratingToModel:(NSManagedObjectModel *)model external:(id)external
+{
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    options[[self migrateSchemaOptionKey]] = @YES;
+    options[NSIgnorePersistentStoreVersioningOption] = @YES;
+    if (external != nil)
+        options[@"CDExternalDataStoreOption"] = external;
+
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:[self storeType] configuration:nil URL:self.storeURL
+                                                   options:options error:&error], @"migration failed: %@", error);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    [context setPersistentStoreCoordinator:coordinator];
+    return context;
+}
+
+/* Values whose first byte is what marks a value in the row (1) or kept
+   elsewhere (2), one small, one large, and none. */
+static NSDictionary *CDSQLMigratedPictures(void)
+{
+    NSMutableData *one = [CDSQLFilled(10, 'x') mutableCopy], *two = [CDSQLFilled(40, 'y') mutableCopy];
+    ((uint8_t *)[one mutableBytes])[0] = 1;
+    ((uint8_t *)[two mutableBytes])[0] = 2;
+    return @{ @"Small" : CDSQLFilled(10, 's'), @"Starts1" : one, @"Starts2" : two,
+              @"Large" : CDSQLFilled(300000, 'L'), @"None" : [NSNull null] };
+}
+
+- (NSData *)storedPictureOf:(NSString *)name inContext:(NSManagedObjectContext *)context
+{
+    id<CDSQLStoreCatalogue> store = (id)[[[context persistentStoreCoordinator] persistentStores] firstObject];
+    id<CDSQLCatalogueRows> rows = [store execute:@"SELECT \"ZPICTURE\" FROM \"ZPERSON\" WHERE \"ZNAME\" = $1"
+                                      parameters:@[ name ] error:NULL];
+    if ([rows rowCount] == 0 || [rows isNullAtRow:0 column:0])
+        return nil;
+    return [rows dataAtRow:0 column:0];
+}
+
+- (void)assertPicturesReadBackIn:(NSManagedObjectContext *)context
+{
+    NSDictionary *pictures = CDSQLMigratedPictures();
+    for (NSString *name in pictures) {
+        id picture = [[self personNamed:name inContext:context] valueForKey:@"picture"];
+        if (pictures[name] == [NSNull null])
+            XCTAssertNil(picture, @"None stays none");
+        else
+            XCTAssertEqualObjects(picture, pictures[name], @"%@", name);
+    }
+}
+
+/* A schema migration that makes a column's attribute allow external
+   storage brings its values into that format - each a byte in front, a
+   large one into the external data store - and one that stops it gives
+   them back as they were, and lets go of what was kept elsewhere. */
+- (void)testMigratingAColumnIntoExternalStorageAndOut
+{
+    if (![self databaseAvailable]) return;
+
+    NSDictionary *pictures = CDSQLMigratedPictures();
+    for (NSString *name in pictures) {
+        NSManagedObject *person = [self insertPersonNamed:name age:1];
+        if (pictures[name] != [NSNull null])
+            [person setValue:pictures[name] forKey:@"picture"];
+    }
+    if (![self save]) return;
+    self.context = nil;
+
+    CDSQLMemoryExternalDataStore *memory = [[CDSQLMemoryExternalDataStore alloc] init];
+    NSManagedObjectContext *into = [self contextMigratingToModel:CDSQLModelWithExternalPictures(YES) external:memory];
+    XCTAssertEqualObjects([self storedPictureOf:@"Small" inContext:into], ([@"\001ssssssssss" dataUsingEncoding:NSASCIIStringEncoding]));
+    XCTAssertEqual([[self storedPictureOf:@"Starts1" inContext:into] length], (NSUInteger)11);
+    XCTAssertEqual(((const uint8_t *)[[self storedPictureOf:@"Large" inContext:into] bytes])[0], 2);
+    XCTAssertNil([self storedPictureOf:@"None" inContext:into]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)1);
+    [self assertPicturesReadBackIn:into];
+    into = nil;
+
+    NSManagedObjectContext *again = [self contextMigratingToModel:CDSQLModelWithExternalPictures(YES) external:memory];
+    XCTAssertEqual([[self storedPictureOf:@"Small" inContext:again] length], (NSUInteger)11, @"converted once, not again");
+    again = nil;
+
+    NSManagedObjectContext *outOf = [self contextMigratingToModel:CDSQLModelWithExternalPictures(NO) external:memory];
+    XCTAssertEqualObjects([self storedPictureOf:@"Starts2" inContext:outOf], pictures[@"Starts2"]);
+    XCTAssertEqualObjects([self storedPictureOf:@"Large" inContext:outOf], pictures[@"Large"]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)0, @"what was kept elsewhere is let go of");
+    [self assertPicturesReadBackIn:outOf];
+}
+
 - (void)testCountResultType
 {
     if (![self databaseAvailable]) return;

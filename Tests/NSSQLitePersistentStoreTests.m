@@ -18,6 +18,142 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <XCTest/XCTest.h>
 #import <CoreData/CoreData.h>
 #import "VersioningTestModels.h"
+#import <sqlite3.h>
+
+/* FreeCoreData's, declared here when building against Apple's. */
+#if __has_include(<CoreData/CDExternalDataStore.h>)
+#import <CoreData/CDExternalDataStore.h>
+#else
+@protocol CDExternalDataStore <NSObject>
+- (BOOL)writeData:(NSData *)data named:(NSString *)name error:(NSError **)error;
+- (NSData *)dataNamed:(NSString *)name;
+- (BOOL)removeDataNamed:(NSString *)name error:(NSError **)error;
+@optional
+- (BOOL)removeAllDataWithError:(NSError **)error;
+- (BOOL)copyDataNamed:(NSString *)name toName:(NSString *)newName error:(NSError **)error;
+@end
+@protocol CDExternalDataReference <NSObject>
+- (id<CDExternalDataStore>)externalDataStore;
+- (NSString *)externalDataName;
+@end
+#endif
+
+/* Values kept the way a store keeping them in S3 would keep them: read
+   only when their bytes are needed (a GET), copied by the server, and
+   written by requests that can fail. */
+@class RemoteLikeExternalDataStore;
+
+@interface RemoteLikeData : NSData <CDExternalDataReference>
+@property (nonatomic, strong) RemoteLikeExternalDataStore *store;
+@property (nonatomic, copy) NSString *name;
+@end
+
+@interface RemoteLikeExternalDataStore : NSObject <CDExternalDataStore>
+@property (nonatomic, strong) NSMutableDictionary *kept;
+@property (nonatomic, assign) int writes, copies, loads, writesBeforeFailing;
+@end
+
+@implementation RemoteLikeData
+- (instancetype)initWithBytesNoCopy:(void *)bytes length:(NSUInteger)length freeWhenDone:(BOOL)freeWhenDone
+{
+    return self;   /* what GNUstep's -[NSData init] calls */
+}
+- (const void *)bytes
+{
+    self.store.loads++;
+    return [self.store.kept[self.name] bytes];
+}
+- (NSUInteger)length
+{
+    return [self.store.kept[self.name] length];   /* a HEAD, not a GET */
+}
+- (id<CDExternalDataStore>)externalDataStore
+{
+    return self.store;
+}
+- (NSString *)externalDataName
+{
+    return self.name;
+}
+@end
+
+@implementation RemoteLikeExternalDataStore
+- (instancetype)init
+{
+    if ((self = [super init]) != nil) {
+        _kept = [NSMutableDictionary dictionary];
+        _writesBeforeFailing = -1;
+    }
+    return self;
+}
+- (BOOL)writeData:(NSData *)data named:(NSString *)name error:(NSError **)error
+{
+    if (self.writesBeforeFailing == 0) {
+        if (error != NULL)
+            *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil];
+        return NO;
+    }
+    if (self.writesBeforeFailing > 0)
+        self.writesBeforeFailing--;
+    self.writes++;
+    self.kept[name] = [NSData dataWithBytes:[data bytes] length:[data length]];
+    return YES;
+}
+- (NSData *)dataNamed:(NSString *)name
+{
+    RemoteLikeData *data = [[RemoteLikeData alloc] init];
+    data.store = self;
+    data.name = name;
+    return data;
+}
+- (BOOL)removeDataNamed:(NSString *)name error:(NSError **)error
+{
+    [self.kept removeObjectForKey:name];
+    return YES;
+}
+- (BOOL)copyDataNamed:(NSString *)name toName:(NSString *)newName error:(NSError **)error
+{
+    self.copies++;
+    self.kept[newName] = self.kept[name];
+    return YES;
+}
+@end
+
+/* Values kept in memory: what a store keeping its external values in S3,
+   say, looks like to it. */
+@interface MemoryExternalDataStore : NSObject <CDExternalDataStore>
+@property (nonatomic, strong) NSMutableDictionary *kept;
+@property (nonatomic, assign) int removedAll;
+@end
+
+@implementation MemoryExternalDataStore
+- (instancetype)init
+{
+    if ((self = [super init]) != nil)
+        _kept = [NSMutableDictionary dictionary];
+    return self;
+}
+- (BOOL)writeData:(NSData *)data named:(NSString *)name error:(NSError **)error
+{
+    self.kept[name] = [data copy];
+    return YES;
+}
+- (NSData *)dataNamed:(NSString *)name
+{
+    return self.kept[name];
+}
+- (BOOL)removeDataNamed:(NSString *)name error:(NSError **)error
+{
+    [self.kept removeObjectForKey:name];
+    return YES;
+}
+- (BOOL)removeAllDataWithError:(NSError **)error
+{
+    self.removedAll++;
+    [self.kept removeAllObjects];
+    return YES;
+}
+@end
 
 @interface NSSQLitePersistentStoreTests : XCTestCase
 
@@ -340,6 +476,679 @@ static NSManagedObjectModel *blobModel(void)
     NSManagedObjectContext *vacuumed = [self contextWithModel:blobModel() options:@{ NSSQLiteManualVacuumOption : @YES }];
     [self closeStoreOf:vacuumed];
     XCTAssertLessThan([self storeFileSize], 200000ULL);
+}
+
+- (int)storePragma:(const char *)pragma
+{
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    int value = -1;
+
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    sqlite3_prepare_v2(database, pragma, -1, &statement, NULL);
+    if (sqlite3_step(statement) == SQLITE_ROW)
+        value = sqlite3_column_int(statement, 0);
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return value;
+}
+
+/* After a save, now and then, the store gives back free pages, as Apple's
+   does: it looks on the first save after it is opened and on every
+   eleventh after that, and when less than 40% of the file is in use it
+   frees all but as many pages as are. */
+- (void)testSavesGiveBackFreePagesNowAndThen
+{
+    NSManagedObjectContext *context = [self contextWithModel:blobModel() options:nil];
+    NSData *page = [NSMutableData dataWithLength:4000];
+    for (int i = 0; i < 200; i++)
+        [[NSEntityDescription insertNewObjectForEntityForName:@"Blob" inManagedObjectContext:context] setValue:page forKey:@"data"];
+    XCTAssertTrue([context save:NULL]);   /* the first: looked, nothing free */
+    for (NSManagedObject *blob in [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Blob"] error:NULL])
+        [context deleteObject:blob];
+    XCTAssertTrue([context save:NULL]);   /* the second */
+    int freed = [self storePragma:"PRAGMA freelist_count"];
+    XCTAssertGreaterThan(freed, 190);
+
+    for (int save = 3; save <= 11; save++) {
+        [[NSEntityDescription insertNewObjectForEntityForName:@"Blob" inManagedObjectContext:context] setValue:[NSData dataWithBytes:"x" length:1] forKey:@"data"];
+        XCTAssertTrue([context save:NULL]);
+    }
+    XCTAssertEqual([self storePragma:"PRAGMA freelist_count"], freed, @"not looked at again before the twelfth save");
+
+    [[NSEntityDescription insertNewObjectForEntityForName:@"Blob" inManagedObjectContext:context] setValue:[NSData dataWithBytes:"x" length:1] forKey:@"data"];
+    XCTAssertTrue([context save:NULL]);
+    int pages = [self storePragma:"PRAGMA page_count"], free = [self storePragma:"PRAGMA freelist_count"];
+    XCTAssertLessThan(free, freed / 4, @"the twelfth save gave pages back");
+    XCTAssertEqual(free, pages - free, @"as many left free as are in use");
+}
+
+/* -- external binary data ----------------------------------------------- */
+
+static NSManagedObjectModel *attachmentModel(BOOL withNote)
+{
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    name.name = @"name";
+    name.attributeType = NSStringAttributeType;
+    name.optional = YES;
+    NSAttributeDescription *data = [[NSAttributeDescription alloc] init];
+    data.name = @"data";
+    data.attributeType = NSBinaryDataAttributeType;
+    data.optional = YES;
+    data.allowsExternalBinaryDataStorage = YES;
+    NSMutableArray *properties = [NSMutableArray arrayWithObjects:name, data, nil];
+    if (withNote) {
+        NSAttributeDescription *note = [[NSAttributeDescription alloc] init];
+        note.name = @"note";
+        note.attributeType = NSStringAttributeType;
+        note.optional = YES;
+        [properties addObject:note];
+    }
+    NSEntityDescription *attachment = [[NSEntityDescription alloc] init];
+    attachment.name = @"Attachment";
+    attachment.properties = properties;
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ attachment ];
+    return model;
+}
+
+static NSData *filledData(NSUInteger length, char fill)
+{
+    NSMutableData *data = [NSMutableData dataWithLength:length];
+    memset([data mutableBytes], fill, length);
+    return data;
+}
+
+- (NSString *)externalDataDirectory
+{
+    NSString *path = [self.storeURL path];
+    return [[path stringByDeletingLastPathComponent] stringByAppendingPathComponent:
+               [NSString stringWithFormat:@".%@_SUPPORT/_EXTERNAL_DATA", [[path lastPathComponent] stringByDeletingPathExtension]]];
+}
+
+- (NSArray *)externalFiles
+{
+    return [[[NSFileManager defaultManager] contentsOfDirectoryAtPath:[self externalDataDirectory] error:NULL]
+               sortedArrayUsingSelector:@selector(compare:)] ?: @[];
+}
+
+/* The data column of the attachment named name, as stored. */
+- (NSData *)storedDataOfAttachmentNamed:(NSString *)name
+{
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    NSData *stored = nil;
+
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    sqlite3_prepare_v2(database, "SELECT ZDATA FROM ZATTACHMENT WHERE ZNAME = ?", -1, &statement, NULL);
+    sqlite3_bind_text(statement, 1, [name UTF8String], -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(statement) == SQLITE_ROW && sqlite3_column_type(statement, 0) != SQLITE_NULL)
+        stored = [NSData dataWithBytes:sqlite3_column_blob(statement, 0) length:sqlite3_column_bytes(statement, 0)];
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return stored;
+}
+
+- (NSManagedObject *)attachmentNamed:(NSString *)name inContext:(NSManagedObjectContext *)context
+{
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Attachment"];
+    fetch.predicate = [NSPredicate predicateWithFormat:@"name == %@", name];
+    return [[context executeFetchRequest:fetch error:NULL] firstObject];
+}
+
+- (NSManagedObject *)insertAttachmentNamed:(NSString *)name data:(NSData *)data inContext:(NSManagedObjectContext *)context
+{
+    NSManagedObject *attachment = [NSEntityDescription insertNewObjectForEntityForName:@"Attachment" inManagedObjectContext:context];
+    [attachment setValue:name forKey:@"name"];
+    [attachment setValue:data forKey:@"data"];
+    return attachment;
+}
+
+/* Allowing external storage is a flag of the attribute: archived in its
+   NSFlagsKey (4), as Apple's models carry it, and part of its version
+   hash. */
+- (void)testAllowingExternalStorageIsArchivedAndHashed
+{
+    NSAttributeDescription *data = [[NSAttributeDescription alloc] init];
+    data.name = @"data";
+    data.attributeType = NSBinaryDataAttributeType;
+    XCTAssertFalse(data.allowsExternalBinaryDataStorage);
+    NSData *plainHash = data.versionHash;
+    data.allowsExternalBinaryDataStorage = YES;
+    XCTAssertTrue(data.allowsExternalBinaryDataStorage);
+    XCTAssertNotEqualObjects(data.versionHash, plainHash);
+
+    NSData *archive = [NSKeyedArchiver archivedDataWithRootObject:data];
+    NSDictionary *plist = [NSPropertyListSerialization propertyListWithData:archive options:0 format:NULL error:NULL];
+    NSNumber *flags = nil;
+    for (id object in plist[@"$objects"])
+        if ([object isKindOfClass:[NSDictionary class]] && object[@"NSAttributeType"] != nil)
+            flags = object[@"NSFlagsKey"];
+    XCTAssertEqual([flags integerValue], (NSInteger)4);
+
+    NSAttributeDescription *back = [NSKeyedUnarchiver unarchiveObjectWithData:archive];
+    XCTAssertTrue(back.allowsExternalBinaryDataStorage);
+}
+
+/* A value up to 128 KiB stays in the row, after a 1; a larger one is a
+   file of its own, which the row names after a 2 - as Apple's store
+   writes them. */
+- (void)testAValueOver128KiBIsAFileOfItsOwn
+{
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:nil];
+    NSData *small = filledData(10, 'a'), *limit = filledData(131072, 'b'), *large = filledData(131073, 'c');
+    [self insertAttachmentNamed:@"small" data:small inContext:context];
+    [self insertAttachmentNamed:@"limit" data:limit inContext:context];
+    [self insertAttachmentNamed:@"large" data:large inContext:context];
+    [self insertAttachmentNamed:@"none" data:nil inContext:context];
+    XCTAssertTrue([context save:NULL]);
+
+    NSData *stored = [self storedDataOfAttachmentNamed:@"small"];
+    XCTAssertEqual([stored length], (NSUInteger)11);
+    XCTAssertEqual(((const uint8_t *)[stored bytes])[0], 1);
+    XCTAssertEqual([[self storedDataOfAttachmentNamed:@"limit"] length], (NSUInteger)131073);
+    XCTAssertNil([self storedDataOfAttachmentNamed:@"none"]);
+
+    stored = [self storedDataOfAttachmentNamed:@"large"];
+    XCTAssertEqual([stored length], (NSUInteger)38);
+    XCTAssertEqual(((const uint8_t *)[stored bytes])[0], 2);
+    XCTAssertEqual(((const uint8_t *)[stored bytes])[37], 0);
+    NSString *name = [[NSString alloc] initWithBytes:(const uint8_t *)[stored bytes] + 1 length:36 encoding:NSASCIIStringEncoding];
+    XCTAssertNotNil([[NSUUID alloc] initWithUUIDString:name]);
+    XCTAssertEqualObjects([self externalFiles], @[ name ]);
+
+    NSManagedObjectContext *reopened = [self contextWithModel:attachmentModel(NO) options:nil];
+    XCTAssertEqualObjects([[self attachmentNamed:@"small" inContext:reopened] valueForKey:@"data"], small);
+    XCTAssertEqualObjects([[self attachmentNamed:@"limit" inContext:reopened] valueForKey:@"data"], limit);
+    XCTAssertEqualObjects([[self attachmentNamed:@"large" inContext:reopened] valueForKey:@"data"], large);
+    XCTAssertNil([[self attachmentNamed:@"none" inContext:reopened] valueForKey:@"data"]);
+
+    NSFetchRequest *withData = [NSFetchRequest fetchRequestWithEntityName:@"Attachment"];
+    withData.predicate = [NSPredicate predicateWithFormat:@"data != nil"];
+    XCTAssertEqual([reopened countForFetchRequest:withData error:NULL], (NSUInteger)3);
+}
+
+/* A file goes when its value is written over or its row deleted, and
+   stays while its value is not changed. */
+- (void)testAFileGoesWithItsValue
+{
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:nil];
+    NSManagedObject *attachment = [self insertAttachmentNamed:@"a" data:filledData(200000, 'a') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    NSArray *first = [self externalFiles];
+    XCTAssertEqual([first count], (NSUInteger)1);
+
+    [attachment setValue:@"renamed" forKey:@"name"];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqualObjects([self externalFiles], first, @"an unchanged value keeps its file");
+
+    [attachment setValue:filledData(300000, 'b') forKey:@"data"];
+    XCTAssertTrue([context save:NULL]);
+    NSArray *second = [self externalFiles];
+    XCTAssertEqual([second count], (NSUInteger)1);
+    XCTAssertNotEqualObjects(second, first);
+
+    [attachment setValue:filledData(10, 'c') forKey:@"data"];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)0);
+
+    [attachment setValue:filledData(200000, 'd') forKey:@"data"];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)1);
+    [context deleteObject:attachment];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)0);
+}
+
+/* A store migrated to a newer model keeps its external values, and its
+   files go with it. */
+- (void)testAMigratedStoreKeepsItsExternalValues
+{
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:nil];
+    NSData *large = filledData(200000, 'm');
+    [self insertAttachmentNamed:@"kept" data:large inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    [self closeStoreOf:context];
+
+    NSManagedObjectContext *migrated = [self contextWithModel:attachmentModel(YES)
+                                                      options:@{ NSMigratePersistentStoresAutomaticallyOption : @YES,
+                                                                 NSInferMappingModelAutomaticallyOption : @YES }];
+    XCTAssertEqualObjects([[self attachmentNamed:@"kept" inContext:migrated] valueForKey:@"data"], large);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)1);
+
+    NSString *name = [[self.storeURL lastPathComponent] stringByDeletingPathExtension];
+    NSArray *beside = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:[[self.storeURL path] stringByDeletingLastPathComponent] error:NULL];
+    for (NSString *file in beside)
+        if ([file rangeOfString:name].location != NSNotFound)
+            XCTAssertEqual([file rangeOfString:@"~migrated"].location, (NSUInteger)NSNotFound, @"%@ left behind", file);
+}
+
+/* Batch requests write external values as a save does: a file for each
+   row, and the files of rows deleted or written over go.  Apple's store
+   raises on both (an unrecognized selector, -_bytesPtrForStore), so this
+   is FreeCoreData's alone. */
+- (void)testBatchRequestsWriteExternalValuesRowByRow
+{
+    if (NSClassFromString(@"NSSQLitePersistentStore") == nil)
+        return;
+
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:nil];
+    NSBatchInsertRequest *insert = [[NSBatchInsertRequest alloc] initWithEntityName:@"Attachment"
+        objects:@[ @{ @"name" : @"x", @"data" : filledData(200000, 'x') },
+                   @{ @"name" : @"y", @"data" : filledData(200000, 'y') },
+                   @{ @"name" : @"z", @"data" : filledData(5, 'z') } ]];
+    XCTAssertNotNil([context executeRequest:insert error:NULL]);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)2);
+    XCTAssertEqualObjects([[self attachmentNamed:@"y" inContext:context] valueForKey:@"data"], filledData(200000, 'y'));
+
+    NSBatchUpdateRequest *update = [[NSBatchUpdateRequest alloc] initWithEntityName:@"Attachment"];
+    update.propertiesToUpdate = @{ @"data" : filledData(150000, 'u') };
+    XCTAssertNotNil([context executeRequest:update error:NULL]);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)3);
+
+    NSManagedObjectContext *reopened = [self contextWithModel:attachmentModel(NO) options:nil];
+    XCTAssertEqualObjects([[self attachmentNamed:@"z" inContext:reopened] valueForKey:@"data"], filledData(150000, 'u'));
+
+    NSFetchRequest *matching = [NSFetchRequest fetchRequestWithEntityName:@"Attachment"];
+    matching.predicate = [NSPredicate predicateWithFormat:@"data == %@", filledData(150000, 'u')];
+    XCTAssertEqual([reopened countForFetchRequest:matching error:NULL], (NSUInteger)3);
+
+    NSBatchDeleteRequest *delete = [[NSBatchDeleteRequest alloc] initWithFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Attachment"]];
+    XCTAssertNotNil([reopened executeRequest:delete error:NULL]);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)0);
+}
+
+/* An external value's file is read only when its bytes are needed, as
+   Apple's are: a value taken from an object, its file gone, raises only
+   when its bytes are asked for; and an object whose external value is
+   not changed is saved without its file. */
+- (void)testAnExternalFileIsReadOnlyWhenItsBytesAre
+{
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:nil];
+    [self insertAttachmentNamed:@"a" data:filledData(300000, 'a') inContext:context];
+    [self insertAttachmentNamed:@"b" data:filledData(300000, 'b') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+
+    NSManagedObjectContext *reader = [[NSManagedObjectContext alloc] init];
+    reader.persistentStoreCoordinator = context.persistentStoreCoordinator;
+    NSManagedObject *a = [self attachmentNamed:@"a" inContext:reader];
+    NSData *value = [a valueForKey:@"data"];
+    XCTAssertNotNil(value);
+    for (NSString *file in [self externalFiles])
+        [[NSFileManager defaultManager] removeItemAtPath:[[self externalDataDirectory] stringByAppendingPathComponent:file] error:NULL];
+
+    XCTAssertThrows([value bytes], @"the file is read only now, and is gone");
+    [a setValue:@"renamed" forKey:@"name"];
+    NSError *error = nil;
+    XCTAssertTrue([reader save:&error], @"saved without its file: %@", error);
+}
+
+/* Destroying a SQLite store leaves its database empty, in its file, and
+   takes away the external values' files; nothing there is no error. */
+- (void)testDestroyingAStoreEmptiesItAndTakesItsFilesAway
+{
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:nil];
+    [self insertAttachmentNamed:@"a" data:filledData(300000, 'a') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    NSPersistentStoreCoordinator *coordinator = context.persistentStoreCoordinator;
+    [self closeStoreOf:context];
+
+    NSError *error = nil;
+    XCTAssertTrue([coordinator destroyPersistentStoreAtURL:self.storeURL withType:NSSQLiteStoreType options:nil error:&error], @"%@", error);
+    XCTAssertTrue([[NSFileManager defaultManager] fileExistsAtPath:[self.storeURL path]]);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:[[self externalDataDirectory] stringByDeletingLastPathComponent]]);
+
+    NSManagedObjectContext *reopened = [self contextWithModel:attachmentModel(NO) options:nil];
+    XCTAssertEqual([reopened countForFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Attachment"] error:NULL], (NSUInteger)0);
+
+    NSURL *nothing = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]]];
+    XCTAssertTrue([coordinator destroyPersistentStoreAtURL:nothing withType:NSSQLiteStoreType options:nil error:NULL]);
+}
+
+/* Replacing a SQLite store makes it a copy of another: its database, its
+   UUID, and its external values' files; the source must be there. */
+- (void)testReplacingAStoreCopiesAnother
+{
+    NSURL *destination = self.storeURL;
+    self.storeURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                                [[[NSProcessInfo processInfo] globallyUniqueString] stringByAppendingPathExtension:@"sqlite"]]];
+    NSURL *source = self.storeURL;
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:nil];
+    [self insertAttachmentNamed:@"a" data:filledData(300000, 'a') inContext:context];
+    [self insertAttachmentNamed:@"b" data:filledData(200000, 'b') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    NSString *uuid = [[context.persistentStoreCoordinator.persistentStores firstObject] identifier];
+    NSPersistentStoreCoordinator *coordinator = context.persistentStoreCoordinator;
+    [self closeStoreOf:context];
+
+    self.storeURL = destination;
+    NSManagedObjectContext *old = [self contextWithModel:attachmentModel(NO) options:nil];
+    [self insertAttachmentNamed:@"old" data:filledData(300000, 'o') inContext:old];
+    XCTAssertTrue([old save:NULL]);
+    [self closeStoreOf:old];
+
+    NSError *error = nil;
+    XCTAssertTrue([coordinator replacePersistentStoreAtURL:destination destinationOptions:nil
+                                withPersistentStoreFromURL:source sourceOptions:nil
+                                                 storeType:NSSQLiteStoreType error:&error], @"%@", error);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)2);
+
+    NSManagedObjectContext *copy = [self contextWithModel:attachmentModel(NO) options:nil];
+    XCTAssertEqualObjects([[copy.persistentStoreCoordinator.persistentStores firstObject] identifier], uuid);
+    XCTAssertEqual([copy countForFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Attachment"] error:NULL], (NSUInteger)2);
+    XCTAssertEqualObjects([[self attachmentNamed:@"b" inContext:copy] valueForKey:@"data"], filledData(200000, 'b'));
+    XCTAssertNil([self attachmentNamed:@"old" inContext:copy]);
+
+    NSURL *nothing = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]]];
+    error = nil;
+    XCTAssertFalse([coordinator replacePersistentStoreAtURL:destination destinationOptions:nil
+                                 withPersistentStoreFromURL:nothing sourceOptions:nil
+                                                  storeType:NSSQLiteStoreType error:&error]);
+    XCTAssertEqualObjects(error.domain, NSSQLiteErrorDomain);
+    XCTAssertEqual(error.code, (NSInteger)14);
+
+    [self removeStoreFilesAtURL:source];
+    NSString *sourcePath = [source path];
+    [[NSFileManager defaultManager] removeItemAtPath:[[sourcePath stringByDeletingLastPathComponent] stringByAppendingPathComponent:
+        [NSString stringWithFormat:@".%@_SUPPORT", [[sourcePath lastPathComponent] stringByDeletingPathExtension]]] error:NULL];
+}
+
+/* A store of another type kept in a file: destroying it removes the
+   file, and replacing it copies the file. */
+- (void)testAnXMLStoreIsDestroyedAndReplacedAsAFile
+{
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+    NSURL *x = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"X.xml"]];
+    NSURL *y = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"Y.xml"]];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:attachmentModel(NO)];
+    NSPersistentStore *store = [coordinator addPersistentStoreWithType:NSXMLStoreType configuration:nil URL:x options:nil error:NULL];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    context.persistentStoreCoordinator = coordinator;
+    [self insertAttachmentNamed:@"x" data:filledData(10, 'x') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertTrue([coordinator removePersistentStore:store error:NULL]);
+
+    NSError *error = nil;
+    XCTAssertTrue([coordinator replacePersistentStoreAtURL:y destinationOptions:nil withPersistentStoreFromURL:x sourceOptions:nil
+                                                 storeType:NSXMLStoreType error:&error], @"%@", error);
+    XCTAssertEqualObjects([NSData dataWithContentsOfURL:y], [NSData dataWithContentsOfURL:x]);
+    XCTAssertTrue([coordinator destroyPersistentStoreAtURL:y withType:NSXMLStoreType options:nil error:&error], @"%@", error);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:[y path]]);
+    [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* A store told where to keep its external values (CDExternalDataStoreOption,
+   FreeCoreData's) keeps them there rather than in files beside it, and
+   lets go of them there as it does of its files. */
+- (void)testExternalValuesAreKeptWhereTheOptionsSay
+{
+    if (NSClassFromString(@"CDFileExternalDataStore") == nil)
+        return;
+
+    MemoryExternalDataStore *memory = [[MemoryExternalDataStore alloc] init];
+    NSDictionary *options = @{ @"CDExternalDataStoreOption" : memory };
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:options];
+    NSManagedObject *attachment = [self insertAttachmentNamed:@"a" data:filledData(200000, 'a') inContext:context];
+    [self insertAttachmentNamed:@"small" data:filledData(10, 's') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)1);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)0, @"no files beside the store");
+    NSData *stored = [self storedDataOfAttachmentNamed:@"a"];
+    NSString *name = [[NSString alloc] initWithBytes:(const uint8_t *)[stored bytes] + 1 length:36 encoding:NSASCIIStringEncoding];
+    XCTAssertEqualObjects([memory.kept allKeys], @[ name ]);
+
+    NSManagedObjectContext *reopened = [self contextWithModel:attachmentModel(NO) options:options];
+    XCTAssertEqualObjects([[self attachmentNamed:@"a" inContext:reopened] valueForKey:@"data"], filledData(200000, 'a'));
+
+    [attachment setValue:filledData(300000, 'b') forKey:@"data"];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)1);
+    XCTAssertNil(memory.kept[name], @"the value written over is let go of");
+    [context deleteObject:attachment];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual([memory.kept count], (NSUInteger)0);
+
+    [self closeStoreOf:context];
+    [self closeStoreOf:reopened];
+    XCTAssertTrue([context.persistentStoreCoordinator destroyPersistentStoreAtURL:self.storeURL withType:NSSQLiteStoreType options:options error:NULL]);
+    XCTAssertEqual(memory.removedAll, 1);
+}
+
+/* -- migrating into and out of external storage -------------------------- */
+
+static NSManagedObjectModel *itemModel(BOOL external)
+{
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    name.name = @"name";
+    name.attributeType = NSStringAttributeType;
+    name.optional = YES;
+    NSAttributeDescription *data = [[NSAttributeDescription alloc] init];
+    data.name = @"data";
+    data.attributeType = NSBinaryDataAttributeType;
+    data.optional = YES;
+    data.allowsExternalBinaryDataStorage = external;
+    NSEntityDescription *item = [[NSEntityDescription alloc] init];
+    item.name = @"Item";
+    item.properties = @[ name, data ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ item ];
+    return model;
+}
+
+/* Values whose first byte is what marks a value inline (1) or outside (2),
+   one small, one large, and none. */
+static NSDictionary *migratedValues(void)
+{
+    NSMutableData *one = [filledData(10, 'x') mutableCopy], *two = [filledData(40, 'y') mutableCopy];
+    ((uint8_t *)[one mutableBytes])[0] = 1;
+    ((uint8_t *)[two mutableBytes])[0] = 2;
+    return @{ @"small" : filledData(10, 's'), @"starts1" : one, @"starts2" : two,
+              @"large" : filledData(300000, 'L'), @"none" : [NSNull null] };
+}
+
+- (void)fillItemsWithModel:(NSManagedObjectModel *)model
+{
+    NSManagedObjectContext *context = [self contextWithModel:model options:nil];
+    NSDictionary *values = migratedValues();
+    for (NSString *name in values) {
+        NSManagedObject *item = [NSEntityDescription insertNewObjectForEntityForName:@"Item" inManagedObjectContext:context];
+        [item setValue:name forKey:@"name"];
+        if (values[name] != [NSNull null])
+            [item setValue:values[name] forKey:@"data"];
+    }
+    XCTAssertTrue([context save:NULL]);
+    [self closeStoreOf:context];
+}
+
+/* The data column of each item, as stored, by name. */
+- (NSDictionary *)storedItemData
+{
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    NSMutableDictionary *stored = [NSMutableDictionary dictionary];
+
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    sqlite3_prepare_v2(database, "SELECT ZNAME, ZDATA FROM ZITEM", -1, &statement, NULL);
+    while (sqlite3_step(statement) == SQLITE_ROW)
+        stored[[NSString stringWithUTF8String:(const char *)sqlite3_column_text(statement, 0)]] =
+            (sqlite3_column_type(statement, 1) == SQLITE_NULL) ? [NSNull null]
+                : [NSData dataWithBytes:sqlite3_column_blob(statement, 1) length:sqlite3_column_bytes(statement, 1)];
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return stored;
+}
+
+- (void)assertItemsReadBackWithModel:(NSManagedObjectModel *)model options:(NSDictionary *)options skippingNone:(BOOL)skippingNone
+{
+    NSManagedObjectContext *context = [self contextWithModel:model options:options];
+    NSDictionary *values = migratedValues();
+    NSArray *items = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Item"] error:NULL];
+    XCTAssertEqual([items count], [values count]);
+    for (NSManagedObject *item in items) {
+        NSString *name = [item valueForKey:@"name"];
+        if (values[name] == [NSNull null]) {
+            if (!skippingNone)
+                XCTAssertNil([item valueForKey:@"data"], @"none stays none");
+        } else
+            XCTAssertEqualObjects([item valueForKey:@"data"], values[name], @"%@", name);
+    }
+    [self closeStoreOf:context];
+}
+
+/* With a mapping model of one's own, values move into external storage -
+   a byte in front of each, a large one into a file - and out of it again
+   - as they were, and the file gone - as Apple's do. */
+- (void)testAMappingModelMovesValuesIntoExternalStorageAndOut
+{
+    for (int into = 1; into >= 0; into--) {
+        NSManagedObjectModel *source = itemModel(!into), *destination = itemModel(into);
+        [self fillItemsWithModel:source];
+
+        NSEntityMapping *entityMapping = [[NSEntityMapping alloc] init];
+        entityMapping.name = @"ItemToItem";
+        entityMapping.mappingType = NSCopyEntityMappingType;
+        entityMapping.sourceEntityName = @"Item";
+        entityMapping.destinationEntityName = @"Item";
+        entityMapping.sourceEntityVersionHash = [source.entitiesByName[@"Item"] versionHash];
+        entityMapping.destinationEntityVersionHash = [destination.entitiesByName[@"Item"] versionHash];
+        entityMapping.sourceExpression = [NSExpression expressionWithFormat:
+            @"FETCH(FUNCTION($manager, \"fetchRequestForSourceEntityNamed:predicateString:\" , \"Item\", \"TRUEPREDICATE\"), $manager.sourceContext, NO)"];
+        NSMutableArray *propertyMappings = [NSMutableArray array];
+        for (NSString *name in @[ @"name", @"data" ]) {
+            NSPropertyMapping *propertyMapping = [[NSPropertyMapping alloc] init];
+            propertyMapping.name = name;
+            propertyMapping.valueExpression = [NSExpression expressionWithFormat:[NSString stringWithFormat:@"$source.%@", name]];
+            [propertyMappings addObject:propertyMapping];
+        }
+        entityMapping.attributeMappings = propertyMappings;
+        NSMappingModel *mapping = [[NSMappingModel alloc] init];
+        mapping.entityMappings = @[ entityMapping ];
+
+        NSURL *sourceURL = self.storeURL;
+        NSURL *destinationURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                    [[[NSProcessInfo processInfo] globallyUniqueString] stringByAppendingPathExtension:@"sqlite"]]];
+        NSMigrationManager *manager = [[NSMigrationManager alloc] initWithSourceModel:source destinationModel:destination];
+        NSError *error = nil;
+        XCTAssertTrue([manager migrateStoreFromURL:sourceURL type:NSSQLiteStoreType options:nil withMappingModel:mapping
+                                  toDestinationURL:destinationURL destinationType:NSSQLiteStoreType destinationOptions:nil error:&error], @"%@", error);
+        manager = nil;
+
+        self.storeURL = destinationURL;
+        NSDictionary *stored = [self storedItemData];
+        XCTAssertEqualObjects(stored[@"none"], [NSNull null]);
+        if (into) {
+            XCTAssertEqualObjects(stored[@"small"], ([@"\001ssssssssss" dataUsingEncoding:NSASCIIStringEncoding]));
+            XCTAssertEqual([stored[@"starts2"] length], (NSUInteger)41);
+            XCTAssertEqual(((const uint8_t *)[stored[@"large"] bytes])[0], 2);
+            XCTAssertEqual([[self externalFiles] count], (NSUInteger)1);
+        } else {
+            XCTAssertEqualObjects(stored[@"starts1"], migratedValues()[@"starts1"]);
+            XCTAssertEqualObjects(stored[@"large"], migratedValues()[@"large"]);
+            XCTAssertEqual([[self externalFiles] count], (NSUInteger)0);
+        }
+        [self assertItemsReadBackWithModel:destination options:nil skippingNone:NO];
+
+        [self removeStoreFilesAtURL:sourceURL];
+        NSString *sourcePath = [sourceURL path];
+        [[NSFileManager defaultManager] removeItemAtPath:[[sourcePath stringByDeletingLastPathComponent] stringByAppendingPathComponent:
+            [NSString stringWithFormat:@".%@_SUPPORT", [[sourcePath lastPathComponent] stringByDeletingPathExtension]]] error:NULL];
+        [self removeStoreFilesAtURL:destinationURL];
+        self.storeURL = sourceURL;
+    }
+}
+
+/* Inferred, a migration into external storage keeps every value, each now
+   with its byte in front (Apple's turns a nil value into empty data; this
+   one leaves it nil). */
+- (void)testAnInferredMigrationIntoExternalStorageKeepsTheValues
+{
+    [self fillItemsWithModel:itemModel(NO)];
+    NSDictionary *automatic = @{ NSMigratePersistentStoresAutomaticallyOption : @YES, NSInferMappingModelAutomaticallyOption : @YES };
+    BOOL apples = (NSClassFromString(@"NSSQLitePersistentStore") == nil);
+    [self assertItemsReadBackWithModel:itemModel(YES) options:automatic skippingNone:apples];
+
+    NSDictionary *stored = [self storedItemData];
+    for (NSString *name in @[ @"small", @"starts1", @"starts2", @"large" ]) {
+        uint8_t marker = ((const uint8_t *)[stored[name] bytes])[0];
+        XCTAssertTrue(marker == 1 || marker == 2, @"%@ is marked", name);
+    }
+}
+
+/* Inferred, a migration out of external storage is refused, as Apple
+   refuses it - even with no value kept outside - and the store is left as
+   it was; a mapping model of one's own does it. */
+- (void)testAnInferredMigrationOutOfExternalStorageIsRefused
+{
+    [self fillItemsWithModel:itemModel(YES)];
+    NSDictionary *before = [self storedItemData];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:itemModel(NO)];
+    NSDictionary *automatic = @{ NSMigratePersistentStoresAutomaticallyOption : @YES, NSInferMappingModelAutomaticallyOption : @YES };
+    NSError *error = nil;
+    NSPersistentStore *store = [coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:self.storeURL
+                                                               options:automatic error:&error];
+    XCTAssertNil(store);
+    XCTAssertEqual(error.code, (NSInteger)NSMigrationMissingMappingModelError);
+    XCTAssertEqual([error.userInfo[NSUnderlyingErrorKey] code], (NSInteger)NSInferredMappingModelError);
+    XCTAssertEqualObjects([self storedItemData], before);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)1);
+}
+
+/* What an external data store that keeps its values remotely (S3, say)
+   needs of a store, shown with one that behaves like it: a value fetched
+   with its row is not downloaded until its bytes are used; one given to
+   another row is copied by the server, not downloaded; and a request
+   whose write fails fails, leaving nothing it wrote behind. */
+- (void)testARemoteExternalDataStoreIsUsedAsItWouldWant
+{
+    if (NSClassFromString(@"CDFileExternalDataStore") == nil)
+        return;
+
+    RemoteLikeExternalDataStore *remote = [[RemoteLikeExternalDataStore alloc] init];
+    NSDictionary *options = @{ @"CDExternalDataStoreOption" : remote };
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:options];
+    [self insertAttachmentNamed:@"a" data:filledData(200000, 'a') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertEqual(remote.writes, 1);
+
+    NSManagedObjectContext *reader = [self contextWithModel:attachmentModel(NO) options:options];
+    NSData *value = [[self attachmentNamed:@"a" inContext:reader] valueForKey:@"data"];
+    XCTAssertEqual([value length], (NSUInteger)200000);
+    XCTAssertEqual(remote.loads, 0, @"fetched, not downloaded");
+
+    [self insertAttachmentNamed:@"b" data:value inContext:reader];
+    XCTAssertTrue([reader save:NULL]);
+    XCTAssertEqual(remote.copies, 1);
+    XCTAssertEqual(remote.writes, 1, @"copied by the server");
+    XCTAssertEqual(remote.loads, 0, @"and still not downloaded");
+    XCTAssertEqual([remote.kept count], (NSUInteger)2);
+
+    XCTAssertEqualObjects(value, filledData(200000, 'a'));
+    XCTAssertGreaterThan(remote.loads, 0, @"downloaded when its bytes are used");
+
+    remote.writesBeforeFailing = 1;
+    [self insertAttachmentNamed:@"c" data:filledData(200000, 'c') inContext:reader];
+    [self insertAttachmentNamed:@"d" data:filledData(200000, 'd') inContext:reader];
+    NSError *error = nil;
+    XCTAssertFalse([reader save:&error]);
+    XCTAssertEqual(error.code, (NSInteger)NSURLErrorTimedOut);
+    XCTAssertEqual([remote.kept count], (NSUInteger)2, @"what the failed save wrote is gone again");
+    XCTAssertEqual([[[self storedItemNames] allObjects] count], (NSUInteger)2, @"and no row was written");
+}
+
+- (NSSet *)storedItemNames
+{
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    NSMutableSet *names = [NSMutableSet set];
+
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    sqlite3_prepare_v2(database, "SELECT ZNAME FROM ZATTACHMENT", -1, &statement, NULL);
+    while (sqlite3_step(statement) == SQLITE_ROW)
+        [names addObject:[NSString stringWithUTF8String:(const char *)sqlite3_column_text(statement, 0)]];
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return names;
 }
 
 - (void)testMetadataContainsTypeUUIDAndVersionHashes
