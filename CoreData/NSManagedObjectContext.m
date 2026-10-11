@@ -1808,8 +1808,13 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
        processed when the current performBlock: "user event" ends (or
        at the next explicit processPendingChanges / save).  Scheduling
        on the MAIN run loop from a worker thread would both race and
-       process on the wrong thread. */
+       process on the wrong thread.  So would a thread-confined context
+       on a worker thread (NSMigrationManager's, on the thread a
+       migration runs on): its changes wait for that thread's own
+       processPendingChanges or save. */
     if(_concurrencyType==NSPrivateQueueConcurrencyType)
+     return;
+    if(_concurrencyType==NSConfinementConcurrencyType && ![NSThread isMainThread])
      return;
 
     if(!_requestedProcessPendingChanges){
