@@ -506,6 +506,188 @@ static NSString *externalReferenceName(const void *bytes,NSUInteger length){
    return [[[NSString alloc] initWithBytes:stored+1 length:end-1 encoding:NSASCIIStringEncoding] autorelease];
 }
 
+/* A value kept in a file of its own, read only when its bytes are first
+   needed - as Apple's _PFExternalReferenceData: a row that holds one
+   costs a name, not the value, until someone looks.  Its length is the
+   file's size.  A file gone by then is an exception, Apple's. */
+@interface CDExternalReferenceData : NSData {
+   NSString  *_path;
+   NSData    *_contents;
+   NSUInteger _length;
+   BOOL       _knowsLength;
+}
+-initWithPath:(NSString *)path;
+-(NSString *)_path;
+@end
+
+@implementation CDExternalReferenceData
+
+-initWithPath:(NSString *)path {
+   if((self=[super init])==nil)
+    return nil;
+   _path=[path copy];
+   return self;
+}
+
+-(void)dealloc {
+   [_path release];
+   [_contents release];
+   [super dealloc];
+}
+
+/* What GNUstep's -[NSData init] asks a subclass for: nothing here. */
+-initWithBytesNoCopy:(void *)bytes length:(NSUInteger)length freeWhenDone:(BOOL)freeWhenDone {
+   return self;
+}
+
+-(NSString *)_path {
+   return _path;
+}
+
+static void raiseMissingExternalFile(void){
+   [NSException raise:NSInternalInconsistencyException format:@"External data reference can't find underlying file."];
+}
+
+-(NSData *)_contents {
+   @synchronized(self){
+    if(_contents==nil){
+     _contents=[[NSData alloc] initWithContentsOfFile:_path options:NSDataReadingMappedIfSafe error:NULL];
+     if(_contents==nil)
+      raiseMissingExternalFile();
+    }
+    return _contents;
+   }
+}
+
+-(const void *)bytes {
+   return [[self _contents] bytes];
+}
+
+-(NSUInteger)length {
+   @synchronized(self){
+    if(_contents!=nil)
+     return [_contents length];
+    if(!_knowsLength){
+     NSDictionary *attributes=[[NSFileManager defaultManager] attributesOfItemAtPath:_path error:NULL];
+
+     if(attributes==nil)
+      raiseMissingExternalFile();
+     _length=(NSUInteger)[attributes fileSize];
+     _knowsLength=YES;
+    }
+    return _length;
+   }
+}
+
+-copyWithZone:(NSZone *)zone {
+   return [self retain];
+}
+
+/* Told apart without reading either file where it can be: by the file,
+   or by the lengths. */
+-(BOOL)isEqualToData:(NSData *)other {
+   if(other==self)
+    return YES;
+   if([other isKindOfClass:[CDExternalReferenceData class]] && [[(CDExternalReferenceData *)other _path] isEqualToString:_path])
+    return YES;
+   if([other length]!=[self length])
+    return NO;
+   return [[self _contents] isEqualToData:other];
+}
+
+-(BOOL)isEqual:(id)other {
+   return [other isKindOfClass:[NSData class]] && [self isEqualToData:other];
+}
+
+-(NSUInteger)hash {
+   return [self length];
+}
+
+@end
+
+/* SQLite's own code for an error, in NSSQLiteErrorDomain. */
+static NSError *sqliteFileError(int code,NSString *path,NSString *what){
+   NSDictionary *userInfo=[NSDictionary dictionaryWithObjectsAndKeys:
+                              [NSString stringWithFormat:@"%@: %@ (%s)",what,path,sqlite3_errstr(code)],NSLocalizedDescriptionKey,
+                              path,NSFilePathErrorKey,nil];
+
+   return [NSError errorWithDomain:NSSQLiteErrorDomain code:code userInfo:userInfo];
+}
+
+/* to made a copy of from, page for page. */
+static int copyDatabase(sqlite3 *from,sqlite3 *to){
+   sqlite3_backup *backup=sqlite3_backup_init(to,"main",from,"main");
+
+   if(backup==NULL)
+    return sqlite3_errcode(to);
+   sqlite3_backup_step(backup,-1);
+   return sqlite3_backup_finish(backup);
+}
+
+@implementation NSSQLitePersistentStore (CDStoreFiles)
+
++(BOOL)_destroyStoreAtURL:(NSURL *)url error:(NSError **)error {
+   NSString      *path=[url path];
+   NSFileManager *files=[NSFileManager defaultManager];
+
+   if([files fileExistsAtPath:path]){
+    sqlite3 *empty=NULL,*database=NULL;
+    int      code=sqlite3_open(":memory:",&empty);
+
+    if(code==SQLITE_OK)
+     code=sqlite3_open_v2([path fileSystemRepresentation],&database,SQLITE_OPEN_READWRITE,NULL);
+    if(code==SQLITE_OK){
+     sqlite3_busy_timeout(database,5000);
+     code=copyDatabase(empty,database);
+    }
+    sqlite3_close(database);
+    sqlite3_close(empty);
+    if(code!=SQLITE_OK){
+     if(error!=NULL)
+      *error=sqliteFileError(code,path,@"unable to destroy the store");
+     return NO;
+    }
+   }
+   [files removeItemAtPath:CDSQLiteSupportDirectoryForStoreURL(url) error:NULL];
+   return YES;
+}
+
++(BOOL)_replaceStoreAtURL:(NSURL *)destination withStoreAtURL:(NSURL *)source error:(NSError **)error {
+   NSFileManager *files=[NSFileManager defaultManager];
+   sqlite3       *from=NULL,*to=NULL;
+   int            code=sqlite3_open_v2([[source path] fileSystemRepresentation],&from,SQLITE_OPEN_READONLY,NULL);
+
+   if(code!=SQLITE_OK){
+    sqlite3_close(from);
+    if(error!=NULL)
+     *error=sqliteFileError(code,[source path],@"unable to open the store to copy");
+    return NO;
+   }
+   [files createDirectoryAtPath:[[destination path] stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:NULL];
+   code=sqlite3_open_v2([[destination path] fileSystemRepresentation],&to,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE,NULL);
+   if(code==SQLITE_OK){
+    sqlite3_busy_timeout(to,5000);
+    code=copyDatabase(from,to);
+   }
+   sqlite3_close(to);
+   sqlite3_close(from);
+   if(code!=SQLITE_OK){
+    if(error!=NULL)
+     *error=sqliteFileError(code,[destination path],@"unable to replace the store");
+    return NO;
+   }
+
+   NSString *support=CDSQLiteSupportDirectoryForStoreURL(destination);
+   NSString *sourceSupport=CDSQLiteSupportDirectoryForStoreURL(source);
+
+   [files removeItemAtPath:support error:NULL];
+   if([files fileExistsAtPath:sourceSupport] && ![files copyItemAtPath:sourceSupport toPath:support error:error])
+    return NO;
+   return YES;
+}
+
+@end
+
 @implementation NSSQLitePersistentStore
 
 /* ------------------------------------------------------------------ */
@@ -3520,7 +3702,13 @@ static long long pragmaValue(sqlite3 *database,NSString *pragma){
 
    if(![[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:error])
     return nil;
-   if(![value writeToFile:path options:0 error:error])
+   /* A value read from a file, given to another row, is a copy of the
+      file: its bytes need not be read for it. */
+   if([value isKindOfClass:[CDExternalReferenceData class]]){
+    if(![[NSFileManager defaultManager] copyItemAtPath:[(CDExternalReferenceData *)value _path] toPath:path error:error])
+     return nil;
+   }
+   else if(![value writeToFile:path options:0 error:error])
     return nil;
    [_externalFilesWritten addObject:path];
 
@@ -3531,14 +3719,14 @@ static long long pragmaValue(sqlite3 *database,NSString *pragma){
    return stored;
 }
 
-/* The value stored bytes stand for.  A file is mapped rather than read
-   where it can be; bytes with no marker are a value stored before the
-   attribute allowed external storage. */
+/* The value stored bytes stand for: a file's is read only when its
+   bytes are first needed.  Bytes with no marker are a value stored
+   before the attribute allowed external storage. */
 -(NSData *)_valueOfStoredExternalBytes:(const void *)bytes length:(NSUInteger)length {
    NSString *name=externalReferenceName(bytes,length);
 
    if(name!=nil)
-    return [NSData dataWithContentsOfFile:[[self _externalDataDirectory] stringByAppendingPathComponent:name] options:NSDataReadingMappedIfSafe error:NULL];
+    return [[[CDExternalReferenceData alloc] initWithPath:[[self _externalDataDirectory] stringByAppendingPathComponent:name]] autorelease];
    if(length>0 && ((const uint8_t *)bytes)[0]==CDExternalDataInline)
     return [NSData dataWithBytes:(const uint8_t *)bytes+1 length:length-1];
    return [NSData dataWithBytes:bytes length:length];

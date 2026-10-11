@@ -62,6 +62,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @end
 
+/* For the coordinator's -destroyPersistentStoreAtURL:... and
+   -replacePersistentStoreAtURL:...: a store's database emptied in its
+   file, or made a copy of another's, through SQLite's backup (so that
+   connections open to it stay good), and what is kept beside the file
+   taken away or copied too. */
+@interface NSSQLitePersistentStore (CDStoreFiles)
++ (BOOL)_destroyStoreAtURL:(NSURL *)url error:(NSError **)error;
++ (BOOL)_replaceStoreAtURL:(NSURL *)destination withStoreAtURL:(NSURL *)source error:(NSError **)error;
+@end
+
 /* The directory beside a SQLite store's file that holds what the store
    keeps outside it - .<name>_SUPPORT, as Apple names it.  It goes where
    the file goes. */

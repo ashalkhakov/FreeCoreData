@@ -540,6 +540,49 @@ static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,
    }
 }
 
+-(BOOL)destroyPersistentStoreAtURL:(NSURL *)URL withType:(NSString *)storeType options:(NSDictionary *)options error:(NSError **)error {
+   Class storeClass=[[[self class] registeredStoreTypes] objectForKey:storeType];
+
+   if([storeType isEqualToString:NSSQLiteStoreType])
+    return [NSSQLitePersistentStore _destroyStoreAtURL:URL error:error];
+   if([storeClass respondsToSelector:@selector(destroyStoreAtURL:options:error:)])
+    return [(Class<CDDestroyableStore>)storeClass destroyStoreAtURL:URL options:options error:error];
+   if([URL isFileURL] && [[NSFileManager defaultManager] fileExistsAtPath:[URL path]])
+    return [[NSFileManager defaultManager] removeItemAtPath:[URL path] error:error];
+   return YES;
+}
+
+-(BOOL)replacePersistentStoreAtURL:(NSURL *)destinationURL destinationOptions:(NSDictionary *)destinationOptions withPersistentStoreFromURL:(NSURL *)sourceURL sourceOptions:(NSDictionary *)sourceOptions storeType:(NSString *)storeType error:(NSError **)error {
+   NSFileManager *files=[NSFileManager defaultManager];
+
+   if([storeType isEqualToString:NSSQLiteStoreType])
+    return [NSSQLitePersistentStore _replaceStoreAtURL:destinationURL withStoreAtURL:sourceURL error:error];
+
+   /* A store kept in a file: the file copied. */
+   if([sourceURL isFileURL] && [destinationURL isFileURL]){
+    if(![files fileExistsAtPath:[sourceURL path]]){
+     if(error!=NULL)
+      *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadNoSuchFileError userInfo:[NSDictionary dictionaryWithObject:[sourceURL path] forKey:NSFilePathErrorKey]];
+     return NO;
+    }
+    [files removeItemAtPath:[destinationURL path] error:NULL];
+    return [files copyItemAtPath:[sourceURL path] toPath:[destinationURL path] error:error];
+   }
+
+   /* Any other (a database on a server): the destination emptied, then
+      given every object of the source, through a coordinator of its own. */
+   if(![self destroyPersistentStoreAtURL:destinationURL withType:storeType options:destinationOptions error:error])
+    return NO;
+
+   NSPersistentStoreCoordinator *copier=[[[self class] alloc] initWithManagedObjectModel:_model];
+   NSPersistentStore            *source=[copier addPersistentStoreWithType:storeType configuration:nil URL:sourceURL options:sourceOptions error:error];
+   BOOL                          copied=(source!=nil &&
+                                         [copier migratePersistentStore:source toURL:destinationURL options:destinationOptions withType:storeType error:error]!=nil);
+
+   [copier release];
+   return copied;
+}
+
 /* As Apple's: a store of storeType at URL, with store's configuration,
    given every object store has and its metadata (but its type and UUID,
    the new store's own); then store is removed from the coordinator (its

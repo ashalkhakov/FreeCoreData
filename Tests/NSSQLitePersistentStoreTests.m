@@ -581,9 +581,11 @@ static NSData *filledData(NSUInteger length, char fill)
     XCTAssertEqualObjects([[self attachmentNamed:@"kept" inContext:migrated] valueForKey:@"data"], large);
     XCTAssertEqual([[self externalFiles] count], (NSUInteger)1);
 
+    NSString *name = [[self.storeURL lastPathComponent] stringByDeletingPathExtension];
     NSArray *beside = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:[[self.storeURL path] stringByDeletingLastPathComponent] error:NULL];
     for (NSString *file in beside)
-        XCTAssertEqual([file rangeOfString:@"~migrated"].location, (NSUInteger)NSNotFound, @"%@ left behind", file);
+        if ([file rangeOfString:name].location != NSNotFound)
+            XCTAssertEqual([file rangeOfString:@"~migrated"].location, (NSUInteger)NSNotFound, @"%@ left behind", file);
 }
 
 /* Batch requests write external values as a save does: a file for each
@@ -619,6 +621,126 @@ static NSData *filledData(NSUInteger length, char fill)
     NSBatchDeleteRequest *delete = [[NSBatchDeleteRequest alloc] initWithFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Attachment"]];
     XCTAssertNotNil([reopened executeRequest:delete error:NULL]);
     XCTAssertEqual([[self externalFiles] count], (NSUInteger)0);
+}
+
+/* An external value's file is read only when its bytes are needed, as
+   Apple's are: a value taken from an object, its file gone, raises only
+   when its bytes are asked for; and an object whose external value is
+   not changed is saved without its file. */
+- (void)testAnExternalFileIsReadOnlyWhenItsBytesAre
+{
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:nil];
+    [self insertAttachmentNamed:@"a" data:filledData(300000, 'a') inContext:context];
+    [self insertAttachmentNamed:@"b" data:filledData(300000, 'b') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+
+    NSManagedObjectContext *reader = [[NSManagedObjectContext alloc] init];
+    reader.persistentStoreCoordinator = context.persistentStoreCoordinator;
+    NSManagedObject *a = [self attachmentNamed:@"a" inContext:reader];
+    NSData *value = [a valueForKey:@"data"];
+    XCTAssertNotNil(value);
+    for (NSString *file in [self externalFiles])
+        [[NSFileManager defaultManager] removeItemAtPath:[[self externalDataDirectory] stringByAppendingPathComponent:file] error:NULL];
+
+    XCTAssertThrows([value bytes], @"the file is read only now, and is gone");
+    [a setValue:@"renamed" forKey:@"name"];
+    NSError *error = nil;
+    XCTAssertTrue([reader save:&error], @"saved without its file: %@", error);
+}
+
+/* Destroying a SQLite store leaves its database empty, in its file, and
+   takes away the external values' files; nothing there is no error. */
+- (void)testDestroyingAStoreEmptiesItAndTakesItsFilesAway
+{
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:nil];
+    [self insertAttachmentNamed:@"a" data:filledData(300000, 'a') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    NSPersistentStoreCoordinator *coordinator = context.persistentStoreCoordinator;
+    [self closeStoreOf:context];
+
+    NSError *error = nil;
+    XCTAssertTrue([coordinator destroyPersistentStoreAtURL:self.storeURL withType:NSSQLiteStoreType options:nil error:&error], @"%@", error);
+    XCTAssertTrue([[NSFileManager defaultManager] fileExistsAtPath:[self.storeURL path]]);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:[[self externalDataDirectory] stringByDeletingLastPathComponent]]);
+
+    NSManagedObjectContext *reopened = [self contextWithModel:attachmentModel(NO) options:nil];
+    XCTAssertEqual([reopened countForFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Attachment"] error:NULL], (NSUInteger)0);
+
+    NSURL *nothing = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]]];
+    XCTAssertTrue([coordinator destroyPersistentStoreAtURL:nothing withType:NSSQLiteStoreType options:nil error:NULL]);
+}
+
+/* Replacing a SQLite store makes it a copy of another: its database, its
+   UUID, and its external values' files; the source must be there. */
+- (void)testReplacingAStoreCopiesAnother
+{
+    NSURL *destination = self.storeURL;
+    self.storeURL = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:
+                                                [[[NSProcessInfo processInfo] globallyUniqueString] stringByAppendingPathExtension:@"sqlite"]]];
+    NSURL *source = self.storeURL;
+    NSManagedObjectContext *context = [self contextWithModel:attachmentModel(NO) options:nil];
+    [self insertAttachmentNamed:@"a" data:filledData(300000, 'a') inContext:context];
+    [self insertAttachmentNamed:@"b" data:filledData(200000, 'b') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    NSString *uuid = [[context.persistentStoreCoordinator.persistentStores firstObject] identifier];
+    NSPersistentStoreCoordinator *coordinator = context.persistentStoreCoordinator;
+    [self closeStoreOf:context];
+
+    self.storeURL = destination;
+    NSManagedObjectContext *old = [self contextWithModel:attachmentModel(NO) options:nil];
+    [self insertAttachmentNamed:@"old" data:filledData(300000, 'o') inContext:old];
+    XCTAssertTrue([old save:NULL]);
+    [self closeStoreOf:old];
+
+    NSError *error = nil;
+    XCTAssertTrue([coordinator replacePersistentStoreAtURL:destination destinationOptions:nil
+                                withPersistentStoreFromURL:source sourceOptions:nil
+                                                 storeType:NSSQLiteStoreType error:&error], @"%@", error);
+    XCTAssertEqual([[self externalFiles] count], (NSUInteger)2);
+
+    NSManagedObjectContext *copy = [self contextWithModel:attachmentModel(NO) options:nil];
+    XCTAssertEqualObjects([[copy.persistentStoreCoordinator.persistentStores firstObject] identifier], uuid);
+    XCTAssertEqual([copy countForFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Attachment"] error:NULL], (NSUInteger)2);
+    XCTAssertEqualObjects([[self attachmentNamed:@"b" inContext:copy] valueForKey:@"data"], filledData(200000, 'b'));
+    XCTAssertNil([self attachmentNamed:@"old" inContext:copy]);
+
+    NSURL *nothing = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]]];
+    error = nil;
+    XCTAssertFalse([coordinator replacePersistentStoreAtURL:destination destinationOptions:nil
+                                 withPersistentStoreFromURL:nothing sourceOptions:nil
+                                                  storeType:NSSQLiteStoreType error:&error]);
+    XCTAssertEqualObjects(error.domain, NSSQLiteErrorDomain);
+    XCTAssertEqual(error.code, (NSInteger)14);
+
+    [self removeStoreFilesAtURL:source];
+    NSString *sourcePath = [source path];
+    [[NSFileManager defaultManager] removeItemAtPath:[[sourcePath stringByDeletingLastPathComponent] stringByAppendingPathComponent:
+        [NSString stringWithFormat:@".%@_SUPPORT", [[sourcePath lastPathComponent] stringByDeletingPathExtension]]] error:NULL];
+}
+
+/* A store of another type kept in a file: destroying it removes the
+   file, and replacing it copies the file. */
+- (void)testAnXMLStoreIsDestroyedAndReplacedAsAFile
+{
+    NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+    NSURL *x = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"X.xml"]];
+    NSURL *y = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"Y.xml"]];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:attachmentModel(NO)];
+    NSPersistentStore *store = [coordinator addPersistentStoreWithType:NSXMLStoreType configuration:nil URL:x options:nil error:NULL];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    context.persistentStoreCoordinator = coordinator;
+    [self insertAttachmentNamed:@"x" data:filledData(10, 'x') inContext:context];
+    XCTAssertTrue([context save:NULL]);
+    XCTAssertTrue([coordinator removePersistentStore:store error:NULL]);
+
+    NSError *error = nil;
+    XCTAssertTrue([coordinator replacePersistentStoreAtURL:y destinationOptions:nil withPersistentStoreFromURL:x sourceOptions:nil
+                                                 storeType:NSXMLStoreType error:&error], @"%@", error);
+    XCTAssertEqualObjects([NSData dataWithContentsOfURL:y], [NSData dataWithContentsOfURL:x]);
+    XCTAssertTrue([coordinator destroyPersistentStoreAtURL:y withType:NSXMLStoreType options:nil error:&error], @"%@", error);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:[y path]]);
+    [[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
 - (void)testMetadataContainsTypeUUIDAndVersionHashes
