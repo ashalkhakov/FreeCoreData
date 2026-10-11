@@ -3421,7 +3421,53 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    id result=[self _executeWriteRequest:request withContext:context error:error];
 
    [self _finishExternalDataOfRequestSucceeding:(result!=nil)];
+   if(result!=nil && [request requestType]==NSSaveRequestType)
+    [self _givePagesBackAfterSave];
    return result;
+}
+
+/* The single integer a pragma answers, or -1. */
+static long long pragmaValue(sqlite3 *database,NSString *pragma){
+   sqlite3_stmt *statement=prepareStatement(database,pragma,NULL);
+   long long     value=-1;
+
+   if(statement!=NULL && sqlite3_step(statement)==SQLITE_ROW)
+    value=sqlite3_column_int64(statement,0);
+   if(statement!=NULL)
+    sqlite3_finalize(statement);
+   return value;
+}
+
+/* Apple's store, after a save, now and then gives back pages the file
+   no longer uses (its files are made with incremental auto-vacuum): it
+   looks on the first save after it is opened and on every eleventh after
+   that.  Read from its post-save maintenance on macOS: nothing is done
+   while under 8192 pages are free and over 85% of the file is in use;
+   otherwise, with under 40% in use, all the free pages are given back
+   but as many as are in use, and else a fifth of them. */
+-(void)_givePagesBackAfterSave {
+   if(_savesBeforeMaintenance>0){
+    _savesBeforeMaintenance--;
+    return;
+   }
+   _savesBeforeMaintenance=10;
+
+   long long pages=pragmaValue(DATABASE,@"PRAGMA page_count");
+   long long free=pragmaValue(DATABASE,@"PRAGMA freelist_count");
+
+   if(pages<=0 || free<=0)
+    return;
+
+   long long used=pages-free;
+   double    inUse=(double)used/(double)pages;
+
+   if(free<8192 && inUse>0.85)
+    return;
+
+   long long toFree=(inUse<0.4)?free-used:free/5;
+
+   if(toFree>0)
+    executeSQL(DATABASE,[NSString stringWithFormat:@"PRAGMA incremental_vacuum(%lld)",toFree],NULL);
 }
 
 -(id)_executeWriteRequest:(NSPersistentStoreRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {

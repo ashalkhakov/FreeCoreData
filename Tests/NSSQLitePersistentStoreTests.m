@@ -343,6 +343,51 @@ static NSManagedObjectModel *blobModel(void)
     XCTAssertLessThan([self storeFileSize], 200000ULL);
 }
 
+- (int)storePragma:(const char *)pragma
+{
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    int value = -1;
+
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    sqlite3_prepare_v2(database, pragma, -1, &statement, NULL);
+    if (sqlite3_step(statement) == SQLITE_ROW)
+        value = sqlite3_column_int(statement, 0);
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return value;
+}
+
+/* After a save, now and then, the store gives back free pages, as Apple's
+   does: it looks on the first save after it is opened and on every
+   eleventh after that, and when less than 40% of the file is in use it
+   frees all but as many pages as are. */
+- (void)testSavesGiveBackFreePagesNowAndThen
+{
+    NSManagedObjectContext *context = [self contextWithModel:blobModel() options:nil];
+    NSData *page = [NSMutableData dataWithLength:4000];
+    for (int i = 0; i < 200; i++)
+        [[NSEntityDescription insertNewObjectForEntityForName:@"Blob" inManagedObjectContext:context] setValue:page forKey:@"data"];
+    XCTAssertTrue([context save:NULL]);   /* the first: looked, nothing free */
+    for (NSManagedObject *blob in [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Blob"] error:NULL])
+        [context deleteObject:blob];
+    XCTAssertTrue([context save:NULL]);   /* the second */
+    int freed = [self storePragma:"PRAGMA freelist_count"];
+    XCTAssertGreaterThan(freed, 190);
+
+    for (int save = 3; save <= 11; save++) {
+        [[NSEntityDescription insertNewObjectForEntityForName:@"Blob" inManagedObjectContext:context] setValue:[NSData dataWithBytes:"x" length:1] forKey:@"data"];
+        XCTAssertTrue([context save:NULL]);
+    }
+    XCTAssertEqual([self storePragma:"PRAGMA freelist_count"], freed, @"not looked at again before the twelfth save");
+
+    [[NSEntityDescription insertNewObjectForEntityForName:@"Blob" inManagedObjectContext:context] setValue:[NSData dataWithBytes:"x" length:1] forKey:@"data"];
+    XCTAssertTrue([context save:NULL]);
+    int pages = [self storePragma:"PRAGMA page_count"], free = [self storePragma:"PRAGMA freelist_count"];
+    XCTAssertLessThan(free, freed / 4, @"the twelfth save gave pages back");
+    XCTAssertEqual(free, pages - free, @"as many left free as are in use");
+}
+
 /* -- external binary data ----------------------------------------------- */
 
 static NSManagedObjectModel *attachmentModel(BOOL withNote)
