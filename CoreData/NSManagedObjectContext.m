@@ -171,6 +171,7 @@ static char CDContextQueueSpecificKey;
    
    _objectIdToObject=NSCreateMapTable(NSObjectMapKeyCallBacks,NSObjectMapValueCallBacks,0);
    _requestedProcessPendingChanges = NO;
+   _confinedToMainThread=[NSThread isMainThread];
    _concurrencyType=NSConfinementConcurrencyType;
    _workQueue=NULL;
    _contextName=nil;
@@ -1808,8 +1809,16 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
        processed when the current performBlock: "user event" ends (or
        at the next explicit processPendingChanges / save).  Scheduling
        on the MAIN run loop from a worker thread would both race and
-       process on the wrong thread. */
+       process on the wrong thread.  So would a thread-confined context
+       made on a worker thread (NSMigrationManager's, on the thread a
+       migration runs on), whichever thread asks: its changes wait for
+       whatever processes them next on its own thread - an explicit
+       processPendingChanges, a save, an undo or redo.
+       Apple's waits so too, even on a worker spinning its own run loop
+       (checked on macOS). */
     if(_concurrencyType==NSPrivateQueueConcurrencyType)
+     return;
+    if(_concurrencyType==NSConfinementConcurrencyType && !_confinedToMainThread)
      return;
 
     if(!_requestedProcessPendingChanges){

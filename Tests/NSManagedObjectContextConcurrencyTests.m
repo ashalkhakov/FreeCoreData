@@ -435,4 +435,52 @@ static BOOL CDWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
     [[NSNotificationCenter defaultCenter] removeObserver:observer];
 }
 
+/* A thread-confined context made and used on a worker thread (as
+   NSMigrationManager's are, on a thread a migration was started on):
+   its pending changes are its thread's, never processed by the main
+   run loop while the worker is still at them. */
+- (void)changeOnAWorkerThread:(NSMutableDictionary *)shared
+{
+    @autoreleasepool {
+        NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+        [ctx setPersistentStoreCoordinator:self.psc];
+        NSThread *worker = [NSThread currentThread];
+        NSMutableArray *threads = [shared objectForKey:@"threads"];
+        id observer = [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSManagedObjectContextObjectsDidChangeNotification
+                        object:ctx
+                         queue:nil
+                    usingBlock:^(NSNotification *note) {
+                        @synchronized (threads) {
+                            [threads addObject:[NSNumber numberWithBool:
+                                [NSThread currentThread] == worker]];
+                        }
+                    }];
+        [NSEntityDescription insertNewObjectForEntityForName:@"Note"
+                                      inManagedObjectContext:ctx];
+        /* The main thread spins its run loop meanwhile: long enough for
+           it to have processed the context, were it asked to. */
+        [NSThread sleepForTimeInterval:0.1];
+        [ctx processPendingChanges];
+        [[NSNotificationCenter defaultCenter] removeObserver:observer];
+        @synchronized (shared) { [shared setObject:@YES forKey:@"done"]; }
+    }
+}
+
+- (void)testAWorkerThreadsContextIsNotProcessedOnTheMainThread
+{
+    NSMutableArray *threads = [NSMutableArray array];
+    NSMutableDictionary *shared = [NSMutableDictionary dictionaryWithObject:threads forKey:@"threads"];
+    [NSThread detachNewThreadSelector:@selector(changeOnAWorkerThread:)
+                             toTarget:self
+                           withObject:shared];
+    XCTAssertTrue(CDWaitFor(5, ^{
+        @synchronized (shared) { return (BOOL)([shared objectForKey:@"done"] != nil); }
+    }));
+    @synchronized (threads) {
+        XCTAssertEqual([threads count], (NSUInteger)1, @"the insert is noticed once");
+        XCTAssertEqualObjects([threads firstObject], @YES, @"on the worker thread");
+    }
+}
+
 @end
