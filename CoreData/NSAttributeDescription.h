@@ -52,6 +52,7 @@ enum {
     id _defaultValue;
     NSString *_valueTransformerName;
     BOOL _preservesValueInHistoryOnDeletion;
+    BOOL _allowsExternalBinaryDataStorage;
 }
 
 - (NSString *)attributeValueClassName;
@@ -73,10 +74,19 @@ enum {
    tombstone. */
 - (BOOL)preservesValueInHistoryOnDeletion;
 
+/* When YES, a SQLite store may keep a Binary Data value of this
+   attribute in a file of its own beside the store rather than in the
+   row: as Apple's, one larger than 128 KiB, in
+   .<store name>_SUPPORT/_EXTERNAL_DATA.  Other stores, and other
+   attribute types, keep their values as before.  Part of the version
+   hash. */
+- (BOOL)allowsExternalBinaryDataStorage;
+
 - (void)setAttributeType:(NSAttributeType)value;
 - (void)setAttributeValueClassName:(NSString *)value;
 - (void)setDefaultValue:(id)value;
 - (void)setValueTransformerName:(NSString *)value;
 - (void)setPreservesValueInHistoryOnDeletion:(BOOL)value;
+- (void)setAllowsExternalBinaryDataStorage:(BOOL)value;
 
 @end

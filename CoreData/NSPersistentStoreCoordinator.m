@@ -184,7 +184,12 @@ static NSMutableDictionary *_storeTypes=nil;
     return NO;
    }
 
-   NSURL              *temporaryURL=[NSURL fileURLWithPath:[[storeURL path] stringByAppendingString:@"~migrated"]];
+   /* Named so that its extension stays the store's own: the directory a
+      SQLite store keeps beside its file is named after the name before
+      it, and the migrated store's must not be the original's. */
+   NSString           *extension=[[storeURL path] pathExtension];
+   NSString           *temporaryPath=[[[storeURL path] stringByDeletingPathExtension] stringByAppendingString:@"~migrated"];
+   NSURL              *temporaryURL=[NSURL fileURLWithPath:([extension length]>0)?[temporaryPath stringByAppendingPathExtension:extension]:temporaryPath];
    NSMigrationManager *manager=[[[NSMigrationManager alloc] initWithSourceModel:sourceModel destinationModel:_model] autorelease];
 
    /* The store's own options go to both ends of the migration.  Chiefly
@@ -215,7 +220,18 @@ static NSMutableDictionary *_storeTypes=nil;
    if(![fileManager removeItemAtPath:[storeURL path] error:error])
     return NO;
 
-   return [fileManager moveItemAtPath:[temporaryURL path] toPath:[storeURL path] error:error];
+   if(![fileManager moveItemAtPath:[temporaryURL path] toPath:[storeURL path] error:error])
+    return NO;
+
+   /* What the store keeps beside its file (external binary data) goes
+      with it: the migrated store's in place of the original's. */
+   NSString *support=CDSQLiteSupportDirectoryForStoreURL(storeURL);
+   NSString *migratedSupport=CDSQLiteSupportDirectoryForStoreURL(temporaryURL);
+
+   [fileManager removeItemAtPath:support error:NULL];
+   if([fileManager fileExistsAtPath:migratedSupport] && ![fileManager moveItemAtPath:migratedSupport toPath:support error:error])
+    return NO;
+   return YES;
 }
 
 /* Stamps the store's metadata with the version hashes and identifiers of
@@ -520,6 +536,7 @@ static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,
 
     for(NSString *suffix in [NSArray arrayWithObjects:@"",@"-wal",@"-shm",@"-journal",nil])
      [files removeItemAtPath:[[URL path] stringByAppendingString:suffix] error:NULL];
+    [files removeItemAtPath:CDSQLiteSupportDirectoryForStoreURL(URL) error:NULL];
    }
 }
 

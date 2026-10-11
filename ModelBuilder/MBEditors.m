@@ -508,6 +508,16 @@ static BOOL MBValuesEqual(id a, id b)
   self.attribute.preservesValueInHistoryOnDeletion = preserves;
   [self didChange:@"preservesValueInHistoryOnDeletion" from:old];
 }
+- (BOOL)allowsExternalBinaryDataStorage
+{
+  return self.attribute.allowsExternalBinaryDataStorage;
+}
+- (void)setAllowsExternalBinaryDataStorage:(BOOL)allows
+{
+  id old = [self valueForKey:@"allowsExternalBinaryDataStorage"];
+  self.attribute.allowsExternalBinaryDataStorage = allows;
+  [self didChange:@"allowsExternalBinaryDataStorage" from:old];
+}
 
 /* The default value as stored, for undo: lossless where -defaultString
    is a rendering of it. */
@@ -716,6 +726,7 @@ static BOOL MBValuesEqual(id a, id b)
     plain.optional = attribute.isOptional;
     plain.transient = attribute.isTransient;
     plain.preservesValueInHistoryOnDeletion = attribute.preservesValueInHistoryOnDeletion;
+    plain.allowsExternalBinaryDataStorage = attribute.allowsExternalBinaryDataStorage;
     plain.defaultValue = attribute.defaultValue;
     plain.userInfo = attribute.userInfo;
     [_document replaceProperty:attribute withProperty:plain];   /* undo puts this one back */
@@ -740,6 +751,7 @@ static BOOL MBValuesEqual(id a, id b)
   replacement.optional = attribute.isOptional;
   replacement.transient = attribute.isTransient;
   replacement.preservesValueInHistoryOnDeletion = attribute.preservesValueInHistoryOnDeletion;
+  replacement.allowsExternalBinaryDataStorage = attribute.allowsExternalBinaryDataStorage;
   replacement.userInfo = attribute.userInfo;
   replacement.derivationExpression = expression;
   [_document replaceProperty:attribute withProperty:replacement];

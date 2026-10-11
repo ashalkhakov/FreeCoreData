@@ -47,6 +47,7 @@ static NSString *const kRichModelXML = @""
 "    <attribute name=\"externalID\" optional=\"YES\" attributeType=\"UUID\"/>\n"
 "    <attribute name=\"homepage\" optional=\"YES\" attributeType=\"URI\"/>\n"
 "    <attribute name=\"blob\" optional=\"YES\" attributeType=\"Binary\"/>\n"
+"    <attribute name=\"attachment\" optional=\"YES\" attributeType=\"Binary\" allowsExternalBinaryDataStorage=\"YES\"/>\n"
 "    <attribute name=\"payload\" optional=\"YES\" attributeType=\"Transformable\" valueTransformerName=\"NSSecureUnarchiveFromData\" customClassName=\"NSDictionary\"/>\n"
 "    <attribute name=\"cached\" optional=\"YES\" transient=\"YES\" versionHashModifier=\"pv1\" attributeType=\"String\">\n"
 "      <userInfo>\n"
@@ -177,6 +178,9 @@ static NSString *const kRichModelXML = @""
     XCTAssertEqualObjects([titleB defaultValue], @"Untitled");
     XCTAssertTrue([titleB preservesValueInHistoryOnDeletion],
                   @"preserveAfterDeletion round-trips (history tombstones)");
+    XCTAssertTrue([[[articleB attributesByName] objectForKey:@"attachment"] allowsExternalBinaryDataStorage],
+                  @"allowsExternalBinaryDataStorage round-trips");
+    XCTAssertFalse([[[articleB attributesByName] objectForKey:@"blob"] allowsExternalBinaryDataStorage]);
     XCTAssertEqualObjects([[[articleB attributesByName] objectForKey:@"published"] defaultValue],
                           [NSNumber numberWithBool:YES]);
     XCTAssertEqualObjects([[[articleB attributesByName] objectForKey:@"createdAt"] defaultValue],

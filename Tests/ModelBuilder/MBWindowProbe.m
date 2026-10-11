@@ -592,6 +592,46 @@ int main(void)
     [wc removeSourceItem:nil];
     CHECK([[doc.model.entitiesByName[@"Other"] indexes] count] == 0, "and − removes it");
 
+    SCENARIO("Allows External Storage is offered for Binary Data alone");
+    /* GIVEN Other's String attribute tag is selected
+       WHEN its type becomes Binary Data and Allows External Storage is
+            ticked, undone, ticked again, and the type changed back
+       THEN the option is offered only for Binary Data, each edit reaches
+            the model as one undo step, it is written as Xcode writes it,
+            and it goes when the type does */
+    NSInteger otherRow = -1;
+    for (NSInteger r = 0; r < wc.sourceList.numberOfRows; r++)
+      if ([[[wc.sourceList itemAtRow:r] valueForKey:@"name"] isEqual:@"Other"]) otherRow = r;
+    CHECK(otherRow >= 0, "Other is listed");
+    [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)otherRow] byExtendingSelection:NO];
+    selectAttributeRow(wc, 0);
+    NSAttributeDescription *tag = [[doc.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
+    CHECK([wc.attributeNameField.stringValue isEqualToString:@"tag"], "tag is in the inspector");
+    CHECK(!wc.externalStorageCheckbox.isEnabled, "not offered for a String");
+    [wc.attributeTypePopup selectItemWithTitle:@"Binary"];
+    [wc inspectorChanged:wc.attributeTypePopup];
+    tag = [[doc.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
+    CHECK(tag.attributeType == NSBinaryDataAttributeType, "tag is Binary Data");
+    CHECK(wc.externalStorageCheckbox.isEnabled && wc.externalStorageCheckbox.state == NSOffState,
+          "offered for Binary Data, unticked");
+    [wc.externalStorageCheckbox setState:NSOnState];
+    [wc inspectorChanged:wc.externalStorageCheckbox];
+    CHECK(tag.allowsExternalBinaryDataStorage, "ticking it reaches the model");
+    written = [CDModelSerializer contentsXMLForModel:doc.model entityLayouts:nil error:&error];
+    CHECK([written rangeOfString:@"name=\"tag\" optional=\"YES\" attributeType=\"Binary\" allowsExternalBinaryDataStorage=\"YES\""].location != NSNotFound,
+          "and it is written as Xcode writes it");
+    [doc.undoManager undo];
+    CHECK(!tag.allowsExternalBinaryDataStorage && tag.attributeType == NSBinaryDataAttributeType,
+          "one undo takes the option back, not the type");
+    [wc.externalStorageCheckbox setState:NSOnState];
+    [wc inspectorChanged:wc.externalStorageCheckbox];
+    [wc.attributeTypePopup selectItemWithTitle:@"String"];
+    [wc inspectorChanged:wc.attributeTypePopup];
+    tag = [[doc.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
+    CHECK(tag.attributeType == NSStringAttributeType && !tag.allowsExternalBinaryDataStorage &&
+          !wc.externalStorageCheckbox.isEnabled,
+          "a String again, the option goes with the type");
+
     printf("---\n%d passed, %d failed\n", passed, failed);
     exit(failed ? 1 : 0);   /* skip pool teardown */
   }

@@ -14,6 +14,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)_appendVersionHashComponents:(NSMutableArray *)components;
 @end
 
+/* The attribute's flags, as Apple's models archive them under
+   NSFlagsKey. */
+enum {
+    CDAttributeAllowsExternalStorageFlag = 4,
+};
+
 @implementation NSAttributeDescription
 
 -initWithCoder:(NSCoder *)coder {
@@ -27,6 +33,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    _defaultValue = [[coder decodeObjectForKey: @"NSDefaultValue"] retain];
    _valueTransformerName= [[coder decodeObjectForKey: @"NSValueTransformerName"] retain];
    _preservesValueInHistoryOnDeletion = [coder decodeBoolForKey: @"NSPreservesValueInHistoryOnDeletion"];
+   _allowsExternalBinaryDataStorage = ([coder decodeIntegerForKey: @"NSFlagsKey"] & CDAttributeAllowsExternalStorageFlag)!=0;
 
    return self;
 }
@@ -44,6 +51,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [coder encodeObject:_valueTransformerName forKey: @"NSValueTransformerName"];
    if(_preservesValueInHistoryOnDeletion)
     [coder encodeBool:_preservesValueInHistoryOnDeletion forKey: @"NSPreservesValueInHistoryOnDeletion"];
+   [coder encodeInteger:_allowsExternalBinaryDataStorage?CDAttributeAllowsExternalStorageFlag:0 forKey: @"NSFlagsKey"];
 }
 
 
@@ -147,10 +155,29 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 
+- (BOOL) allowsExternalBinaryDataStorage {
+    return _allowsExternalBinaryDataStorage;
+}
+
+
+- (void) setAllowsExternalBinaryDataStorage: (BOOL) value {
+    if([_entity _hasBeenInstantiated]) {
+	NSLog(@"Attempt to modify entity after instantiating it.");
+	return;
+    }
+
+    _allowsExternalBinaryDataStorage = value;
+}
+
+
 - (void) _appendVersionHashComponents: (NSMutableArray *) components {
     [super _appendVersionHashComponents:components];
     [components addObject:[NSString stringWithFormat:@"%d",(int)_attributeType]];
     [components addObject:(_valueClassName!=nil)?_valueClassName:@""];
+    /* Only when set, so that the hash of every other attribute is what it
+       was. */
+    if(_allowsExternalBinaryDataStorage)
+     [components addObject:@"allowsExternalBinaryDataStorage"];
 }
 
 @end

@@ -109,6 +109,9 @@
    this attribute is kept in the history change's tombstone
    (preserveAfterDeletion in the model XML, as Xcode writes it). */
 @property (nonatomic, assign) BOOL preservesValueInHistoryOnDeletion;
+/* A SQLite store may keep a Binary Data value larger than 128 KiB in a
+   file of its own (allowsExternalBinaryDataStorage in the model XML). */
+@property (nonatomic, assign) BOOL allowsExternalBinaryDataStorage;
 @property (nonatomic, copy) NSString *hashModifier;
 @property (nonatomic, copy) NSDictionary *userInfo;
 

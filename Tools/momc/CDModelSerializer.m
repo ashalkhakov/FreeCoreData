@@ -190,6 +190,8 @@ static NSXMLElement *elementForAttribute(NSAttributeDescription *attribute,NSStr
     setAttr(element,@"transient",@"YES");
    if([attribute preservesValueInHistoryOnDeletion])
     setAttr(element,@"preserveAfterDeletion",@"YES");
+   if([attribute allowsExternalBinaryDataStorage])
+    setAttr(element,@"allowsExternalBinaryDataStorage",@"YES");
    if([attribute versionHashModifier]!=nil)
     setAttr(element,@"versionHashModifier",[attribute versionHashModifier]);
    if([[attribute valueTransformerName] length]>0 &&
