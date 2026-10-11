@@ -458,8 +458,9 @@ static BOOL CDWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
                     }];
         [NSEntityDescription insertNewObjectForEntityForName:@"Note"
                                       inManagedObjectContext:ctx];
-        /* The main thread spins its run loop meanwhile. */
-        [NSThread sleepForTimeInterval:0.3];
+        /* The main thread spins its run loop meanwhile: long enough for
+           it to have processed the context, were it asked to. */
+        [NSThread sleepForTimeInterval:0.1];
         [ctx processPendingChanges];
         [[NSNotificationCenter defaultCenter] removeObserver:observer];
         @synchronized (shared) { [shared setObject:@YES forKey:@"done"]; }

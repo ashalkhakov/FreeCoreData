@@ -89,6 +89,9 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
     NSMapTable *_objectIdToObject;
 
     BOOL _requestedProcessPendingChanges;
+    /* A thread-confined context's thread is the one it was made on: the
+       main thread's has its changes processed by the main run loop. */
+    BOOL _confinedToMainThread;
 
     /* Undo support: pre-change values, insertions and deletions captured
        since the last processPendingChanges, registered with the undo
