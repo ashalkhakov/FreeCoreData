@@ -41,9 +41,11 @@ mkdir -p "$DEPS_PATH"
 # GNUSTEP_PATCHES_REF should name a commit, not a branch: it is what pins the
 # build, and the workflows fold it into the cache key so that changing a
 # patch invalidates the cached prefix. A branch name builds whatever is on it
-# that day and the cache will not notice.
+# that day and the cache will not notice. It is .github/pins.env's, unless
+# the environment names another.
 GNUSTEP_PATCHES_URL=${GNUSTEP_PATCHES_URL:-https://github.com/ashalkhakov/gnustep-patches.git}
-GNUSTEP_PATCHES_REF=${GNUSTEP_PATCHES_REF:-610d60bfdc18b5d36587e799e1b26c460a608d9d}
+PINS_FILE="$(cd "$(dirname "$0")/.." && pwd)/pins.env"
+: "${GNUSTEP_PATCHES_REF:=$(. "$PINS_FILE" && echo "$GNUSTEP_PATCHES_REF")}"
 GNUSTEP_PATCHES_DIR="$DEPS_PATH/gnustep-patches"
 
 install_gnustep_patches() {

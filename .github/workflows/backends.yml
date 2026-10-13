@@ -52,11 +52,7 @@ jobs:
       LIBRARY_COMBO: ng-gnu-gnu
       RUNTIME_VERSION: gnustep-2.0
       LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
-      # The GNUstep fixes come from the shared gnustep-patches repository.
-      # Pin this to a commit rather than a branch: it is what the cache key
-      # below is made of, so a moving branch would keep serving a prefix
-      # built from patches that have since changed.
-      GNUSTEP_PATCHES_REF: 610d60bfdc18b5d36587e799e1b26c460a608d9d
+      # GNUSTEP_PATCHES_REF is .github/pins.env's (the Pins step).
       CD_TEST_REQUIRE_DATABASE: 1
     defaults:
       run:
@@ -106,6 +102,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: source
+
+      # The commits this builds on (GNUSTEP_PATCHES_REF), from .github/pins.env.
+      - name: Pins
+        uses: ashalkhakov/gnustep-release-actions/pins@v1
+        with:
+          file: source/.github/pins.env
 
       # The GNUstep stack's packages are the same list ci.yml installs, since
       # a cache miss here builds the same stack from the same script; the two
