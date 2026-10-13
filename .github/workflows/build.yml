@@ -1,16 +1,16 @@
 name: Build
 
-# Model Builder on macOS, and FreeCoreData's AppImage on Linux (the
-# CDLauncher chooser, Model Builder and the sample apps), by
-# gnustep-release-actions' workflows, the same as every app's: every push is
-# built, tested (the framework, Model Builder, and the SQL stores against
-# PostgreSQL, MySQL and MariaDB) and uploaded as artifacts; a v* tag (or a
-# run started by hand with one) is also released: Model Builder signed and
-# notarized with its Sparkle appcast, the AppImage with its update
-# information, attached to the tag's release (a pre-release when the tag has
-# a '-'). What is FreeCoreData's own is in .github/release/ (build, test,
-# the image's configuration); GNUstep is the stack gnustep-patches
-# publishes.
+# FreeCoreData, built, tested and installed the familiar way (make, make
+# check, make install; Makefile.apple on macOS) by gnustep-release-actions'
+# workflows, the same as every repository's. Every push builds and tests it
+# and uploads what it installs: on Linux the framework, momc and the SQL
+# stores as an archive for what builds on them, and the AppImage (the
+# CDLauncher chooser, Model Builder and the sample apps); on macOS Model
+# Builder. A v* tag (or a run started by hand with one) also releases them:
+# the archives and the AppImage with its update information, Model Builder
+# signed and notarized with its Sparkle appcast, attached to the tag's
+# release (a pre-release when the tag has a '-'). What it builds on is in
+# .github/pins.env.
 on:
   push:
     branches: ['**']
@@ -22,10 +22,9 @@ on:
         required: false
         default: ''
 
-# Pushes only, not pull requests too: a push to a branch of this repository
-# already shows its checks on the branch's pull request, and both would run
-# every commit twice. A newer push to a branch supersedes the run before it;
-# a release is never cancelled.
+# Pushes only: a push to a branch already shows its checks on the branch's
+# pull request. A newer push supersedes the run before it; a release is
+# never cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
@@ -34,16 +33,17 @@ permissions:
   contents: write
 
 jobs:
+  linux:
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/linux.yml@v1
+    with:
+      tag: ${{ inputs.tag }}
+      library: true
+      extra-packages: libsqlite3-dev libpq-dev libmariadb-dev
+      databases: postgres mysql mariadb
+
   macos:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos-release.yml@v1
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1
     with:
       tag: ${{ inputs.tag }}
       apps: ModelBuilder=ModelBuilder
     secrets: inherit
-
-  appimage:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/appimage-release.yml@v1
-    with:
-      tag: ${{ inputs.tag }}
-      extra-packages: libsqlite3-dev libpq-dev libmariadb-dev
-      databases: postgres mysql mariadb

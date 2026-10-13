@@ -32,3 +32,4 @@ Examples/*/*.sqlite
 # AppImage packaging (gnustep-release-actions' appimage)
 AppDir/
 *.AppImage
+.deps/

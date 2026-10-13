@@ -1,8 +1,8 @@
 #
 # Bulletin -- the FreeCoreData persistent-history example, for GNUstep.
 #
-# Needs the framework this repository builds (installed, or pointed at
-# with ADDITIONAL_*_DIRS), gnustep-gui, and momc on PATH (or MOMC=...).
+# Built by the repository's GNUmakefile, after the framework and momc,
+# against both as they are built there; MOMC=... for another momc.
 #
 ifeq ($(GNUSTEP_MAKEFILES),)
   GNUSTEP_MAKEFILES := $(shell gnustep-config --variable=GNUSTEP_MAKEFILES 2>/dev/null)
@@ -12,6 +12,14 @@ ifeq ($(GNUSTEP_MAKEFILES),)
 endif
 
 include $(GNUSTEP_MAKEFILES)/common.make
+
+# The framework as this repository builds it, not one installed, and the
+# momc built beside it (the root GNUmakefile builds both first).
+FRAMEWORK_BUILD_DIR = $(CURDIR)/../../CoreData.framework/Versions/Current
+ADDITIONAL_INCLUDE_DIRS += -I../..
+ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR)
+MOMC ?= LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" $(CURDIR)/../../Tools/momc/obj/momc
+
 
 VERSION = 0.1
 PACKAGE_NAME = Bulletin
