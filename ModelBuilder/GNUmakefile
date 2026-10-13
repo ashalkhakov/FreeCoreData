@@ -12,7 +12,7 @@ CC = clang
 OBJC = clang
 
 APP_NAME = ModelBuilder
-ModelBuilder_OBJC_FILES = main.m MBDocument.m MBEditors.m MBWindowController.m \
+ModelBuilder_OBJC_FILES = main.m MBAppController.m MBUpdater.m MBDocument.m MBEditors.m MBWindowController.m \
 	MBMappingDocument.m MBMappingWindowController.m MBNewMappingController.m \
 	../Tools/momc/CDModelCompiler.m ../Tools/momc/CDModelSerializer.m \
 	../Tools/momc/CDModelMutator.m \

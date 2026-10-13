@@ -188,6 +188,12 @@ AppImage with the GNUstep stack inside it, and a signed, notarized macOS app
 an unsigned build of each as a workflow artifact. See
 [.github/workflows/](.github/workflows/).
 
+Both update themselves from the newest release: the Mac app with Sparkle
+(ModelBuilder > Check for Updates…), the AppImage through Gear Lever or
+AppImageUpdate (its `.zsync` is attached beside it). A release's appcast is
+signed with the EdDSA key in the `SPARKLE_PRIVATE_KEY` secret of the
+`production` environment; without it the Mac app is not offered the release.
+
 The AppImage carries the three samples as well, behind a launcher: run it with
 no arguments to choose, or name one directly.
 

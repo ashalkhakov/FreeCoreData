@@ -7,11 +7,20 @@
 #import <AppKit/GSDisplayServer.h>
 #endif
 
+/* The nib's top-level objects are kept for the life of the app: the
+   application delegate is one, and NSApp holds its delegate weakly.
+   (GNUstep's loader keeps them itself.) */
 static BOOL MBLoadNib(NSString *name, id owner)
 {
 #if defined(__APPLE__)
+  static NSMutableArray *kept;
   NSArray *top = nil;
-  return [[NSBundle mainBundle] loadNibNamed:name owner:owner topLevelObjects:&top];
+  if (![[NSBundle mainBundle] loadNibNamed:name owner:owner topLevelObjects:&top])
+    return NO;
+  if (!kept)
+    kept = [NSMutableArray array];
+  [kept addObjectsFromArray:top];
+  return YES;
 #else
   return [NSBundle loadNibNamed:name owner:owner];
 #endif
