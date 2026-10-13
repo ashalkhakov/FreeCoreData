@@ -197,7 +197,7 @@ install_libs_back() {
 
 # The look users expect on Linux. It is a theme bundle that gnustep-gui
 # dlopens at runtime, so it has to be inside the AppImage and it has to be
-# selected -- Scripts/appimage/AppRun does the selecting. Built here rather
+# selected -- the image's AppRun (gnustep-release-actions') does the selecting. Built here rather
 # than shipped prebuilt because a theme links against the same gui it will be
 # loaded into.
 install_eau_theme() {
