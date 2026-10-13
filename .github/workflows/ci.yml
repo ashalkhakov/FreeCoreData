@@ -237,7 +237,7 @@ jobs:
       # linux-test.sh on a plain Ubuntu (this job's) with no GNUstep.
       - name: Package the AppImage
         id: appimage
-        uses: ashalkhakov/gnustep-release-actions/appimage@appimage-shared
+        uses: ashalkhakov/gnustep-release-actions/appimage@v1
         env:
           PREFIX: ${{ env.INSTALL_PATH }}
         with:
@@ -245,7 +245,7 @@ jobs:
           working-directory: ${{ env.SRC_PATH }}
 
       - name: Smoke-test the AppImage on a clean system
-        uses: ashalkhakov/gnustep-release-actions/appimage-test@appimage-shared
+        uses: ashalkhakov/gnustep-release-actions/appimage-test@v1
         with:
           image: ${{ steps.appimage.outputs.image }}
           working-directory: ${{ env.SRC_PATH }}
