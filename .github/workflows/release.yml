@@ -27,9 +27,13 @@ permissions:
   contents: write
 
 env:
-  # The GNUstep fixes come from the shared gnustep-patches repository, at
-  # the commit ci.yml pins: the release is built from what CI tested.
-  GNUSTEP_PATCHES_REF: 610d60bfdc18b5d36587e799e1b26c460a608d9d
+  # The GNUstep fixes come from the shared gnustep-patches repository,
+  # pinned to a commit. The release builds the stack from GNUstep's master,
+  # so this has to be a commit whose patches still apply there: ci.yml's
+  # 610d60b carries nsxml-prefixed-descendants, merged upstream since
+  # (libs-base #821) and retired at this one. CI does not notice while its
+  # cached stack lasts.
+  GNUSTEP_PATCHES_REF: dcbad8f6db6db7054bc9152aad3e8686a233809d
   TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
 
 jobs:
