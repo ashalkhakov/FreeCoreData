@@ -46,11 +46,30 @@ MB_HOST_PATH="$PATH"
 export LD_LIBRARY_PATH="$HERE/usr/lib:${LD_LIBRARY_PATH:-}"
 export PATH="$HERE/usr/local/bin:$HERE/usr/bin:$PATH"
 
-export FONTCONFIG_FILE="$HERE/usr/etc/fonts/fonts.conf"
-export XDG_CACHE_HOME="/tmp/fc-cache-freecoredata-$$"
-mkdir -p "$XDG_CACHE_HOME"
-
-trap 'rm -rf "$XDG_CACHE_HOME" "$GNUSTEP_CONFIG_FILE"' EXIT
+# Fontconfig for the fonts the image carries, plus whatever the host has,
+# so the window lays out the same on a machine that has none of them.
+# Written here with the image's path: fontconfig before 2.14 (Ubuntu 22.04's)
+# does not read a directory relative to the configuration file, and without a
+# font GNUstep cannot lay out a xib's text, so the window does not load. Its
+# cache is kept between launches: a new one each time made every start scan
+# every font on the machine, which on a desktop with many takes long.
+# Ported from TopoText's (SimpleNotes') AppRun.
+FONT_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/FreeCoreData/fontconfig"
+mkdir -p "$FONT_CACHE" 2>/dev/null || FONT_CACHE="/tmp/fc-cache-freecoredata-$(id -u)"
+mkdir -p "$FONT_CACHE"
+export FONTCONFIG_FILE="/tmp/fonts-freecoredata-$$.conf"
+cat << IN_EOF > "$FONTCONFIG_FILE"
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>$HERE/usr/share/fonts</dir>
+  <dir>/usr/share/fonts</dir>
+  <dir>~/.fonts</dir>
+  <cachedir>$FONT_CACHE</cachedir>
+  <config><rescan><int>30</int></rescan></config>
+</fontconfig>
+IN_EOF
+trap 'rm -f "$GNUSTEP_CONFIG_FILE" "$FONTCONFIG_FILE"' EXIT
 
 # Written under the application name and under the bundle identifier, because
 # which of the two NSUserDefaults answers to depends on what the bundle's

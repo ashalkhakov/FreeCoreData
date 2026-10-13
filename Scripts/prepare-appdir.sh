@@ -103,8 +103,6 @@ fi
 # --- BUNDLE FONTS FOR PORTABILITY ---
 # AppRun selects Liberation for the UI and DejaVu covers what it lacks, so the
 # window looks the same on a host that has neither installed.
-mkdir -p AppDir/usr/etc/fonts
-cp Scripts/appimage/fonts.conf AppDir/usr/etc/fonts/fonts.conf
 for dir in /usr/share/fonts/truetype/dejavu /usr/share/fonts/truetype/liberation \
            /usr/share/fonts/truetype/msttcorefonts; do
 if [ -d "$dir" ]; then
