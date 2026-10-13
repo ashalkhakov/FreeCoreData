@@ -1,0 +1,45 @@
+# FreeCoreData on macOS: Model Builder, and the tests that run against
+# Apple's Core Data. (The framework itself is GNUstep's Core Data; on macOS
+# Apple's is used, so there is no framework to build or publish here.)
+#
+#   make -f Makefile.apple                        Model Builder (Release, universal)
+#   make -f Makefile.apple check                  the unit tests against Apple's Core Data,
+#                                                 and the SQL stores built for testing
+#   make -f Makefile.apple install DESTDIR=...    ModelBuilder.app
+#
+# What it builds on is in .deps/ (Sparkle), fetched by the versions in
+# .github/pins.env: gnustep-release-actions' scripts/deps.sh apple.
+DERIVED := build/DerivedData
+RESULTS := $(or $(RUNNER_TEMP),build)
+
+.PHONY: all check install backends clean
+all:
+	@test -d .deps/Sparkle.xcframework || { echo "no .deps/Sparkle.xcframework: fetch .deps (gnustep-release-actions' scripts/deps.sh apple)"; exit 1; }
+	xcodebuild -project ModelBuilder/ModelBuilder.xcodeproj -scheme ModelBuilder \
+	  -destination 'generic/platform=macOS' -configuration Release -derivedDataPath $(DERIVED) build
+
+check: backends
+	rm -rf $(RESULTS)/CoreDataTests.xcresult
+	xcodebuild -project CoreDataTests.xcodeproj -scheme CoreDataTests \
+	  -destination 'platform=macOS' -configuration Debug -derivedDataPath $(DERIVED) \
+	  -resultBundlePath $(RESULTS)/CoreDataTests.xcresult test
+
+# The stores' test bundles, against Homebrew's libpq and MariaDB Connector/C
+# (their projects find them in /opt/homebrew). In CI they are installed; on
+# a machine without them the stores are skipped.
+backends:
+	@if [ -n "$$CI" ]; then brew install libpq mariadb-connector-c; fi
+	@if [ -d /opt/homebrew/opt/libpq ] && [ -d /opt/homebrew/opt/mariadb-connector-c ]; then \
+	  for store in PostgreSQL MySQL; do \
+	    xcodebuild -project Backends/$$store/CD$${store}Store.xcodeproj -scheme CD$${store}StoreTests \
+	      -destination 'platform=macOS' -configuration Debug -derivedDataPath $(DERIVED) build-for-testing || exit 1; \
+	  done; \
+	else echo "check: no libpq or mariadb-connector-c from Homebrew: the SQL stores are not built"; fi
+
+install: all
+	mkdir -p $(DESTDIR)
+	rm -rf $(DESTDIR)/ModelBuilder.app
+	ditto $(DERIVED)/Build/Products/Release/ModelBuilder.app $(DESTDIR)/ModelBuilder.app
+
+clean:
+	rm -rf build

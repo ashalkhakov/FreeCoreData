@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C56C63D7DD180F525431F0CC /* Sparkle.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8B4902744F7495FB86D46E57 /* Sparkle.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CE39E2D33042F6F60075866A /* MBEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D23042F6F60075866A /* MBEditors.m */; };
 		CE39E2D63042FBC30075866A /* CDModelMutator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D53042FBC30075866A /* CDModelMutator.m */; };
 		CE39E2DE304326510075866A /* CDCodeGenerator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2DD304326510075866A /* CDCodeGenerator.m */; };
@@ -34,10 +35,25 @@
 		MB0000000000000000000112 /* CDModelSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000012 /* CDModelSerializer.m */; };
 		MBUPD0000000000000000B000 /* MBAppController.m in Sources */ = {isa = PBXBuildFile; fileRef = MBUPD0000000000000000F001 /* MBAppController.m */; };
 		MBUPD0000000000000000B001 /* MBUpdater-Apple.m in Sources */ = {isa = PBXBuildFile; fileRef = MBUPD0000000000000000F003 /* MBUpdater-Apple.m */; };
-		MBUPD0000000000000000B002 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = MBUPD0000000000000000P001 /* Sparkle */; };
+		MBUPD0000000000000000B002 /* Sparkle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8B4902744F7495FB86D46E57 /* Sparkle.xcframework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		792DC258AF22182CE6189375 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				C56C63D7DD180F525431F0CC /* Sparkle.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		8B4902744F7495FB86D46E57 /* Sparkle.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Sparkle.xcframework; path = ../.deps/Sparkle.xcframework; sourceTree = SOURCE_ROOT; };
 		CE39E2D13042F6F60075866A /* MBEditors.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBEditors.h; sourceTree = "<group>"; };
 		CE39E2D23042F6F60075866A /* MBEditors.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBEditors.m; sourceTree = "<group>"; };
 		CE39E2D43042FBC30075866A /* CDModelMutator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelMutator.h; path = ../Tools/momc/CDModelMutator.h; sourceTree = SOURCE_ROOT; };
@@ -98,7 +114,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				MB0000000000000000000107 /* Cocoa.framework in Frameworks */,
-				MBUPD0000000000000000B002 /* Sparkle in Frameworks */,
+				MBUPD0000000000000000B002 /* Sparkle.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -108,6 +124,7 @@
 		MB0000000000000000000301 = {
 			isa = PBXGroup;
 			children = (
+				8B4902744F7495FB86D46E57 /* Sparkle.xcframework */,
 				CE39E3233043344B0075866A /* MBStepperTextField.h */,
 				CE39E3243043344B0075866A /* MBStepperTextField.m */,
 				CE39E2D43042FBC30075866A /* CDModelMutator.h */,
@@ -189,15 +206,13 @@
 				MB0000000000000000000601 /* Sources */,
 				MB0000000000000000000201 /* Frameworks */,
 				MB0000000000000000000602 /* Resources */,
+				792DC258AF22182CE6189375 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			name = ModelBuilder;
-			packageProductDependencies = (
-				MBUPD0000000000000000P001 /* Sparkle */,
-			);
 			productName = ModelBuilder;
 			productReference = MB0000000000000000000021 /* ModelBuilder.app */;
 			productType = "com.apple.product-type.application";
@@ -220,9 +235,6 @@
 				Base,
 			);
 			mainGroup = MB0000000000000000000301;
-			packageReferences = (
-				MBUPD0000000000000000R001 /* XCRemoteSwiftPackageReference "Sparkle" */,
-			);
 			productRefGroup = MB0000000000000000000303 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -377,24 +389,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		MBUPD0000000000000000R001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = exactVersion;
-				version = 2.10.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		MBUPD0000000000000000P001 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = MBUPD0000000000000000R001 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = MB0000000000000000000701 /* Project object */;
 }

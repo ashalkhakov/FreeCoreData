@@ -122,3 +122,55 @@ CoreData_INCLUDE_DIRS = -I.
 include $(GNUSTEP_MAKEFILES)/framework.make
 
 -include GNUmakefile.postamble
+
+# The rest of the repository, after the framework they all build on, each
+# against it as built here: momc (and the coredata-model.make fragment
+# applications include), the SQL stores (where their client libraries are:
+# libpq's pg_config, MariaDB's mariadb_config), Model Builder, the launcher
+# and the sample applications. `make`, `make install` (DESTDIR=...) and `make
+# clean` go through them all.
+CD_PARTS = Tools/momc Backends/Common
+ifneq ($(shell command -v pg_config 2>/dev/null),)
+CD_PARTS += Backends/PostgreSQL
+endif
+ifneq ($(shell command -v mariadb_config 2>/dev/null)$(shell command -v mysql_config 2>/dev/null),)
+CD_PARTS += Backends/MySQL
+endif
+CD_PARTS += ModelBuilder CDLauncher Examples/EmployeeDirectory Examples/Staffbook Examples/Bulletin
+
+after-all::
+	@for part in $(CD_PARTS); do $(MAKE) -C $$part || exit 1; done
+
+after-install::
+	@for part in $(CD_PARTS); do $(MAKE) -C $$part install || exit 1; done
+
+after-clean::
+	@for part in $(CD_PARTS) Tests Tests/ModelBuilder; do $(MAKE) -C $$part clean || exit 1; done
+
+# make check: the framework's tests; Model Builder's, driving its windows
+# (under Xvfb when there is no display; one job at a time: its four tools
+# share sources, and parallel jobs race to make their object directories); and the SQL stores against the
+# servers they are given, each alone and both in one process. A server is
+# given by its URL (POSTGRES_URL, MYSQL_URL, MARIADB_URL: a database a test
+# may create tables in); without one its suites are skipped, but not in CI,
+# where a missing server is a failure.
+XVFB = $(if $(DISPLAY),,$(shell command -v xvfb-run >/dev/null 2>&1 && echo xvfb-run -a))
+check::
+	$(MAKE) -C Tests run-tests
+	$(MAKE) -j1 -C Tests/ModelBuilder
+	$(XVFB) $(MAKE) -j1 -C Tests/ModelBuilder check
+	@for server in POSTGRES_URL MYSQL_URL MARIADB_URL; do \
+	  if [ -z "$$(printenv $$server)" ]; then \
+	    if [ -n "$$CI" ]; then echo "check: $$server is not set; the SQL stores need it in CI"; exit 1; fi; \
+	    echo "check: no $$server: its store's suites are skipped"; \
+	  fi; \
+	done
+	@if [ -n "$$POSTGRES_URL" ]; then \
+	  CD_TEST_REQUIRE_DATABASE=1 CD_TEST_POSTGRES_URL="$$POSTGRES_URL" $(MAKE) -C Backends/PostgreSQL/Tests run-tests || exit 1; fi
+	@if [ -n "$$MYSQL_URL" ]; then \
+	  CD_TEST_REQUIRE_DATABASE=1 CD_TEST_MYSQL_URL="$${MYSQL_URL%/*}/cdtest" $(MAKE) -C Backends/MySQL/Tests run-tests || exit 1; fi
+	@if [ -n "$$MARIADB_URL" ]; then \
+	  CD_TEST_REQUIRE_DATABASE=1 CD_TEST_MYSQL_URL="$${MARIADB_URL%/*}/cdtest" $(MAKE) -C Backends/MySQL/Tests run-tests || exit 1; fi
+	@if [ -n "$$POSTGRES_URL" ] && [ -n "$$MYSQL_URL" ]; then \
+	  CD_TEST_REQUIRE_DATABASE=1 CD_TEST_POSTGRES_URL="$$POSTGRES_URL" CD_TEST_MYSQL_URL="$${MYSQL_URL%/*}/cdtest" \
+	    $(MAKE) -C Backends/Common/Tests run-tests || exit 1; fi

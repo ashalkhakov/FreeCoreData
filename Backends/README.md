@@ -178,19 +178,26 @@ Nothing here is needed on Apple's CoreData, which never sends the message.
 
 ## Continuous integration
 
-`.github/workflows/backends.yml` is these backends' own workflow - the
-framework's CI does not build them, since they are an addon and need servers
-to say anything.  It runs when anything under `Backends/` changes, and when
-`CoreData/` does: a store is a client of the framework's public API, so a
-change there can break a backend without touching a file here.
+The backends are built and tested by the repository's one workflow,
+`.github/workflows/build.yml`, on every push, pull request and tag - there is
+no path filter, so a change to `CoreData/` is checked against them as well as
+one here: a store is a client of the framework's public API, so a change there
+can break a backend without touching a file here.  The workflow calls
+gnustep-release-actions' shared workflows; what is FreeCoreData's own is in
+the hooks under `.github/release/`.
 
-On Linux it builds the framework and both backends against a restored GNUstep
-stack (the same cache the framework's CI fills) and runs each suite against a
-service container: PostgreSQL 16, MySQL 8, and MariaDB 11 through the MySQL
-backend, which is written for both and cannot be assumed correct on one from a
-run on the other.
+On Linux (`linux-build.sh`, on gnustep-patches' GNUstep image) it builds the
+framework and both backends and runs each suite against a server:
+PostgreSQL 16, MySQL 8, and MariaDB 11 through the MySQL backend, which is
+written for both and cannot be assumed correct on one from a run on the
+other; then both stores' shared suite in one process.  gnustep-release-actions
+starts the servers (`databases: postgres mysql mariadb` in `build.yml`) in
+containers on fixed ports - PostgreSQL 5432, MySQL 3306, MariaDB 3307, user
+`postgres` or `root`, password `test` - and hands the hook their URLs as
+`POSTGRES_URL`, `MYSQL_URL` and `MARIADB_URL`.
 
-On macOS it builds both backends and their test bundles against Apple's
+On macOS (`macos-build.sh`) it installs Homebrew's `libpq` and
+`mariadb-connector-c` and builds both backends' test bundles against Apple's
 CoreData.  That is the check the public-API-only rule needs - one private
 method and it stops compiling - while running the suites there would need
 servers on the runner, which is left to whoever wants it locally.

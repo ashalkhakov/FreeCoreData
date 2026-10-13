@@ -115,14 +115,15 @@ openapp ./ModelBuilder.app
 ```
 
 `MainMenu.xib` and `MBDocumentWindow.xib` are the app's two nibs;
-both load through GSXib5.  A few GNUstep fixes the app depends on (table
-column autoresizing and xib date pickers in libs-gui, bezeled nib text
-fields in the Eau theme) are carried in `patches/gnustep/` until they
-are upstream; the CI and release builds apply them.
+both load through GSXib5.  The GNUstep fixes the app depends on (table
+column autoresizing in libs-gui, among others) are carried in
+[gnustep-patches](https://github.com/ashalkhakov/gnustep-patches) until
+they are upstream; CI and the releases build on the stack it publishes.
 
-Linux users get ModelBuilder as an AppImage from the tagged releases
-(GNUstep stack and Eau theme inside), built by
-`.github/workflows/release.yml` with the scripts in `Scripts/`.
+Linux users get ModelBuilder in FreeCoreData's AppImage from the tagged
+releases (GNUstep stack and Eau theme inside), built by
+`.github/workflows/build.yml` through gnustep-release-actions, with the
+hooks in `.github/release/`.
 
 ## macOS
 

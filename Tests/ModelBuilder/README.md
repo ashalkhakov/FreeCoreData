@@ -42,7 +42,7 @@ dispatch, cell-based table edits).
 | The Identity page edits the model version's Identifier | the xib field, its action wiring, one undo step |
 | Renaming, scalar, validation and fetch-template controls are live | inspector enablement + fill/apply for the newly round-tripped features |
 | The Codegen popup is live and round-trips codeGenerationType | codegen metadata: popup ↔ compiler carry ↔ serialized XML |
-| Date pickers load their fields and date from the nib | xib date picker decoding: elements, current date, style/mode (patches/gnustep) |
+| Date pickers load their fields and date from the nib | xib date picker decoding: elements, current date, style/mode (libs-gui#984, upstream) |
 | Stepper text fields own and drive their steppers | MBStepperTextField: self-created stepper, apply through the field's action, enablement mirroring |
 | Configurations list the implicit Default and inspect their entities | synthetic read-only Default, member-row selection drives the entity inspector |
 

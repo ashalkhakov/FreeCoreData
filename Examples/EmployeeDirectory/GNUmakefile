@@ -1,5 +1,13 @@
 include $(GNUSTEP_MAKEFILES)/common.make
 
+# The framework as this repository builds it, not one installed, and the
+# momc built beside it (the root GNUmakefile builds both first).
+FRAMEWORK_BUILD_DIR = $(CURDIR)/../../CoreData.framework/Versions/Current
+ADDITIONAL_INCLUDE_DIRS += -I../..
+ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR)
+MOMC ?= LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" $(CURDIR)/../../Tools/momc/obj/momc
+
+
 APP_NAME = EmployeeDirectory
 
 EmployeeDirectory_OBJC_FILES = \

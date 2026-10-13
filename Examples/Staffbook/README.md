@@ -30,10 +30,9 @@ repository's root `make install`):
 example at a freshly built, uninstalled `Tools/momc/obj/momc`.
 
 The selection-dependent bindings (Edit/Delete/Remove enabling, the
-review-date picker) need the gnustep-gui carried in this repository's
-CI stack: stock gnustep-gui is missing the selection-KVO fix in
-`patches/gnustep/gnustep-gui-arraycontroller-selection-kvo.patch`
-(a repro sits beside it).
+review-date picker) need a gnustep-gui with NSArrayController's
+selection-KVO fix ([libs-gui#977](https://github.com/gnustep/libs-gui/pull/977),
+merged upstream on 2026-10-10); an older one lacks it.
 
 On macOS, open `Staffbook.xcodeproj` and run the **Staffbook** scheme,
 or build it from the command line:
