@@ -286,9 +286,10 @@ own predicate to that `WHERE`.  A count, rather than a join, is what makes
 `@count == 0` work: a row with nothing related still has a count.
 
 (`SUBQUERY` is understood where the framework can express it.  gnustep-base
-could not parse `SUBQUERY(...)` at all until the patch this project carries
-in `patches/gnustep/`, so against an unpatched one the question cannot be
-asked and the store never sees it; `@count` on a relationship works
+could not parse `SUBQUERY(...)` at all until
+[libs-base#829](https://github.com/gnustep/libs-base/pull/829), merged in
+October 2026, so against an older one the question cannot be asked and the
+store never sees it; `@count` on a relationship works
 everywhere.  The two parsers also build the same predicate differently -
 Apple makes `SUBQUERY(...).@count` a `valueForKeyPath:` function
 expression, gnustep-base a key path composition - and the store reads

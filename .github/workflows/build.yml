@@ -9,7 +9,7 @@ name: Build
 # signed and notarized with its Sparkle appcast, the AppImage with its update
 # information, attached to the tag's release (a pre-release when the tag has a
 # '-'). What is FreeCoreData's own is in .github/release/ (build, test, the
-# image's configuration); the commits it builds on in .github/pins.env.
+# image's configuration); GNUstep is the stack gnustep-patches publishes.
 on:
   push:
     branches: ['**']

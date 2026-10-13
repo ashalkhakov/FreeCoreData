@@ -8,16 +8,17 @@ A port of Apple's CoreData for GNUstep. `CoreData/` is the framework,
 
 Fixes to GNUstep itself — libs-base, libs-gui, the Eau theme — are not kept
 here. They live in `../gnustep-patches`, which this machine's other GNUstep
-projects share, and `.github/scripts/dependencies.sh` clones that repository
-at the commit pinned by `GNUSTEP_PATCHES_REF` and applies what it carries.
-That pin, like every pin of what this repository builds on, lives in
-`.github/pins.env` and nowhere else: move it there.
+projects share. This repository builds no GNUstep and pins nothing: CI's
+Linux job runs on the patched stack gnustep-patches publishes as an image,
+`ghcr.io/ashalkhakov/gnustep:latest` (dated tags such as `v2026.10.13`;
+Ubuntu 22.04, every component in `/opt/gnustep`). For the same stack on a
+machine of your own, use that image or gnustep-patches'
+`Scripts/build-gnustep.sh`.
 
 If a bug here turns out to be GNUstep's, work in that repository and read its
 `CLAUDE.md` first: reproduce in the docker container, fix, turn the
 reproduction into a test in GNUstep's own suite, and push it there — that is
-where patches are kept and where they are sent upstream from. Nothing goes
-back into `patches/gnustep/`, which holds only a pointer now.
+where patches are kept and where they are sent upstream from.
 
 ## Testing
 

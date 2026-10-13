@@ -182,11 +182,14 @@ still needs Xcode; ModelBuilder edits models only.
 
 See [ModelBuilder/README.md](ModelBuilder/README.md).
 
-Tagged releases (`v*`) publish ModelBuilder for both platforms: a Linux
-AppImage with the GNUstep stack inside it, and a signed, notarized macOS app
-(universal, built on Cocoa and the system CoreData). Every CI run also uploads
-an unsigned build of each as a workflow artifact. See
-[.github/workflows/](.github/workflows/).
+Tagged releases (`v*`) publish ModelBuilder for both platforms: on Linux in
+FreeCoreData's AppImage (with the sample apps and the GNUstep stack inside
+it), and as a signed, notarized macOS app (universal, built on Cocoa and the
+system CoreData). Every push and pull request is built and tested the same way
+and uploads an unsigned build of each to its Actions run, kept two weeks. One
+workflow does both, [build.yml](.github/workflows/build.yml), through
+gnustep-release-actions; FreeCoreData's own steps are the hooks in
+[.github/release/](.github/release/).
 
 Both update themselves from the newest release: the Mac app with Sparkle
 (ModelBuilder > Check for Updates…), the AppImage through Gear Lever or
