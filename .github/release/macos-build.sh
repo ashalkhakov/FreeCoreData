@@ -3,7 +3,6 @@
 # the universal Release build into $RELEASE_DIR. It links Cocoa and the
 # system CoreData; the one framework it embeds is Sparkle.
 set -euo pipefail
-./Scripts/stamp-version.sh "$APP_VERSION"
 xcodebuild -project ModelBuilder/ModelBuilder.xcodeproj -scheme ModelBuilder \
   -destination 'generic/platform=macOS' -configuration Release \
   -derivedDataPath "$RUNNER_TEMP/DerivedData" build
