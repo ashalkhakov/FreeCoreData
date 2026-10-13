@@ -127,7 +127,10 @@ Linux users get ModelBuilder as an AppImage from the tagged releases
 ## macOS
 
 Open `ModelBuilder/ModelBuilder.xcodeproj` and run the **ModelBuilder**
-scheme.  Tagged releases also publish a signed, notarized universal app. The app registers `.xcdatamodeld` / `.xcdatamodel` as document
+scheme.  Tagged releases also publish a signed, notarized universal app,
+which updates itself with Sparkle (ModelBuilder > Check for Updates…;
+`MBUpdater-Apple.m`; on GNUstep `MBUpdater.m` does nothing and the item is
+removed, the AppImage being updated by Gear Lever or AppImageUpdate). The app registers `.xcdatamodeld` / `.xcdatamodel` as document
 packages and builds against Apple CoreData — the compiler and
 serializer sources are portable and are cross-verified against Apple's
 classes by the test suite.

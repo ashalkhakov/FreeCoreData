@@ -118,11 +118,8 @@ jobs:
       # gnustep layout does not treat as a library root. GNUstep.sh prepends
       # the roots it does know about to this.
       LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
-      # The GNUstep fixes come from the shared gnustep-patches repository.
-      # Pin this to a commit rather than a branch: it is what the cache key
-      # below is made of, so a moving branch would keep serving a prefix
-      # built from patches that have since changed.
-      GNUSTEP_PATCHES_REF: 610d60bfdc18b5d36587e799e1b26c460a608d9d
+      # GNUSTEP_PATCHES_REF, the gnustep-patches commit the stack is built
+      # with, is .github/pins.env's (the Pins step).
     defaults:
       run:
         working-directory: ${{ github.workspace }}/source
@@ -131,6 +128,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: source
+
+      # The commits this builds on (GNUSTEP_PATCHES_REF), from .github/pins.env.
+      - name: Pins
+        uses: ashalkhakov/gnustep-release-actions/pins@v1
+        with:
+          file: source/.github/pins.env
 
       - name: Install packages
         run: |

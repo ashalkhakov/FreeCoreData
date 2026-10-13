@@ -10,6 +10,8 @@ Fixes to GNUstep itself — libs-base, libs-gui, the Eau theme — are not kept
 here. They live in `../gnustep-patches`, which this machine's other GNUstep
 projects share, and `.github/scripts/dependencies.sh` clones that repository
 at the commit pinned by `GNUSTEP_PATCHES_REF` and applies what it carries.
+That pin, like every pin of what this repository builds on, lives in
+`.github/pins.env` and nowhere else: move it there.
 
 If a bug here turns out to be GNUstep's, work in that repository and read its
 `CLAUDE.md` first: reproduce in the docker container, fix, turn the
