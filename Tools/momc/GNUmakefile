@@ -20,10 +20,13 @@ momc_TOOL_LIBS += -lCoreData
 include $(GNUSTEP_MAKEFILES)/tool.make
 
 # Install the makefile fragment other projects include to compile
-# .xcdatamodeld sources as part of their own build.
+# .xcdatamodeld sources as part of their own build. Beside gnustep-make's
+# own makefiles, which are not an installation directory, so DESTDIR is
+# added here (a staged install, as a release archive is made from).
 after-install::
+	$(MKDIRS) $(DESTDIR)$(GNUSTEP_MAKEFILES)
 	$(INSTALL_DATA) ../../coredata-model.make \
-	    $(GNUSTEP_MAKEFILES)/coredata-model.make
+	    $(DESTDIR)$(GNUSTEP_MAKEFILES)/coredata-model.make
 
 after-uninstall::
-	rm -f $(GNUSTEP_MAKEFILES)/coredata-model.make
+	rm -f $(DESTDIR)$(GNUSTEP_MAKEFILES)/coredata-model.make
