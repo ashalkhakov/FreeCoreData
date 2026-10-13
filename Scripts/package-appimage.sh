@@ -34,6 +34,9 @@ export NO_VALIDATE=1
 # worth far more with them. Costs some tens of MB.
 export NO_STRIP="${NO_STRIP:-1}"
 export LDAI_RUNTIME_FILE="${LDAI_RUNTIME_FILE:-/tmp/appimage-runtime/runtime-$(uname -m)}"
+# LDAI_UPDATE_INFORMATION, when release.yml sets it (a release, not a
+# pre-release), is embedded, so AppImageUpdate, Gear Lever and the like update
+# the image; linuxdeploy's AppImage plugin writes the .zsync they fetch beside it.
 
 LD_LIBRARY_PATH="${LOCAL_PREFIX}/System/Library/Libraries:${LOCAL_PREFIX}/Local/Library/Libraries:${WORKSPACE_DIR}/AppDir/usr/lib:${LD_LIBRARY_PATH:-}" \
     "$LINUXDEPLOY" --appdir AppDir "${ELF_ARGS[@]}" --output appimage
