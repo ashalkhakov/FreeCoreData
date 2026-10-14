@@ -12,7 +12,7 @@ mapc_INCLUDE_DIRS = -I../.. -I../../CoreData -I../momc
 
 # Link against the freshly built, uninstalled framework in the source
 # tree when present, falling back to the installed one.
-FRAMEWORK_BUILD_DIR = $(CURDIR)/../../CoreData.framework/Versions/Current
+FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../../CoreData.framework/Versions/Current) $(CURDIR)/../../CoreData.framework)
 
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
 mapc_TOOL_LIBS += -lCoreData

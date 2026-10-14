@@ -11,8 +11,10 @@ momc_OBJC_FILES = momc.m CDModelCompiler.m CDModelSerializer.m CDCodeGenerator.m
 momc_INCLUDE_DIRS = -I../.. -I../../CoreData
 
 # Link against the freshly built, uninstalled framework in the source
-# tree when present, falling back to the installed one.
-FRAMEWORK_BUILD_DIR = $(CURDIR)/../../CoreData.framework/Versions/Current
+# tree when present, falling back to the installed one. The framework is
+# flat (no Versions/) where gnustep-make has no symlinks, as on Windows, and
+# its DLL is found on PATH there, as the library is on LD_LIBRARY_PATH.
+FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../../CoreData.framework/Versions/Current) $(CURDIR)/../../CoreData.framework)
 
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
 momc_TOOL_LIBS += -lCoreData

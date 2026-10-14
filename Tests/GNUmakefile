@@ -56,7 +56,7 @@ CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData -I../Tools/momc -I../Tools/mapc
 
 # Link and run against the freshly built, uninstalled framework in the
 # source tree, not whatever CoreData is installed in the GNUstep domains.
-FRAMEWORK_BUILD_DIR = $(CURDIR)/../CoreData.framework/Versions/Current
+FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../CoreData.framework/Versions/Current) $(CURDIR)/../CoreData.framework)
 
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
 CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest -lsqlite3
@@ -85,7 +85,7 @@ CoreDataTests_RESOURCE_FILES += MappingFixture.cdm
 CoreDataTests_RESOURCE_FILES += MappingFixture.xcmappingmodel
 # CodegenFixture's classes are generated as the bundle builds.
 CoreDataTests_COREDATA_CODEGEN = yes
-MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" \
+MOMC = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$PATH" \
        ../Tools/momc/obj/momc
 
 include ../coredata-model.make
@@ -114,5 +114,5 @@ framework:
 run-tests: framework all $(BUNDLE_NAME).bundle
 	@echo "Running XCTest bundle: $(BUNDLE_NAME)"
 	. $(GNUSTEP_MAKEFILES)/GNUstep.sh; \
-	LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" \
+	LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$$PATH" \
 	$(XCTEST) "$(BUNDLE_NAME).bundle"

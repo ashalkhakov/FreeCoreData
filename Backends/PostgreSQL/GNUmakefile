@@ -37,7 +37,7 @@ endif
 
 # -I../.. is the repository root, so that <CoreData/CoreData.h> resolves to
 # the headers of the framework built in this tree.
-FRAMEWORK_BUILD_DIR = $(CURDIR)/../../CoreData.framework/Versions/Current
+FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../../CoreData.framework/Versions/Current) $(CURDIR)/../../CoreData.framework)
 # CDSQLStore, the part every SQL backend shares: a library of its own
 # (Common/GNUmakefile says why), built first.
 COMMON_BUILD_DIR = $(CURDIR)/../Common/$(GNUSTEP_OBJ_DIR_NAME)

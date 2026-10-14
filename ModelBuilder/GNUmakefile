@@ -37,7 +37,7 @@ ModelBuilder_INCLUDE_DIRS = -I.. -I../Tools/momc -I../Tools/mapc \
 	-IThirdParty/DMTabBar/DMTabBar/DMTabBar \
 	-IThirdParty/JUInspectorView/Source
 ModelBuilder_OBJC_LIBS += -lCoreData
-ADDITIONAL_LIB_DIRS += -L$(CURDIR)/../CoreData.framework/Versions/Current \
+ADDITIONAL_LIB_DIRS += -L$(firstword $(wildcard $(CURDIR)/../CoreData.framework/Versions/Current) $(CURDIR)/../CoreData.framework) \
 	-L$(GNUSTEP_SYSTEM_LIBRARIES)
 
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fblocks -fobjc-runtime=gnustep-2.0 \

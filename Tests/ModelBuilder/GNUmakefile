@@ -42,7 +42,7 @@ ADDITIONAL_INCLUDE_DIRS += -I../.. -I../../Tools/momc -I../../Tools/mapc -I../..
 	-I../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar \
 	-I../../ModelBuilder/ThirdParty/JUInspectorView/Source
 
-FRAMEWORK_BUILD_DIR = $(CURDIR)/../../CoreData.framework/Versions/Current
+FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../../CoreData.framework/Versions/Current) $(CURDIR)/../../CoreData.framework)
 
 MBDocumentSmoke_OBJC_LIBS += -lCoreData -lgnustep-gui
 MBWindowProbe_OBJC_LIBS += -lCoreData -lgnustep-gui
@@ -70,7 +70,7 @@ after-all::
 	cp -f "$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe" "$$wrap/"; \
 	cp -f ../../ModelBuilder/MBMappingWindow.xib ../../ModelBuilder/MBNewMappingPanel.xib "$$wrap/Resources/"
 
-RUN_ENV = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH"
+RUN_ENV = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$PATH"
 
 .PHONY: check
 check::
