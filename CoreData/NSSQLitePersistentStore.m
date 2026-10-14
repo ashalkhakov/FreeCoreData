@@ -608,6 +608,19 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
    return self;
 }
 
+/* The connection closes when the store leaves its coordinator, not when
+   the store is deallocated, which may be much later (an autorelease pool
+   can hold it): a removed store is not used again, and its file has to be
+   free once it is gone - on Windows an open file can be neither deleted
+   nor replaced, and a migration does both. */
+-(void)willRemoveFromPersistentStoreCoordinator:(NSPersistentStoreCoordinator *)coordinator {
+   if(_database!=NULL){
+    sqlite3_close(DATABASE);
+    _database=NULL;
+   }
+   [super willRemoveFromPersistentStoreCoordinator:coordinator];
+}
+
 -(void)dealloc {
    if(_database!=NULL)
     sqlite3_close(DATABASE);
