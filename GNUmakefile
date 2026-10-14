@@ -116,6 +116,9 @@ ADDITIONAL_INCLUDE_DIRS += -I/usr/local/include
 ADDITIONAL_LIB_DIRS += -L/usr/local/lib
 
 CoreData_INCLUDE_DIRS = -I.
+# The framework exports its constants (CoreDataExports.h: dllexport while
+# building it, dllimport for what links it, on Windows; nothing elsewhere).
+CoreData_CPPFLAGS += -DBUILDING_COREDATA
 
 -include GNUmakefile.preamble
 
