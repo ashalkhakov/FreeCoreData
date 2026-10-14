@@ -72,17 +72,19 @@ after-all::
 
 RUN_ENV = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$PATH"
 
-# Each probe has five minutes: one that waits for an event that never comes
-# fails with what it printed, rather than holding the build until CI gives
-# up on it.
-PROBE = timeout --kill-after=10 300
+# Each probe has five minutes, and what it prints goes to a file of which
+# the last lines are shown: one that waits for an event that never comes,
+# or prints without end, fails with what it said last, rather than holding
+# the build (or flooding its log) until CI gives up on it.
+PROBE = run() { echo "== $$1"; $(RUN_ENV) timeout --kill-after=10 300 "$$1" > "$$1.log" 2>&1; status=$$?; \
+	tail -n 100 "$$1.log"; [ $$status = 0 ] || echo "== $$1 exited $$status"; return $$status; }; run
 
 .PHONY: check
 check::
-	$(RUN_ENV) $(PROBE) "$(GNUSTEP_OBJ_DIR)/MBDocumentSmoke"
-	$(RUN_ENV) $(PROBE) "$(GNUSTEP_OBJ_DIR)/MBMappingSmoke"
-	$(RUN_ENV) $(PROBE) "$(GNUSTEP_OBJ_DIR)/MBWindowProbe.app/MBWindowProbe"
-	$(RUN_ENV) $(PROBE) "$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe.app/MBMappingWindowProbe"
+	$(PROBE) "$(GNUSTEP_OBJ_DIR)/MBDocumentSmoke"
+	$(PROBE) "$(GNUSTEP_OBJ_DIR)/MBMappingSmoke"
+	$(PROBE) "$(GNUSTEP_OBJ_DIR)/MBWindowProbe.app/MBWindowProbe"
+	$(PROBE) "$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe.app/MBMappingWindowProbe"
 
 # gnustep-make mirrors ../../ source paths beside obj/ when compiling
 # out-of-directory sources; sweep those artifacts too.
