@@ -59,7 +59,7 @@ CoreDataTests_INCLUDE_DIRS = -I.. -I../CoreData -I../Tools/momc -I../Tools/mapc
 FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../CoreData.framework/Versions/Current) $(CURDIR)/../CoreData.framework)
 
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
-CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest -lsqlite3
+CoreDataTests_OBJC_LIBS += -lCoreData -lXCTest -lsqlite3 -ldispatch
 
 XCTEST ?= xctest
 
