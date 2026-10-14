@@ -537,7 +537,8 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
     int      code=sqlite3_open(":memory:",&empty);
 
     if(code==SQLITE_OK)
-     code=sqlite3_open_v2([path fileSystemRepresentation],&database,SQLITE_OPEN_READWRITE,NULL);
+     // SQLite takes a file name in UTF-8 everywhere; -fileSystemRepresentation is UTF-16 on Windows (so are all these opens).
+     code=sqlite3_open_v2([path UTF8String],&database,SQLITE_OPEN_READWRITE,NULL);
     if(code==SQLITE_OK){
      sqlite3_busy_timeout(database,5000);
      code=copyDatabase(empty,database);
@@ -557,7 +558,7 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
 +(BOOL)_replaceStoreAtURL:(NSURL *)destination withStoreAtURL:(NSURL *)source error:(NSError **)error {
    NSFileManager *files=[NSFileManager defaultManager];
    sqlite3       *from=NULL,*to=NULL;
-   int            code=sqlite3_open_v2([[source path] fileSystemRepresentation],&from,SQLITE_OPEN_READONLY,NULL);
+   int            code=sqlite3_open_v2([[source path] UTF8String],&from,SQLITE_OPEN_READONLY,NULL);
 
    if(code!=SQLITE_OK){
     sqlite3_close(from);
@@ -566,7 +567,7 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
     return NO;
    }
    [files createDirectoryAtPath:[[destination path] stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:NULL];
-   code=sqlite3_open_v2([[destination path] fileSystemRepresentation],&to,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE,NULL);
+   code=sqlite3_open_v2([[destination path] UTF8String],&to,SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE,NULL);
    if(code==SQLITE_OK){
     sqlite3_busy_timeout(to,5000);
     code=copyDatabase(from,to);
@@ -637,7 +638,7 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
 
    sqlite3 *database=NULL;
 
-   if(sqlite3_open_v2([path fileSystemRepresentation],&database,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){
+   if(sqlite3_open_v2([path UTF8String],&database,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){
     if(error!=NULL)
      *error=sqliteError(database,NSPersistentStoreOpenError,[NSString stringWithFormat:@"unable to open SQLite store at %@",path]);
     if(database!=NULL)
@@ -658,7 +659,7 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
    NSString *path=[url path];
    sqlite3  *database=NULL;
 
-   if(path==nil || sqlite3_open_v2([path fileSystemRepresentation],&database,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){
+   if(path==nil || sqlite3_open_v2([path UTF8String],&database,SQLITE_OPEN_READONLY,NULL)!=SQLITE_OK){
     if(database!=NULL)
      sqlite3_close(database);
     return nil;
@@ -675,7 +676,7 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
    NSString *path=[url path];
    sqlite3  *database=NULL;
 
-   if(path==nil || sqlite3_open_v2([path fileSystemRepresentation],&database,SQLITE_OPEN_READWRITE,NULL)!=SQLITE_OK){
+   if(path==nil || sqlite3_open_v2([path UTF8String],&database,SQLITE_OPEN_READWRITE,NULL)!=SQLITE_OK){
     if(error!=NULL)
      *error=sqliteError(database,NSPersistentStoreOpenError,[NSString stringWithFormat:@"unable to open SQLite store at %@",path]);
     if(database!=NULL)
@@ -1146,7 +1147,7 @@ static NSString *sqlLiteralForBinding(NSDictionary *binding){
 
    sqlite3 *database=NULL;
 
-   if(sqlite3_open([path fileSystemRepresentation],&database)!=SQLITE_OK){
+   if(sqlite3_open([path UTF8String],&database)!=SQLITE_OK){
     if(error!=NULL)
      *error=sqliteError(database,NSPersistentStoreOpenError,[NSString stringWithFormat:@"unable to open SQLite store at %@",path]);
     if(database!=NULL)
