@@ -47,6 +47,7 @@ jobs:
       tag: ${{ inputs.tag }}
       library: true
       extra-packages: sqlite3 postgresql libmariadbclient
+      wine: true
 
   macos:
     uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1
