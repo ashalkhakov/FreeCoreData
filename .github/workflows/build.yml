@@ -42,7 +42,7 @@ jobs:
       databases: postgres mysql mariadb
 
   windows:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@v1
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@windows-wine
     with:
       tag: ${{ inputs.tag }}
       library: true
