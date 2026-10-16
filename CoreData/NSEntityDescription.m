@@ -39,6 +39,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 -(void)_entity:(NSEntityDescription *)entity didChangeNameFrom:(NSString *)oldName;
 @end
 
+/* NSManagedObject.m: what a wrapped custom relationship setter runs. */
+@interface NSManagedObject (CustomRelationshipSetters)
+-(void)_setValue:value forRelationshipNamed:(NSString *)name withSetter:(IMP)setter selector:(SEL)selector;
+@end
+
 @implementation NSEntityDescription
 
 static id getValue(id self, SEL selector) {
@@ -274,6 +279,40 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
     return self;
 }
 
+/* A relationship's custom setter usually only sets its primitive value,
+   often as objects, and Core Data keeps the inverse in step all the same
+   - whether the setter is called directly or by -setValue:forKey:.  So
+   the class's setter is wrapped, once: the wrapper calls it, and the
+   object then keeps the value by ID and tells the objects it left and
+   joined (-_setValue:forRelationshipNamed:withSetter: in
+   NSManagedObject.m).  The relationship is found by name when the setter
+   runs, since one class may serve the entities of several models. */
+static void wrapRelationshipSetter(Method setter,NSString *propertyName){
+    static NSMutableSet *wrapped=nil;
+
+    @synchronized([NSEntityDescription class]){
+        if(wrapped==nil)
+            wrapped=[[NSMutableSet alloc] init];
+
+        NSValue *key=[NSValue valueWithPointer:setter];
+
+        if([wrapped containsObject:key])
+            return;
+        [wrapped addObject:key];
+
+        IMP       original=method_getImplementation(setter);
+        SEL       selector=method_getName(setter);
+        NSString *name=[propertyName copy];
+
+        /* Copied off the stack, and kept for good, as the method is. */
+        id wrapper=[^(NSManagedObject *object,id value){
+            [object _setValue:value forRelationshipNamed:name withSetter:original selector:selector];
+        } copy];
+
+        method_setImplementation(setter,imp_implementationWithBlock(wrapper));
+    }
+}
+
 /* Installs the generated @dynamic accessor implementations
    (property/setProperty:, and add<Key>Object:-style mutators for
    to-manys) on the entity's managed object class, and fills the
@@ -361,8 +400,11 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
         NSString *setterName=[NSString stringWithFormat:@"set%@%@:",[[propertyName substringToIndex:1] uppercaseString],[propertyName substringFromIndex:1]];
         Method    setter=class_getInstanceMethod(class,NSSelectorFromString(setterName));
 
-        if(setter!=NULL && !_NSManagedObjectIMPIsGeneratedAccessor(method_getImplementation(setter)))
+        if(setter!=NULL && !_NSManagedObjectIMPIsGeneratedAccessor(method_getImplementation(setter))){
             [customSetters addObject:propertyName];
+            if([[[self propertiesByName] objectForKey:propertyName] isKindOfClass:[NSRelationshipDescription class]])
+                wrapRelationshipSetter(setter,propertyName);
+        }
     }
     if(![_propertyNamesWithCustomSetters isEqualToSet:customSetters]){
         NSSet *previous=_propertyNamesWithCustomSetters;

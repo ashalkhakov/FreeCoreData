@@ -803,6 +803,44 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertEqual([[saved valueForKey:@"books"] count], (NSUInteger)2);
 }
 
+/* Called directly, not through KVC, a custom relationship setter that
+   only sets the primitive value keeps the inverse too. */
+- (void)testCustomRelationshipSettersCalledDirectlyKeepTheInverse
+{
+    NSManagedObjectContext *context = [self accessorContext];
+    AccessorShelf *first = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+    AccessorShelf *second = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+    AccessorBook *one = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Book" inManagedObjectContext:context];
+    AccessorBook *two = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Book" inManagedObjectContext:context];
+
+    one.shelf = first;
+    XCTAssertEqual(bookShelfSetterCalls, (NSUInteger)1);
+    XCTAssertEqual(one.shelf, first);
+    XCTAssertTrue([first.books containsObject:one]);
+
+    second.books = [NSSet setWithObjects:one, two, nil];
+    XCTAssertEqual(shelfBooksSetterCalls, (NSUInteger)1);
+    XCTAssertEqual(one.shelf, second);
+    XCTAssertEqual(two.shelf, second);
+    XCTAssertEqual([first.books count], (NSUInteger)0);
+
+    two.shelf = nil;
+    XCTAssertEqual([second.books count], (NSUInteger)1);
+    XCTAssertFalse([second.books containsObject:two]);
+
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+
+    NSManagedObjectContext *reader = [[NSManagedObjectContext alloc] init];
+    [reader setPersistentStoreCoordinator:[context persistentStoreCoordinator]];
+    NSManagedObject *saved = [reader existingObjectWithID:[one objectID] error:NULL];
+    XCTAssertEqualObjects([[saved valueForKey:@"shelf"] objectID], [second objectID]);
+}
+
 /* An observed object - whose class key-value observing may have swapped
    for one with notifying setters of its own - calls the class's setter
    once, and its observer is told. */

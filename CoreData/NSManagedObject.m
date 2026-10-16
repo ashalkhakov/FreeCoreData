@@ -1115,29 +1115,32 @@ static id CDRelationshipValueByID(NSRelationshipDescription *relationship,id val
    NSPropertyDescription *property=[[self entity] _propertyForSelector:NSSelectorFromString(key)];
 
    if(property!=nil && [[self entity] _hasCustomSetterForPropertyNamed:[property name]]){
-    if([property isKindOfClass:[NSRelationshipDescription class]])
-     [self _setValue:value forRelationship:(NSRelationshipDescription *)property throughSetterForKey:key];
-    else
-     [super setValue:value forKey:key];
+    [super setValue:value forKey:key];
     return;
    }
 
    [self _setValue:value forKey:key property:property];
 }
 
-/* A custom setter of a relationship stores its value - usually with
-   -setPrimitiveValue:forKey:, often as objects - and Core Data keeps the
-   inverse in step, as it does for a generated one.  So the value is kept
-   by ID afterwards, as the framework keeps it, and the objects it left
-   and joined are told. */
--(void)_setValue:value forRelationship:(NSRelationshipDescription *)relationship throughSetterForKey:(NSString *)key {
-   NSString *name=[relationship name];
+/* A relationship's custom setter, called directly or by -setValue:forKey:
+   (NSEntityDescription.m wraps it to come here): it stores its value -
+   usually with -setPrimitiveValue:forKey:, often as objects - and, as on
+   Apple, the inverse is kept in step as for a generated one.  So the
+   value is kept by ID afterwards, as the framework keeps it, and the
+   objects it left and joined are told. */
+-(void)_setValue:value forRelationshipNamed:(NSString *)name withSetter:(IMP)setter selector:(SEL)selector {
+   NSRelationshipDescription *relationship=[[[self entity] propertiesByName] objectForKey:name];
+
+   if(![relationship isKindOfClass:[NSRelationshipDescription class]]){
+    ((void (*)(id,SEL,id))setter)(self,selector,value);
+    return;
+   }
 
    [self _requireSameContextAsValue:value forRelationship:relationship];
 
    id previous=CDRelationshipValueByID(relationship,[self primitiveValueForKey:name]);
 
-   [super setValue:value forKey:key];
+   ((void (*)(id,SEL,id))setter)(self,selector,value);
 
    id stored=[_changedValues objectForKey:name];
    id current=CDRelationshipValueByID(relationship,[self primitiveValueForKey:name]);
