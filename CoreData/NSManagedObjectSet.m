@@ -10,6 +10,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import "NSManagedObjectSet.h"
+#import "NSManagedObject-Private.h"
 #import <Foundation/NSException.h>
 #import "NSManagedObjectSetEnumerator.h"
 #import <CoreData/NSManagedObjectContext.h>
@@ -48,7 +49,20 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    if(_owner!=nil){
     id value=[_owner primitiveValueForKey:_key];
 
-    return (value!=nil)?value:(id)[NSSet set];
+    if(value==nil)
+     return [NSSet set];
+
+    /* Objects, not their IDs, inside a custom setter that stored them:
+       -setValue:forKey: makes them IDs after, but an observer told of
+       the change reads them before. */
+    if([[value anyObject] isKindOfClass:[NSManagedObject class]]){
+     NSMutableSet *memberIDs=[NSMutableSet setWithCapacity:[value count]];
+
+     for(NSManagedObject *member in value)
+      [memberIDs addObject:[member objectID]];
+     return memberIDs;
+    }
+    return value;
    }
    return _set;
 }
@@ -109,7 +123,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    if([[self _memberIDs] member:[object objectID]]!=nil)
     return;
 
-   [_owner setValue:[self _memberObjectsAfterRemoving:nil adding:object] forKey:_key];
+   [_owner _setModeledValue:[self _memberObjectsAfterRemoving:nil adding:object] forKey:_key];
 }
 
 -(void)removeObject:object {
@@ -119,7 +133,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    if([[self _memberIDs] member:[object objectID]]==nil)
     return;
 
-   [_owner setValue:[self _memberObjectsAfterRemoving:object adding:nil] forKey:_key];
+   [_owner _setModeledValue:[self _memberObjectsAfterRemoving:object adding:nil] forKey:_key];
 }
 
 @end

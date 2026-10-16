@@ -349,6 +349,31 @@ static void appendMethodToList(Class class,NSString *selectorName,IMP imp,const 
             }
         }
     }
+
+    /* The properties the class sets with a setter of its own, which
+       -setValue:forKey: calls (see NSManagedObject.m): worked out once,
+       here, rather than on every set - and from the class, not from an
+       object, whose class key-value observing may have swapped for one
+       with setters of its own. */
+    NSMutableSet *customSetters=[NSMutableSet set];
+
+    for(NSString *propertyName in [self propertiesByName]){
+        NSString *setterName=[NSString stringWithFormat:@"set%@%@:",[[propertyName substringToIndex:1] uppercaseString],[propertyName substringFromIndex:1]];
+        Method    setter=class_getInstanceMethod(class,NSSelectorFromString(setterName));
+
+        if(setter!=NULL && !_NSManagedObjectIMPIsGeneratedAccessor(method_getImplementation(setter)))
+            [customSetters addObject:propertyName];
+    }
+    if(![_propertyNamesWithCustomSetters isEqualToSet:customSetters]){
+        NSSet *previous=_propertyNamesWithCustomSetters;
+
+        _propertyNamesWithCustomSetters=[customSetters copy];
+        [previous autorelease];
+    }
+}
+
+-(BOOL)_hasCustomSetterForPropertyNamed:(NSString *)name {
+    return [_propertyNamesWithCustomSetters containsObject:name];
 }
 
 /* Called when the model this entity belongs to is attached to a

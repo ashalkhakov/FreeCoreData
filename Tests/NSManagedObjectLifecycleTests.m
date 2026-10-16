@@ -70,6 +70,117 @@ static NSUInteger didTurnIntoFaultCount;
 
 @end
 
+/* Custom setters for modelled properties (issue #85): -setValue:forKey:
+   calls them, as KVC does and Apple does, and Core Data keeps the
+   inverse of a relationship whose setter only sets its primitive value. */
+static NSUInteger shelfTitleSetterCalls;
+static NSUInteger shelfRankSetterCalls;
+static NSUInteger shelfBooksSetterCalls;
+static NSUInteger bookShelfSetterCalls;
+
+@interface AccessorShelf : NSManagedObject
+
+@property (nonatomic, copy) NSString *title;
+@property (nonatomic) int16_t rank;
+@property (nonatomic, strong) NSSet *books;
+
+@end
+
+@implementation AccessorShelf
+
+@dynamic title, rank, books;
+
+- (void)setTitle:(NSString *)title
+{
+    shelfTitleSetterCalls++;
+    [self willChangeValueForKey:@"title"];
+    [self setPrimitiveValue:[title uppercaseString] forKey:@"title"];
+    [self didChangeValueForKey:@"title"];
+}
+
+- (void)setRank:(int16_t)rank
+{
+    shelfRankSetterCalls++;
+    [self willChangeValueForKey:@"rank"];
+    [self setPrimitiveValue:[NSNumber numberWithShort:rank * 10] forKey:@"rank"];
+    [self didChangeValueForKey:@"rank"];
+}
+
+- (void)setBooks:(NSSet *)books
+{
+    shelfBooksSetterCalls++;
+    [self willChangeValueForKey:@"books"];
+    [self setPrimitiveValue:books forKey:@"books"];
+    [self didChangeValueForKey:@"books"];
+}
+
+@end
+
+@interface AccessorBook : NSManagedObject
+
+@property (nonatomic, strong) AccessorShelf *shelf;
+
+@end
+
+@implementation AccessorBook
+
+@dynamic shelf;
+
+- (void)setShelf:(AccessorShelf *)shelf
+{
+    bookShelfSetterCalls++;
+    [self willChangeValueForKey:@"shelf"];
+    [self setPrimitiveValue:shelf forKey:@"shelf"];
+    [self didChangeValueForKey:@"shelf"];
+}
+
+@end
+
+/* Shelf(title, rank, books) <->> Book(shelf), with the classes above. */
+static NSManagedObjectModel *AccessorTestModel(void)
+{
+    NSAttributeDescription *title = [[NSAttributeDescription alloc] init];
+    [title setName:@"title"];
+    [title setAttributeType:NSStringAttributeType];
+    [title setOptional:YES];
+
+    NSAttributeDescription *rank = [[NSAttributeDescription alloc] init];
+    [rank setName:@"rank"];
+    [rank setAttributeType:NSInteger16AttributeType];
+    [rank setOptional:YES];
+
+    NSRelationshipDescription *books = [[NSRelationshipDescription alloc] init];
+    [books setName:@"books"];
+    [books setMinCount:0];
+    [books setMaxCount:0];
+    [books setOptional:YES];
+
+    NSRelationshipDescription *shelf = [[NSRelationshipDescription alloc] init];
+    [shelf setName:@"shelf"];
+    [shelf setMinCount:0];
+    [shelf setMaxCount:1];
+    [shelf setOptional:YES];
+
+    NSEntityDescription *shelfEntity = [[NSEntityDescription alloc] init];
+    [shelfEntity setName:@"Shelf"];
+    [shelfEntity setManagedObjectClassName:@"AccessorShelf"];
+
+    NSEntityDescription *bookEntity = [[NSEntityDescription alloc] init];
+    [bookEntity setName:@"Book"];
+    [bookEntity setManagedObjectClassName:@"AccessorBook"];
+
+    [books setDestinationEntity:bookEntity];
+    [shelf setDestinationEntity:shelfEntity];
+    [books setInverseRelationship:shelf];
+    [shelf setInverseRelationship:books];
+    [shelfEntity setProperties:[NSArray arrayWithObjects:title, rank, books, nil]];
+    [bookEntity setProperties:[NSArray arrayWithObject:shelf]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObjects:shelfEntity, bookEntity, nil]];
+    return model;
+}
+
 @implementation LifecyclePerson
 
 /* Custom accessor for the transient displayName attribute; -valueForKey:
@@ -573,6 +684,168 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     DynamicPDA *reloaded = [fetched lastObject];
     XCTAssertEqualObjects(reloaded.sourceText, @"personal data assistant");
     XCTAssertEqualObjects(reloaded.linked.sourceText, @"other");
+}
+
+/* -- custom setters (issue #85) ------------------------------------------- */
+
+- (NSManagedObjectContext *)accessorContext
+{
+    shelfTitleSetterCalls = 0;
+    shelfRankSetterCalls = 0;
+    shelfBooksSetterCalls = 0;
+    bookShelfSetterCalls = 0;
+
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc]
+        initWithManagedObjectModel:AccessorTestModel()];
+    [psc addPersistentStoreWithType:NSInMemoryStoreType configuration:nil
+                                URL:nil options:nil error:NULL];
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    [context setPersistentStoreCoordinator:psc];
+    return context;
+}
+
+- (void)testSetValueForKeyCallsCustomAttributeSetter
+{
+    NSManagedObjectContext *context = [self accessorContext];
+    AccessorShelf *shelf = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+
+    shelf.title = @"a";
+    XCTAssertEqual(shelfTitleSetterCalls, (NSUInteger)1);
+
+    [shelf setValue:@"b" forKey:@"title"];
+    XCTAssertEqual(shelfTitleSetterCalls, (NSUInteger)2);
+    XCTAssertEqualObjects([shelf valueForKey:@"title"], @"B");
+
+    [shelf setValue:@"c" forKeyPath:@"title"];
+    XCTAssertEqual(shelfTitleSetterCalls, (NSUInteger)3);
+
+    NSDictionary *values = [NSDictionary dictionaryWithObject:@"d" forKey:@"title"];
+    [shelf setValuesForKeysWithDictionary:values];
+    XCTAssertEqual(shelfTitleSetterCalls, (NSUInteger)4);
+    XCTAssertEqualObjects(shelf.title, @"D");
+
+    [shelf setValue:nil forKey:@"title"];
+    XCTAssertEqual(shelfTitleSetterCalls, (NSUInteger)5);
+    XCTAssertNil(shelf.title);
+}
+
+/* A scalar setter is given the value unboxed, as KVC gives it. */
+- (void)testSetValueForKeyCallsCustomScalarSetter
+{
+    NSManagedObjectContext *context = [self accessorContext];
+    AccessorShelf *shelf = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+
+    [shelf setValue:[NSNumber numberWithInt:3] forKey:@"rank"];
+    XCTAssertEqual(shelfRankSetterCalls, (NSUInteger)1);
+    XCTAssertEqualObjects([shelf valueForKey:@"rank"], [NSNumber numberWithInt:30]);
+}
+
+/* A to-one setter that only sets the primitive value, as objects: the
+   inverse follows, and the old owner lets the book go. */
+- (void)testSetValueForKeyCallsCustomToOneSetterAndKeepsTheInverse
+{
+    NSManagedObjectContext *context = [self accessorContext];
+    AccessorShelf *first = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+    AccessorShelf *second = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+    AccessorBook *book = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Book" inManagedObjectContext:context];
+
+    [book setValue:first forKey:@"shelf"];
+    XCTAssertEqual(bookShelfSetterCalls, (NSUInteger)1);
+    XCTAssertEqual([book valueForKey:@"shelf"], first);
+    XCTAssertTrue([[first valueForKey:@"books"] containsObject:book]);
+
+    [book setValue:second forKey:@"shelf"];
+    XCTAssertEqual(bookShelfSetterCalls, (NSUInteger)2);
+    XCTAssertEqual([book valueForKey:@"shelf"], second);
+    XCTAssertTrue([[second valueForKey:@"books"] containsObject:book]);
+    XCTAssertEqual([[first valueForKey:@"books"] count], (NSUInteger)0);
+
+    [book setValue:nil forKey:@"shelf"];
+    XCTAssertEqual(bookShelfSetterCalls, (NSUInteger)3);
+    XCTAssertNil([book valueForKey:@"shelf"]);
+    XCTAssertEqual([[second valueForKey:@"books"] count], (NSUInteger)0);
+
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+}
+
+- (void)testSetValueForKeyCallsCustomToManySetterAndKeepsTheInverse
+{
+    NSManagedObjectContext *context = [self accessorContext];
+    AccessorShelf *first = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+    AccessorShelf *second = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+    AccessorBook *one = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Book" inManagedObjectContext:context];
+    AccessorBook *two = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Book" inManagedObjectContext:context];
+
+    [one setValue:first forKey:@"shelf"];
+    [second setValue:[NSSet setWithObjects:one, two, nil] forKey:@"books"];
+    XCTAssertEqual(shelfBooksSetterCalls, (NSUInteger)1);
+    XCTAssertEqual(one.shelf, second);
+    XCTAssertEqual(two.shelf, second);
+    XCTAssertEqual([[first valueForKey:@"books"] count], (NSUInteger)0);
+    XCTAssertEqual([[second valueForKey:@"books"] count], (NSUInteger)2);
+
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+
+    NSManagedObjectContext *reader = [[NSManagedObjectContext alloc] init];
+    [reader setPersistentStoreCoordinator:[context persistentStoreCoordinator]];
+    NSManagedObject *saved = [reader existingObjectWithID:[second objectID] error:NULL];
+    XCTAssertEqual([[saved valueForKey:@"books"] count], (NSUInteger)2);
+}
+
+/* An observed object - whose class key-value observing may have swapped
+   for one with notifying setters of its own - calls the class's setter
+   once, and its observer is told. */
+- (void)testSetValueForKeyCallsCustomSetterOfAnObservedObject
+{
+    NSManagedObjectContext *context = [self accessorContext];
+    AccessorShelf *shelf = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+    AccessorBook *book = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Book" inManagedObjectContext:context];
+    LifecycleKVOWatcher *watcher = [[LifecycleKVOWatcher alloc] init];
+
+    [shelf addObserver:watcher forKeyPath:@"title" options:NSKeyValueObservingOptionNew context:NULL];
+    [book addObserver:watcher forKeyPath:@"shelf" options:NSKeyValueObservingOptionNew context:NULL];
+    [shelf setValue:@"a" forKey:@"title"];
+    [book setValue:shelf forKey:@"shelf"];
+    [shelf removeObserver:watcher forKeyPath:@"title"];
+    [book removeObserver:watcher forKeyPath:@"shelf"];
+
+    XCTAssertEqual(shelfTitleSetterCalls, (NSUInteger)1);
+    XCTAssertEqual(bookShelfSetterCalls, (NSUInteger)1);
+    XCTAssertEqualObjects(shelf.title, @"A");
+    XCTAssertTrue([[shelf valueForKey:@"books"] containsObject:book]);
+    XCTAssertGreaterThanOrEqual(watcher.told, 2);
+}
+
+/* The collection proxies change a relationship as Apple's do, without
+   the class's setter, and keep the inverse. */
+- (void)testMutableSetProxyDoesNotCallCustomSetter
+{
+    NSManagedObjectContext *context = [self accessorContext];
+    AccessorShelf *shelf = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+    AccessorBook *book = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Book" inManagedObjectContext:context];
+
+    [[shelf mutableSetValueForKey:@"books"] addObject:book];
+    XCTAssertEqual(shelfBooksSetterCalls, (NSUInteger)0);
+    XCTAssertEqual(book.shelf, shelf);
+
+    [[shelf mutableSetValueForKey:@"books"] removeObject:book];
+    XCTAssertEqual(shelfBooksSetterCalls, (NSUInteger)0);
+    XCTAssertNil(book.shelf);
 }
 
 /* Scalar-typed @dynamic properties read and write correctly through

@@ -2621,7 +2621,7 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
 
     for(NSPropertyDescription *property in properties)
      if([property isKindOfClass:[NSRelationshipDescription class]])
-      [deleted setValue:nil forKey:[property name]];
+      [deleted _setModeledValue:nil forKey:[property name]];
    }
 }
 
