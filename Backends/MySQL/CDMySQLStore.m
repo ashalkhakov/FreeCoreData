@@ -758,6 +758,38 @@ static NSError *mysqlStatementError(MYSQL_STMT *statement,NSInteger code,NSStrin
 }
 
 /* No conflict target: the primary key is the one that can clash. */
+/* UPDATE ... JOIN a derived table of the rows - each its key and version
+   expected (as integers, so that the join uses the key) and its values -
+   on the key and the version.  A VALUES list is spelled differently by
+   MySQL and MariaDB; a UNION ALL of SELECTs is the same in both. */
+-(NSString *)batchUpdateSQLForTable:(NSString *)table columns:(NSArray *)columns columnTypes:(NSArray *)types rows:(NSUInteger)rows {
+   NSUInteger      width=[columns count]+2,row,column;
+   NSMutableArray *selects=[NSMutableArray arrayWithCapacity:rows];
+   NSMutableArray *assignments=[NSMutableArray array];
+
+   for(column=0;column<[columns count];column++)
+    [assignments addObject:[NSString stringWithFormat:@"t.%@ = v.c%lu",[self quoted:[columns objectAtIndex:column]],(unsigned long)column]];
+   [assignments addObject:@"t.\"Z_OPT\" = t.\"Z_OPT\" + 1"];
+
+   for(row=0;row<rows;row++){
+    NSMutableArray *values=[NSMutableArray arrayWithCapacity:width];
+
+    for(column=0;column<width;column++){
+     NSString *placeholder=[NSString stringWithFormat:@"$%lu",(unsigned long)(row*width+column+1)];
+
+     if(column<2)
+      placeholder=[NSString stringWithFormat:@"CAST(%@ AS SIGNED)",placeholder];
+     if(row==0)
+      placeholder=[placeholder stringByAppendingFormat:@" AS %@",(column==0)?@"pk":(column==1)?@"opt":[NSString stringWithFormat:@"c%lu",(unsigned long)(column-2)]];
+     [values addObject:placeholder];
+    }
+    [selects addObject:[@"SELECT " stringByAppendingString:[values componentsJoinedByString:@", "]]];
+   }
+
+   return [NSString stringWithFormat:@"UPDATE %@ AS t JOIN (%@) AS v ON t.\"Z_PK\" = v.pk AND t.\"Z_OPT\" = v.opt SET %@",
+              [self quoted:table],[selects componentsJoinedByString:@" UNION ALL "],[assignments componentsJoinedByString:@", "]];
+}
+
 -(NSString *)upsertClauseForColumns:(NSArray *)columns keyColumns:(NSArray *)keyColumns {
    NSMutableArray *assignments=[NSMutableArray array];
 

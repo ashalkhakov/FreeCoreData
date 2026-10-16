@@ -411,6 +411,38 @@ static const char **postgresParameterValues(NSArray *parameters){
    return ascending?@" NULLS FIRST":@" NULLS LAST";
 }
 
+/* UPDATE ... FROM a VALUES list: each row's key, version expected and
+   values, cast to the columns' types (a parameter is text), joined to the
+   table on the key and the version. */
+-(NSString *)batchUpdateSQLForTable:(NSString *)table columns:(NSArray *)columns columnTypes:(NSArray *)types rows:(NSUInteger)rows {
+   NSUInteger      width=[columns count]+2,row,column;
+   NSMutableArray *tuples=[NSMutableArray arrayWithCapacity:rows];
+   NSMutableArray *names=[NSMutableArray arrayWithObjects:@"\"Z_PK\"",@"\"Z_OPT\"",nil];
+   NSMutableArray *assignments=[NSMutableArray array];
+
+   for(column=0;column<[columns count];column++){
+    NSString *name=[self quoted:[columns objectAtIndex:column]];
+
+    [names addObject:name];
+    [assignments addObject:[NSString stringWithFormat:@"%@ = v.%@",name,name]];
+   }
+   [assignments addObject:@"\"Z_OPT\" = t.\"Z_OPT\" + 1"];
+
+   for(row=0;row<rows;row++){
+    NSMutableArray *values=[NSMutableArray arrayWithCapacity:width];
+
+    for(column=0;column<width;column++){
+     NSString *type=(column<2)?@"bigint":[types objectAtIndex:column-2];
+
+     [values addObject:[NSString stringWithFormat:@"$%lu::%@",(unsigned long)(row*width+column+1),type]];
+    }
+    [tuples addObject:[NSString stringWithFormat:@"(%@)",[values componentsJoinedByString:@", "]]];
+   }
+
+   return [NSString stringWithFormat:@"UPDATE %@ AS t SET %@ FROM (VALUES %@) AS v(%@) WHERE t.\"Z_PK\" = v.\"Z_PK\" AND t.\"Z_OPT\" = v.\"Z_OPT\"",
+              [self quoted:table],[assignments componentsJoinedByString:@", "],[tuples componentsJoinedByString:@", "],[names componentsJoinedByString:@", "]];
+}
+
 -(NSString *)upsertClauseForColumns:(NSArray *)columns keyColumns:(NSArray *)keyColumns {
    if([columns count]==0)
     return [NSString stringWithFormat:@" ON CONFLICT (%@) DO NOTHING",[keyColumns componentsJoinedByString:@", "]];

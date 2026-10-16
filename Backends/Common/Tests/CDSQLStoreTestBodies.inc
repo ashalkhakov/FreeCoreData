@@ -723,6 +723,79 @@ static NSSet *CDSQLKeysFrom(long long first, long long last)
     }
 }
 
+/* Rows changed many to a statement, and deleted many to a statement: 250
+   people changed - their values, their employer, a value kept externally,
+   some to nil - read back as changed; then friends made, and 200 of them
+   deleted, the join rows and external values they had going with them. */
+- (void)testManyRowsAreChangedAndDeletedAsTheyWere
+{
+    if (![self databaseAvailable]) return;
+
+    CDSQLMemoryExternalDataStore *memory = [[CDSQLMemoryExternalDataStore alloc] init];
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    options[@"CDExternalDataStoreOption"] = memory;
+    self.storeOptions = options;
+    self.context = [self newContext];
+
+    NSManagedObject *company = [NSEntityDescription insertNewObjectForEntityForName:@"Company" inManagedObjectContext:self.context];
+    [company setValue:@"Bletchley" forKey:@"name"];
+    NSMutableArray *people = [NSMutableArray array];
+    for (int i = 0; i < 250; i++) {
+        NSManagedObject *person = [self insertPersonNamed:[NSString stringWithFormat:@"P%03d", i] age:i];
+        [person setValue:company forKey:@"employer"];
+        [person setValue:@(i + 0.5) forKey:@"score"];
+        if (i % 50 == 2)
+            [person setValue:CDSQLFilled(150000, 'x') forKey:@"portrait"];
+        [people addObject:person];
+    }
+    if (![self save]) return;
+    XCTAssertEqual([memory.kept count], (NSUInteger)5);
+
+    for (int i = 0; i < 250; i++) {
+        NSManagedObject *person = people[i];
+        [person setValue:@(i * 2) forKey:@"age"];
+        if (i % 2 == 1)
+            [person setValue:nil forKey:@"employer"];
+        if (i % 3 == 0)
+            [person setValue:nil forKey:@"score"];
+        if (i % 50 == 7)
+            [person setValue:CDSQLFilled(150000, 'y') forKey:@"portrait"];
+        if (i % 50 == 2)
+            [person setValue:nil forKey:@"portrait"];
+    }
+    if (![self save]) return;
+    XCTAssertEqual([memory.kept count], (NSUInteger)5, @"the five let go of, five others kept");
+
+    NSManagedObjectContext *fresh = [self newContext];
+    NSArray *read = [self fetchPeopleWithPredicate:nil sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ] context:fresh];
+    XCTAssertEqual([read count], (NSUInteger)250);
+    for (int i = 0; i < (int)[read count]; i++) {
+        NSManagedObject *person = read[i];
+        XCTAssertEqualObjects([person valueForKey:@"age"], @(i * 2), @"P%03d", i);
+        XCTAssertEqualObjects([[person valueForKey:@"employer"] valueForKey:@"name"], (i % 2 == 0) ? @"Bletchley" : nil, @"P%03d", i);
+        XCTAssertEqualObjects([person valueForKey:@"score"], (i % 3 == 0) ? nil : @(i + 0.5), @"P%03d", i);
+        XCTAssertEqualObjects([person valueForKey:@"portrait"], (i % 50 == 7) ? CDSQLFilled(150000, 'y') : nil, @"P%03d", i);
+    }
+
+    for (int i = 0; i < 249; i++)
+        [[people[i] mutableSetValueForKey:@"friends"] addObject:people[i + 1]];
+    if (![self save]) return;
+
+    for (int i = 0; i < 250; i++)
+        if (i % 5 != 0)
+            [self.context deleteObject:people[i]];
+    if (![self save]) return;
+    XCTAssertEqual([memory.kept count], (NSUInteger)0, @"the portraits were all of people deleted");
+
+    NSManagedObjectContext *after = [self newContext];
+    NSArray *left = [self fetchPeopleWithPredicate:nil sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ] context:after];
+    XCTAssertEqual([left count], (NSUInteger)50);
+    for (NSManagedObject *person in left) {
+        XCTAssertEqual([[person valueForKey:@"friends"] count], (NSUInteger)0, @"%@'s friend was deleted", [person valueForKey:@"name"]);
+        XCTAssertEqual([[person valueForKey:@"friendOf"] count], (NSUInteger)0, @"%@'s friend was deleted", [person valueForKey:@"name"]);
+    }
+}
+
 /* A store that cannot give every object its key gives none: no object
    takes a permanent ID, and Person's Z_MAX is as it was.  Made to fail
    by taking away Company's key row; FreeCoreData's alone, as it is the

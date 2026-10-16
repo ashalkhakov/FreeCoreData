@@ -633,6 +633,12 @@ static NSString *CDSQLRewriteAlternation(CDSQLPatternReader *reader){
    return YES;
 }
 
+/* A dialect that cannot update rows many at once has them updated one at
+   a time. */
+-(NSString *)batchUpdateSQLForTable:(NSString *)table columns:(NSArray *)columns columnTypes:(NSArray *)types rows:(NSUInteger)rows {
+   return nil;
+}
+
 /* A driver that cannot prepare statements runs them as any other. */
 -(id<CDSQLResult>)runPreparedSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error {
    return [self runSQL:sql parameters:parameters error:error];
@@ -3967,6 +3973,185 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    return YES;
 }
 
+/* The SQL type of each column a row of entity is written to, by column
+   name, as the schema made them. */
+-(NSDictionary *)_columnTypesOfEntity:(NSEntityDescription *)entity {
+   NSMutableDictionary *types=[NSMutableDictionary dictionary];
+   NSDictionary        *properties=propertiesForEntityChain(entity);
+
+   for(NSString *name in properties){
+    NSPropertyDescription *property=[properties objectForKey:name];
+
+    if([property isKindOfClass:[NSAttributeDescription class]])
+     [types setObject:[self columnTypeForAttributeType:[(NSAttributeDescription *)property attributeType]] forKey:columnNameForProperty(name)];
+    else if([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany])
+     [types setObject:[self _bigIntegerType] forKey:columnNameForProperty(name)];
+   }
+   return types;
+}
+
+/* Changed rows, as many to a statement as fit, each written only while it
+   is still the version this store read: when a statement changes fewer
+   rows than it was given, a row was changed meanwhile, and its rows are
+   put back (to a savepoint) and left in oneByOne, to be written one at a
+   time - which says which ones conflict.  So are rows never read by this
+   store (no version to expect), and those of a dialect that cannot.  What
+   a chunk's rows keep their external values under is read for all of them
+   at once, locking them, as one row's is. */
+-(BOOL)_updateRowsForObjects:(NSArray *)objects leaving:(NSMutableArray *)oneByOne error:(NSError **)error {
+   NSMutableDictionary *byEntity=[NSMutableDictionary dictionary];
+   NSMutableArray      *entityNames=[NSMutableArray array];
+
+   for(NSManagedObject *object in objects){
+    NSEntityDescription *entity=[object entity];
+
+    if([_rowVersions objectForKey:[self _versionKeyForObjectID:[object objectID]]]==nil){
+     [oneByOne addObject:object];
+     continue;
+    }
+
+    NSMutableArray *group=[byEntity objectForKey:[entity name]];
+
+    if(group==nil){
+     group=[NSMutableArray array];
+     [byEntity setObject:group forKey:[entity name]];
+     [entityNames addObject:[entity name]];
+    }
+    [group addObject:object];
+   }
+
+   for(NSString *entityName in entityNames){
+    NSArray             *group=[byEntity objectForKey:entityName];
+    NSEntityDescription *entity=[[group objectAtIndex:0] entity];
+    NSArray             *externalAttributes=[self _externalAttributesOfEntity:entity];
+    NSDictionary        *typesByColumn=[self _columnTypesOfEntity:entity];
+    NSUInteger           perStatement=0;
+    NSUInteger           start;
+
+    for(start=0;start<[group count];start+=perStatement){
+     NSUInteger      remaining=[group count]-start;
+     NSArray        *chunk;
+     NSMutableArray *names=nil;
+     NSMutableArray *parameters=[NSMutableArray array];
+     NSUInteger      writtenBefore=[_externalDataWritten count],releasedBefore=[_externalDataReleased count];
+
+     /* The chunk's size follows from the entity's width, known from its
+        first row. */
+     if(perStatement==0){
+      NSMutableArray *probeNames=[NSMutableArray array];
+
+      for(NSPropertyDescription *property in [propertiesForEntityChain(entity) allValues])
+       if(([property isKindOfClass:[NSAttributeDescription class]] && generatedColumnSourceName((NSAttributeDescription *)property,entity)==nil) ||
+          ([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany]))
+        [probeNames addObject:property];
+      perStatement=MAX((NSUInteger)1,MIN((NSUInteger)100,(NSUInteger)30000/([probeNames count]+2)));
+     }
+     chunk=[group subarrayWithRange:NSMakeRange(start,MIN(perStatement,remaining))];
+
+     NSMutableDictionary *storedByKey=[NSMutableDictionary dictionary];
+     NSMutableArray      *keys=[NSMutableArray arrayWithCapacity:[chunk count]];
+
+     for(NSManagedObject *object in chunk)
+      [keys addObject:[NSNumber numberWithLongLong:primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]])]];
+
+     if([externalAttributes count]>0){
+      NSMutableArray *columns=[NSMutableArray arrayWithObject:@"\"Z_PK\""];
+
+      for(NSAttributeDescription *attribute in externalAttributes)
+       [columns addObject:quoted(columnNameForProperty([attribute name]))];
+
+      id<CDSQLResult> stored=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" IN (%@) FOR UPDATE",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),[keys componentsJoinedByString:@", "]] parameters:nil error:error];
+      int             row;
+
+      if(stored==nil)
+       return NO;
+      for(row=0;row<(int)[stored rowCount];row++){
+       NSMutableDictionary *values=[NSMutableDictionary dictionary];
+       NSUInteger           i;
+
+       for(i=0;i<[externalAttributes count];i++)
+        if(![stored isNullAtRow:row column:i+1])
+         [values setObject:[stored dataAtRow:row column:i+1] forKey:[[externalAttributes objectAtIndex:i] name]];
+       [storedByKey setObject:values forKey:[NSNumber numberWithLongLong:[stored longLongAtRow:row column:0]]];
+      }
+     }
+
+     NSUInteger i;
+
+     for(i=0;i<[chunk count];i++){
+      NSManagedObject *object=[chunk objectAtIndex:i];
+      NSMutableArray  *rowNames=[NSMutableArray array];
+      NSMutableArray  *values=[NSMutableArray array];
+      NSDictionary    *stored=[storedByKey objectForKey:[keys objectAtIndex:i]];
+
+      if(![self _columns:rowNames parameters:values ofObject:object storedExternal:(stored!=nil)?stored:[NSDictionary dictionary] error:error])
+       return NO;
+      if(names==nil)
+       names=rowNames;
+      [parameters addObject:[NSString stringWithFormat:@"%@",[keys objectAtIndex:i]]];
+      [parameters addObject:[NSString stringWithFormat:@"%llu",[[_rowVersions objectForKey:[self _versionKeyForObjectID:[object objectID]]] unsignedLongLongValue]]];
+      [parameters addObjectsFromArray:values];
+     }
+
+     NSString *sqlKey=[NSString stringWithFormat:@"update %lu %@",(unsigned long)[chunk count],entityName];
+     NSString *sql=[_rowSQL objectForKey:sqlKey];
+
+     if(sql==nil){
+      NSMutableArray *types=[NSMutableArray arrayWithCapacity:[names count]];
+
+      for(NSString *name in names)
+       [types addObject:[typesByColumn objectForKey:name]];
+      sql=[self batchUpdateSQLForTable:tableNameForEntity(entity) columns:names columnTypes:types rows:[chunk count]];
+      if(sql!=nil && [chunk count]==perStatement){
+       if(_rowSQL==nil)
+        _rowSQL=[[NSMutableDictionary alloc] init];
+       [_rowSQL setObject:sql forKey:sqlKey];
+      }
+     }
+
+     long long affected=-1;
+
+     if(sql!=nil){
+      if(![self command:@"SAVEPOINT cd_rows" parameters:nil error:error])
+       return NO;
+
+      BOOL ran=([chunk count]==perStatement)?[self preparedCommand:sql parameters:parameters affected:&affected error:error]
+                                            :[self command:sql parameters:parameters affected:&affected error:error];
+
+      if(!ran)
+       return NO;
+     }
+
+     if(affected!=(long long)[chunk count]){
+      /* One of them was changed meanwhile (or the dialect cannot): none
+         of these, then, and each on its own, to find which - which
+         writes their external values, and lets go of the old, itself. */
+      if(sql!=nil && (![self command:@"ROLLBACK TO SAVEPOINT cd_rows" parameters:nil error:error] ||
+                      ![self command:@"RELEASE SAVEPOINT cd_rows" parameters:nil error:error]))
+       return NO;
+      while([_externalDataWritten count]>writtenBefore){
+       [[self _externalDataStore] removeDataNamed:[_externalDataWritten lastObject] error:NULL];
+       [_externalDataWritten removeLastObject];
+      }
+      while([_externalDataReleased count]>releasedBefore)
+       [_externalDataReleased removeLastObject];
+      [oneByOne addObjectsFromArray:chunk];
+      continue;
+     }
+     if(![self command:@"RELEASE SAVEPOINT cd_rows" parameters:nil error:error])
+      return NO;
+
+     /* The rows now carry the next version. */
+     for(NSManagedObject *object in chunk){
+      NSString *key=[self _versionKeyForObjectID:[object objectID]];
+
+      [_rowVersions setObject:[NSNumber numberWithUnsignedLongLong:[[_rowVersions objectForKey:key] unsignedLongLongValue]+1] forKey:key];
+     }
+    }
+   }
+   return YES;
+}
+
 -(BOOL)_writeRowForObject:(NSManagedObject *)object isInsert:(BOOL)isInsert conflict:(NSMergeConflict **)conflict error:(NSError **)error {
    NSEntityDescription *entity=[object entity];
    long long            primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]]);
@@ -4091,27 +4276,31 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
 }
 
 -(BOOL)_deleteRowWithEntity:(NSEntityDescription *)entity primaryKey:(long long)primaryKey error:(NSError **)error {
-   NSDictionary *properties=propertiesForEntityChain(entity);
+   return [self _deleteRowsWithEntity:entity primaryKeys:[NSArray arrayWithObject:[NSNumber numberWithLongLong:primaryKey]] error:error];
+}
 
-   /* Clean up join rows referencing the deleted row: those where it is the
-      relationship's owner are found through its own relationships, those
-      where it is the destination of another entity's inverse-less to-many
-      must be swept from that relationship's side. */
+/* Rows of entity, by key, a few hundred to a statement rather than a few
+   statements each: their join rows, what their external values are kept
+   under (let go of when the request succeeds), and the rows. */
+-(BOOL)_deleteRowsWithEntity:(NSEntityDescription *)entity primaryKeys:(NSArray *)primaryKeys error:(NSError **)error {
+   NSDictionary   *properties=propertiesForEntityChain(entity);
+   NSArray        *externalAttributes=[self _externalAttributesOfEntity:entity];
+   NSMutableArray *joinSweeps=[NSMutableArray array];   /* table, column */
+   NSUInteger      start;
+
+   /* Join rows referencing the deleted rows: those where they are the
+      relationship's owner are found through their own relationships,
+      those where they are the destination of another entity's
+      inverse-less to-many must be swept from that relationship's side. */
    for(NSString *name in properties){
     NSPropertyDescription *property=[properties objectForKey:name];
 
-    if(![property isKindOfClass:[NSRelationshipDescription class]])
-     continue;
-
-    if(relationshipUsesJoinTable((NSRelationshipDescription *)property)){
+    if([property isKindOfClass:[NSRelationshipDescription class]] && relationshipUsesJoinTable((NSRelationshipDescription *)property)){
      NSDictionary *join=[self _joinSpecForRelationship:(NSRelationshipDescription *)property];
-     NSString     *sql=[NSString stringWithFormat:@"DELETE FROM %@ WHERE %@ = %lld",quoted([join objectForKey:@"table"]),quoted([join objectForKey:@"ownerColumn"]),primaryKey];
 
-     if(![self command:sql parameters:nil error:error])
-      return NO;
+     [joinSweeps addObject:[NSArray arrayWithObjects:[join objectForKey:@"table"],[join objectForKey:@"ownerColumn"],nil]];
     }
    }
-
    for(NSEntityDescription *check in [self _storeEntities]){
     for(NSRelationshipDescription *relationship in [[check relationshipsByName] allValues]){
      if(!relationshipUsesJoinTable(relationship) || [relationship inverseRelationship]!=nil)
@@ -4120,23 +4309,58 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
       continue;
 
      NSDictionary *join=[self _joinSpecForRelationship:relationship];
-     NSString     *sql=[NSString stringWithFormat:@"DELETE FROM %@ WHERE %@ = %lld",quoted([join objectForKey:@"table"]),quoted([join objectForKey:@"destinationColumn"]),primaryKey];
 
-     if(![self command:sql parameters:nil error:error])
-      return NO;
+     [joinSweeps addObject:[NSArray arrayWithObjects:[join objectForKey:@"table"],[join objectForKey:@"destinationColumn"],nil]];
     }
    }
 
-   /* What its external values are kept under goes when the request does. */
-   if(![self _releaseExternalDataOfAttributes:[self _externalAttributesOfEntity:entity] entity:entity
-                                        where:[NSString stringWithFormat:@"\"Z_PK\" = %lld",primaryKey] error:error])
-    return NO;
+   for(start=0;start<[primaryKeys count];start+=500){
+    NSArray  *chunk=[primaryKeys subarrayWithRange:NSMakeRange(start,MIN((NSUInteger)500,[primaryKeys count]-start))];
+    NSString *keys=[chunk componentsJoinedByString:@", "];
 
-   NSString *sql=[NSString stringWithFormat:@"DELETE FROM %@ WHERE \"Z_PK\" = %lld",quoted(tableNameForEntity(entity)),primaryKey];
+    for(NSArray *sweep in joinSweeps)
+     if(![self command:[NSString stringWithFormat:@"DELETE FROM %@ WHERE %@ IN (%@)",quoted([sweep objectAtIndex:0]),quoted([sweep objectAtIndex:1]),keys] parameters:nil error:error])
+      return NO;
 
-   [_rowVersions removeObjectForKey:[NSString stringWithFormat:@"%@/%lld",tableNameForEntity(entity),primaryKey]];
+    if(![self _releaseExternalDataOfAttributes:externalAttributes entity:entity where:[NSString stringWithFormat:@"\"Z_PK\" IN (%@)",keys] error:error])
+     return NO;
 
-   return [self command:sql parameters:nil error:error];
+    if(![self command:[NSString stringWithFormat:@"DELETE FROM %@ WHERE \"Z_PK\" IN (%@)",quoted(tableNameForEntity(entity)),keys] parameters:nil error:error])
+     return NO;
+
+    for(NSNumber *primaryKey in chunk)
+     [_rowVersions removeObjectForKey:[NSString stringWithFormat:@"%@/%lld",tableNameForEntity(entity),[primaryKey longLongValue]]];
+   }
+   return YES;
+}
+
+/* objects' rows, an entity's at once. */
+-(BOOL)_deleteRowsForObjects:(NSArray *)objects error:(NSError **)error {
+   NSMutableArray *objectIDs=[NSMutableArray arrayWithCapacity:[objects count]];
+
+   for(NSManagedObject *object in objects)
+    [objectIDs addObject:[object objectID]];
+   return [self _deleteRowsForObjectIDs:objectIDs error:error];
+}
+
+-(BOOL)_deleteRowsForObjectIDs:(NSArray *)objectIDs error:(NSError **)error {
+   NSMutableDictionary *byEntity=[NSMutableDictionary dictionary];
+   NSMutableArray      *entities=[NSMutableArray array];
+
+   for(NSManagedObjectID *objectID in objectIDs){
+    NSMutableArray *keys=[byEntity objectForKey:[[objectID entity] name]];
+
+    if(keys==nil){
+     keys=[NSMutableArray array];
+     [byEntity setObject:keys forKey:[[objectID entity] name]];
+     [entities addObject:[objectID entity]];
+    }
+    [keys addObject:[NSNumber numberWithLongLong:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID])]];
+   }
+   for(NSEntityDescription *entity in entities)
+    if(![self _deleteRowsWithEntity:entity primaryKeys:[byEntity objectForKey:[entity name]] error:error])
+     return NO;
+   return YES;
 }
 
 -(id)_executeSaveRequest:(NSSaveChangesRequest *)request withContext:(NSManagedObjectContext *)context error:(NSError **)error {
@@ -4151,8 +4375,14 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    /* Every stale update is collected rather than the first one reported, so
       that the caller (or a merge policy) sees the whole picture. */
    NSMutableArray *conflicts=[NSMutableArray array];
+   NSMutableArray *oneByOne=[NSMutableArray array];
 
-   for(NSManagedObject *object in [request updatedObjects]){
+   if(![self _updateRowsForObjects:[[request updatedObjects] allObjects] leaving:oneByOne error:error]){
+    [self command:@"ROLLBACK" parameters:nil error:NULL];
+    return nil;
+   }
+
+   for(NSManagedObject *object in oneByOne){
     NSMergeConflict *conflict=nil;
 
     if(![self _writeRowForObject:object isInsert:NO conflict:&conflict error:error]){
@@ -4211,11 +4441,9 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     return nil;
    }
 
-   for(NSManagedObject *object in [request deletedObjects]){
-    if(![self _deleteRowForObject:object error:error]){
-     [self command:@"ROLLBACK" parameters:nil error:NULL];
-     return nil;
-    }
+   if(![self _deleteRowsForObjects:[[request deletedObjects] allObjects] error:error]){
+    [self command:@"ROLLBACK" parameters:nil error:NULL];
+    return nil;
    }
 
    if(![self _writeMetadata:[self metadata] error:error]){
@@ -4577,13 +4805,9 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     return nil;
    }
 
-   for(NSManagedObjectID *objectID in targetIDs){
-    if(![self _deleteRowWithEntity:[objectID entity]
-                        primaryKey:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID])
-                             error:error]){
-     [self command:@"ROLLBACK" parameters:nil error:NULL];
-     return nil;
-    }
+   if(![self _deleteRowsForObjectIDs:targetIDs error:error]){
+    [self command:@"ROLLBACK" parameters:nil error:NULL];
+    return nil;
    }
 
    if(![self _writeMetadata:[self metadata] error:error] || ![self command:@"COMMIT" parameters:nil error:error]){

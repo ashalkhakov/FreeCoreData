@@ -207,6 +207,13 @@ typedef enum {
 
 /* Statements that differ */
 - (NSString *)upsertClauseForColumns:(NSArray *)columns keyColumns:(NSArray *)keyColumns;
+/* An UPDATE of rows rows of table in one statement, each to values of its
+   own and each only while its row is still the version expected - so that
+   how many rows it changed says whether any was not.  Its parameters, a
+   row after another: the row's key, the version expected, then its values
+   for columns, whose SQL types are types.  CDSQLStore's answers nil, for a
+   dialect that cannot, whose rows are updated one at a time. */
+- (NSString *)batchUpdateSQLForTable:(NSString *)table columns:(NSArray *)columns columnTypes:(NSArray *)types rows:(NSUInteger)rows;
 /* Reserves count keys of a root entity's key space in one statement,
    answering the last of them (the block ends there), or 0. */
 - (long long)allocatePrimaryKeys:(long long)count forRootEntityID:(long long)entityID error:(NSError **)error;
