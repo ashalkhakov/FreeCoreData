@@ -30,6 +30,33 @@ static BOOL CDPWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
     return YES;
 }
 
+/* What a parent's objects' observers hear: "name.key kind" lines, and the
+   names of the objects a to-many change carried. */
+@interface CDPChangeLog : NSObject
+@property (nonatomic, strong) NSMutableArray *lines;
+@end
+
+@implementation CDPChangeLog
+- (instancetype)init
+{
+    if ((self = [super init]) != nil)
+        _lines = [NSMutableArray array];
+    return self;
+}
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    if ([change[NSKeyValueChangeNotificationIsPriorKey] boolValue])
+        return;
+    id carried = change[NSKeyValueChangeNewKey];
+    if (carried == nil || carried == [NSNull null])
+        carried = change[NSKeyValueChangeOldKey];
+    NSString *what = @"";
+    if ([carried isKindOfClass:[NSSet class]])
+        what = [[[[carried valueForKey:@"name"] allObjects] sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@","];
+    [self.lines addObject:[NSString stringWithFormat:@"%@ %@ %@", keyPath, change[NSKeyValueChangeKindKey], what]];
+}
+@end
+
 @interface NSManagedObjectContextParentingTests : XCTestCase
 
 @property (nonatomic, strong) NSManagedObjectModel *model;
@@ -107,6 +134,143 @@ static BOOL CDPWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
 }
 
 /* ---------------------------------------------------------------- */
+
+/* Owners with items, in a store of their own. */
+static NSManagedObjectModel *CDPOwnerModel(void)
+{
+    NSEntityDescription *owner = [[NSEntityDescription alloc] init];
+    owner.name = @"Owner";
+    NSEntityDescription *item = [[NSEntityDescription alloc] init];
+    item.name = @"Item";
+    NSAttributeDescription *ownerName = [[NSAttributeDescription alloc] init];
+    ownerName.name = @"name";
+    ownerName.attributeType = NSStringAttributeType;
+    ownerName.optional = YES;
+    NSAttributeDescription *count = [[NSAttributeDescription alloc] init];
+    count.name = @"count";
+    count.attributeType = NSInteger32AttributeType;
+    count.optional = YES;
+    NSAttributeDescription *itemName = [[NSAttributeDescription alloc] init];
+    itemName.name = @"name";
+    itemName.attributeType = NSStringAttributeType;
+    itemName.optional = YES;
+    NSRelationshipDescription *items = [[NSRelationshipDescription alloc] init];
+    NSRelationshipDescription *back = [[NSRelationshipDescription alloc] init];
+    items.name = @"items";
+    items.destinationEntity = item;
+    items.maxCount = 0;
+    items.optional = YES;
+    back.name = @"owner";
+    back.destinationEntity = owner;
+    back.maxCount = 1;
+    back.optional = YES;
+    items.inverseRelationship = back;
+    back.inverseRelationship = items;
+    owner.properties = @[ ownerName, count, items ];
+    item.properties = @[ itemName, back ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ owner, item ];
+    return model;
+}
+
+/* A child's save tells the parent's objects' observers what it changed,
+   as Apple's does: an attribute set, a to-many's members added and taken
+   away (an item moved to another owner, one added, one deleted) - and
+   nothing of a value set to the one it had.  A binding to the parent
+   sees a sheet's child context saved. */
+- (void)testAChildsSaveTellsTheParentsObserversWhatChanged
+{
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:CDPOwnerModel()];
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:NULL]);
+    NSManagedObjectContext *parent = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    parent.persistentStoreCoordinator = coordinator;
+    NSManagedObject *a = [NSEntityDescription insertNewObjectForEntityForName:@"Owner" inManagedObjectContext:parent];
+    [a setValue:@"A" forKey:@"name"];
+    [a setValue:@1 forKey:@"count"];
+    NSManagedObject *b = [NSEntityDescription insertNewObjectForEntityForName:@"Owner" inManagedObjectContext:parent];
+    [b setValue:@"B" forKey:@"name"];
+    NSManagedObject *moved = [NSEntityDescription insertNewObjectForEntityForName:@"Item" inManagedObjectContext:parent];
+    [moved setValue:@"moved" forKey:@"name"];
+    [moved setValue:a forKey:@"owner"];
+    NSManagedObject *gone = [NSEntityDescription insertNewObjectForEntityForName:@"Item" inManagedObjectContext:parent];
+    [gone setValue:@"gone" forKey:@"name"];
+    [gone setValue:b forKey:@"owner"];
+    XCTAssertTrue([parent save:NULL]);
+
+    CDPChangeLog *aLog = [[CDPChangeLog alloc] init], *bLog = [[CDPChangeLog alloc] init], *movedLog = [[CDPChangeLog alloc] init];
+    NSKeyValueObservingOptions options = NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld;
+    for (NSString *key in @[ @"name", @"count", @"items" ]) {
+        [a addObserver:aLog forKeyPath:key options:options context:NULL];
+        [b addObserver:bLog forKeyPath:key options:options context:NULL];
+    }
+    [moved addObserver:movedLog forKeyPath:@"owner" options:options context:NULL];
+
+    NSManagedObjectContext *child = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    child.parentContext = parent;
+    NSManagedObject *childA = [child objectWithID:a.objectID];
+    [childA setValue:@"A2" forKey:@"name"];
+    [childA setValue:@1 forKey:@"count"];
+    [[child objectWithID:moved.objectID] setValue:[child objectWithID:b.objectID] forKey:@"owner"];
+    NSManagedObject *added = [NSEntityDescription insertNewObjectForEntityForName:@"Item" inManagedObjectContext:child];
+    [added setValue:@"added" forKey:@"name"];
+    [[childA mutableSetValueForKey:@"items"] addObject:added];
+    [child deleteObject:[child objectWithID:gone.objectID]];
+    NSError *error = nil;
+    XCTAssertTrue([child save:&error], @"%@", error);
+
+    NSString *setting = [NSString stringWithFormat:@"%lu", (unsigned long)NSKeyValueChangeSetting];
+    NSString *insertion = [NSString stringWithFormat:@"%lu", (unsigned long)NSKeyValueChangeInsertion];
+    NSString *removal = [NSString stringWithFormat:@"%lu", (unsigned long)NSKeyValueChangeRemoval];
+    NSString *nameSet = [NSString stringWithFormat:@"name %@ ", setting];
+    NSString *addedToA = [NSString stringWithFormat:@"items %@ added", insertion];
+    NSString *movedFromA = [NSString stringWithFormat:@"items %@ moved", removal];
+    NSString *movedToB = [NSString stringWithFormat:@"items %@ moved", insertion];
+    NSString *goneFromB = [NSString stringWithFormat:@"items %@ gone", removal];
+    XCTAssertTrue([aLog.lines containsObject:nameSet], @"%@", aLog.lines);
+    XCTAssertTrue([aLog.lines containsObject:addedToA], @"%@", aLog.lines);
+    XCTAssertTrue([aLog.lines containsObject:movedFromA], @"%@", aLog.lines);
+    XCTAssertFalse([[aLog.lines componentsJoinedByString:@"|"] containsString:@"count"], @"a value set to the one it had: %@", aLog.lines);
+    XCTAssertTrue([bLog.lines containsObject:movedToB], @"%@", bLog.lines);
+    XCTAssertTrue([bLog.lines containsObject:goneFromB], @"%@", bLog.lines);
+    XCTAssertGreaterThan([movedLog.lines count], (NSUInteger)0);
+
+    XCTAssertEqualObjects([a valueForKey:@"name"], @"A2");
+    XCTAssertEqualObjects([[[[a valueForKey:@"items"] valueForKey:@"name"] allObjects] sortedArrayUsingSelector:@selector(compare:)], @[ @"added" ]);
+    XCTAssertEqualObjects([[[[b valueForKey:@"items"] valueForKey:@"name"] allObjects] sortedArrayUsingSelector:@selector(compare:)], @[ @"moved" ]);
+    XCTAssertEqualObjects([[moved valueForKey:@"owner"] valueForKey:@"name"], @"B");
+
+    for (NSString *key in @[ @"name", @"count", @"items" ]) {
+        [a removeObserver:aLog forKeyPath:key];
+        [b removeObserver:bLog forKeyPath:key];
+    }
+    [moved removeObserver:movedLog forKeyPath:@"owner"];
+}
+
+/* A to-many changed only as the inverse of another object's change - an
+   item moved to another owner - is a change of its own: its saved value
+   stays what was saved, and a rollback brings the item back. */
+- (void)testAnInverseChangeLeavesTheSavedValueAsItWas
+{
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:CDPOwnerModel()];
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:NULL]);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    NSManagedObject *a = [NSEntityDescription insertNewObjectForEntityForName:@"Owner" inManagedObjectContext:context];
+    NSManagedObject *b = [NSEntityDescription insertNewObjectForEntityForName:@"Owner" inManagedObjectContext:context];
+    NSManagedObject *item = [NSEntityDescription insertNewObjectForEntityForName:@"Item" inManagedObjectContext:context];
+    [item setValue:a forKey:@"owner"];
+    XCTAssertTrue([context save:NULL]);
+
+    [item setValue:b forKey:@"owner"];
+    XCTAssertEqual([[a valueForKey:@"items"] count], (NSUInteger)0);
+    XCTAssertEqual([[[a committedValuesForKeys:@[ @"items" ]] objectForKey:@"items"] count], (NSUInteger)1, @"a's saved items are as saved");
+    XCTAssertEqual([[[b committedValuesForKeys:@[ @"items" ]] objectForKey:@"items"] count], (NSUInteger)0, @"b's saved items are as saved");
+
+    [context rollback];
+    XCTAssertEqualObjects([item valueForKey:@"owner"], a);
+    XCTAssertEqualObjects([a valueForKey:@"items"], [NSSet setWithObject:item]);
+    XCTAssertEqual([[b valueForKey:@"items"] count], (NSUInteger)0);
+}
 
 - (void)testCoordinatorWalksTheChain
 {

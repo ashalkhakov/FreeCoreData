@@ -724,6 +724,86 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
    where every reader expects IDs and broke the root save).
    No KVO, no undo capture, no inverse maintenance - the child already
    maintained inverses and pushes every affected object explicitly. */
+/* The key-value changes absorbing snapshot (a child's save) makes to this
+   object, as its observers are to be told of them, before the values
+   change: for each key whose value differs, a dictionary - its key, and
+   for a to-many an NSKeyValueSetMutationKind and the objects it adds or
+   removes; one that does both is a removal (with the members "between")
+   and then an addition.  A value the same as this object's is no
+   change, as on Apple. */
+-(NSArray *)_changeNoticesForSnapshot:(NSDictionary *)snapshot {
+   NSDictionary   *properties=[[self entity] propertiesByName];
+   NSMutableArray *notices=[NSMutableArray array];
+
+   for(NSString *name in snapshot){
+    NSPropertyDescription *property=[properties objectForKey:name];
+    id                     value=[snapshot objectForKey:name];
+
+    if(property==nil || [value isKindOfClass:[CDRelationshipFault class]])
+     continue;
+    if(value==[NSNull null])
+     value=nil;
+
+    if(![property isKindOfClass:[NSRelationshipDescription class]]){
+     id current=[self primitiveValueForKey:name];
+
+     if(current!=value && ![current isEqual:value])
+      [notices addObject:[NSDictionary dictionaryWithObject:name forKey:@"key"]];
+     continue;
+    }
+
+    NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
+    id                         current=[self primitiveValueForKey:name];
+
+    if(![relationship isToMany]){
+     if(!(current==nil && value==nil) && ![CDIDOf(current) isEqual:value])
+      [notices addObject:[NSDictionary dictionaryWithObject:name forKey:@"key"]];
+     continue;
+    }
+
+    NSMutableArray *currentIDs=[NSMutableArray array];
+
+    for(id member in current)
+     [currentIDs addObject:CDIDOf(member)];
+
+    if([relationship isOrdered]){
+     if(![currentIDs isEqualToArray:([value isKindOfClass:[NSOrderedSet class]]?[value array]:[value allObjects])])
+      [notices addObject:[NSDictionary dictionaryWithObject:name forKey:@"key"]];
+     continue;
+    }
+
+    NSMutableSet *added=[NSMutableSet setWithArray:[value allObjects]];
+    NSMutableSet *removed=[NSMutableSet setWithArray:currentIDs];
+
+    [added minusSet:[NSSet setWithArray:currentIDs]];
+    [removed minusSet:[NSSet setWithArray:[value allObjects]]];
+    if([added count]==0 && [removed count]==0)
+     continue;
+
+    /* Members taken away, then members added, as Apple tells of them: a
+       to-many that does both passes through its members without the
+       removed ones ("between"), which the context sets first. */
+    if([removed count]>0){
+     NSMutableSet *objects=[NSMutableSet set];
+     NSMutableSet *between=[NSMutableSet setWithArray:currentIDs];
+
+     for(NSManagedObjectID *memberID in removed)
+      [objects addObject:[_context objectWithID:memberID]];
+     [between minusSet:removed];
+     [notices addObject:[NSDictionary dictionaryWithObjectsAndKeys:name,@"key",[NSNumber numberWithUnsignedInteger:NSKeyValueMinusSetMutation],@"mutation",objects,@"objects",
+                                                                 ([added count]>0)?(id)between:(id)[NSNull null],@"between",nil]];
+    }
+    if([added count]>0){
+     NSMutableSet *objects=[NSMutableSet set];
+
+     for(NSManagedObjectID *memberID in added)
+      [objects addObject:[_context objectWithID:memberID]];
+     [notices addObject:[NSDictionary dictionaryWithObjectsAndKeys:name,@"key",[NSNumber numberWithUnsignedInteger:NSKeyValueUnionSetMutation],@"mutation",objects,@"objects",nil]];
+    }
+   }
+   return notices;
+}
+
 -(void)_absorbChangedValuesFromSnapshot:(NSDictionary *)snapshot {
    NSDictionary *properties=[[self entity] propertiesByName];
 
@@ -1056,7 +1136,7 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
        [previous willChangeValueForKey:inverseName];
 
        if([inverse isToMany])
-        [[previous primitiveValueForKey:inverseName] removeObject:[self objectID]];
+        [[previous _pendingToManyForKey:inverseName ordered:[inverse isOrdered]] removeObject:[self objectID]];
        else
         [previous setPrimitiveValue:nil forKey:inverseName];
       
@@ -1083,12 +1163,7 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
       [relValue willChangeValueForKey:inverseName];
      
       if([inverse isToMany]){
-       id collection=[relValue primitiveValueForKey:inverseName];
-
-       if(collection==nil){
-        collection=[inverse isOrdered]?(id)[NSMutableArray array]:(id)[NSMutableSet set];
-        [relValue setPrimitiveValue:collection forKey:inverseName];
-       }
+       id collection=[relValue _pendingToManyForKey:inverseName ordered:[inverse isOrdered]];
 
        if(![collection containsObject:[self objectID]])
         [collection addObject:[self objectID]];
@@ -1105,7 +1180,7 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
 
         [owner willChangeValueForKey:propertyName];
         if([relationship isToMany])
-         [[owner primitiveValueForKey:propertyName] removeObject:valueID];
+         [[owner _pendingToManyForKey:propertyName ordered:[relationship isOrdered]] removeObject:valueID];
         else
          [owner setPrimitiveValue:nil forKey:propertyName];
         [owner didChangeValueForKey:propertyName];
@@ -1211,6 +1286,27 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
 
    [committed setObject:relatedIDs forKey:key];
    return relatedIDs;
+}
+
+/* A to-many's members, to be changed in place by inverse maintenance:
+   its pending value - a copy of the saved one made pending first, so that
+   the saved value stays what was saved (for -committedValuesForKeys:, a
+   rollback) and the change is one this object has, which a child context
+   hands its parent with the others. */
+-(id)_pendingToManyForKey:(NSString *)key ordered:(BOOL)ordered {
+   id pending=[_changedValues objectForKey:key];
+
+   if(pending!=nil && pending!=[NSNull null])
+    return pending;
+
+   id      current=[self primitiveValueForKey:key];
+   NSArray *members=[current isKindOfClass:[NSArray class]]?current:
+                    [current isKindOfClass:[NSOrderedSet class]]?[current array]:
+                    (current!=nil)?[current allObjects]:[NSArray array];
+
+   pending=ordered?(id)[NSMutableArray arrayWithArray:members]:(id)[NSMutableSet setWithArray:members];
+   [[self _changes] setObject:pending forKey:key];
+   return pending;
 }
 
 -primitiveValueForKey:(NSString *) key {

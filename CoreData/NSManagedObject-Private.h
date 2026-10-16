@@ -44,6 +44,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 /* After a save: the committed values made those of row, the one the
    store has just written (read with the others the context saved), or
    read from the store when row is nil; transient values carried across. */
+/* What absorbing snapshot changes in this object's values, as its
+   key-value observers are to be told: a dictionary for each key that
+   differs (see -_changeNoticesForSnapshot: in NSManagedObject.m). */
+- (NSArray *)_changeNoticesForSnapshot:(NSDictionary *)snapshot;
 - (void)_resetCommittedValuesAfterSaveFromRow:(NSIncrementalStoreNode *)row generation:(unsigned long long)generation;
 - (NSDictionary *)_cachedCommittedValues;
 - (void)_invalidateCommittedValues;

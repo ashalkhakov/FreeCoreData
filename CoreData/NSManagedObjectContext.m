@@ -2820,9 +2820,12 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
 
 /* Parent-side absorption of one child save, run on the parent's
    queue.  Values arrive as canonical snapshots and are injected
-   directly into the counterparts' storage - no KVO, no undo capture,
-   no inverse re-maintenance: the child already maintained inverses,
-   and every affected object's final state crosses over explicitly. */
+   directly into the counterparts' storage - no undo capture, no inverse
+   re-maintenance: the child already maintained inverses, and every
+   affected object's final state crosses over explicitly.  The
+   counterparts' key-value observers are told of what changes, as
+   Apple's are - a to-many's members added or removed - so that a
+   binding to the parent sees a child's save. */
 -(void)_absorbChildInsertWithID:(NSManagedObjectID *)objectID snapshot:(NSDictionary *)snapshot {
    NSManagedObject *local=[self objectWithID:objectID];
 
@@ -2835,8 +2838,47 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
 
 -(void)_absorbChildUpdateWithID:(NSManagedObjectID *)objectID snapshot:(NSDictionary *)snapshot {
    NSManagedObject *local=[self objectWithID:objectID];
+   NSMutableArray  *notices=[NSMutableArray arrayWithArray:[local _changeNoticesForSnapshot:snapshot]];
+   NSInteger        i;
+
+   [self _disableUndoRegistration];
+
+   /* A to-many that loses members and gains others loses them first. */
+   for(NSDictionary *notice in [[notices copy] autorelease]){
+    id between=[notice objectForKey:@"between"];
+
+    if(between==nil || between==[NSNull null])
+     continue;
+
+    NSString *key=[notice objectForKey:@"key"];
+
+    [local willChangeValueForKey:key withSetMutation:NSKeyValueMinusSetMutation usingObjects:[notice objectForKey:@"objects"]];
+    [local _absorbChangedValuesFromSnapshot:[NSDictionary dictionaryWithObject:between forKey:key]];
+    [local didChangeValueForKey:key withSetMutation:NSKeyValueMinusSetMutation usingObjects:[notice objectForKey:@"objects"]];
+    [notices removeObjectIdenticalTo:notice];
+   }
+
+   for(NSDictionary *notice in notices){
+    NSString *key=[notice objectForKey:@"key"];
+
+    if([notice objectForKey:@"mutation"]!=nil)
+     [local willChangeValueForKey:key withSetMutation:[[notice objectForKey:@"mutation"] unsignedIntegerValue] usingObjects:[notice objectForKey:@"objects"]];
+    else
+     [local willChangeValueForKey:key];
+   }
 
    [local _absorbChangedValuesFromSnapshot:snapshot];
+
+   for(i=(NSInteger)[notices count]-1;i>=0;i--){
+    NSDictionary *notice=[notices objectAtIndex:(NSUInteger)i];
+    NSString     *key=[notice objectForKey:@"key"];
+
+    if([notice objectForKey:@"mutation"]!=nil)
+     [local didChangeValueForKey:key withSetMutation:[[notice objectForKey:@"mutation"] unsignedIntegerValue] usingObjects:[notice objectForKey:@"objects"]];
+    else
+     [local didChangeValueForKey:key];
+   }
+   [self _enableUndoRegistration];
    if(![_insertedObjects containsObject:local]){
     [_updatedObjects addObject:local];
     if(![_pendingInsertedObjects containsObject:local])
