@@ -576,14 +576,25 @@ static NSString *CDSQLRewriteAlternation(CDSQLPatternReader *reader){
    The store tracks its own transaction rather than asking the driver after
    the fact: a dropped connection cannot say what was open when it died. */
 -(id<CDSQLResult>)execute:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error {
+   return [self _execute:sql parameters:parameters prepared:NO error:error];
+}
+
+/* The same, through a statement the driver may prepare once and keep. */
+-(id<CDSQLResult>)executePrepared:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error {
+   return [self _execute:sql parameters:parameters prepared:YES error:error];
+}
+
+-(id<CDSQLResult>)_execute:(NSString *)sql parameters:(NSArray *)parameters prepared:(BOOL)prepared error:(NSError **)error {
    BOOL             opens=[sql isEqualToString:@"BEGIN"];
    BOOL             closes=([sql isEqualToString:@"COMMIT"] || [sql isEqualToString:@"ROLLBACK"]);
    BOOL             retryable=(!_inTransaction && !closes);
    NSError         *attemptError=nil;
-   id<CDSQLResult>  result=[self runSQL:sql parameters:parameters error:&attemptError];
+   id<CDSQLResult>  result=prepared?[self runPreparedSQL:sql parameters:parameters error:&attemptError]
+                                   :[self runSQL:sql parameters:parameters error:&attemptError];
 
    if(result==nil && retryable && [self connectionIsLost] && [self reopenConnectionWithError:NULL])
-    result=[self runSQL:sql parameters:parameters error:&attemptError];
+    result=prepared?[self runPreparedSQL:sql parameters:parameters error:&attemptError]
+                   :[self runSQL:sql parameters:parameters error:&attemptError];
 
    /* A transaction ends whether or not its COMMIT or ROLLBACK got through:
       if the connection died, the server has already rolled it back. */
@@ -610,6 +621,21 @@ static NSString *CDSQLRewriteAlternation(CDSQLPatternReader *reader){
     *affected=[self rowsAffected];
 
    return YES;
+}
+
+-(BOOL)preparedCommand:(NSString *)sql parameters:(NSArray *)parameters affected:(long long *)affected error:(NSError **)error {
+   if([self executePrepared:sql parameters:parameters error:error]==nil)
+    return NO;
+
+   if(affected!=NULL)
+    *affected=[self rowsAffected];
+
+   return YES;
+}
+
+/* A driver that cannot prepare statements runs them as any other. */
+-(id<CDSQLResult>)runPreparedSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error {
+   return [self runSQL:sql parameters:parameters error:error];
 }
 
 -(BOOL)tableExists:(NSString *)name {
@@ -1174,6 +1200,7 @@ static NSString *externalReferenceName(NSData *stored){
    [_entityIDs release];
    [_entityNamesByID release];
    [_rowVersions release];
+   [_rowSQL release];
    [_externalDataStore release];
    [_externalDataWritten release];
    [_externalDataReleased release];
@@ -3871,34 +3898,12 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     [parameters addObject:(text!=nil)?(id)text:(id)[NSNull null]];
    }
 
-   NSString *sql;
+   /* The SQL is the same for every row of the entity - the key, the
+      entity and the version are parameters after the values - so it is
+      made once, and the driver can prepare it once on the server. */
+   NSUInteger count=[names count];
 
-   if(isInsert){
-    NSMutableArray *columns=[NSMutableArray arrayWithObjects:@"\"Z_PK\"",@"\"Z_ENT\"",@"\"Z_OPT\"",nil];
-    NSMutableArray *placeholders=[NSMutableArray array];
-    NSUInteger      i,count=[names count];
-
-    for(NSString *name in names)
-     [columns addObject:quoted(name)];
-
-    /* The three fixed columns are literals, so the placeholders line up
-       with the parameter array built above. */
-    [placeholders addObject:[NSString stringWithFormat:@"%lld",primaryKey]];
-    [placeholders addObject:[NSString stringWithFormat:@"%lld",[self _entityIDForEntity:entity]]];
-    [placeholders addObject:@"1"];
-
-    for(i=0;i<count;i++)
-     [placeholders addObject:[NSString stringWithFormat:@"$%lu",(unsigned long)(i+1)]];
-
-    sql=[NSString stringWithFormat:@"INSERT INTO %@ (%@) VALUES (%@)",quoted(tableNameForEntity(entity)),[columns componentsJoinedByString:@", "],[placeholders componentsJoinedByString:@", "]];
-   }
-   else {
-    NSMutableArray *assignments=[NSMutableArray arrayWithObject:@"\"Z_OPT\" = \"Z_OPT\" + 1"];
-    NSUInteger      i,count=[names count];
-
-    for(i=0;i<count;i++)
-     [assignments addObject:[NSString stringWithFormat:@"%@ = $%lu",quoted([names objectAtIndex:i]),(unsigned long)(i+1)]];
-
+   if(!isInsert)
     /* Optimistic locking: when this store has read the row, the update is
        conditional on Z_OPT still being the version it read, so that a row
        changed by another client in the meantime is a reported conflict
@@ -3906,15 +3911,53 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
        carries no expectation and is written unconditionally. */
     expectedVersion=[_rowVersions objectForKey:[self _versionKeyForObjectID:[object objectID]]];
 
-    if(expectedVersion!=nil)
-     sql=[NSString stringWithFormat:@"UPDATE %@ SET %@ WHERE \"Z_PK\" = %lld AND \"Z_OPT\" = %llu",quoted(tableNameForEntity(entity)),[assignments componentsJoinedByString:@", "],primaryKey,[expectedVersion unsignedLongLongValue]];
-    else
-     sql=[NSString stringWithFormat:@"UPDATE %@ SET %@ WHERE \"Z_PK\" = %lld",quoted(tableNameForEntity(entity)),[assignments componentsJoinedByString:@", "],primaryKey];
+   NSString *variant=isInsert?@"insert":(expectedVersion!=nil)?@"update at version":@"update";
+   NSString *sqlKey=[NSString stringWithFormat:@"%@ %@",variant,[entity name]];
+   NSString *sql=[_rowSQL objectForKey:sqlKey];
+
+   if(sql==nil){
+    NSMutableArray *placeholders=[NSMutableArray arrayWithCapacity:count];
+    NSUInteger      i;
+
+    for(i=0;i<count;i++)
+     [placeholders addObject:[NSString stringWithFormat:@"$%lu",(unsigned long)(i+1)]];
+
+    if(isInsert){
+     NSMutableArray *columns=[NSMutableArray arrayWithCapacity:count+3];
+
+     for(NSString *name in names)
+      [columns addObject:quoted(name)];
+     [columns addObjectsFromArray:[NSArray arrayWithObjects:@"\"Z_PK\"",@"\"Z_ENT\"",@"\"Z_OPT\"",nil]];
+     [placeholders addObject:[NSString stringWithFormat:@"$%lu",(unsigned long)(count+1)]];
+     [placeholders addObject:[NSString stringWithFormat:@"$%lu",(unsigned long)(count+2)]];
+     [placeholders addObject:[NSString stringWithFormat:@"$%lu",(unsigned long)(count+3)]];
+     sql=[NSString stringWithFormat:@"INSERT INTO %@ (%@) VALUES (%@)",quoted(tableNameForEntity(entity)),[columns componentsJoinedByString:@", "],[placeholders componentsJoinedByString:@", "]];
+    }
+    else {
+     NSMutableArray *assignments=[NSMutableArray arrayWithObject:@"\"Z_OPT\" = \"Z_OPT\" + 1"];
+
+     for(i=0;i<count;i++)
+      [assignments addObject:[NSString stringWithFormat:@"%@ = %@",quoted([names objectAtIndex:i]),[placeholders objectAtIndex:i]]];
+     sql=[NSString stringWithFormat:@"UPDATE %@ SET %@ WHERE \"Z_PK\" = $%lu",quoted(tableNameForEntity(entity)),[assignments componentsJoinedByString:@", "],(unsigned long)(count+1)];
+     if(expectedVersion!=nil)
+      sql=[sql stringByAppendingFormat:@" AND \"Z_OPT\" = $%lu",(unsigned long)(count+2)];
+    }
+    if(_rowSQL==nil)
+     _rowSQL=[[NSMutableDictionary alloc] init];
+    [_rowSQL setObject:sql forKey:sqlKey];
    }
+
+   [parameters addObject:[NSString stringWithFormat:@"%lld",primaryKey]];
+   if(isInsert){
+    [parameters addObject:[NSString stringWithFormat:@"%lld",[self _entityIDForEntity:entity]]];
+    [parameters addObject:@"1"];
+   }
+   else if(expectedVersion!=nil)
+    [parameters addObject:[NSString stringWithFormat:@"%llu",[expectedVersion unsignedLongLongValue]]];
 
    long long affected=0;
 
-   if(![self command:sql parameters:parameters affected:&affected error:error])
+   if(![self preparedCommand:sql parameters:parameters affected:&affected error:error])
     return NO;
 
    if(!isInsert && expectedVersion!=nil && affected==0){

@@ -1659,7 +1659,9 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
 
     /* Cut the connection while the save is in flight.  The save either
        completes (it beat the axe) or fails - but it must not leave half of
-       the objects behind. */
+       the objects behind.  A save cut off after its COMMIT reached the
+       server, before the answer came back, reports a failure for a save
+       that happened: the client cannot know, and the whole save is there. */
     [NSThread detachNewThreadWithBlock:^{
         @autoreleasepool {
             [NSThread sleepForTimeInterval:0.002];
@@ -1676,7 +1678,7 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
     if (saved)
         XCTAssertEqual(count, (NSUInteger)20, @"a save that reported success must be all there");
     else
-        XCTAssertEqual(count, (NSUInteger)0, @"a save that failed must not have left a fragment behind");
+        XCTAssertTrue(count == 0 || count == 20, @"a save that failed must not have left a fragment behind (%lu of 20)", (unsigned long)count);
 }
 
 /* -- predicates across relationships ----------------------------------- */

@@ -98,6 +98,12 @@ NSString * const CDPostgreSQLMigrateSchemaOption=@"CDSQLStoreMigrateSchema";
 
 @implementation CDPostgreSQLStore
 
+-(void)dealloc {
+   [_prepared release];
+   _prepared=nil;   /* CDSQLStore's dealloc closes the connection, which empties it */
+   [super dealloc];
+}
+
 /* Linking the library is enough to make the store type available. */
 +(void)load {
    [NSPersistentStoreCoordinator registerStoreClass:self forStoreType:CDPostgreSQLStoreType];
@@ -171,6 +177,7 @@ static NSString *postgresParameterText(id parameter){
    if(_connection!=NULL)
     PQfinish(CONNECTION);
    _connection=connection;
+   [_prepared removeAllObjects];   /* they were the old connection's */
 
    if(schema!=nil && ![self _createAndSelectSchema:schema error:error]){
     PQfinish(CONNECTION);
@@ -205,9 +212,11 @@ static NSString *postgresParameterText(id parameter){
     PQfinish(CONNECTION);
     _connection=NULL;
    }
+   [_prepared removeAllObjects];
 }
 
--(id<CDSQLResult>)runSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error {
+/* The text of each parameter, or NULL for none: what libpq takes. */
+static const char **postgresParameterValues(NSArray *parameters){
    int          count=(int)[parameters count];
    const char **values=(count>0)?calloc((size_t)count,sizeof(char *)):NULL;
    int          i;
@@ -217,12 +226,11 @@ static NSString *postgresParameterText(id parameter){
 
     values[i]=(parameter==[NSNull null])?NULL:[postgresParameterText(parameter) UTF8String];
    }
+   return values;
+}
 
-   PGresult *result=PQexecParams(CONNECTION,[sql UTF8String],count,NULL,values,NULL,NULL,0);
-
-   if(values!=NULL)
-    free(values);
-
+/* What a statement answered, or nil and the error. */
+-(id<CDSQLResult>)_resultOf:(PGresult *)result sql:(NSString *)sql error:(NSError **)error {
    ExecStatusType status=(result!=NULL)?PQresultStatus(result):PGRES_FATAL_ERROR;
 
    if(status!=PGRES_COMMAND_OK && status!=PGRES_TUPLES_OK){
@@ -242,6 +250,40 @@ static NSString *postgresParameterText(id parameter){
    return [[[CDPostgreSQLResult alloc] initWithResult:result] autorelease];
 }
 
+-(id<CDSQLResult>)runSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error {
+   const char **values=postgresParameterValues(parameters);
+   PGresult    *result=PQexecParams(CONNECTION,[sql UTF8String],(int)[parameters count],NULL,values,NULL,NULL,0);
+
+   if(values!=NULL)
+    free(values);
+   return [self _resultOf:result sql:sql error:error];
+}
+
+/* Prepared on this connection the first time it is run (PQprepare), and
+   after that executed by name: the server parses and plans it once. */
+-(id<CDSQLResult>)runPreparedSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error {
+   NSString *name=[_prepared objectForKey:sql];
+
+   if(name==nil){
+    if(_prepared==nil)
+     _prepared=[[NSMutableDictionary alloc] init];
+    name=[NSString stringWithFormat:@"cd_%lu",(unsigned long)[_prepared count]+1];
+
+    PGresult *prepared=PQprepare(CONNECTION,[name UTF8String],[sql UTF8String],(int)[parameters count],NULL);
+
+    if([self _resultOf:prepared sql:sql error:error]==nil)
+     return nil;
+    [_prepared setObject:name forKey:sql];
+   }
+
+   const char **values=postgresParameterValues(parameters);
+   PGresult    *result=PQexecPrepared(CONNECTION,[name UTF8String],(int)[parameters count],values,NULL,NULL,0);
+
+   if(values!=NULL)
+    free(values);
+   return [self _resultOf:result sql:sql error:error];
+}
+
 -(long long)rowsAffected {
    return _rowsAffected;
 }
@@ -258,6 +300,7 @@ static NSString *postgresParameterText(id parameter){
     return NO;
 
    PQreset(CONNECTION);
+   [_prepared removeAllObjects];   /* a new session has none of them */
 
    if(PQstatus(CONNECTION)!=CONNECTION_OK)
     return NO;

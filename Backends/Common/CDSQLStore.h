@@ -48,6 +48,7 @@ extern NSString * const CDSQLStoreMigrateSchemaOption;
     NSMutableDictionary *_entityNamesByID;  /* NSNumber (Z_ENT) -> entity name */
     NSMutableDictionary *_rowVersions;      /* "table/pk" -> NSNumber (Z_OPT) */
     unsigned long long _writeGeneration;    /* writes made, against rows read ahead */
+    NSMutableDictionary *_rowSQL;           /* the SQL a row of an entity is written with */
     /* External binary data, when the options name a CDExternalDataStore:
        where it is kept, the names the request being executed has
        written (taken away again if it fails) and those it let go of
@@ -96,6 +97,10 @@ typedef enum {
 - (id<CDSQLResult>)execute:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
 - (BOOL)command:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
 - (BOOL)command:(NSString *)sql parameters:(NSArray *)parameters affected:(long long *)affected error:(NSError **)error;
+/* The same for a statement run again and again with other parameters, which
+   the driver may prepare once on the server (-runPreparedSQL:...). */
+- (id<CDSQLResult>)executePrepared:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
+- (BOOL)preparedCommand:(NSString *)sql parameters:(NSArray *)parameters affected:(long long *)affected error:(NSError **)error;
 - (BOOL)tableExists:(NSString *)name;
 
 /* An identifier, quoted the way both dialects accept (MySQL is asked for
@@ -133,6 +138,13 @@ typedef enum {
 /* Run one statement.  Reconnecting and retrying is the caller's business;
    this just tries. */
 - (id<CDSQLResult>)runSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
+
+/* Run one statement the store runs again and again with other parameters
+   - a row written - and so worth preparing once on the server and keeping,
+   for this connection, until it is closed or reopened.  The SQL text is
+   the same each time; the parameters differ.  CDSQLStore's own runs it
+   as -runSQL:parameters:error: does, for a driver that cannot. */
+- (id<CDSQLResult>)runPreparedSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
 
 /* How many rows the last statement changed. */
 - (long long)rowsAffected;

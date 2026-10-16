@@ -414,7 +414,73 @@ static MYSQL *myConnect(CDMySQLStore *store,NSURL *url,NSDictionary *options,NSE
 }
 
 
+/* A statement prepared on a connection (mysql_stmt_prepare), and which of
+   the store's $-numbered parameters each of its ? stands for. */
+@interface CDMySQLPreparedStatement : NSObject {
+@public
+   MYSQL_STMT *statement;
+   NSArray    *order;   /* NSNumber, 1-based */
+}
+@end
+
+@implementation CDMySQLPreparedStatement
+-(void)dealloc {
+   if(statement!=NULL)
+    mysql_stmt_close(statement);
+   [order release];
+   [super dealloc];
+}
+@end
+
+/* The store's $1, $2 ... as MySQL's ?, and which parameter each stands
+   for, in the order they appear. */
+static NSString *mysqlQuestionMarks(NSString *sql,NSMutableArray *order){
+   NSMutableString *result=[NSMutableString stringWithCapacity:[sql length]];
+   NSUInteger       i,length=[sql length];
+
+   for(i=0;i<length;i++){
+    unichar c=[sql characterAtIndex:i];
+
+    if(c!='$'){
+     [result appendFormat:@"%C",c];
+     continue;
+    }
+
+    NSUInteger index=0,digits=0;
+
+    while(i+1<length){
+     unichar digit=[sql characterAtIndex:i+1];
+
+     if(digit<'0' || digit>'9')
+      break;
+     index=index*10+(digit-'0');
+     digits++;
+     i++;
+    }
+    if(digits==0){
+     [result appendString:@"$"];
+     continue;
+    }
+    [result appendString:@"?"];
+    [order addObject:[NSNumber numberWithUnsignedInteger:index]];
+   }
+   return result;
+}
+
+static NSError *mysqlStatementError(MYSQL_STMT *statement,NSInteger code,NSString *message){
+   const char *reason=(statement!=NULL)?mysql_stmt_error(statement):NULL;
+   NSString   *detail=(reason!=NULL && *reason!='\0')?[NSString stringWithUTF8String:reason]:@"unknown MySQL error";
+
+   return [NSError errorWithDomain:NSCocoaErrorDomain code:code userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"%@: %@",message,detail] forKey:NSLocalizedDescriptionKey]];
+}
+
 @implementation CDMySQLStore
+
+-(void)dealloc {
+   [_prepared release];   /* closed before CDSQLStore's dealloc closes the connection */
+   _prepared=nil;
+   [super dealloc];
+}
 
 /* Linking the library is enough to make the store type available. */
 +(void)load {
@@ -448,6 +514,8 @@ static MYSQL *myConnect(CDMySQLStore *store,NSURL *url,NSDictionary *options,NSE
    if(connection==NULL)
     return NO;
 
+   /* A connection's statements go before it does. */
+   [_prepared removeAllObjects];
    if(_connection!=NULL)
     mysql_close(CONNECTION);
    _connection=connection;
@@ -456,6 +524,7 @@ static MYSQL *myConnect(CDMySQLStore *store,NSURL *url,NSDictionary *options,NSE
 }
 
 -(void)closeConnection {
+   [_prepared removeAllObjects];
    if(_connection!=NULL){
     mysql_close(CONNECTION);
     _connection=NULL;
@@ -463,11 +532,87 @@ static MYSQL *myConnect(CDMySQLStore *store,NSURL *url,NSDictionary *options,NSE
 }
 
 -(id<CDSQLResult>)runSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error {
+   _lastWasPrepared=NO;
    return myRunSQL(CONNECTION,sql,parameters,error);
 }
 
+/* Prepared on this connection the first time it is run, and after that
+   executed with the parameters bound - a string as its UTF-8 bytes, data
+   as its bytes, neither escaped nor spelled out in hex: the server parses
+   it once.  Only a statement with no result set is kept; one with a result
+   is run as any other. */
+-(id<CDSQLResult>)runPreparedSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error {
+   CDMySQLPreparedStatement *prepared=[_prepared objectForKey:sql];
+
+   if(prepared==nil){
+    NSMutableArray *order=[NSMutableArray array];
+    NSString       *questions=mysqlQuestionMarks(sql,order);
+    const char     *utf8=[questions UTF8String];
+    MYSQL_STMT     *statement=mysql_stmt_init(CONNECTION);
+
+    if(statement==NULL || mysql_stmt_prepare(statement,utf8,(unsigned long)strlen(utf8))!=0){
+     if(error!=NULL)
+      *error=(statement!=NULL)?mysqlStatementError(statement,NSPersistentStoreOperationError,[NSString stringWithFormat:@"'%@' failed",sql])
+                              :mysqlError(CONNECTION,NSPersistentStoreOperationError,[NSString stringWithFormat:@"'%@' failed",sql]);
+     if(statement!=NULL)
+      mysql_stmt_close(statement);
+     _lastWasPrepared=NO;
+     return nil;
+    }
+    if(mysql_stmt_field_count(statement)!=0){
+     mysql_stmt_close(statement);
+     return [self runSQL:sql parameters:parameters error:error];
+    }
+
+    prepared=[[[CDMySQLPreparedStatement alloc] init] autorelease];
+    prepared->statement=statement;
+    prepared->order=[order copy];
+    if(_prepared==nil)
+     _prepared=[[NSMutableDictionary alloc] init];
+    [_prepared setObject:prepared forKey:sql];
+   }
+
+   NSUInteger  i,count=[prepared->order count];
+   MYSQL_BIND *binds=(count>0)?calloc(count,sizeof(MYSQL_BIND)):NULL;
+
+   for(i=0;i<count;i++){
+    NSUInteger index=[[prepared->order objectAtIndex:i] unsignedIntegerValue];
+    id         parameter=(index>=1 && index<=[parameters count])?[parameters objectAtIndex:index-1]:nil;
+
+    if(parameter==nil || parameter==[NSNull null])
+     binds[i].buffer_type=MYSQL_TYPE_NULL;
+    else if([parameter isKindOfClass:[NSData class]]){
+     binds[i].buffer_type=MYSQL_TYPE_BLOB;
+     binds[i].buffer=(void *)[parameter bytes];
+     binds[i].buffer_length=(unsigned long)[parameter length];
+    }
+    else {
+     const char *utf8=[[parameter description] UTF8String];
+
+     binds[i].buffer_type=MYSQL_TYPE_STRING;
+     binds[i].buffer=(void *)utf8;
+     binds[i].buffer_length=(unsigned long)strlen(utf8);
+    }
+   }
+
+   BOOL ran=(mysql_stmt_bind_param(prepared->statement,binds)==0 && mysql_stmt_execute(prepared->statement)==0);
+
+   if(binds!=NULL)
+    free(binds);
+   _lastWasPrepared=YES;
+   if(!ran){
+    if(error!=NULL)
+     *error=mysqlStatementError(prepared->statement,NSPersistentStoreOperationError,[NSString stringWithFormat:@"'%@' failed",sql]);
+    /* A statement that failed may be one the connection no longer has. */
+    [_prepared removeObjectForKey:sql];
+    return nil;
+   }
+   _preparedRowsAffected=(long long)mysql_stmt_affected_rows(prepared->statement);
+   return [[[CDMySQLResult alloc] initWithRows:[NSArray array]] autorelease];
+}
+
 -(long long)rowsAffected {
-   return (long long)mysql_affected_rows(CONNECTION);
+   return _lastWasPrepared?_preparedRowsAffected:(long long)mysql_affected_rows(CONNECTION);
 }
 
 -(BOOL)connectionIsLost {
