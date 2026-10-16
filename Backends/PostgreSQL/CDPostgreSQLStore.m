@@ -384,8 +384,8 @@ static NSString *postgresParameterText(id parameter){
 
 /* RETURNING makes this one statement, so two connections cannot hand out
    the same key. */
--(long long)allocatePrimaryKeyForRootEntityID:(long long)entityID error:(NSError **)error {
-   NSString        *sql=[NSString stringWithFormat:@"UPDATE \"Z_PRIMARYKEY\" SET \"Z_MAX\" = \"Z_MAX\" + 1 WHERE \"Z_ENT\" = %lld RETURNING \"Z_MAX\"",entityID];
+-(long long)allocatePrimaryKeys:(long long)count forRootEntityID:(long long)entityID error:(NSError **)error {
+   NSString        *sql=[NSString stringWithFormat:@"UPDATE \"Z_PRIMARYKEY\" SET \"Z_MAX\" = \"Z_MAX\" + %lld WHERE \"Z_ENT\" = %lld RETURNING \"Z_MAX\"",count,entityID];
    id<CDSQLResult>  result=[self execute:sql parameters:nil error:error];
 
    if(result==nil || [result rowCount]==0)

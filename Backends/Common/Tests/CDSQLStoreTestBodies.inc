@@ -604,6 +604,107 @@ static NSDictionary *CDSQLMigratedPictures(void)
     [self assertPicturesReadBackIn:outOf];
 }
 
+/* -- permanent IDs ------------------------------------------------------ */
+
+static long long CDSQLPrimaryKeyOf(NSManagedObject *object)
+{
+    return [[[[[object objectID] URIRepresentation] lastPathComponent] substringFromIndex:1] longLongValue];
+}
+
+- (long long)maxKeyOf:(NSString *)entityName inContext:(NSManagedObjectContext *)context
+{
+    id<CDSQLStoreCatalogue> store = (id)[[[context persistentStoreCoordinator] persistentStores] firstObject];
+    id<CDSQLCatalogueRows> rows = [store execute:@"SELECT \"Z_MAX\" FROM \"Z_PRIMARYKEY\" WHERE \"Z_NAME\" = $1"
+                                      parameters:@[ entityName ] error:NULL];
+    return ([rows rowCount] > 0) ? [[rows stringAtRow:0 column:0] longLongValue] : -1;
+}
+
+/* Persons, managers (a subentity of Person) and companies, in turn. */
+- (NSArray *)insertKeyed:(int)count inContext:(NSManagedObjectContext *)context
+{
+    NSMutableArray *objects = [NSMutableArray array];
+    for (int i = 0; i < count; i++)
+        [objects addObject:[NSEntityDescription insertNewObjectForEntityForName:(i % 3 == 0) ? @"Person" : (i % 3 == 1) ? @"Manager" : @"Company"
+                                                         inManagedObjectContext:context]];
+    return objects;
+}
+
+/* The keys of objects whose root is root (Person for a manager). */
+static NSSet *CDSQLKeysOfRoot(NSArray *objects, NSString *root)
+{
+    NSMutableSet *keys = [NSMutableSet set];
+    for (NSManagedObject *object in objects) {
+        NSEntityDescription *entity = [object entity];
+        while ([entity superentity] != nil)
+            entity = [entity superentity];
+        if ([[entity name] isEqualToString:root])
+            [keys addObject:@(CDSQLPrimaryKeyOf(object))];
+    }
+    return keys;
+}
+
+static NSSet *CDSQLKeysFrom(long long first, long long last)
+{
+    NSMutableSet *keys = [NSMutableSet set];
+    for (long long key = first; key <= last; key++)
+        [keys addObject:@(key)];
+    return keys;
+}
+
+/* New objects' keys come a block to each root entity: an entity and its
+   subentities draw from one key space, the keys are distinct and leave
+   no gap, Z_MAX is the highest handed out, and another context's save
+   reuses none. */
+- (void)testPermanentIDsComeInABlockForEachRootEntity
+{
+    if (![self databaseAvailable]) return;
+
+    long long people = [self maxKeyOf:@"Person" inContext:self.context];
+    long long companies = [self maxKeyOf:@"Company" inContext:self.context];
+    NSArray *objects = [self insertKeyed:90 inContext:self.context];
+    NSError *error = nil;
+    XCTAssertTrue([self.context obtainPermanentIDsForObjects:objects error:&error], @"%@", error);
+    XCTAssertEqualObjects(CDSQLKeysOfRoot(objects, @"Person"), CDSQLKeysFrom(people + 1, people + 60), @"Person and Manager share a key space");
+    XCTAssertEqualObjects(CDSQLKeysOfRoot(objects, @"Company"), CDSQLKeysFrom(companies + 1, companies + 30));
+    XCTAssertEqual([self maxKeyOf:@"Person" inContext:self.context], people + 60);
+    XCTAssertEqual([self maxKeyOf:@"Company" inContext:self.context], companies + 30);
+    for (NSManagedObject *object in objects)
+        if ([[[object entity] name] isEqualToString:@"Person"] || [[[object entity] name] isEqualToString:@"Manager"])
+            [object setValue:@"someone" forKey:@"name"];
+    if (![self save]) return;
+
+    NSManagedObjectContext *later = [self newContext];
+    NSArray *more = [self insertKeyed:9 inContext:later];
+    for (NSManagedObject *object in more)
+        if (![[[object entity] name] isEqualToString:@"Company"])
+            [object setValue:@"someone" forKey:@"name"];
+    XCTAssertTrue([later save:&error], @"%@", error);
+    XCTAssertEqualObjects(CDSQLKeysOfRoot(more, @"Person"), CDSQLKeysFrom(people + 61, people + 66));
+    XCTAssertEqualObjects(CDSQLKeysOfRoot(more, @"Company"), CDSQLKeysFrom(companies + 31, companies + 33));
+}
+
+/* A store that cannot give every object its key gives none: no object
+   takes a permanent ID, and Person's Z_MAX is as it was.  Made to fail
+   by taking away Company's key row; FreeCoreData's alone, as it is the
+   context that asks for all the objects at once. */
+- (void)testPermanentIDsAreAllOrNothing
+{
+    if (![self databaseAvailable]) return;
+    if (NSClassFromString(@"CDBatchFaultingArray") == nil) return;
+
+    long long people = [self maxKeyOf:@"Person" inContext:self.context];
+    id<CDSQLStoreCatalogue> store = (id)[[[self.context persistentStoreCoordinator] persistentStores] firstObject];
+    [store execute:@"DELETE FROM \"Z_PRIMARYKEY\" WHERE \"Z_NAME\" = $1" parameters:@[ @"Company" ] error:NULL];
+
+    NSArray *objects = [self insertKeyed:30 inContext:self.context];
+    NSError *error = nil;
+    XCTAssertFalse([self.context obtainPermanentIDsForObjects:objects error:&error]);
+    XCTAssertNotNil(error);
+    for (NSManagedObject *object in objects)
+        XCTAssertTrue([[object objectID] isTemporaryID], @"%@ took no permanent ID", [[object entity] name]);
+    XCTAssertEqual([self maxKeyOf:@"Person" inContext:self.context], people, @"Person's keys were not taken");
+}
+
 - (void)testCountResultType
 {
     if (![self databaseAvailable]) return;

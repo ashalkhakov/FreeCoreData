@@ -634,8 +634,8 @@ static MYSQL *myConnect(CDMySQLStore *store,NSURL *url,NSDictionary *options,NSE
    happens inside LAST_INSERT_ID(), which makes the new value readable from
    the same connection - and, like RETURNING, without a window in which
    another connection could hand out the same key. */
--(long long)allocatePrimaryKeyForRootEntityID:(long long)entityID error:(NSError **)error {
-   NSString *sql=[NSString stringWithFormat:@"UPDATE \"Z_PRIMARYKEY\" SET \"Z_MAX\" = LAST_INSERT_ID(\"Z_MAX\" + 1) WHERE \"Z_ENT\" = %lld",entityID];
+-(long long)allocatePrimaryKeys:(long long)count forRootEntityID:(long long)entityID error:(NSError **)error {
+   NSString *sql=[NSString stringWithFormat:@"UPDATE \"Z_PRIMARYKEY\" SET \"Z_MAX\" = LAST_INSERT_ID(\"Z_MAX\" + %lld) WHERE \"Z_ENT\" = %lld",count,entityID];
 
    if(![self command:sql parameters:nil error:error])
     return 0;

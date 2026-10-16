@@ -4193,14 +4193,16 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     return nil;
 
    NSMutableArray *insertedIDs=[NSMutableArray array];
+   /* Every row's key at once: a block of the entity's key space. */
+   long long       nextKey=([rows count]>0)?[self _reservePrimaryKeys:(long long)[rows count] forEntity:entity error:error]:1;
+
+   if(nextKey==0){
+    [self command:@"ROLLBACK" parameters:nil error:NULL];
+    return nil;
+   }
 
    for(NSDictionary *row in rows){
-    long long primaryKey=[self _nextPrimaryKeyForEntity:entity error:error];
-
-    if(primaryKey==0){
-     [self command:@"ROLLBACK" parameters:nil error:NULL];
-     return nil;
-    }
+    long long primaryKey=nextKey++;
 
     NSMutableArray *columns=[NSMutableArray arrayWithObjects:@"\"Z_PK\"",@"\"Z_ENT\"",@"\"Z_OPT\"",nil];
     NSMutableArray *placeholders=[NSMutableArray arrayWithObjects:
@@ -6024,27 +6026,71 @@ static NSArray *rowNamesOfProperties(NSDictionary *properties){
    The SQLite store does this as an UPDATE followed by a SELECT, which is
    safe only because SQLite serializes writers.  RETURNING makes it one
    statement, so two connections cannot hand out the same key. */
--(long long)_nextPrimaryKeyForEntity:(NSEntityDescription *)entity error:(NSError **)error {
-   long long primaryKey=[self allocatePrimaryKeyForRootEntityID:[self _entityIDForEntity:rootEntity(entity)] error:error];
+/* Reserves count keys of entity's root's key space - an entity and its
+   subentities draw from one - answering the first of the block, first
+   to first+count-1, or 0.  One statement. */
+-(long long)_reservePrimaryKeys:(long long)count forEntity:(NSEntityDescription *)entity error:(NSError **)error {
+   long long last=[self allocatePrimaryKeys:count forRootEntityID:[self _entityIDForEntity:rootEntity(entity)] error:error];
 
-   if(primaryKey==0 && error!=NULL && *error==nil)
-    *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"No Z_PRIMARYKEY entry for entity %@",[entity name]] forKey:NSLocalizedDescriptionKey]];
-
-   return primaryKey;
+   if(last<count){
+    if(error!=NULL && *error==nil)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"No Z_PRIMARYKEY entry for entity %@",[entity name]] forKey:NSLocalizedDescriptionKey]];
+    return 0;
+   }
+   return last-count+1;
 }
 
+/* The objects' keys, reserved a block for each root entity - one
+   statement each - rather than one round trip and commit per object.
+   With more than one root entity they are reserved in a transaction, so
+   that on an error none is taken.  The context asks outside any of this
+   store's own transactions. */
 -(NSArray *)obtainPermanentIDsForObjects:(NSArray *)array error:(NSError **)error {
-   NSMutableArray *result=[NSMutableArray array];
+   NSMutableDictionary *byRoot=[NSMutableDictionary dictionary];
+   NSMutableDictionary *keys=[NSMutableDictionary dictionary];
 
    for(NSManagedObject *object in array){
-    long long primaryKey=[self _nextPrimaryKeyForEntity:[object entity] error:error];
+    NSNumber       *root=[NSNumber numberWithLongLong:[self _entityIDForEntity:rootEntity([object entity])]];
+    NSMutableArray *objects=[byRoot objectForKey:root];
 
-    if(primaryKey==0)
+    if(objects==nil){
+     objects=[NSMutableArray array];
+     [byRoot setObject:objects forKey:root];
+    }
+    [objects addObject:object];
+   }
+
+   BOOL transaction=([byRoot count]>1);
+
+   if(transaction && ![self command:@"BEGIN" parameters:nil error:error])
+    return nil;
+
+   for(NSNumber *root in byRoot){
+    NSArray   *objects=[byRoot objectForKey:root];
+    long long  first=[self _reservePrimaryKeys:(long long)[objects count] forEntity:[[objects objectAtIndex:0] entity] error:error];
+    NSUInteger i;
+
+    if(first==0){
+     if(transaction)
+      [self command:@"ROLLBACK" parameters:nil error:NULL];
      return nil;
+    }
+    for(i=0;i<[objects count];i++)
+     [keys setObject:[NSNumber numberWithLongLong:first+(long long)i] forKey:[NSValue valueWithNonretainedObject:[objects objectAtIndex:i]]];
+   }
+
+   if(transaction && ![self command:@"COMMIT" parameters:nil error:error]){
+    [self command:@"ROLLBACK" parameters:nil error:NULL];
+    return nil;
+   }
+
+   NSMutableArray *result=[NSMutableArray arrayWithCapacity:[array count]];
+
+   for(NSManagedObject *object in array){
+    long long primaryKey=[[keys objectForKey:[NSValue valueWithNonretainedObject:object]] longLongValue];
 
     [result addObject:[[self newObjectIDForEntity:[object entity] referenceObject:referenceObjectForPrimaryKey(primaryKey)] autorelease]];
    }
-
    return result;
 }
 

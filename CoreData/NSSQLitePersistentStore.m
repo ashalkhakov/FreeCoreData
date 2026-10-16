@@ -2818,14 +2818,16 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     return nil;
 
    NSMutableArray *insertedIDs=[NSMutableArray array];
+   /* Every row's key at once: a block of the entity's key space. */
+   long long       nextKey=([rows count]>0)?[self _reservePrimaryKeys:(long long)[rows count] forEntity:entity error:error]:1;
+
+   if(nextKey==0){
+    executeSQL(DATABASE,@"ROLLBACK",NULL);
+    return nil;
+   }
 
    for(NSDictionary *row in rows){
-    long long primaryKey=[self _nextPrimaryKeyForEntity:entity error:error];
-
-    if(primaryKey==0){
-     executeSQL(DATABASE,@"ROLLBACK",NULL);
-     return nil;
-    }
+    long long primaryKey=nextKey++;
 
     NSMutableArray *columns=[NSMutableArray arrayWithObjects:@"Z_PK",@"Z_ENT",@"Z_OPT",nil];
     NSMutableArray *placeholders=[NSMutableArray arrayWithObjects:@"?",@"?",@"?",nil];
@@ -3949,43 +3951,86 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
 /* Reserves the next primary key for the entity by bumping Z_MAX on the
    root entity's Z_PRIMARYKEY row (subentities share the root's table and
    therefore its key space). */
--(long long)_nextPrimaryKeyForEntity:(NSEntityDescription *)entity error:(NSError **)error {
+/* Reserves count keys of entity's root's key space - an entity and its
+   subentities draw from one - answering the first of the block, first
+   to first+count-1, or 0.  One update and one read, in the transaction
+   the caller is in. */
+-(long long)_reservePrimaryKeys:(long long)count forEntity:(NSEntityDescription *)entity error:(NSError **)error {
    long long rootID=[self _entityIDForEntity:rootEntity(entity)];
-   NSString *sql=[NSString stringWithFormat:@"UPDATE Z_PRIMARYKEY SET Z_MAX = Z_MAX + 1 WHERE Z_ENT = %lld",rootID];
 
-   if(!executeSQL(DATABASE,sql,error))
+   if(!executeSQL(DATABASE,[NSString stringWithFormat:@"UPDATE Z_PRIMARYKEY SET Z_MAX = Z_MAX + %lld WHERE Z_ENT = %lld",count,rootID],error))
     return 0;
 
-   sqlite3_stmt *statement=prepareStatement(DATABASE,[NSString stringWithFormat:@"SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_ENT = %lld",rootID],error);
+   long long last=pragmaValue(DATABASE,[NSString stringWithFormat:@"SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_ENT = %lld",rootID]);
 
-   if(statement==NULL)
+   if(last<count){
+    if(error!=NULL)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"No Z_PRIMARYKEY entry for entity %@",[entity name]] forKey:NSLocalizedDescriptionKey]];
     return 0;
-
-   long long result=0;
-
-   if(sqlite3_step(statement)==SQLITE_ROW)
-    result=sqlite3_column_int64(statement,0);
-
-   sqlite3_finalize(statement);
-
-   if(result==0 && error!=NULL)
-    *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"No Z_PRIMARYKEY entry for entity %@",[entity name]] forKey:NSLocalizedDescriptionKey]];
-
-   return result;
+   }
+   return last-count+1;
 }
 
+-(long long)_nextPrimaryKeyForEntity:(NSEntityDescription *)entity error:(NSError **)error {
+   return [self _reservePrimaryKeys:1 forEntity:entity error:error];
+}
+
+/* The objects' keys, reserved a block for each root entity rather than
+   one committed update for each object: inside a transaction of their
+   own, or a savepoint of the caller's - so that on an error none is
+   taken, and Z_MAX is as it was. */
 -(NSArray *)obtainPermanentIDsForObjects:(NSArray *)array error:(NSError **)error {
-   NSMutableArray *result=[NSMutableArray array];
+   NSMutableDictionary *byRoot=[NSMutableDictionary dictionary];
+   NSMutableDictionary *keys=[NSMutableDictionary dictionary];
+   BOOL                 ownTransaction=(sqlite3_get_autocommit(DATABASE)!=0);
+   BOOL                 ok=YES;
 
    for(NSManagedObject *object in array){
-    long long primaryKey=[self _nextPrimaryKeyForEntity:[object entity] error:error];
+    NSNumber       *root=[NSNumber numberWithLongLong:[self _entityIDForEntity:rootEntity([object entity])]];
+    NSMutableArray *objects=[byRoot objectForKey:root];
 
-    if(primaryKey==0)
-     return nil;
+    if(objects==nil){
+     objects=[NSMutableArray array];
+     [byRoot setObject:objects forKey:root];
+    }
+    [objects addObject:object];
+   }
+
+   if(!executeSQL(DATABASE,ownTransaction?@"BEGIN IMMEDIATE":@"SAVEPOINT CDPermanentIDs",error))
+    return nil;
+
+   for(NSNumber *root in byRoot){
+    NSArray  *objects=[byRoot objectForKey:root];
+    long long first=[self _reservePrimaryKeys:(long long)[objects count] forEntity:[[objects objectAtIndex:0] entity] error:error];
+    NSUInteger i;
+
+    if(first==0){
+     ok=NO;
+     break;
+    }
+    for(i=0;i<[objects count];i++)
+     [keys setObject:[NSNumber numberWithLongLong:first+(long long)i] forKey:[NSValue valueWithNonretainedObject:[objects objectAtIndex:i]]];
+   }
+
+   if(ok)
+    ok=executeSQL(DATABASE,ownTransaction?@"COMMIT":@"RELEASE CDPermanentIDs",error);
+   if(!ok){
+    if(ownTransaction)
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+    else {
+     executeSQL(DATABASE,@"ROLLBACK TO CDPermanentIDs",NULL);
+     executeSQL(DATABASE,@"RELEASE CDPermanentIDs",NULL);
+    }
+    return nil;
+   }
+
+   NSMutableArray *result=[NSMutableArray arrayWithCapacity:[array count]];
+
+   for(NSManagedObject *object in array){
+    long long primaryKey=[[keys objectForKey:[NSValue valueWithNonretainedObject:object]] longLongValue];
 
     [result addObject:[[self newObjectIDForEntity:[object entity] referenceObject:referenceObjectForPrimaryKey(primaryKey)] autorelease]];
    }
-
    return result;
 }
 

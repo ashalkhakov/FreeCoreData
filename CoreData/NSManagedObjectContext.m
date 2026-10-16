@@ -2175,42 +2175,86 @@ static id CDUndoRestoredValue(id value){
    /* As on Apple, an object takes the permanent ID its store gives it,
       and the temporary one it had stays temporary.  Relationship values
       of the context's objects that named it by its temporary ID name it by
-      the permanent one after. */
-   NSMapTable *replacements=NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,NSObjectMapValueCallBacks,0);
-   BOOL        ok=YES;
+      the permanent one after.
+
+      Each store is asked once, for all of its objects - a SQL store then
+      reserves their keys a block at a time, not one committed update per
+      object - and no object takes its ID until every store has given
+      them: an error leaves every object with the ID it had. */
+   NSMapTable     *objectsByStore=NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,NSObjectMapValueCallBacks,0);
+   NSMutableArray *stores=[NSMutableArray array];
+   NSMutableArray *given=[NSMutableArray array];          /* object, permanent ID, object, ... */
+   NSMutableSet   *seen=[NSMutableSet set];
+   BOOL            ok=YES;
 
    for(NSManagedObject *check in objects){
     NSManagedObjectID *checkID=[check objectID];
-        
+    NSPersistentStore *store;
+    NSMutableArray    *storeObjects;
+
     if(![checkID isTemporaryID])
      continue;
 
-    NSPersistentStore *genericStore=[checkID persistentStore];
-    NSManagedObjectID *permanentID=nil;
-
-    if(genericStore==nil)
+    store=[checkID persistentStore];
+    if(store==nil){
      NSLog(@"internal inconsistency , object had no store %@",check);
+     continue;
+    }
+    storeObjects=NSMapGet(objectsByStore,store);
+    if(storeObjects==nil){
+     storeObjects=[NSMutableArray array];
+     NSMapInsert(objectsByStore,store,storeObjects);
+     [stores addObject:store];
+    }
+    if(![seen containsObject:check]){
+     [seen addObject:check];
+     [storeObjects addObject:check];
+    }
+   }
+
+   for(NSPersistentStore *genericStore in stores){
+    NSArray *storeObjects=NSMapGet(objectsByStore,genericStore);
 
     if([genericStore isKindOfClass:[NSIncrementalStore class]]){
-     NSIncrementalStore *store=(NSIncrementalStore *)genericStore;
-     NSError            *idError=nil;
-     NSArray            *permanentIDs=[store obtainPermanentIDsForObjects:[NSArray arrayWithObject:check] error:&idError];
+     NSError *idError=nil;
+     NSArray *permanentIDs=[(NSIncrementalStore *)genericStore obtainPermanentIDsForObjects:storeObjects error:&idError];
+     NSUInteger i;
 
-     if([permanentIDs count]==0){
+     if([permanentIDs count]!=[storeObjects count]){
       if(error!=NULL)
        *error=idError;
       ok=NO;
       break;
      }
-     permanentID=[permanentIDs objectAtIndex:0];
+     for(i=0;i<[storeObjects count];i++){
+      [given addObject:[storeObjects objectAtIndex:i]];
+      [given addObject:[permanentIDs objectAtIndex:i]];
+     }
     }
     else {
      NSAtomicStore *store=(NSAtomicStore *)genericStore;
-     id referenceObject=[store newReferenceObjectForManagedObject:check];
 
-     permanentID=[store objectIDForEntity:[check entity] referenceObject:referenceObject];
-     [referenceObject release];
+     for(NSManagedObject *check in storeObjects){
+      id referenceObject=[store newReferenceObjectForManagedObject:check];
+
+      [given addObject:check];
+      [given addObject:[store objectIDForEntity:[check entity] referenceObject:referenceObject]];
+      [referenceObject release];
+     }
     }
+   }
+   NSFreeMapTable(objectsByStore);
+
+   if(!ok)
+    return NO;
+
+   NSMapTable *replacements=NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,NSObjectMapValueCallBacks,0);
+   NSUInteger  i;
+
+   for(i=0;i<[given count];i+=2){
+    NSManagedObject   *check=[given objectAtIndex:i];
+    NSManagedObjectID *checkID=[check objectID];
+    NSManagedObjectID *permanentID=[given objectAtIndex:i+1];
 
     NSMapRemove(_objectIdToObject,checkID);
     NSMapInsert(replacements,checkID,permanentID);
@@ -2223,8 +2267,8 @@ static id CDUndoRestoredValue(id value){
      [registered _replaceObjectIDs:replacements];
    }
    NSFreeMapTable(replacements);
-   
-   return ok;
+
+   return YES;
 }
 
 /* Applies NSCascadeDeleteRule by deleting destination objects of cascade

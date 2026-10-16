@@ -195,7 +195,9 @@ typedef enum {
 
 /* Statements that differ */
 - (NSString *)upsertClauseForColumns:(NSArray *)columns keyColumns:(NSArray *)keyColumns;
-- (long long)allocatePrimaryKeyForRootEntityID:(long long)entityID error:(NSError **)error;
+/* Reserves count keys of a root entity's key space in one statement,
+   answering the last of them (the block ends there), or 0. */
+- (long long)allocatePrimaryKeys:(long long)count forRootEntityID:(long long)entityID error:(NSError **)error;
 - (long long)insertHistoryTransactionWithParameters:(NSArray *)parameters error:(NSError **)error;
 
 /* Introspection */
