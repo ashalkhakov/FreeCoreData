@@ -683,6 +683,46 @@ static NSSet *CDSQLKeysFrom(long long first, long long last)
     XCTAssertEqualObjects(CDSQLKeysOfRoot(more, @"Company"), CDSQLKeysFrom(companies + 31, companies + 33));
 }
 
+/* New rows go to the server many to a statement: 250 people - two full
+   statements and a shorter one - each with its own values, a to-one, a
+   value kept externally and a nil, read back as they were written. */
+- (void)testManyNewRowsAreWrittenAsTheyWere
+{
+    if (![self databaseAvailable]) return;
+
+    CDSQLMemoryExternalDataStore *memory = [[CDSQLMemoryExternalDataStore alloc] init];
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    options[@"CDExternalDataStoreOption"] = memory;
+    self.storeOptions = options;
+    self.context = [self newContext];
+
+    NSManagedObject *company = [NSEntityDescription insertNewObjectForEntityForName:@"Company" inManagedObjectContext:self.context];
+    [company setValue:@"Bletchley" forKey:@"name"];
+    for (int i = 0; i < 250; i++) {
+        NSManagedObject *person = [self insertPersonNamed:[NSString stringWithFormat:@"P%03d", i] age:i];
+        if (i % 2 == 0)
+            [person setValue:company forKey:@"employer"];
+        if (i % 50 == 7)
+            [person setValue:CDSQLFilled(150000, (char)('a' + i % 26)) forKey:@"portrait"];
+        if (i % 3 != 0)
+            [person setValue:@(i + 0.5) forKey:@"score"];
+    }
+    if (![self save]) return;
+    XCTAssertEqual([memory.kept count], (NSUInteger)5);
+
+    NSManagedObjectContext *fresh = [self newContext];
+    NSArray *people = [self fetchPeopleWithPredicate:nil sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ] context:fresh];
+    XCTAssertEqual([people count], (NSUInteger)250);
+    for (int i = 0; i < (int)[people count]; i++) {
+        NSManagedObject *person = people[i];
+        XCTAssertEqualObjects([person valueForKey:@"name"], ([NSString stringWithFormat:@"P%03d", i]));
+        XCTAssertEqualObjects([person valueForKey:@"age"], @(i));
+        XCTAssertEqualObjects([[person valueForKey:@"employer"] valueForKey:@"name"], (i % 2 == 0) ? @"Bletchley" : nil, @"P%03d", i);
+        XCTAssertEqualObjects([person valueForKey:@"portrait"], (i % 50 == 7) ? CDSQLFilled(150000, (char)('a' + i % 26)) : nil, @"P%03d", i);
+        XCTAssertEqualObjects([person valueForKey:@"score"], (i % 3 != 0) ? @(i + 0.5) : nil, @"P%03d", i);
+    }
+}
+
 /* A store that cannot give every object its key gives none: no object
    takes a permanent ID, and Person's Z_MAX is as it was.  Made to fail
    by taking away Company's key row; FreeCoreData's alone, as it is the

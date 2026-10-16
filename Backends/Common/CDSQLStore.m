@@ -3816,40 +3816,13 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
                                  persistedSnapshot:(currentVersion!=0)?[self _persistedSnapshotForObjectID:objectID]:nil] autorelease];
 }
 
--(BOOL)_writeRowForObject:(NSManagedObject *)object isInsert:(BOOL)isInsert conflict:(NSMergeConflict **)conflict error:(NSError **)error {
+/* The columns a row of object's entity is written to - attributes but
+   generated ones, and to-ones - and object's values for them, as
+   parameters; storedExternal is what an updated row holds for its
+   external values now (empty for a new row). */
+-(BOOL)_columns:(NSMutableArray *)names parameters:(NSMutableArray *)parameters ofObject:(NSManagedObject *)object storedExternal:(NSDictionary *)storedExternal error:(NSError **)error {
    NSEntityDescription *entity=[object entity];
    NSDictionary        *properties=propertiesForEntityChain(entity);
-   long long            primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]]);
-   NSMutableArray      *names=[NSMutableArray array];
-   NSMutableArray      *parameters=[NSMutableArray array];
-   NSNumber            *expectedVersion=nil;
-   NSArray             *externalAttributes=[self _externalAttributesOfEntity:entity];
-   NSMutableDictionary *storedExternal=[NSMutableDictionary dictionary];
-
-   /* What an updated row holds for its external values now: a value the
-      object has not changed keeps what it is kept under, unless the
-      object's value says it is kept under another name.  Read locking
-      the row (FOR UPDATE): no one changes what it names before this
-      request writes it, and the read takes no snapshot - MariaDB 11.6 on
-      (innodb_snapshot_isolation) refuses a write to a row changed since
-      a transaction's snapshot with an error, where the conditional
-      update below should find no row and report a conflict. */
-   if(!isInsert && [externalAttributes count]>0){
-    NSMutableArray *columns=[NSMutableArray array];
-
-    for(NSAttributeDescription *attribute in externalAttributes)
-     [columns addObject:quoted(columnNameForProperty([attribute name]))];
-
-    id<CDSQLResult> stored=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" = %lld FOR UPDATE",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),primaryKey] parameters:nil error:error];
-    NSUInteger      i;
-
-    if(stored==nil)
-     return NO;
-    if([stored rowCount]>0)
-     for(i=0;i<[externalAttributes count];i++)
-      if(![stored isNullAtRow:0 column:i])
-       [storedExternal setObject:[stored dataAtRow:0 column:i] forKey:[[externalAttributes objectAtIndex:i] name]];
-   }
 
    for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
     NSPropertyDescription *property=[properties objectForKey:name];
@@ -3897,6 +3870,139 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     [names addObject:columnNameForProperty(name)];
     [parameters addObject:(text!=nil)?(id)text:(id)[NSNull null]];
    }
+
+   return YES;
+}
+
+/* New rows, as many to a statement as fit - INSERT ... VALUES (...), (...)
+   - rather than a round trip to the server for each: each entity's in
+   chunks of up to 100 rows, fewer for an entity of many columns, so that
+   a statement stays well inside both servers' limit on parameters.  A
+   full chunk's statement is the same each time and is prepared; the last,
+   shorter one is run as it is. */
+-(BOOL)_insertRowsForObjects:(NSArray *)objects error:(NSError **)error {
+   NSMutableDictionary *byEntity=[NSMutableDictionary dictionary];
+   NSMutableArray      *entityNames=[NSMutableArray array];
+
+   for(NSManagedObject *object in objects){
+    NSString       *name=[[object entity] name];
+    NSMutableArray *group=[byEntity objectForKey:name];
+
+    if(group==nil){
+     group=[NSMutableArray array];
+     [byEntity setObject:group forKey:name];
+     [entityNames addObject:name];
+    }
+    [group addObject:object];
+   }
+
+   for(NSString *entityName in entityNames){
+    NSArray             *group=[byEntity objectForKey:entityName];
+    NSEntityDescription *entity=[[group objectAtIndex:0] entity];
+    NSMutableArray      *names=nil;
+    NSMutableArray      *rows=[NSMutableArray arrayWithCapacity:[group count]];
+
+    for(NSManagedObject *object in group){
+     NSMutableArray *rowNames=[NSMutableArray array];
+     NSMutableArray *parameters=[NSMutableArray array];
+
+     if(![self _columns:rowNames parameters:parameters ofObject:object storedExternal:[NSDictionary dictionary] error:error])
+      return NO;
+     if(names==nil)
+      names=rowNames;
+     [parameters addObject:[NSString stringWithFormat:@"%lld",primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]])]];
+     [parameters addObject:[NSString stringWithFormat:@"%lld",[self _entityIDForEntity:entity]]];
+     [parameters addObject:@"1"];
+     [rows addObject:parameters];
+    }
+
+    NSUInteger      width=[names count]+3;
+    NSUInteger      perStatement=MAX((NSUInteger)1,MIN((NSUInteger)100,(NSUInteger)30000/width));
+    NSMutableArray *columns=[NSMutableArray arrayWithCapacity:width];
+    NSUInteger      start;
+
+    for(NSString *name in names)
+     [columns addObject:quoted(name)];
+    [columns addObjectsFromArray:[NSArray arrayWithObjects:@"\"Z_PK\"",@"\"Z_ENT\"",@"\"Z_OPT\"",nil]];
+
+    for(start=0;start<[rows count];start+=perStatement){
+     NSUInteger      count=MIN(perStatement,[rows count]-start);
+     NSString       *sqlKey=[NSString stringWithFormat:@"insert %lu %@",(unsigned long)count,entityName];
+     NSString       *sql=[_rowSQL objectForKey:sqlKey];
+     NSMutableArray *parameters=[NSMutableArray arrayWithCapacity:count*width];
+     NSUInteger      row,column;
+
+     if(sql==nil){
+      NSMutableArray *tuples=[NSMutableArray arrayWithCapacity:count];
+
+      for(row=0;row<count;row++){
+       NSMutableArray *placeholders=[NSMutableArray arrayWithCapacity:width];
+
+       for(column=0;column<width;column++)
+        [placeholders addObject:[NSString stringWithFormat:@"$%lu",(unsigned long)(row*width+column+1)]];
+       [tuples addObject:[NSString stringWithFormat:@"(%@)",[placeholders componentsJoinedByString:@", "]]];
+      }
+      sql=[NSString stringWithFormat:@"INSERT INTO %@ (%@) VALUES %@",quoted(tableNameForEntity(entity)),[columns componentsJoinedByString:@", "],[tuples componentsJoinedByString:@", "]];
+      if(count==perStatement){
+       if(_rowSQL==nil)
+        _rowSQL=[[NSMutableDictionary alloc] init];
+       [_rowSQL setObject:sql forKey:sqlKey];
+      }
+     }
+
+     for(row=start;row<start+count;row++)
+      [parameters addObjectsFromArray:[rows objectAtIndex:row]];
+
+     BOOL ran=(count==perStatement)?[self preparedCommand:sql parameters:parameters affected:NULL error:error]
+                                   :[self command:sql parameters:parameters affected:NULL error:error];
+
+     if(!ran)
+      return NO;
+    }
+
+    /* The rows carry their first version. */
+    for(NSManagedObject *object in group)
+     [_rowVersions setObject:[NSNumber numberWithUnsignedLongLong:1] forKey:[self _versionKeyForObjectID:[object objectID]]];
+   }
+   return YES;
+}
+
+-(BOOL)_writeRowForObject:(NSManagedObject *)object isInsert:(BOOL)isInsert conflict:(NSMergeConflict **)conflict error:(NSError **)error {
+   NSEntityDescription *entity=[object entity];
+   long long            primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]]);
+   NSMutableArray      *names=[NSMutableArray array];
+   NSMutableArray      *parameters=[NSMutableArray array];
+   NSNumber            *expectedVersion=nil;
+   NSArray             *externalAttributes=[self _externalAttributesOfEntity:entity];
+   NSMutableDictionary *storedExternal=[NSMutableDictionary dictionary];
+
+   /* What an updated row holds for its external values now: a value the
+      object has not changed keeps what it is kept under, unless the
+      object's value says it is kept under another name.  Read locking
+      the row (FOR UPDATE): no one changes what it names before this
+      request writes it, and the read takes no snapshot - MariaDB 11.6 on
+      (innodb_snapshot_isolation) refuses a write to a row changed since
+      a transaction's snapshot with an error, where the conditional
+      update below should find no row and report a conflict. */
+   if(!isInsert && [externalAttributes count]>0){
+    NSMutableArray *columns=[NSMutableArray array];
+
+    for(NSAttributeDescription *attribute in externalAttributes)
+     [columns addObject:quoted(columnNameForProperty([attribute name]))];
+
+    id<CDSQLResult> stored=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" = %lld FOR UPDATE",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),primaryKey] parameters:nil error:error];
+    NSUInteger      i;
+
+    if(stored==nil)
+     return NO;
+    if([stored rowCount]>0)
+     for(i=0;i<[externalAttributes count];i++)
+      if(![stored isNullAtRow:0 column:i])
+       [storedExternal setObject:[stored dataAtRow:0 column:i] forKey:[[externalAttributes objectAtIndex:i] name]];
+   }
+
+   if(![self _columns:names parameters:parameters ofObject:object storedExternal:storedExternal error:error])
+    return NO;
 
    /* The SQL is the same for every row of the entity - the key, the
       entity and the version are parameters after the values - so it is
@@ -4037,11 +4143,9 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    if(![self command:@"BEGIN" parameters:nil error:error])
     return nil;
 
-   for(NSManagedObject *object in [request insertedObjects]){
-    if(![self _writeRowForObject:object isInsert:YES conflict:NULL error:error]){
-     [self command:@"ROLLBACK" parameters:nil error:NULL];
-     return nil;
-    }
+   if(![self _insertRowsForObjects:[[request insertedObjects] allObjects] error:error]){
+    [self command:@"ROLLBACK" parameters:nil error:NULL];
+    return nil;
    }
 
    /* Every stale update is collected rather than the first one reported, so

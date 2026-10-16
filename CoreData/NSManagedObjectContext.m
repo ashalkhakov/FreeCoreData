@@ -2394,14 +2394,14 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
    this check and the write; the store's own version check covers writers
    outside it. */
 -(void)_detectIncrementalStoreConflictsInto:(NSMutableArray *)conflicts {
-   NSMutableSet *checked=[NSMutableSet setWithSet:_updatedObjects];
+   NSMutableSet   *checked=[NSMutableSet setWithSet:_updatedObjects];
+   NSMapTable     *byStore=NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,NSObjectMapValueCallBacks,0);
+   NSMutableArray *stores=[NSMutableArray array];
 
    [checked unionSet:_deletedObjects];
 
    for(NSManagedObject *object in checked){
-    unsigned long long version=[object _storeVersion];
-
-    if(version==0 || [_insertedObjects containsObject:object] || [[object objectID] isTemporaryID])
+    if([object _storeVersion]==0 || [_insertedObjects containsObject:object] || [[object objectID] isTemporaryID])
      continue;
 
     NSPersistentStore *store=[[object objectID] persistentStore];
@@ -2409,28 +2409,66 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
     if(![store isKindOfClass:[NSIncrementalStore class]])
      continue;
 
-    NSError                *nodeError=nil;
-    NSIncrementalStoreNode *node=[(NSIncrementalStore *)store newValuesForObjectWithID:[object objectID] withContext:self error:&nodeError];
-    unsigned long long      current=(node!=nil)?[node version]:0;
+    NSMutableArray *objects=NSMapGet(byStore,store);
 
-    if(node!=nil && current==version){
-     [node release];
-     continue;
+    if(objects==nil){
+     objects=[NSMutableArray array];
+     NSMapInsert(byStore,store,objects);
+     [stores addObject:store];
+    }
+    [objects addObject:object];
+   }
+
+   /* Each store's rows as they stand: read a few hundred to a query from a
+      store that can (a CDRowPrefetchingStore), rather than one each - a
+      row missing from them is one deleted, as one not found by
+      -newValuesForObjectWithID:withContext:error: is. */
+   for(NSIncrementalStore *store in stores){
+    NSArray      *objects=NSMapGet(byStore,store);
+    NSDictionary *rows=nil;
+
+    if([store respondsToSelector:@selector(_rowsForObjectIDs:)]){
+     NSMutableArray *objectIDs=[NSMutableArray arrayWithCapacity:[objects count]];
+
+     for(NSManagedObject *object in objects)
+      [objectIDs addObject:[object objectID]];
+     rows=[(id<CDRowPrefetchingStore>)store _rowsForObjectIDs:objectIDs];
     }
 
-    /* Changed under us, or deleted (a new version of 0). */
-    NSDictionary    *row=(node!=nil)?CDSnapshotOfNode(node,[object entity]):nil;
-    NSMergeConflict *conflict=[[[NSMergeConflict alloc] initWithSource:object
-                                                            newVersion:(NSUInteger)current
-                                                            oldVersion:(NSUInteger)version
-                                                        cachedSnapshot:row
-                                                     persistedSnapshot:row] autorelease];
-    NSDictionary    *read=[object _cachedCommittedValues];
+    for(NSManagedObject *object in objects){
+     unsigned long long      version=[object _storeVersion];
+     NSIncrementalStoreNode *node;
 
-    [conflict _setObjectSnapshot:(read!=nil)?read:[NSDictionary dictionary]];
-    [conflicts addObject:conflict];
-    [node release];
+     if(rows!=nil)
+      node=[[rows objectForKey:[object objectID]] retain];
+     else {
+      NSError *nodeError=nil;
+
+      node=[store newValuesForObjectWithID:[object objectID] withContext:self error:&nodeError];
+     }
+
+     unsigned long long current=(node!=nil)?[node version]:0;
+
+     if(node!=nil && current==version){
+      [node release];
+      continue;
+     }
+
+     /* Changed under us, or deleted (a new version of 0). */
+     NSDictionary    *row=(node!=nil)?CDSnapshotOfNode(node,[object entity]):nil;
+     NSMergeConflict *conflict=[[[NSMergeConflict alloc] initWithSource:object
+                                                             newVersion:(NSUInteger)current
+                                                             oldVersion:(NSUInteger)version
+                                                         cachedSnapshot:row
+                                                      persistedSnapshot:row] autorelease];
+     NSDictionary    *read=[object _cachedCommittedValues];
+
+     [conflict _setObjectSnapshot:(read!=nil)?read:[NSDictionary dictionary]];
+     [conflicts addObject:conflict];
+     [node release];
+    }
    }
+   NSFreeMapTable(byStore);
 }
 
 -(NSArray *)_detectSaveConflicts {
