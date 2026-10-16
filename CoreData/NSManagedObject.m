@@ -803,6 +803,13 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
    (relationships as object IDs), which is what the committed snapshot
    holds anyway. */
 -(void)_resetCommittedValuesAfterSavePreservingTransients {
+   [self _resetCommittedValuesAfterSaveFromRow:nil generation:0];
+}
+
+/* The same, from the row the store has just written, when the context
+   read it with the others it saved (a store's rows read in a few
+   queries, not one each); used if the store has made no write since. */
+-(void)_resetCommittedValuesAfterSaveFromRow:(NSIncrementalStoreNode *)row generation:(unsigned long long)generation {
    NSDictionary        *properties=[[self entity] propertiesByName];
    NSMutableDictionary *transients=nil;
 
@@ -826,6 +833,12 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
 
    [self _discardChangedValues];
    [self _invalidateCommittedValues];
+   if(row!=nil){
+    [row retain];
+    [_prefetchedRow release];
+    _prefetchedRow=row;
+    _prefetchedGeneration=generation;
+   }
    [self _committedValues];
 
    if(transients!=nil){

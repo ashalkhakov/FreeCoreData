@@ -2924,6 +2924,48 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
    return identifier!=nil && [identifier isEqualToString:[store identifier]];
 }
 
+/* The committed values of the objects a save wrote, read back from their
+   stores: those of a store that reads many rows at once (a
+   CDRowPrefetchingStore) a few hundred rows to a query, not one each. */
+-(void)_resetCommittedValuesOfSavedObjects:(NSSet *)saved {
+   NSMapTable     *byStore=NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,NSObjectMapValueCallBacks,0);
+   NSMutableArray *stores=[NSMutableArray array];
+
+   for(NSManagedObject *object in saved){
+    NSPersistentStore *store=[[object objectID] persistentStore];
+
+    if(![store respondsToSelector:@selector(_rowsForObjectIDs:)] || ![store respondsToSelector:@selector(_writeGeneration)]){
+     [object _resetCommittedValuesAfterSaveFromRow:nil generation:0];
+     continue;
+    }
+
+    NSMutableArray *objects=NSMapGet(byStore,store);
+
+    if(objects==nil){
+     objects=[NSMutableArray array];
+     NSMapInsert(byStore,store,objects);
+     [stores addObject:store];
+    }
+    [objects addObject:object];
+   }
+
+   for(NSPersistentStore *store in stores){
+    id<CDRowPrefetchingStore> reader=(id<CDRowPrefetchingStore>)store;
+    NSArray                  *objects=NSMapGet(byStore,store);
+    NSMutableArray           *objectIDs=[NSMutableArray arrayWithCapacity:[objects count]];
+
+    for(NSManagedObject *object in objects)
+     [objectIDs addObject:[object objectID]];
+
+    unsigned long long generation=[reader _writeGeneration];
+    NSDictionary      *rows=[reader _rowsForObjectIDs:objectIDs];
+
+    for(NSManagedObject *object in objects)
+     [object _resetCommittedValuesAfterSaveFromRow:[rows objectForKey:[object objectID]] generation:generation];
+   }
+   NSFreeMapTable(byStore);
+}
+
 -(BOOL)_coordinatorLocked_save:(NSError **)errorp {
    if(_parentContext!=nil)
     return [self _saveToParent:errorp];
@@ -3122,8 +3164,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
        or merged; a lazy re-read would instead make them accidentally
        see such changes.  Transient property values, which the store
        round trip knows nothing about, are carried across. */
-    for(NSManagedObject *object in saved)
-     [object _resetCommittedValuesAfterSavePreservingTransients];
+    [self _resetCommittedValuesOfSavedObjects:saved];
 
     for(NSManagedObject *object in saved)
      [object didSave];
