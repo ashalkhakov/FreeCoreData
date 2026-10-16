@@ -10,6 +10,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import "NSManagedObjectMutableSet.h"
+#import "NSManagedObject-Private.h"
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSManagedObjectContext.h>
 #import "CoreDataUtilities.h"
@@ -46,7 +47,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    
    [set addObject:object];
    
-   [_object setValue:set forKey:_key];
+   [_object _setModeledValue:set forKey:_key];
 }
 
 -(void)removeObject:object {
@@ -54,7 +55,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    
    [set removeObject:object];
    
-   [_object setValue:set forKey:_key];
+   [_object _setModeledValue:set forKey:_key];
 }
 
 @end

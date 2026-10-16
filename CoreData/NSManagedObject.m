@@ -89,8 +89,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSMutableOrderedSet *resolved=[NSMutableOrderedSet orderedSet];
    NSManagedObjectContext *context=[_object managedObjectContext];
 
-   for(NSManagedObjectID *memberID in [_object primitiveValueForKey:_key])
-    [resolved addObject:[context objectWithID:memberID]];
+   /* By ID, as the framework keeps it - or, inside a custom setter that
+      stored objects, until -setValue:forKey: has made them IDs (see
+      there), as objects. */
+   for(id member in [_object primitiveValueForKey:_key])
+    [resolved addObject:[member isKindOfClass:[NSManagedObject class]]?member:[context objectWithID:member]];
    return resolved;
 }
 
@@ -118,7 +121,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSMutableOrderedSet *ordered=[[self _current] mutableCopy];
 
    [ordered insertObject:object atIndex:index];
-   [_object setValue:ordered forKey:_key];
+   [_object _setModeledValue:ordered forKey:_key];
    [ordered release];
 }
 
@@ -126,7 +129,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSMutableOrderedSet *ordered=[[self _current] mutableCopy];
 
    [ordered removeObjectAtIndex:index];
-   [_object setValue:ordered forKey:_key];
+   [_object _setModeledValue:ordered forKey:_key];
    [ordered release];
 }
 
@@ -134,7 +137,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSMutableOrderedSet *ordered=[[self _current] mutableCopy];
 
    [ordered replaceObjectAtIndex:index withObject:object];
-   [_object setValue:ordered forKey:_key];
+   [_object _setModeledValue:ordered forKey:_key];
    [ordered release];
 }
 
@@ -1042,7 +1045,10 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
           contentSet in place (see NSManagedObjectSet.h). */
        result=[[[NSManagedObjectSet alloc] initWithManagedObject:self key:propertyName] autorelease];
      }
-     else
+     else if(![result isKindOfClass:[NSManagedObject class]])
+      /* An object, not its ID, inside a custom setter that stored one:
+         -setValue:forKey: makes it an ID after (see there), but an
+         observer told of the change reads it before. */
       result=[_context objectWithID:result];
     }
     
@@ -1077,9 +1083,171 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
    _context=context;
 }
 
+/* A relationship's value as the framework keeps it: a to-one as its
+   object's ID, a to-many as a fresh mutable set - an array when ordered -
+   of its members' IDs. */
+static id CDRelationshipValueByID(NSRelationshipDescription *relationship,id value){
+   if(![relationship isToMany])
+    return CDIDOf(value);
+
+   if([relationship isOrdered]){
+    NSMutableArray *ordered=[NSMutableArray array];
+
+    for(id member in value)
+     if(![ordered containsObject:CDIDOf(member)])
+      [ordered addObject:CDIDOf(member)];
+    return ordered;
+   }
+
+   NSMutableSet *set=[NSMutableSet set];
+
+   for(id member in value)
+    [set addObject:CDIDOf(member)];
+   return set;
+}
+
+/* As KVC has it, and as on Apple: a modelled property whose setter the
+   class implements itself is set by calling that setter - from bindings,
+   an array controller, undo, -setValue:forKey: in app code - so a setter
+   that does more than store the value is not bypassed.  Generated setters
+   come back here and are not custom. */
 -(void)setValue:value forKey:(NSString *) key {
-   NSPropertyDescription *property= [[self entity] _propertyForSelector:NSSelectorFromString(key)];
-   NSString              *propertyName=[property name];
+   NSPropertyDescription *property=[[self entity] _propertyForSelector:NSSelectorFromString(key)];
+
+   if(property!=nil && [[self entity] _hasCustomSetterForPropertyNamed:[property name]]){
+    [super setValue:value forKey:key];
+    return;
+   }
+
+   [self _setValue:value forKey:key property:property];
+}
+
+/* A relationship's custom setter, called directly or by -setValue:forKey:
+   (NSEntityDescription.m wraps it to come here): it stores its value -
+   usually with -setPrimitiveValue:forKey:, often as objects - and, as on
+   Apple, the inverse is kept in step as for a generated one.  So the
+   value is kept by ID afterwards, as the framework keeps it, and the
+   objects it left and joined are told. */
+-(void)_setValue:value forRelationshipNamed:(NSString *)name withSetter:(IMP)setter selector:(SEL)selector {
+   NSRelationshipDescription *relationship=[[[self entity] propertiesByName] objectForKey:name];
+
+   if(![relationship isKindOfClass:[NSRelationshipDescription class]]){
+    ((void (*)(id,SEL,id))setter)(self,selector,value);
+    return;
+   }
+
+   [self _requireSameContextAsValue:value forRelationship:relationship];
+
+   id previous=CDRelationshipValueByID(relationship,[self primitiveValueForKey:name]);
+
+   ((void (*)(id,SEL,id))setter)(self,selector,value);
+
+   id stored=[_changedValues objectForKey:name];
+   id current=CDRelationshipValueByID(relationship,[self primitiveValueForKey:name]);
+
+   if(stored!=nil && stored!=[NSNull null])
+    [self setPrimitiveValue:current forKey:name];
+
+   [self _detachInverseOf:relationship from:previous];
+   [self _attachInverseOf:relationship to:current];
+}
+
+-(void)_requireSameContextAsValue:value forRelationship:(NSRelationshipDescription *)relationship {
+   if([relationship isToMany]){
+    for(NSManagedObject *object in value)
+     [self _requireSameContextAs:object forRelationship:[relationship name]];
+   }
+   else
+    [self _requireSameContextAs:value forRelationship:[relationship name]];
+}
+
+/* The objects the receiver named under relationship (previous, by ID)
+   no longer name it under the inverse. */
+-(void)_detachInverseOf:(NSRelationshipDescription *)relationship from:previous {
+   NSRelationshipDescription *inverse=[relationship inverseRelationship];
+   NSString                  *inverseName=[inverse name];
+
+   if(inverse==nil || previous==nil)
+    return;
+
+   id allPrevious=[relationship isToMany]?previous:[NSSet setWithObject:previous];
+
+   for(NSManagedObjectID *previousID in allPrevious){
+    NSManagedObject *previousObject=[_context objectWithID:previousID];
+
+    [previousObject willChangeValueForKey:inverseName];
+
+    if([inverse isToMany])
+     [[previousObject _pendingToManyForKey:inverseName ordered:[inverse isOrdered]] removeObject:[self objectID]];
+    else
+     [previousObject setPrimitiveValue:nil forKey:inverseName];
+
+    [previousObject didChangeValueForKey:inverseName];
+   }
+}
+
+/* The objects the receiver names under relationship (current, by ID)
+   name it under the inverse. */
+-(void)_attachInverseOf:(NSRelationshipDescription *)relationship to:current {
+   NSRelationshipDescription *inverse=[relationship inverseRelationship];
+   NSString                  *inverseName=[inverse name];
+   NSString                  *propertyName=[relationship name];
+
+   if(inverse==nil)
+    return;
+
+   id allValues;
+
+   if([relationship isToMany])
+    allValues=current;
+   else
+    allValues=(current==nil)?[NSSet set]:[NSSet setWithObject:current];
+
+   for(NSManagedObjectID *valueID in allValues){
+    NSManagedObject *relValue=[_context objectWithID:valueID];
+
+    [relValue willChangeValueForKey:inverseName];
+
+    if([inverse isToMany]){
+     id collection=[relValue _pendingToManyForKey:inverseName ordered:[inverse isOrdered]];
+
+     if(![collection containsObject:[self objectID]])
+      [collection addObject:[self objectID]];
+    }
+    else{
+     /* As on Apple, an object that joins the receiver leaves the one
+        its to-one inverse named before: a product added to a category
+        is no longer among its old category's products, a partner's
+        old partner has none. */
+     NSManagedObjectID *ownerID=[relValue primitiveValueForKey:inverseName];
+
+     if(ownerID!=nil && ![ownerID isEqual:[self objectID]]){
+      NSManagedObject *owner=[_context objectWithID:ownerID];
+
+      [owner willChangeValueForKey:propertyName];
+      if([relationship isToMany])
+       [[owner _pendingToManyForKey:propertyName ordered:[relationship isOrdered]] removeObject:valueID];
+      else
+       [owner setPrimitiveValue:nil forKey:propertyName];
+      [owner didChangeValueForKey:propertyName];
+     }
+
+     [relValue setPrimitiveValue:[self objectID] forKey:inverseName];
+    }
+
+    [relValue didChangeValueForKey:inverseName];
+   }
+}
+
+/* -setValue:forKey: without the custom setters: what the framework's own
+   paths - the collection proxies, the delete rules, a store's copy - set,
+   as Apple's do. */
+-(void)_setModeledValue:value forKey:(NSString *)key {
+   [self _setValue:value forKey:key property:[[self entity] _propertyForSelector:NSSelectorFromString(key)]];
+}
+
+-(void)_setValue:value forKey:(NSString *)key property:(NSPropertyDescription *)property {
+   NSString *propertyName=[property name];
    
    if([property isKindOfClass:[NSAttributeDescription class]]){
     [self willChangeValueForKey:propertyName];
@@ -1089,109 +1257,18 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
    }
    else if([property isKindOfClass:[NSRelationshipDescription class]]){
     NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
-    NSRelationshipDescription *inverse=[relationship inverseRelationship];
 
-    if([relationship isToMany]){
-     for(NSManagedObject *object in value)
-      [self _requireSameContextAs:object forRelationship:propertyName];
-    }
-    else
-     [self _requireSameContextAs:value forRelationship:propertyName];
+    [self _requireSameContextAsValue:value forRelationship:relationship];
 
-    NSString                  *inverseName=[inverse name];
-    id                         valueByID;
-        
-    if([relationship isToMany]){
-     if([relationship isOrdered]){
-      NSMutableArray *ordered=[NSMutableArray array];
+    id valueByID=CDRelationshipValueByID(relationship,value);
 
-      for(NSManagedObject *object in value)
-       if(![ordered containsObject:[object objectID]])
-        [ordered addObject:[object objectID]];
-
-      valueByID=ordered;
-     }
-     else {
-      NSMutableSet *set=[NSMutableSet set];
-
-      for(NSManagedObject *object in value)
-       [set addObject:[object objectID]];
-
-      valueByID=set;
-     }
-    }
-    else {
-     valueByID=[value objectID];
-    }
-
-    if(inverse!=nil){
-     id primitivePrevious=[self primitiveValueForKey:key];
-     
-     if(primitivePrevious!=nil){
-      id allPrevious=[relationship isToMany]?primitivePrevious:[NSSet setWithObject:primitivePrevious];
-      
-      for(NSManagedObjectID *previousID in allPrevious){
-       NSManagedObject *previous=[_context objectWithID:previousID];
-
-       [previous willChangeValueForKey:inverseName];
-
-       if([inverse isToMany])
-        [[previous _pendingToManyForKey:inverseName ordered:[inverse isOrdered]] removeObject:[self objectID]];
-       else
-        [previous setPrimitiveValue:nil forKey:inverseName];
-      
-       [previous didChangeValueForKey:inverseName];
-      }
-     }
-    }
+    [self _detachInverseOf:relationship from:CDRelationshipValueByID(relationship,[self primitiveValueForKey:propertyName])];
 
     [self willChangeValueForKey:propertyName];
     [self setPrimitiveValue:valueByID forKey:propertyName];
     [self didChangeValueForKey:propertyName];
 
-    if(inverse!=nil){     
-     id allValues;
-
-     if([relationship isToMany])
-      allValues=valueByID;
-     else
-      allValues=(valueByID==nil)?[NSSet set]:[NSSet setWithObject:valueByID];
-
-     for(NSManagedObjectID *valueID in allValues){
-      NSManagedObject *relValue=[_context objectWithID:valueID];
-
-      [relValue willChangeValueForKey:inverseName];
-     
-      if([inverse isToMany]){
-       id collection=[relValue _pendingToManyForKey:inverseName ordered:[inverse isOrdered]];
-
-       if(![collection containsObject:[self objectID]])
-        [collection addObject:[self objectID]];
-      }
-      else{
-       /* As on Apple, an object that joins the receiver leaves the one
-          its to-one inverse named before: a product added to a category
-          is no longer among its old category's products, a partner's
-          old partner has none. */
-       NSManagedObjectID *ownerID=[relValue primitiveValueForKey:inverseName];
-
-       if(ownerID!=nil && ![ownerID isEqual:[self objectID]]){
-        NSManagedObject *owner=[_context objectWithID:ownerID];
-
-        [owner willChangeValueForKey:propertyName];
-        if([relationship isToMany])
-         [[owner _pendingToManyForKey:propertyName ordered:[relationship isOrdered]] removeObject:valueID];
-        else
-         [owner setPrimitiveValue:nil forKey:propertyName];
-        [owner didChangeValueForKey:propertyName];
-       }
-
-       [relValue setPrimitiveValue:[self objectID] forKey:inverseName];
-      }
-     
-      [relValue didChangeValueForKey:inverseName];
-     }
-    }
+    [self _attachInverseOf:relationship to:valueByID];
     return;
    }
    

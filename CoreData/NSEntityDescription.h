@@ -28,6 +28,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     id _versionHashModifier;
     NSString *_renamingIdentifier;
     NSMutableDictionary *_selectorPropertyMap;
+    NSSet *_propertyNamesWithCustomSetters;
     NSArray *_uniquenessConstraints;
     NSArray *_compoundIndexes;
     NSArray *_indexes;
