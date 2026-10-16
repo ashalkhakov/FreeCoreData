@@ -39,6 +39,9 @@ extern NSString * const CDMySQLMigrateSchemaOption;
 
 @interface CDMySQLStore : CDSQLStore {
     void *_connection;   /* MYSQL * */
+    NSMutableDictionary *_prepared;   /* SQL -> its statement prepared on this connection */
+    long long _preparedRowsAffected;  /* of the prepared statement just run, */
+    BOOL _lastWasPrepared;            /* when the last statement was one */
 }
 
 @end

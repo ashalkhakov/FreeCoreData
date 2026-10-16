@@ -1151,6 +1151,133 @@ static NSDictionary *migratedValues(void)
     return names;
 }
 
+/* -- permanent IDs ------------------------------------------------------ */
+
+/* Thing, a subentity of it, Special, and Other, a root of its own. */
+static NSManagedObjectModel *keyedModel(void)
+{
+    NSAttributeDescription *number = [[NSAttributeDescription alloc] init];
+    number.name = @"number";
+    number.attributeType = NSInteger64AttributeType;
+    number.optional = YES;
+    NSEntityDescription *thing = [[NSEntityDescription alloc] init];
+    thing.name = @"Thing";
+    thing.properties = @[ number ];
+    NSEntityDescription *special = [[NSEntityDescription alloc] init];
+    special.name = @"Special";
+    thing.subentities = @[ special ];
+    NSAttributeDescription *count = [[NSAttributeDescription alloc] init];
+    count.name = @"count";
+    count.attributeType = NSInteger64AttributeType;
+    count.optional = YES;
+    NSEntityDescription *other = [[NSEntityDescription alloc] init];
+    other.name = @"Other";
+    other.properties = @[ count ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ thing, special, other ];
+    return model;
+}
+
+static long long primaryKeyOf(NSManagedObject *object)
+{
+    return [[[[[object objectID] URIRepresentation] lastPathComponent] substringFromIndex:1] longLongValue];
+}
+
+/* The keys of objects, by their root entity's name. */
+static NSDictionary *keysByRoot(NSArray *objects)
+{
+    NSMutableDictionary *keys = [NSMutableDictionary dictionary];
+    for (NSManagedObject *object in objects) {
+        NSEntityDescription *root = [object entity];
+        while ([root superentity] != nil)
+            root = [root superentity];
+        if (keys[root.name] == nil)
+            keys[root.name] = [NSMutableSet set];
+        [keys[root.name] addObject:@(primaryKeyOf(object))];
+    }
+    return keys;
+}
+
+static NSSet *keysFrom(long long first, long long last)
+{
+    NSMutableSet *keys = [NSMutableSet set];
+    for (long long key = first; key <= last; key++)
+        [keys addObject:@(key)];
+    return keys;
+}
+
+- (NSArray *)insertKeyed:(int)count inContext:(NSManagedObjectContext *)context
+{
+    NSMutableArray *objects = [NSMutableArray array];
+    for (int i = 0; i < count; i++)
+        [objects addObject:[NSEntityDescription insertNewObjectForEntityForName:(i % 3 == 0) ? @"Thing" : (i % 3 == 1) ? @"Special" : @"Other"
+                                                         inManagedObjectContext:context]];
+    return objects;
+}
+
+- (long long)maxKeyOf:(NSString *)entityName
+{
+    return [self storePragma:[[NSString stringWithFormat:@"SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME = '%@'", entityName] UTF8String]];
+}
+
+/* New objects' keys come a block to each root entity, as Apple's do: an
+   entity and its subentities draw from one key space, the keys are
+   distinct and leave no gap, Z_MAX is the highest handed out, and a
+   later save, from another context, reuses none. */
+- (void)testPermanentIDsComeInABlockForEachRootEntity
+{
+    NSManagedObjectContext *context = [self contextWithModel:keyedModel() options:nil];
+    NSArray *objects = [self insertKeyed:150 inContext:context];
+    NSError *error = nil;
+    XCTAssertTrue([context obtainPermanentIDsForObjects:objects error:&error], @"%@", error);
+    for (NSManagedObject *object in objects)
+        XCTAssertFalse([[object objectID] isTemporaryID]);
+    NSDictionary *keys = keysByRoot(objects);
+    XCTAssertEqualObjects(keys[@"Thing"], keysFrom(1, 100), @"Thing and Special share a key space");
+    XCTAssertEqualObjects(keys[@"Other"], keysFrom(1, 50));
+    XCTAssertTrue([context save:&error], @"%@", error);
+    XCTAssertEqual([self maxKeyOf:@"Thing"], 100);
+    XCTAssertEqual([self maxKeyOf:@"Other"], 50);
+
+    NSManagedObjectContext *later = [[NSManagedObjectContext alloc] init];
+    later.persistentStoreCoordinator = context.persistentStoreCoordinator;
+    NSArray *more = [self insertKeyed:30 inContext:later];
+    XCTAssertTrue([later save:&error], @"%@", error);
+    keys = keysByRoot(more);
+    XCTAssertEqualObjects(keys[@"Thing"], keysFrom(101, 120));
+    XCTAssertEqualObjects(keys[@"Other"], keysFrom(51, 60));
+    XCTAssertEqual([self maxKeyOf:@"Thing"], 120);
+}
+
+/* A store that cannot give every object its key gives none: no object
+   takes a permanent ID, and every Z_MAX is as it was.  Made to fail by
+   taking away Other's key row behind the store's back; FreeCoreData's
+   alone, as nothing says what Apple's does then. */
+- (void)testPermanentIDsAreAllOrNothing
+{
+    if (NSClassFromString(@"NSSQLitePersistentStore") == nil)
+        return;
+
+    NSManagedObjectContext *context = [self contextWithModel:keyedModel() options:nil];
+    XCTAssertTrue([context save:NULL]);
+    NSArray *objects = [self insertKeyed:30 inContext:context];
+    XCTAssertTrue([context obtainPermanentIDsForObjects:@[ objects[0] ] error:NULL]);
+    long long thingMax = [self maxKeyOf:@"Thing"];
+    XCTAssertEqual(thingMax, 1);
+
+    sqlite3 *database = NULL;
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    XCTAssertEqual(sqlite3_exec(database, "DELETE FROM Z_PRIMARYKEY WHERE Z_NAME = 'Other'", NULL, NULL, NULL), SQLITE_OK);
+    sqlite3_close(database);
+
+    NSError *error = nil;
+    XCTAssertFalse([context obtainPermanentIDsForObjects:objects error:&error]);
+    XCTAssertNotNil(error);
+    for (NSManagedObject *object in [objects subarrayWithRange:NSMakeRange(1, [objects count] - 1)])
+        XCTAssertTrue([[object objectID] isTemporaryID], @"%@ took no permanent ID", [[object entity] name]);
+    XCTAssertEqual([self maxKeyOf:@"Thing"], thingMax, @"Thing's keys were not taken");
+}
+
 - (void)testMetadataContainsTypeUUIDAndVersionHashes
 {
     [self populateStore];

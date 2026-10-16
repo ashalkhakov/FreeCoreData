@@ -89,8 +89,13 @@ static long long primaryKeyFromReferenceObject(id referenceObject){
    return [string longLongValue];
 }
 
+/* Made for every object a fetch or a save names: formatted by hand, as
+   -stringWithFormat: costs several times as much. */
 static NSString *referenceObjectForPrimaryKey(long long primaryKey){
-   return [NSString stringWithFormat:@"%lld",primaryKey];
+   char buffer[24];
+   int  length=snprintf(buffer,sizeof(buffer),"%lld",primaryKey);
+
+   return [[[NSString alloc] initWithBytes:buffer length:(NSUInteger)length encoding:NSASCIIStringEncoding] autorelease];
 }
 
 /* ------------------------------------------------------------------ */
@@ -590,6 +595,41 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
 
 @end
 
+/* What writing a row of an entity takes that is the same for every row,
+   made once for each entity: the properties bound, in column order -
+   attributes but generated columns, and to-ones - the ones of them kept
+   externally, and the statements, prepared once and reset for each row
+   rather than built and prepared again. */
+@interface CDSQLiteRowLayout : NSObject {
+@public
+   NSArray      *properties;
+   NSArray      *externalAttributes;
+   sqlite3_stmt *insert;
+   sqlite3_stmt *update;
+   sqlite3_stmt *updateAtVersion;
+   sqlite3_stmt *readExternal;
+}
+@end
+
+@implementation CDSQLiteRowLayout
+
+-(void)finalizeStatements {
+   sqlite3_finalize(insert);
+   sqlite3_finalize(update);
+   sqlite3_finalize(updateAtVersion);
+   sqlite3_finalize(readExternal);
+   insert=update=updateAtVersion=readExternal=NULL;
+}
+
+-(void)dealloc {
+   [self finalizeStatements];
+   [properties release];
+   [externalAttributes release];
+   [super dealloc];
+}
+
+@end
+
 @implementation NSSQLitePersistentStore
 
 /* ------------------------------------------------------------------ */
@@ -608,6 +648,9 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
 }
 
 -(void)dealloc {
+   /* Its statements go before the connection they were prepared on. */
+   [_rowLayouts release];
+   _rowLayouts=nil;
    if(_database!=NULL)
     sqlite3_close(DATABASE);
    [_entityIDs release];
@@ -2346,44 +2389,105 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    return YES;
 }
 
+-(CDSQLiteRowLayout *)_rowLayoutForEntity:(NSEntityDescription *)entity error:(NSError **)error {
+   CDSQLiteRowLayout *layout=[_rowLayouts objectForKey:[entity name]];
+
+   if(layout!=nil)
+    return layout;
+
+   NSDictionary   *chain=propertiesForEntityChain(entity);
+   NSMutableArray *properties=[NSMutableArray array];
+   NSMutableArray *external=[NSMutableArray array];
+   NSMutableArray *columns=[NSMutableArray array];
+   NSString       *table=tableNameForEntity(entity);
+
+   for(NSString *name in [[chain allKeys] sortedArrayUsingSelector:@selector(compare:)]){
+    NSPropertyDescription *property=[chain objectForKey:name];
+
+    if([property isKindOfClass:[NSDerivedAttributeDescription class]] &&
+       [(NSDerivedAttributeDescription *)property _generatedColumnSourceName]!=nil)
+     continue;   /* computed by SQLite */
+    if([property isKindOfClass:[NSRelationshipDescription class]] && [(NSRelationshipDescription *)property isToMany])
+     continue;
+    if(![property isKindOfClass:[NSAttributeDescription class]] && ![property isKindOfClass:[NSRelationshipDescription class]])
+     continue;
+
+    [properties addObject:property];
+    [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(name)]];
+    if(attributeStoresExternally(property))
+     [external addObject:property];
+   }
+
+   NSMutableArray *insertColumns=[NSMutableArray arrayWithObjects:@"Z_PK",@"Z_ENT",@"Z_OPT",nil];
+   NSMutableArray *placeholders=[NSMutableArray arrayWithObjects:@"?",@"?",@"?",nil];
+   NSMutableArray *assignments=[NSMutableArray arrayWithObject:@"Z_OPT = Z_OPT + 1"];
+
+   [insertColumns addObjectsFromArray:columns];
+   for(NSString *column in columns){
+    [placeholders addObject:@"?"];
+    [assignments addObject:[column stringByAppendingString:@" = ?"]];
+   }
+
+   layout=[[[CDSQLiteRowLayout alloc] init] autorelease];
+   layout->properties=[properties copy];
+   layout->externalAttributes=[external copy];
+   layout->insert=prepareStatement(DATABASE,[NSString stringWithFormat:@"INSERT INTO \"%@\" (%@) VALUES (%@)",table,[insertColumns componentsJoinedByString:@", "],[placeholders componentsJoinedByString:@", "]],error);
+   layout->update=prepareStatement(DATABASE,[NSString stringWithFormat:@"UPDATE \"%@\" SET %@ WHERE Z_PK = ?",table,[assignments componentsJoinedByString:@", "]],error);
+   layout->updateAtVersion=prepareStatement(DATABASE,[NSString stringWithFormat:@"UPDATE \"%@\" SET %@ WHERE Z_PK = ? AND Z_OPT = ?",table,[assignments componentsJoinedByString:@", "]],error);
+   if([external count]>0){
+    NSMutableArray *read=[NSMutableArray arrayWithObject:@"Z_OPT"];
+
+    for(NSAttributeDescription *attribute in external)
+     [read addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty([attribute name])]];
+    layout->readExternal=prepareStatement(DATABASE,[NSString stringWithFormat:@"SELECT %@ FROM \"%@\" WHERE Z_PK = ?",[read componentsJoinedByString:@", "],table],error);
+   }
+   if(layout->insert==NULL || layout->update==NULL || layout->updateAtVersion==NULL || ([external count]>0 && layout->readExternal==NULL))
+    return nil;
+
+   if(_rowLayouts==nil)
+    _rowLayouts=[[NSMutableDictionary alloc] init];
+   [_rowLayouts setObject:layout forKey:[entity name]];
+   return layout;
+}
+
 -(BOOL)_writeRowForObject:(NSManagedObject *)object isInsert:(BOOL)isInsert error:(NSError **)error {
    NSEntityDescription *entity=[object entity];
-   NSDictionary        *properties=propertiesForEntityChain(entity);
+   CDSQLiteRowLayout   *layout=[self _rowLayoutForEntity:entity error:error];
    long long            primaryKey=primaryKeyFromReferenceObject([self referenceObjectForObjectID:[object objectID]]);
-   NSMutableArray      *names=[NSMutableArray array];
-   NSMutableArray      *values=[NSMutableArray array]; /* NSNull placeholders keep indexes aligned */
-   NSMutableArray      *boundProperties=[NSMutableArray array];
-   NSArray             *externalAttributes=[self _externalAttributesOfEntity:entity];
-   NSMutableDictionary *storedExternal=[NSMutableDictionary dictionary];
+   NSMutableDictionary *storedExternal=nil;
    BOOL                 rowAsRead=NO;
+
+   if(layout==nil)
+    return NO;
 
    /* What an updated row holds for its external values now: a value the
       object has not changed keeps its file, while the row is the version
       the object read; one it has changed lets go of its file. */
-   if(!isInsert && [externalAttributes count]>0){
-    NSMutableArray *columns=[NSMutableArray arrayWithObject:@"Z_OPT"];
+   if(!isInsert && layout->readExternal!=NULL){
+    sqlite3_stmt *statement=layout->readExternal;
 
-    for(NSAttributeDescription *attribute in externalAttributes)
-     [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty([attribute name])]];
-
-    sqlite3_stmt *statement=prepareStatement(DATABASE,[NSString stringWithFormat:@"SELECT %@ FROM \"%@\" WHERE Z_PK = %lld",[columns componentsJoinedByString:@", "],tableNameForEntity(entity),primaryKey],error);
-
-    if(statement==NULL)
-     return NO;
+    storedExternal=[NSMutableDictionary dictionary];
+    sqlite3_reset(statement);
+    sqlite3_bind_int64(statement,1,primaryKey);
     if(sqlite3_step(statement)==SQLITE_ROW){
      NSUInteger i;
 
      rowAsRead=([object _storeVersion]!=0 && (unsigned long long)sqlite3_column_int64(statement,0)==[object _storeVersion]);
-     for(i=0;i<[externalAttributes count];i++)
+     for(i=0;i<[layout->externalAttributes count];i++)
       if(sqlite3_column_type(statement,(int)i+1)!=SQLITE_NULL)
        [storedExternal setObject:[NSData dataWithBytes:sqlite3_column_blob(statement,(int)i+1) length:sqlite3_column_bytes(statement,(int)i+1)]
-                          forKey:[[externalAttributes objectAtIndex:i] name]];
+                          forKey:[[layout->externalAttributes objectAtIndex:i] name]];
     }
-    sqlite3_finalize(statement);
+    sqlite3_reset(statement);
    }
 
-   for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
-    NSPropertyDescription *property=[properties objectForKey:name];
+   NSUInteger      count=[layout->properties count];
+   NSMutableArray *values=[NSMutableArray arrayWithCapacity:count]; /* NSNull for none */
+   NSUInteger      i;
+
+   for(i=0;i<count;i++){
+    NSPropertyDescription *property=[layout->properties objectAtIndex:i];
+    NSString              *name=[property name];
     id                     value=nil;
 
     if(attributeStoresExternally(property)){
@@ -2400,67 +2504,31 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
        return NO;
      }
     }
-    else if([property isKindOfClass:[NSDerivedAttributeDescription class]]){
-     /* Same-table generated columns are computed by SQLite and cannot be
-        assigned; every other derivation is recomputed here, at save. */
-     if([(NSDerivedAttributeDescription *)property _generatedColumnSourceName]!=nil)
-      continue;
-
+    else if([property isKindOfClass:[NSDerivedAttributeDescription class]])
+     /* Every derivation but a same-table generated column is recomputed
+        here, at save. */
      value=[(NSDerivedAttributeDescription *)property _derivedValueForObject:object];
-    }
     else if([property isKindOfClass:[NSAttributeDescription class]])
      value=[object valueForKey:name];
-    else if([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany]){
+    else {
      NSManagedObject *destination=[object valueForKey:name];
 
      if(destination!=nil)
       value=[NSNumber numberWithLongLong:primaryKeyFromReferenceObject([self referenceObjectForObjectID:[destination objectID]])];
     }
-    else
-     continue;
-
-    [names addObject:columnNameForProperty(name)];
     [values addObject:(value!=nil)?value:(id)[NSNull null]];
-    [boundProperties addObject:property];
    }
 
-   NSString           *sql;
-   unsigned long long  expectedVersion=0;
+   /* Optimistic locking: an object that holds the row's version writes
+      only over that version.  (Read after the values above, which may
+      have realized the object's committed values -- and with them the
+      version -- just now.) */
+   unsigned long long expectedVersion=isInsert?0:[object _storeVersion];
+   sqlite3_stmt      *statement=isInsert?layout->insert:(expectedVersion!=0)?layout->updateAtVersion:layout->update;
+   int                index=1;
 
-   if(isInsert){
-    NSMutableArray *columns=[NSMutableArray arrayWithObjects:@"Z_PK",@"Z_ENT",@"Z_OPT",nil];
-    NSMutableArray *placeholders=[NSMutableArray arrayWithObjects:@"?",@"?",@"?",nil];
-
-    for(NSString *name in names){
-     [columns addObject:[NSString stringWithFormat:@"\"%@\"",name]];
-     [placeholders addObject:@"?"];
-    }
-
-    sql=[NSString stringWithFormat:@"INSERT INTO \"%@\" (%@) VALUES (%@)",tableNameForEntity(entity),[columns componentsJoinedByString:@", "],[placeholders componentsJoinedByString:@", "]];
-   }
-   else {
-    NSMutableArray *assignments=[NSMutableArray arrayWithObject:@"Z_OPT = Z_OPT + 1"];
-
-    for(NSString *name in names)
-     [assignments addObject:[NSString stringWithFormat:@"\"%@\" = ?",name]];
-
-    /* Optimistic locking: an object that holds the row's version writes
-       only over that version.  (Read after the values above, which may
-       have realized the object's committed values -- and with them the
-       version -- just now.) */
-    expectedVersion=[object _storeVersion];
-    if(expectedVersion!=0)
-     sql=[NSString stringWithFormat:@"UPDATE \"%@\" SET %@ WHERE Z_PK = %lld AND Z_OPT = %llu",tableNameForEntity(entity),[assignments componentsJoinedByString:@", "],primaryKey,expectedVersion];
-    else
-     sql=[NSString stringWithFormat:@"UPDATE \"%@\" SET %@ WHERE Z_PK = %lld",tableNameForEntity(entity),[assignments componentsJoinedByString:@", "],primaryKey];
-   }
-
-   sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
-
-   if(statement==NULL)
-    return NO;
-
-   int index=1;
+   sqlite3_reset(statement);
+   sqlite3_clear_bindings(statement);
 
    if(isInsert){
     sqlite3_bind_int64(statement,index++,primaryKey);
@@ -2468,10 +2536,8 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     sqlite3_bind_int64(statement,index++,1);
    }
 
-   NSUInteger i,count=[names count];
-
    for(i=0;i<count;i++){
-    NSPropertyDescription *property=[boundProperties objectAtIndex:i];
+    NSPropertyDescription *property=[layout->properties objectAtIndex:i];
     id                     value=[values objectAtIndex:i];
 
     if(value==[NSNull null])
@@ -2482,9 +2548,15 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
      sqlite3_bind_int64(statement,index++,[value longLongValue]);
    }
 
+   if(!isInsert){
+    sqlite3_bind_int64(statement,index++,primaryKey);
+    if(expectedVersion!=0)
+     sqlite3_bind_int64(statement,index++,(sqlite3_int64)expectedVersion);
+   }
+
    BOOL result=(sqlite3_step(statement)==SQLITE_DONE);
 
-   sqlite3_finalize(statement);
+   sqlite3_reset(statement);
 
    if(!result){
     if(error!=NULL)
@@ -2818,14 +2890,16 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     return nil;
 
    NSMutableArray *insertedIDs=[NSMutableArray array];
+   /* Every row's key at once: a block of the entity's key space. */
+   long long       nextKey=([rows count]>0)?[self _reservePrimaryKeys:(long long)[rows count] forEntity:entity error:error]:1;
+
+   if(nextKey==0){
+    executeSQL(DATABASE,@"ROLLBACK",NULL);
+    return nil;
+   }
 
    for(NSDictionary *row in rows){
-    long long primaryKey=[self _nextPrimaryKeyForEntity:entity error:error];
-
-    if(primaryKey==0){
-     executeSQL(DATABASE,@"ROLLBACK",NULL);
-     return nil;
-    }
+    long long primaryKey=nextKey++;
 
     NSMutableArray *columns=[NSMutableArray arrayWithObjects:@"Z_PK",@"Z_ENT",@"Z_OPT",nil];
     NSMutableArray *placeholders=[NSMutableArray arrayWithObjects:@"?",@"?",@"?",nil];
@@ -3949,43 +4023,86 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
 /* Reserves the next primary key for the entity by bumping Z_MAX on the
    root entity's Z_PRIMARYKEY row (subentities share the root's table and
    therefore its key space). */
--(long long)_nextPrimaryKeyForEntity:(NSEntityDescription *)entity error:(NSError **)error {
+/* Reserves count keys of entity's root's key space - an entity and its
+   subentities draw from one - answering the first of the block, first
+   to first+count-1, or 0.  One update and one read, in the transaction
+   the caller is in. */
+-(long long)_reservePrimaryKeys:(long long)count forEntity:(NSEntityDescription *)entity error:(NSError **)error {
    long long rootID=[self _entityIDForEntity:rootEntity(entity)];
-   NSString *sql=[NSString stringWithFormat:@"UPDATE Z_PRIMARYKEY SET Z_MAX = Z_MAX + 1 WHERE Z_ENT = %lld",rootID];
 
-   if(!executeSQL(DATABASE,sql,error))
+   if(!executeSQL(DATABASE,[NSString stringWithFormat:@"UPDATE Z_PRIMARYKEY SET Z_MAX = Z_MAX + %lld WHERE Z_ENT = %lld",count,rootID],error))
     return 0;
 
-   sqlite3_stmt *statement=prepareStatement(DATABASE,[NSString stringWithFormat:@"SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_ENT = %lld",rootID],error);
+   long long last=pragmaValue(DATABASE,[NSString stringWithFormat:@"SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_ENT = %lld",rootID]);
 
-   if(statement==NULL)
+   if(last<count){
+    if(error!=NULL)
+     *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"No Z_PRIMARYKEY entry for entity %@",[entity name]] forKey:NSLocalizedDescriptionKey]];
     return 0;
-
-   long long result=0;
-
-   if(sqlite3_step(statement)==SQLITE_ROW)
-    result=sqlite3_column_int64(statement,0);
-
-   sqlite3_finalize(statement);
-
-   if(result==0 && error!=NULL)
-    *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSPersistentStoreOperationError userInfo:[NSDictionary dictionaryWithObject:[NSString stringWithFormat:@"No Z_PRIMARYKEY entry for entity %@",[entity name]] forKey:NSLocalizedDescriptionKey]];
-
-   return result;
+   }
+   return last-count+1;
 }
 
+-(long long)_nextPrimaryKeyForEntity:(NSEntityDescription *)entity error:(NSError **)error {
+   return [self _reservePrimaryKeys:1 forEntity:entity error:error];
+}
+
+/* The objects' keys, reserved a block for each root entity rather than
+   one committed update for each object: inside a transaction of their
+   own, or a savepoint of the caller's - so that on an error none is
+   taken, and Z_MAX is as it was. */
 -(NSArray *)obtainPermanentIDsForObjects:(NSArray *)array error:(NSError **)error {
-   NSMutableArray *result=[NSMutableArray array];
+   NSMutableDictionary *byRoot=[NSMutableDictionary dictionary];
+   NSMutableDictionary *keys=[NSMutableDictionary dictionary];
+   BOOL                 ownTransaction=(sqlite3_get_autocommit(DATABASE)!=0);
+   BOOL                 ok=YES;
 
    for(NSManagedObject *object in array){
-    long long primaryKey=[self _nextPrimaryKeyForEntity:[object entity] error:error];
+    NSNumber       *root=[NSNumber numberWithLongLong:[self _entityIDForEntity:rootEntity([object entity])]];
+    NSMutableArray *objects=[byRoot objectForKey:root];
 
-    if(primaryKey==0)
-     return nil;
+    if(objects==nil){
+     objects=[NSMutableArray array];
+     [byRoot setObject:objects forKey:root];
+    }
+    [objects addObject:object];
+   }
+
+   if(!executeSQL(DATABASE,ownTransaction?@"BEGIN IMMEDIATE":@"SAVEPOINT CDPermanentIDs",error))
+    return nil;
+
+   for(NSNumber *root in byRoot){
+    NSArray  *objects=[byRoot objectForKey:root];
+    long long first=[self _reservePrimaryKeys:(long long)[objects count] forEntity:[[objects objectAtIndex:0] entity] error:error];
+    NSUInteger i;
+
+    if(first==0){
+     ok=NO;
+     break;
+    }
+    for(i=0;i<[objects count];i++)
+     [keys setObject:[NSNumber numberWithLongLong:first+(long long)i] forKey:[NSValue valueWithNonretainedObject:[objects objectAtIndex:i]]];
+   }
+
+   if(ok)
+    ok=executeSQL(DATABASE,ownTransaction?@"COMMIT":@"RELEASE CDPermanentIDs",error);
+   if(!ok){
+    if(ownTransaction)
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+    else {
+     executeSQL(DATABASE,@"ROLLBACK TO CDPermanentIDs",NULL);
+     executeSQL(DATABASE,@"RELEASE CDPermanentIDs",NULL);
+    }
+    return nil;
+   }
+
+   NSMutableArray *result=[NSMutableArray arrayWithCapacity:[array count]];
+
+   for(NSManagedObject *object in array){
+    long long primaryKey=[[keys objectForKey:[NSValue valueWithNonretainedObject:object]] longLongValue];
 
     [result addObject:[[self newObjectIDForEntity:[object entity] referenceObject:referenceObjectForPrimaryKey(primaryKey)] autorelease]];
    }
-
    return result;
 }
 

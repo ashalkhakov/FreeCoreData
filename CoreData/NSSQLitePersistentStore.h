@@ -60,6 +60,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     /* Saves to go before the free pages are looked at again (see
        -_givePagesBackAfterSave). */
     long long _savesBeforeMaintenance;
+
+    /* How a row of each entity is written, by entity name: the properties
+       bound and the statements, prepared once (see -_writeRowForObject:). */
+    NSMutableDictionary *_rowLayouts;
 }
 
 @end

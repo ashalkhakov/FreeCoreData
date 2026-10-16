@@ -46,6 +46,7 @@ extern NSString * const CDPostgreSQLMigrateSchemaOption;
 @interface CDPostgreSQLStore : CDSQLStore {
     void *_connection;        /* PGconn * */
     long long _rowsAffected;  /* of the statement just run */
+    NSMutableDictionary *_prepared;   /* SQL -> name of its statement prepared on this connection */
 }
 
 @end
