@@ -1205,6 +1205,7 @@ static NSString *externalReferenceName(NSData *stored){
    [_schemaName release];
    [_entityIDs release];
    [_entityNamesByID release];
+   [_entityIDLists release];
    [_rowVersions release];
    [_rowSQL release];
    [_externalDataStore release];
@@ -1343,6 +1344,39 @@ static NSString *externalReferenceName(NSData *stored){
 
    [_entityIDs setObject:number forKey:name];
    [_entityNamesByID setObject:name forKey:number];
+   [_entityIDLists removeAllObjects];
+}
+
+/* The condition that a row of entity's root table is entity's own, or one
+   of its subentities' - "alias"."Z_ENT" IN (3, 4) - or nil for a root
+   entity, whose table holds no other entity's rows.  Siblings sharing a
+   table may each declare a relationship of one name, and so share its
+   foreign-key column: a foreign key's rows are a destination's only when
+   they are of the destination's entities.  An entity with no Z_ENT yet has
+   no rows to tell apart, and gets nil rather than an IN (0) matching none. */
+-(NSString *)_onlyRowsOfEntity:(NSEntityDescription *)entity column:(NSString *)entityColumn {
+   if(rootEntity(entity)==entity || [_entityIDs objectForKey:[entity name]]==nil)
+    return nil;
+
+   NSString *list=[_entityIDLists objectForKey:[entity name]];
+
+   if(list==nil){
+    NSMutableArray *entityIDs=[NSMutableArray array];
+
+    [self _collectEntityIDsOfEntity:entity into:entityIDs];
+    list=[entityIDs componentsJoinedByString:@", "];
+    if(_entityIDLists==nil)
+     _entityIDLists=[[NSMutableDictionary alloc] init];
+    [_entityIDLists setObject:list forKey:[entity name]];
+   }
+   return [NSString stringWithFormat:@"%@ IN (%@)",entityColumn,list];
+}
+
+/* " AND " and that condition, or "" when there is none. */
+-(NSString *)_andOnlyRowsOfEntity:(NSEntityDescription *)entity column:(NSString *)entityColumn {
+   NSString *condition=[self _onlyRowsOfEntity:entity column:entityColumn];
+
+   return (condition==nil)?@"":[@" AND " stringByAppendingString:condition];
 }
 
 -(long long)_entityIDForEntity:(NSEntityDescription *)entity {
@@ -1875,8 +1909,12 @@ static NSString * const CDSQLOuterAlias=@"t0";
       /* The foreign key lives on the destination's row. */
       NSRelationshipDescription *inverse=[relationship inverseRelationship];
 
+      NSString *onlyDestination=[self _onlyRowsOfEntity:destination column:[NSString stringWithFormat:@"%@.\"Z_ENT\"",alias]];
+
       [from addObject:[NSString stringWithFormat:@"%@ %@",quoted(tableNameForEntity(destination)),alias]];
       [where addObject:[NSString stringWithFormat:@"%@.%@ = %@.\"Z_PK\"",alias,quoted(columnNameForProperty([inverse name])),currentRef]];
+      if(onlyDestination!=nil)
+       [where addObject:onlyDestination];
      }
     }
 
@@ -2905,9 +2943,10 @@ static NSString * const CDSQLOuterAlias=@"t0";
      if(inverse==nil)
       return nil;
 
-     [query addJoin:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.%@ = %@.\"Z_PK\"",
+     [query addJoin:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.%@ = %@.\"Z_PK\"%@",
                      quoted(tableNameForEntity(destination)),alias,
-                     alias,quoted(columnNameForProperty([inverse name])),currentAlias]];
+                     alias,quoted(columnNameForProperty([inverse name])),currentAlias,
+                     [self _andOnlyRowsOfEntity:destination column:[NSString stringWithFormat:@"%@.\"Z_ENT\"",alias]]]];
     }
 
     [aliases setObject:alias forKey:prefix];
@@ -3749,7 +3788,10 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
      NSRelationshipDescription *inverse=[relationship inverseRelationship];
      NSString                  *destinationTable=quoted(tableNameForEntity([relationship destinationEntity]));
      NSString                  *foreignKeyColumn=quoted(columnNameForProperty([inverse name]));
-     NSString                  *clearSQL=[NSString stringWithFormat:@"UPDATE %@ SET %@ = NULL WHERE %@ = %lld",destinationTable,foreignKeyColumn,foreignKeyColumn,primaryKey];
+     /* A member that left an ordered to-many keeps no place in it. */
+     NSString                  *clearOrder=[relationship isOrdered]?[NSString stringWithFormat:@", %@ = NULL",quoted(orderColumnForRelationship(relationship))]:@"";
+     NSString                  *clearSQL=[NSString stringWithFormat:@"UPDATE %@ SET %@ = NULL%@ WHERE %@ = %lld%@",destinationTable,foreignKeyColumn,clearOrder,foreignKeyColumn,primaryKey,
+                                                                    [self _andOnlyRowsOfEntity:[relationship destinationEntity] column:@"\"Z_ENT\""]];
 
      if(![self command:clearSQL parameters:nil error:error])
       return NO;
@@ -5518,6 +5560,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
 
     [_entityNamesByID removeObjectForKey:[_entityIDs objectForKey:name]];
     [_entityIDs removeObjectForKey:name];
+    [_entityIDLists removeAllObjects];
    }
 
    for(NSEntityDescription *entity in sortedEntities)
@@ -6364,10 +6407,10 @@ static NSArray *rowNamesOfProperties(NSDictionary *properties){
         ?quoted(orderColumnForRelationship(relationship))
         :@"\"Z_PK\"";
 
-    sql=[NSString stringWithFormat:@"SELECT \"Z_PK\", \"Z_ENT\" FROM %@ WHERE %@ = %lld ORDER BY %@",
+    sql=[NSString stringWithFormat:@"SELECT \"Z_PK\", \"Z_ENT\" FROM %@ WHERE %@ = %lld%@ ORDER BY %@",
                                    quoted(tableNameForEntity(destination)),
                                    quoted(columnNameForProperty([inverse name])),
-                                   primaryKey,orderBy];
+                                   primaryKey,[self _andOnlyRowsOfEntity:destination column:@"\"Z_ENT\""],orderBy];
    }
 
    id<CDSQLResult> result=[self execute:sql parameters:nil error:error];

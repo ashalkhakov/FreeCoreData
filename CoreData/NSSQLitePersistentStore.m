@@ -655,6 +655,7 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
     sqlite3_close(DATABASE);
    [_entityIDs release];
    [_entityNamesByID release];
+   [_entityIDLists release];
    [_externalDataStore release];
    [_externalDataWritten release];
    [_externalDataReleased release];
@@ -762,6 +763,7 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
 
    [_entityIDs setObject:number forKey:name];
    [_entityNamesByID setObject:name forKey:number];
+   [_entityIDLists removeAllObjects];
 }
 
 -(long long)_entityIDForEntity:(NSEntityDescription *)entity {
@@ -796,10 +798,23 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
    if(rootEntity(entity)==entity)
     return @"";
 
-   NSMutableArray *entityIDs=[NSMutableArray array];
+   /* An entity the store has no Z_ENT for has no rows to tell apart:
+      "IN (0)" would match none and hide the ones there are. */
+   if([_entityIDs objectForKey:[entity name]]==nil)
+    return @"";
 
-   [self _collectEntityIDsOfEntity:entity into:entityIDs];
-   return [NSString stringWithFormat:@" AND %@ IN (%@)",entityColumn,[entityIDs componentsJoinedByString:@", "]];
+   NSString *list=[_entityIDLists objectForKey:[entity name]];
+
+   if(list==nil){
+    NSMutableArray *entityIDs=[NSMutableArray array];
+
+    [self _collectEntityIDsOfEntity:entity into:entityIDs];
+    list=[entityIDs componentsJoinedByString:@", "];
+    if(_entityIDLists==nil)
+     _entityIDLists=[[NSMutableDictionary alloc] init];
+    [_entityIDLists setObject:list forKey:[entity name]];
+   }
+   return [NSString stringWithFormat:@" AND %@ IN (%@)",entityColumn,list];
 }
 
 /* Properties of entity including the ones inherited from superentities.
@@ -3012,7 +3027,9 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
      NSString                  *destinationTable=tableNameForEntity([relationship destinationEntity]);
      NSString                  *foreignKeyColumn=columnNameForProperty([inverse name]);
 
-     NSString *clearSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = NULL WHERE \"%@\" = %lld%@",destinationTable,foreignKeyColumn,foreignKeyColumn,primaryKey,[self _onlyRowsOfEntity:[relationship destinationEntity] column:@"Z_ENT"]];
+     /* A member that left an ordered to-many keeps no place in it. */
+     NSString *clearOrder=[relationship isOrdered]?[NSString stringWithFormat:@", \"%@\" = NULL",orderColumnForRelationship(relationship)]:@"";
+     NSString *clearSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = NULL%@ WHERE \"%@\" = %lld%@",destinationTable,foreignKeyColumn,clearOrder,foreignKeyColumn,primaryKey,[self _onlyRowsOfEntity:[relationship destinationEntity] column:@"Z_ENT"]];
 
      if(!executeSQL(DATABASE,clearSQL,error))
       return NO;

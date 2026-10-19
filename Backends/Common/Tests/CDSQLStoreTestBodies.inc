@@ -3584,3 +3584,168 @@ static NSArray *CDRegexUntranslatable(void)
     XCTAssertNil(result);
     XCTAssertNotNil(error);
 }
+
+/* -- siblings sharing a relationship name -------------------------------- */
+
+/* Two sibling entities each declaring a to-one "unit" to Unit, with an
+   inverse of its own: their root's table holds both in one column, and
+   each keeps its own destination and inverse. */
+static NSManagedObjectModel *CDSQLSiblingsModel(BOOL ordered)
+{
+    NSEntityDescription *unit = [[NSEntityDescription alloc] init];
+    NSEntityDescription *event = [[NSEntityDescription alloc] init];
+    NSEntityDescription *metered = [[NSEntityDescription alloc] init];
+    NSEntityDescription *income = [[NSEntityDescription alloc] init];
+    [unit setName:@"Unit"];
+    [event setName:@"Event"];
+    [metered setName:@"Metered"];
+    [income setName:@"Income"];
+    for (NSEntityDescription *entity in @[ unit, event, metered, income ])
+        [entity setManagedObjectClassName:@"NSManagedObject"];
+
+    NSMutableArray *relationships = [NSMutableArray array];
+    for (NSString *name in @[ @"unit", @"meteredEvents", @"unit", @"incomes" ]) {
+        NSRelationshipDescription *relationship = [[NSRelationshipDescription alloc] init];
+        BOOL toMany = ![name isEqualToString:@"unit"];
+        [relationship setName:name];
+        [relationship setMinCount:0];
+        [relationship setMaxCount:toMany ? 0 : 1];
+        [relationship setOptional:YES];
+        [relationship setOrdered:toMany && ordered];
+        [relationships addObject:relationship];
+    }
+    NSRelationshipDescription *meteredUnit = relationships[0], *meteredEvents = relationships[1];
+    NSRelationshipDescription *incomeUnit = relationships[2], *incomes = relationships[3];
+    [meteredUnit setDestinationEntity:unit];
+    [meteredEvents setDestinationEntity:metered];
+    [meteredUnit setInverseRelationship:meteredEvents];
+    [meteredEvents setInverseRelationship:meteredUnit];
+    [incomeUnit setDestinationEntity:unit];
+    [incomes setDestinationEntity:income];
+    [incomeUnit setInverseRelationship:incomes];
+    [incomes setInverseRelationship:incomeUnit];
+
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    [name setName:@"name"];
+    [name setAttributeType:NSStringAttributeType];
+    [name setOptional:YES];
+    NSAttributeDescription *note = [[NSAttributeDescription alloc] init];
+    [note setName:@"note"];
+    [note setAttributeType:NSStringAttributeType];
+    [note setOptional:YES];
+
+    [unit setProperties:@[ name, meteredEvents, incomes ]];
+    [event setProperties:@[ note ]];
+    [metered setProperties:@[ meteredUnit ]];
+    [income setProperties:@[ incomeUnit ]];
+    [event setSubentities:@[ metered, income ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ unit, event, metered, income ]];
+    return model;
+}
+
+- (NSManagedObjectContext *)siblingsContext:(BOOL)ordered
+{
+    NSPersistentStoreCoordinator *coordinator =
+        [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:CDSQLSiblingsModel(ordered)];
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    NSError *error = nil;
+
+    options[[self schemaNameOptionKey]] = [NSString stringWithFormat:@"%@_sib", self.storeOptions[[self schemaNameOptionKey]]];
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:[self storeType] configuration:nil
+                                                        URL:self.storeURL options:options error:&error], @"%@", error);
+
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    [context setPersistentStoreCoordinator:coordinator];
+    return context;
+}
+
+- (void)destroySiblingsSchema
+{
+    NSString *schema = [NSString stringWithFormat:@"%@_sib", self.storeOptions[[self schemaNameOptionKey]]];
+
+    [[self storeClass] destroyStoreAtURL:self.storeURL options:@{ [self schemaNameOptionKey] : schema } error:NULL];
+}
+
+/* km and mi, by name. */
+- (NSArray *)siblingUnitsIn:(NSManagedObjectContext *)context predicate:(NSPredicate *)predicate
+{
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Unit"];
+    [fetch setPredicate:predicate];
+    [fetch setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+    return [context executeFetchRequest:fetch error:NULL];
+}
+
+static NSArray *CDSQLSiblingNotes(id members)
+{
+    if ([members isKindOfClass:[NSOrderedSet class]])
+        return [[members array] valueForKey:@"note"];
+    return [[[members allObjects] valueForKey:@"note"] sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (void)assertSiblingUnits:(NSArray *)units metered:(NSArray *)metered incomes:(NSArray *)incomes ordered:(BOOL)ordered
+{
+    XCTAssertEqual([units count], (NSUInteger)2);
+    if ([units count] != 2)
+        return;
+    for (NSUInteger i = 0; i < 2; i++) {
+        XCTAssertEqualObjects(CDSQLSiblingNotes([units[i] valueForKey:@"meteredEvents"]), metered[i], @"%@ metered%@", [units[i] valueForKey:@"name"], ordered ? @", ordered" : @"");
+        XCTAssertEqualObjects(CDSQLSiblingNotes([units[i] valueForKey:@"incomes"]), incomes[i], @"%@ incomes%@", [units[i] valueForKey:@"name"], ordered ? @", ordered" : @"");
+    }
+}
+
+- (void)assertSiblingsKeepTheirRelationshipsOfOneName:(BOOL)ordered
+{
+    [self destroySiblingsSchema];
+
+    NSManagedObjectContext *context = [self siblingsContext:ordered];
+    NSManagedObject *km = [NSEntityDescription insertNewObjectForEntityForName:@"Unit" inManagedObjectContext:context];
+    NSManagedObject *mi = [NSEntityDescription insertNewObjectForEntityForName:@"Unit" inManagedObjectContext:context];
+    [km setValue:@"km" forKey:@"name"];
+    [mi setValue:@"mi" forKey:@"name"];
+    NSArray *made = @[ @[ @"Metered", @"a", km ], @[ @"Income", @"b", km ], @[ @"Income", @"c", mi ], @[ @"Metered", @"d", mi ] ];
+    for (NSArray *spec in made) {
+        NSManagedObject *event = [NSEntityDescription insertNewObjectForEntityForName:spec[0] inManagedObjectContext:context];
+        [event setValue:spec[1] forKey:@"note"];
+        [event setValue:spec[2] forKey:@"unit"];
+    }
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+
+    context = [self siblingsContext:ordered];
+    NSArray *units = [self siblingUnitsIn:context predicate:nil];
+    [self assertSiblingUnits:units metered:@[ @[ @"a" ], @[ @"d" ] ] incomes:@[ @[ @"b" ], @[ @"c" ] ] ordered:ordered];
+    if ([units count] != 2)
+        return;
+
+    /* b moves to mi: only b leaves km.  a leaves km's metered events. */
+    NSManagedObject *b = [[[units[0] valueForKey:@"incomes"] objectEnumerator] nextObject];
+    [b setValue:units[1] forKey:@"unit"];
+    NSManagedObject *a = [[[units[0] valueForKey:@"meteredEvents"] objectEnumerator] nextObject];
+    [a setValue:nil forKey:@"unit"];
+    XCTAssertTrue([context save:&error], @"%@", error);
+
+    context = [self siblingsContext:ordered];
+    units = [self siblingUnitsIn:context predicate:nil];
+    NSArray *miIncomes = ordered ? @[ @"c", @"b" ] : @[ @"b", @"c" ];
+    [self assertSiblingUnits:units metered:@[ @[], @[ @"d" ] ] incomes:@[ @[], miIncomes ] ordered:ordered];
+
+    NSFetchRequest *events = [NSFetchRequest fetchRequestWithEntityName:@"Event"];
+    [events setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"note" ascending:YES] ]];
+    NSArray *all = [context executeFetchRequest:events error:&error];
+    XCTAssertEqualObjects([all valueForKeyPath:@"unit.name"], (@[ [NSNull null], @"mi", @"mi", @"mi" ]));
+
+    /* Predicates through each sibling's inverse find only its own rows. */
+    XCTAssertEqualObjects([[self siblingUnitsIn:context predicate:[NSPredicate predicateWithFormat:@"ANY incomes.note == 'b'"]] valueForKey:@"name"], @[ @"mi" ]);
+    XCTAssertEqualObjects([[self siblingUnitsIn:context predicate:[NSPredicate predicateWithFormat:@"ANY meteredEvents.note == 'b'"]] valueForKey:@"name"], @[]);
+    XCTAssertEqualObjects([[self siblingUnitsIn:context predicate:[NSPredicate predicateWithFormat:@"meteredEvents.@count == 1 AND incomes.@count == 2"]] valueForKey:@"name"], @[ @"mi" ]);
+
+    [self destroySiblingsSchema];
+}
+
+- (void)testSiblingsKeepTheirRelationshipsOfOneName
+{
+    [self assertSiblingsKeepTheirRelationshipsOfOneName:NO];
+    [self assertSiblingsKeepTheirRelationshipsOfOneName:YES];
+}

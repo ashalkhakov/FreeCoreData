@@ -64,6 +64,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     /* How a row of each entity is written, by entity name: the properties
        bound and the statements, prepared once (see -_writeRowForObject:). */
     NSMutableDictionary *_rowLayouts;
+
+    /* The Z_ENT values of each entity and its subentities, as SQL ("3, 4"),
+       by entity name (see -_onlyRowsOfEntity:column:). */
+    NSMutableDictionary *_entityIDLists;
 }
 
 @end
