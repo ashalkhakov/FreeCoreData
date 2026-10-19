@@ -49,7 +49,12 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
 }
 
 /* The metadata dictionary is stored inside the <metadata> element as an
-   XML property list string. */
+   XML property list string. The store's type and UUID are in it too, but
+   are read from the store class and the <UUID> element. Files written
+   before NSStoreTypeKey and NSStoreUUIDKey took Apple's values
+   ("NSStoreType", "NSStoreUUID") hold them under the constants' names;
+   those copies are dropped, so they are not carried along and written
+   back beside the current ones. */
 static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
    NSString *plistString=[element stringValue];
 
@@ -57,12 +62,34 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
     return [NSDictionary dictionary];
 
    NSData       *plistData=[plistString dataUsingEncoding:NSUTF8StringEncoding];
-   NSDictionary *result=[NSPropertyListSerialization propertyListWithData:plistData options:NSPropertyListImmutable format:NULL error:NULL];
+   NSDictionary *plist=[NSPropertyListSerialization propertyListWithData:plistData options:NSPropertyListImmutable format:NULL error:NULL];
 
-   if(![result isKindOfClass:[NSDictionary class]])
+   if(![plist isKindOfClass:[NSDictionary class]])
     return [NSDictionary dictionary];
 
+   NSMutableDictionary *result=[NSMutableDictionary dictionaryWithDictionary:plist];
+
+   [result removeObjectForKey:@"NSStoreTypeKey"];
+   [result removeObjectForKey:@"NSStoreUUIDKey"];
+
    return result;
+}
+
+/* The store's UUID: its <UUID> element's, or, in a file with none, the
+   copy a file written before kept under the old key name. */
+static NSString *storeUUIDOfElements(NSXMLElement *uuid,NSXMLElement *metadata){
+   if([[uuid stringValue] length]>0)
+    return [uuid stringValue];
+
+   NSString *plistString=[metadata stringValue];
+
+   if([plistString length]==0)
+    return nil;
+
+   NSDictionary *plist=[NSPropertyListSerialization propertyListWithData:[plistString dataUsingEncoding:NSUTF8StringEncoding] options:NSPropertyListImmutable format:NULL error:NULL];
+   id            old=[plist isKindOfClass:[NSDictionary class]]?[plist objectForKey:@"NSStoreUUIDKey"]:nil;
+
+   return ([old isKindOfClass:[NSString class]] && [old length]>0)?old:nil;
 }
 
 @implementation NSXMLPersistentStore
@@ -89,9 +116,11 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
 
    NSMutableDictionary *result=[NSMutableDictionary dictionary];
 
+   NSString *storeUUID=storeUUIDOfElements(uuid,metadataElement);
+
    [result addEntriesFromDictionary:metadataDictionaryFromElement(metadataElement)];
-   if([uuid stringValue]!=nil)
-    [result setObject:[uuid stringValue] forKey:NSStoreUUIDKey];
+   if(storeUUID!=nil)
+    [result setObject:storeUUID forKey:NSStoreUUIDKey];
    [result setObject:NSXMLStoreType forKey:NSStoreTypeKey];
 
    return result;
@@ -167,7 +196,19 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
 
    [data release];
    
-   [super setIdentifier:[[self identifierElement] stringValue]];
+   /* A file with no UUID of its own keeps the one the store was made with,
+      written into it. */
+   NSString *storeUUID=storeUUIDOfElements([self identifierElement],[self metadataElement]);
+
+   if(storeUUID==nil)
+    storeUUID=[self identifier];
+   if([self identifierElement]==nil){
+    NSXMLElement *uuidElement=[[NSXMLElement alloc] initWithName:@"UUID" stringValue:storeUUID];
+
+    [[self databaseInfoElement] addChild:uuidElement];
+    [uuidElement release];
+   }
+   [self setIdentifier:storeUUID];
 
    NSMutableDictionary *initialMetadata=[NSMutableDictionary dictionaryWithDictionary:metadataDictionaryFromElement([self metadataElement])];
 

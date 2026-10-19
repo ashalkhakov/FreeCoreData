@@ -33,24 +33,24 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 + (BOOL)destroyStoreAtURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
 @end
 
-NSString * const NSStoreTypeKey=@"NSStoreTypeKey";
-NSString * const NSStoreUUIDKey=@"NSStoreUUIDKey";
+NSString * const NSStoreTypeKey=@"NSStoreType";
+NSString * const NSStoreUUIDKey=@"NSStoreUUID";
 NSString * const NSStoreModelVersionHashesKey=@"NSStoreModelVersionHashes";
 NSString * const NSStoreModelVersionIdentifiersKey=@"NSStoreModelVersionIdentifiers";
 
-NSString * const NSXMLStoreType=@"NSXMLStoreType";
+NSString * const NSXMLStoreType=@"XML";
 NSString * const NSSQLiteStoreType=@"SQLite";
 NSString * const NSSQLiteManualVacuumOption=@"NSSQLiteManualVacuumOption";
-NSString * const NSInMemoryStoreType=@"NSInMemoryStoreType";
+NSString * const NSInMemoryStoreType=@"InMemory";
 NSString * const NSMigratePersistentStoresAutomaticallyOption=@"NSMigratePersistentStoresAutomaticallyOption";
 NSString * const NSReadOnlyPersistentStoreOption=@"NSReadOnlyPersistentStoreOption";
 NSString * const NSInferMappingModelAutomaticallyOption=@"NSInferMappingModelAutomaticallyOption";
 NSString * const NSIgnorePersistentStoreVersioningOption=@"NSIgnorePersistentStoreVersioningOption";
 
 NSString * const NSPersistentStoreCoordinatorStoresDidChangeNotification=@"NSPersistentStoreCoordinatorStoresDidChangeNotification";
-NSString * const NSAddedPersistentStoresKey=@"NSAddedPersistentStoresKey";
-NSString * const NSRemovedPersistentStoresKey=@"NSRemovedPersistentStoresKey";
-NSString * const NSUUIDChangedPersistentStoresKey=@"NSUUIDChangedPersistentStoresKey";
+NSString * const NSAddedPersistentStoresKey=@"added";
+NSString * const NSRemovedPersistentStoresKey=@"removed";
+NSString * const NSUUIDChangedPersistentStoresKey=@"changedUUID";
 
 NSString * const NSPersistentHistoryTrackingKey=@"NSPersistentHistoryTrackingKey";
 NSString * const NSPersistentStoreRemoteChangeNotificationPostOptionKey=@"NSPersistentStoreRemoteChangeNotificationOptionKey";
