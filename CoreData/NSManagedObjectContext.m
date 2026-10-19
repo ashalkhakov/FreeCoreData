@@ -556,12 +556,25 @@ static char CDContextQueueSpecificKey;
    [_undoManager removeAllActions];
    [self _clearUndoEventCapture];
 
+   NSMutableArray *invalidated=[NSMutableArray arrayWithCapacity:[_registeredObjects count]];
+
+   for(NSManagedObject *object in _registeredObjects)
+    [invalidated addObject:[object objectID]];
+
    [_registeredObjects removeAllObjects];
    [_insertedObjects removeAllObjects];
    [_updatedObjects removeAllObjects];
    [_deletedObjects removeAllObjects];
    [self _discardPendingChangeNotifications];
    NSResetMapTable(_objectIdToObject);
+
+   /* As Apple's does, at once and whether or not there was anything: the
+      IDs of every object the context had, which it has now forgotten (an
+      array controller empties its content on it).  Changes still pending
+      are not reported. */
+   [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextObjectsDidChangeNotification
+                                                       object:self
+                                                     userInfo:[NSDictionary dictionaryWithObject:invalidated forKey:NSInvalidatedAllObjectsKey]];
 }
 
 
