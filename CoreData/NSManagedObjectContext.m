@@ -42,16 +42,19 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <Foundation/NSNull.h>
 #import "CoreDataUtilities.h"
 
-NSString * const NSManagedObjectContextWillSaveNotification=@"NSManagedObjectContextWillSaveNotification";
-NSString * const NSManagedObjectContextDidSaveNotification=@"NSManagedObjectContextDidSaveNotification";
-NSString * const NSManagedObjectContextObjectsDidChangeNotification=@"NSManagedObjectContextObjectsDidChangeNotification";
+/* The notifications' names and their keys have Apple's values, not the
+   constants' names, so that code which matches them by string (AppKit's
+   controllers in gnustep-gui, which cannot link Core Data) works with both. */
+NSString * const NSManagedObjectContextWillSaveNotification=@"NSManagingContextWillSaveChangesNotification";
+NSString * const NSManagedObjectContextDidSaveNotification=@"NSManagingContextDidSaveChangesNotification";
+NSString * const NSManagedObjectContextObjectsDidChangeNotification=@"NSObjectsChangedInManagingContextNotification";
 
-NSString * const NSInsertedObjectsKey=@"NSInsertedObjectsKey";
-NSString * const NSUpdatedObjectsKey=@"NSUpdatedObjectsKey";
-NSString * const NSDeletedObjectsKey=@"NSDeletedObjectsKey";
-NSString * const NSRefreshedObjectsKey=@"NSRefreshedObjectsKey";
-NSString * const NSInvalidatedObjectsKey=@"NSInvalidatedObjectsKey";
-NSString * const NSInvalidatedAllObjectsKey=@"NSInvalidatedAllObjectsKey";
+NSString * const NSInsertedObjectsKey=@"inserted";
+NSString * const NSUpdatedObjectsKey=@"updated";
+NSString * const NSDeletedObjectsKey=@"deleted";
+NSString * const NSRefreshedObjectsKey=@"refreshed";
+NSString * const NSInvalidatedObjectsKey=@"invalidated";
+NSString * const NSInvalidatedAllObjectsKey=@"invalidatedAll";
 
 NSString * const NSManagedObjectContextDidSaveObjectIDsNotification=@"NSManagedObjectContextDidSaveObjectIDsNotification";
 

@@ -49,7 +49,12 @@ static NSEntityDescription *entityInModelWithName(NSManagedObjectModel *model,NS
 }
 
 /* The metadata dictionary is stored inside the <metadata> element as an
-   XML property list string. */
+   XML property list string. The store's type and UUID are in it too, but
+   are read from the store class and the <UUID> element. Files written
+   before NSStoreTypeKey and NSStoreUUIDKey took Apple's values
+   ("NSStoreType", "NSStoreUUID") hold them under the constants' names;
+   those copies are dropped, so they are not carried along and written
+   back beside the current ones. */
 static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
    NSString *plistString=[element stringValue];
 
@@ -57,10 +62,15 @@ static NSDictionary *metadataDictionaryFromElement(NSXMLElement *element){
     return [NSDictionary dictionary];
 
    NSData       *plistData=[plistString dataUsingEncoding:NSUTF8StringEncoding];
-   NSDictionary *result=[NSPropertyListSerialization propertyListWithData:plistData options:NSPropertyListImmutable format:NULL error:NULL];
+   NSDictionary *plist=[NSPropertyListSerialization propertyListWithData:plistData options:NSPropertyListImmutable format:NULL error:NULL];
 
-   if(![result isKindOfClass:[NSDictionary class]])
+   if(![plist isKindOfClass:[NSDictionary class]])
     return [NSDictionary dictionary];
+
+   NSMutableDictionary *result=[NSMutableDictionary dictionaryWithDictionary:plist];
+
+   [result removeObjectForKey:@"NSStoreTypeKey"];
+   [result removeObjectForKey:@"NSStoreUUIDKey"];
 
    return result;
 }
