@@ -43,6 +43,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <Foundation/Foundation.h>
 
 #import <sqlite3.h>
+#import <objc/runtime.h>
 #import "CDExternalDataStore-Private.h"
 
 #define DATABASE ((sqlite3 *)_database)
@@ -72,6 +73,97 @@ static NSEntityDescription *rootEntity(NSEntityDescription *entity){
 
 static NSString *tableNameForEntity(NSEntityDescription *entity){
    return [@"Z" stringByAppendingString:[[rootEntity(entity) name] uppercaseString]];
+}
+
+/* The entity of entity's chain that declares the property name: the
+   highest that has it. */
+static NSEntityDescription *declaringEntity(NSEntityDescription *entity,NSString *name){
+   while([entity superentity]!=nil && [[[entity superentity] propertiesByName] objectForKey:name]!=nil)
+    entity=[entity superentity];
+
+   return entity;
+}
+
+/* Whether a property has a column of its own: a stored attribute, or a
+   to-one's foreign key. */
+static BOOL propertyHasColumn(NSPropertyDescription *property){
+   if([property isTransient])
+    return NO;
+   if([property isKindOfClass:[NSAttributeDescription class]])
+    return YES;
+   return [property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany];
+}
+
+static void assignColumnsOfEntity(NSEntityDescription *entity,NSMutableSet *taken,NSMutableDictionary *byKey,NSMutableArray *list){
+   NSDictionary *byName=[entity propertiesByName];
+   NSDictionary *inherited=[[entity superentity] propertiesByName];
+
+   for(NSString *name in [[byName allKeys] sortedArrayUsingSelector:@selector(compare:)]){
+    NSPropertyDescription *property=[byName objectForKey:name];
+
+    if([inherited objectForKey:name]!=nil || !propertyHasColumn(property))
+     continue;
+
+    NSString   *base=columnNameForProperty(name);
+    NSString   *column=base;
+    NSUInteger  suffix=1;
+
+    while([taken containsObject:column])
+     column=[base stringByAppendingFormat:@"%lu",(unsigned long)suffix++];
+
+    [taken addObject:column];
+    [byKey setObject:column forKey:[NSString stringWithFormat:@"%@.%@",[entity name],name]];
+    [list addObject:[NSArray arrayWithObjects:column,property,nil]];
+   }
+
+   NSSortDescriptor *byEntityName=[NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES];
+
+   for(NSEntityDescription *subentity in [[entity subentities] sortedArrayUsingDescriptors:[NSArray arrayWithObject:byEntityName]])
+    assignColumnsOfEntity(subentity,taken,byKey,list);
+}
+
+static char CDColumnsOfTableKey;
+
+/* The columns of the table of entity's root, as Apple's store names them:
+   one table holds an entity and all its subentities, and siblings may each
+   declare a property of one name.  The first of them - in the table's
+   entities depth first, siblings by name, each one's properties by name -
+   is Z<NAME>, each later one the first of Z<NAME>1, Z<NAME>2, ... still
+   free.  "byKey" is each column by "<declaring entity>.<property>",
+   "list" the columns and their properties in that order.  Worked out once
+   and kept on the root entity, a model in use being fixed. */
+static NSDictionary *columnsOfTable(NSEntityDescription *entity){
+   NSEntityDescription *root=rootEntity(entity);
+   NSDictionary        *columns=objc_getAssociatedObject(root,&CDColumnsOfTableKey);
+
+   if(columns!=nil)
+    return columns;
+
+   @synchronized(root){
+    columns=objc_getAssociatedObject(root,&CDColumnsOfTableKey);
+    if(columns==nil){
+     NSMutableSet        *taken=[NSMutableSet setWithObjects:@"Z_PK",@"Z_ENT",@"Z_OPT",nil];
+     NSMutableDictionary *byKey=[NSMutableDictionary dictionary];
+     NSMutableArray      *list=[NSMutableArray array];
+
+     assignColumnsOfEntity(root,taken,byKey,list);
+     columns=[NSDictionary dictionaryWithObjectsAndKeys:byKey,@"byKey",list,@"list",nil];
+     objc_setAssociatedObject(root,&CDColumnsOfTableKey,columns,OBJC_ASSOCIATION_RETAIN);
+    }
+   }
+   return columns;
+}
+
+/* The column of the property name of entity (its own or inherited). */
+static NSString *columnOf(NSEntityDescription *entity,NSString *name){
+   NSString *key=[NSString stringWithFormat:@"%@.%@",[declaringEntity(entity,name) name],name];
+   NSString *column=[[columnsOfTable(entity) objectForKey:@"byKey"] objectForKey:key];
+
+   return (column!=nil)?column:columnNameForProperty(name);
+}
+
+static NSString *columnOfProperty(NSPropertyDescription *property){
+   return columnOf([property entity],[property name]);
 }
 
 /* Reference objects are the plain "<Z_PK>" strings; the "p" seen in
@@ -181,6 +273,18 @@ static NSString *memberOrderColumnForRelationship(NSRelationshipDescription *rel
     return @"FOK_REFLEXIVE";
 
    return orderColumnForRelationship([relationship inverseRelationship]);
+}
+
+/* The order of an ordered to-many kept by a foreign key: a column beside
+   the foreign key on the destination's table, named after it, as Apple's
+   store names it - Z_FOK_UNIT beside ZUNIT, Z_FOK_UNIT1 beside ZUNIT1. */
+static NSString *foreignKeyOrderColumn(NSRelationshipDescription *relationship){
+   return [@"Z_FOK_" stringByAppendingString:[columnOfProperty([relationship inverseRelationship]) substringFromIndex:1]];
+}
+
+/* The order column a store made before it named it so: after the to-many. */
+static NSString *legacyForeignKeyOrderColumn(NSRelationshipDescription *relationship){
+   return orderColumnForRelationship(relationship);
 }
 
 /* The SQL column type used in CREATE TABLE, mirroring Apple's choices. */
@@ -655,6 +759,7 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
     sqlite3_close(DATABASE);
    [_entityIDs release];
    [_entityNamesByID release];
+   [_entityIDLists release];
    [_externalDataStore release];
    [_externalDataWritten release];
    [_externalDataReleased release];
@@ -762,6 +867,7 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
 
    [_entityIDs setObject:number forKey:name];
    [_entityNamesByID setObject:name forKey:number];
+   [_entityIDLists removeAllObjects];
 }
 
 -(long long)_entityIDForEntity:(NSEntityDescription *)entity {
@@ -785,6 +891,34 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
 
    for(NSEntityDescription *subentity in [entity subentities])
     [self _collectEntityIDsOfEntity:subentity into:result];
+}
+
+/* " AND Z_ENT IN (...)" for an entity sharing its root's table, "" for a
+   root: the rows of the table that are entity's.  Entities sharing a
+   table may each have a column of one name - siblings each declaring a
+   relationship of one name - so a foreign key's rows are only the
+   destination's when they are of the destination's entities. */
+-(NSString *)_onlyRowsOfEntity:(NSEntityDescription *)entity column:(NSString *)entityColumn {
+   if(rootEntity(entity)==entity)
+    return @"";
+
+   /* An entity the store has no Z_ENT for has no rows to tell apart:
+      "IN (0)" would match none and hide the ones there are. */
+   if([_entityIDs objectForKey:[entity name]]==nil)
+    return @"";
+
+   NSString *list=[_entityIDLists objectForKey:[entity name]];
+
+   if(list==nil){
+    NSMutableArray *entityIDs=[NSMutableArray array];
+
+    [self _collectEntityIDsOfEntity:entity into:entityIDs];
+    list=[entityIDs componentsJoinedByString:@", "];
+    if(_entityIDLists==nil)
+     _entityIDLists=[[NSMutableDictionary alloc] init];
+    [_entityIDLists setObject:list forKey:[entity name]];
+   }
+   return [NSString stringWithFormat:@" AND %@ IN (%@)",entityColumn,list];
 }
 
 /* Properties of entity including the ones inherited from superentities.
@@ -928,13 +1062,11 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
    for(NSEntityDescription *entity in sortedEntities){
     /* One table per root entity holding the entire entity subtree. */
     if([entity superentity]==nil){
-     NSMutableDictionary *properties=[NSMutableDictionary dictionary];
      NSMutableArray      *columns=[NSMutableArray arrayWithObjects:@"Z_PK INTEGER PRIMARY KEY",@"Z_ENT INTEGER",@"Z_OPT INTEGER",nil];
 
-     collectPropertiesOfEntitySubtree(entity,properties);
-
-     for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
-      NSPropertyDescription *property=[properties objectForKey:name];
+     for(NSArray *entry in [columnsOfTable(entity) objectForKey:@"list"]){
+      NSString              *column=[entry objectAtIndex:0];
+      NSPropertyDescription *property=[entry objectAtIndex:1];
 
       if([property isKindOfClass:[NSAttributeDescription class]]){
        /* A derived attribute that plainly copies another attribute of
@@ -950,12 +1082,12 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
         generatedSource=[(NSDerivedAttributeDescription *)property _generatedColumnSourceName];
 
        if(generatedSource!=nil)
-        [columns addObject:[NSString stringWithFormat:@"\"%@\" %@ GENERATED ALWAYS AS (\"%@\") STORED",columnNameForProperty(name),sqlTypeForAttribute((NSAttributeDescription *)property),columnNameForProperty(generatedSource)]];
+        [columns addObject:[NSString stringWithFormat:@"\"%@\" %@ GENERATED ALWAYS AS (\"%@\") STORED",column,sqlTypeForAttribute((NSAttributeDescription *)property),columnOf([property entity],generatedSource)]];
        else
-        [columns addObject:[NSString stringWithFormat:@"\"%@\" %@",columnNameForProperty(name),sqlTypeForAttribute((NSAttributeDescription *)property)]];
+        [columns addObject:[NSString stringWithFormat:@"\"%@\" %@",column,sqlTypeForAttribute((NSAttributeDescription *)property)]];
       }
-      else if([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany])
-       [columns addObject:[NSString stringWithFormat:@"\"%@\" INTEGER",columnNameForProperty(name)]];
+      else
+       [columns addObject:[NSString stringWithFormat:@"\"%@\" INTEGER",column]];
      }
 
      /* An ordered foreign-key to-many keeps its order in a hidden
@@ -966,7 +1098,7 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
        if([incoming isToMany] && [incoming isOrdered] &&
           !relationshipUsesJoinTable(incoming) &&
           rootEntity([incoming destinationEntity])==entity)
-        [columns addObject:[NSString stringWithFormat:@"\"%@\" INTEGER",orderColumnForRelationship(incoming)]];
+        [columns addObject:[NSString stringWithFormat:@"\"%@\" INTEGER",foreignKeyOrderColumn(incoming)]];
 
      NSString *sql=[NSString stringWithFormat:@"CREATE TABLE \"%@\" (%@)",tableNameForEntity(entity),[columns componentsJoinedByString:@", "]];
 
@@ -1041,20 +1173,16 @@ static BOOL relationshipUsesJoinTable(NSRelationshipDescription *relationship){
      continue;
 
     NSString            *table=tableNameForEntity(entity);
-    NSMutableDictionary *properties=[NSMutableDictionary dictionary];
 
     if([[entity subentities] count]>0 &&
        !executeSQL(DATABASE,[NSString stringWithFormat:@"CREATE INDEX IF NOT EXISTS %@_Z_ENT_INDEX ON %@ (Z_ENT)",table,table],error))
      return NO;
 
-    collectPropertiesOfEntitySubtree(entity,properties);
-    for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
-     NSPropertyDescription *property=[properties objectForKey:name];
+    for(NSArray *entry in [columnsOfTable(entity) objectForKey:@"list"]){
+     NSString *column=[entry objectAtIndex:0];
 
-     if(![property isKindOfClass:[NSRelationshipDescription class]] || [(NSRelationshipDescription *)property isToMany])
+     if(![[entry objectAtIndex:1] isKindOfClass:[NSRelationshipDescription class]])
       continue;
-
-     NSString *column=columnNameForProperty(name);
 
      if(!executeSQL(DATABASE,[NSString stringWithFormat:@"CREATE INDEX IF NOT EXISTS %@_%@_INDEX ON %@ (%@)",table,column,table,column],error))
       return NO;
@@ -1125,7 +1253,7 @@ static NSString *sqlLiteralForBinding(NSDictionary *binding){
     else if(![property isKindOfClass:[NSAttributeDescription class]] || [property isTransient])
      return nil;
 
-    [columns addObject:[NSString stringWithFormat:@"%@ COLLATE BINARY %@",columnNameForProperty([property name]),[element isAscending]?@"ASC":@"DESC"]];
+    [columns addObject:[NSString stringWithFormat:@"%@ COLLATE BINARY %@",columnOf(entity,[property name]),[element isAscending]?@"ASC":@"DESC"]];
    }
 
    NSString *table=tableNameForEntity(entity);
@@ -1157,6 +1285,96 @@ static NSString *sqlLiteralForBinding(NSDictionary *binding){
     sql=[sql stringByAppendingFormat:@" WHERE %@",where];
 
    return sql;
+}
+
+/* The columns a table has. */
+static NSSet *columnsOfExistingTable(sqlite3 *database,NSString *table){
+   NSMutableSet *columns=[NSMutableSet set];
+   sqlite3_stmt *statement=prepareStatement(database,[NSString stringWithFormat:@"PRAGMA table_info(\"%@\")",table],NULL);
+
+   while(statement!=NULL && sqlite3_step(statement)==SQLITE_ROW)
+    [columns addObject:[[NSString stringWithUTF8String:(const char *)sqlite3_column_text(statement,1)] uppercaseString]];
+   sqlite3_finalize(statement);
+   return columns;
+}
+
+/* A store made before columns were named as Apple's store names them kept
+   siblings' properties of one name in one column, Z<NAME>, and an ordered
+   to-many's order in Z_FOK_<to-many>.  Each column it lacks is added, with
+   the values of its own entities' rows moved into it from the column they
+   shared - those of the property's declaring entity and its subentities,
+   by Z_ENT - and a foreign key's index made as the schema makes it.  A
+   store that has its columns already, made since or upgraded before, is
+   left as it is. */
+-(BOOL)_upgradeColumnNames:(NSError **)error {
+   if([self isReadOnly])
+    return YES;
+
+   NSMutableArray *statements=[NSMutableArray array];
+
+   for(NSEntityDescription *entity in [self _storeEntities]){
+    if([entity superentity]!=nil)
+     continue;
+
+    NSString *table=tableNameForEntity(entity);
+
+    if(!tableExists(DATABASE,table))
+     continue;
+
+    NSSet *existing=columnsOfExistingTable(DATABASE,table);
+
+    for(NSArray *entry in [columnsOfTable(entity) objectForKey:@"list"]){
+     NSString              *column=[entry objectAtIndex:0];
+     NSPropertyDescription *property=[entry objectAtIndex:1];
+     NSString              *legacy=columnNameForProperty([property name]);
+
+     if([existing containsObject:column] || ![existing containsObject:legacy])
+      continue;
+     if([property isKindOfClass:[NSDerivedAttributeDescription class]] &&
+        [(NSDerivedAttributeDescription *)property _generatedColumnSourceName]!=nil)
+      continue;   /* SQLite adds no stored generated column to a table */
+
+     NSMutableArray *entityIDs=[NSMutableArray array];
+     NSString       *type=[property isKindOfClass:[NSAttributeDescription class]]?sqlTypeForAttribute((NSAttributeDescription *)property):@"INTEGER";
+
+     [self _collectEntityIDsOfEntity:declaringEntity([property entity],[property name]) into:entityIDs];
+     [statements addObject:[NSString stringWithFormat:@"ALTER TABLE \"%@\" ADD COLUMN \"%@\" %@",table,column,type]];
+     [statements addObject:[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = \"%@\", \"%@\" = NULL WHERE Z_ENT IN (%@)",table,column,legacy,legacy,[entityIDs componentsJoinedByString:@", "]]];
+     if([property isKindOfClass:[NSRelationshipDescription class]])
+      [statements addObject:[NSString stringWithFormat:@"CREATE INDEX IF NOT EXISTS %@_%@_INDEX ON %@ (%@)",table,column,table,column]];
+    }
+
+    for(NSEntityDescription *other in [self _storeEntities])
+     for(NSRelationshipDescription *incoming in [[other relationshipsByName] allValues]){
+      if(![incoming isToMany] || ![incoming isOrdered] || relationshipUsesJoinTable(incoming) ||
+         rootEntity([incoming destinationEntity])!=entity)
+       continue;
+
+      NSString *column=foreignKeyOrderColumn(incoming);
+      NSString *legacy=legacyForeignKeyOrderColumn(incoming);
+
+      if([existing containsObject:column] || ![existing containsObject:legacy])
+       continue;
+
+      NSMutableArray *entityIDs=[NSMutableArray array];
+
+      [self _collectEntityIDsOfEntity:[incoming destinationEntity] into:entityIDs];
+      [statements addObject:[NSString stringWithFormat:@"ALTER TABLE \"%@\" ADD COLUMN \"%@\" INTEGER",table,column]];
+      [statements addObject:[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = \"%@\" WHERE Z_ENT IN (%@)",table,column,legacy,[entityIDs componentsJoinedByString:@", "]]];
+     }
+   }
+
+   if([statements count]==0)
+    return YES;
+
+   if(!executeSQL(DATABASE,@"BEGIN",error))
+    return NO;
+   for(NSString *statement in statements)
+    if(!executeSQL(DATABASE,statement,error)){
+     executeSQL(DATABASE,@"ROLLBACK",NULL);
+     return NO;
+    }
+   return executeSQL(DATABASE,@"COMMIT",error);
 }
 
 -(BOOL)_loadEntityIDs:(NSError **)error {
@@ -1237,7 +1455,7 @@ static NSString *sqlLiteralForBinding(NSDictionary *binding){
        !executeSQL(DATABASE,@"VACUUM",error))
      return NO;
 
-    return [self _loadEntityIDs:error] && [self _prepareHistoryTracking:error];
+    return [self _loadEntityIDs:error] && [self _upgradeColumnNames:error] && [self _prepareHistoryTracking:error];
    }
 
    /* New (or empty) file: create the schema and stamp the metadata with
@@ -2012,14 +2230,14 @@ static BOOL resolveKeyPathExpression(const CDPredicateScope *scope,NSExpression 
      return nil;
 
     if(index==0)
-     key=qualifiedColumn(reference,columnNameForProperty(name));
+     key=qualifiedColumn(reference,columnOf(current,name));
     else {
      if(!scope->allowsSubqueries)
       return nil;
 
      NSString *alias=nextAlias(scope);
 
-     key=[NSString stringWithFormat:@"(SELECT %@ FROM \"%@\" AS %@ WHERE %@ = %@)",qualifiedColumn(alias,columnNameForProperty(name)),tableNameForEntity(current),alias,qualifiedColumn(alias,@"Z_PK"),key];
+     key=[NSString stringWithFormat:@"(SELECT %@ FROM \"%@\" AS %@ WHERE %@ = %@)",qualifiedColumn(alias,columnOf(current,name)),tableNameForEntity(current),alias,qualifiedColumn(alias,@"Z_PK"),key];
     }
 
     current=[relationship destinationEntity];
@@ -2071,11 +2289,11 @@ static BOOL resolveKeyPathExpression(const CDPredicateScope *scope,NSExpression 
    *property=leaf;
 
    if(count==1)
-    return qualifiedColumn(reference,columnNameForProperty(name));
+    return qualifiedColumn(reference,columnOf(owner,name));
 
    NSString *alias=nextAlias(scope);
 
-   return [NSString stringWithFormat:@"(SELECT %@ FROM \"%@\" AS %@ WHERE %@ = %@)",qualifiedColumn(alias,columnNameForProperty(name)),tableNameForEntity(owner),alias,qualifiedColumn(alias,@"Z_PK"),ownerKey];
+   return [NSString stringWithFormat:@"(SELECT %@ FROM \"%@\" AS %@ WHERE %@ = %@)",qualifiedColumn(alias,columnOf(owner,name)),tableNameForEntity(owner),alias,qualifiedColumn(alias,@"Z_PK"),ownerKey];
 }
 
 /* The rows a key path of to-ones ending in a to-many reaches: those of the
@@ -2120,19 +2338,12 @@ static BOOL resolveKeyPathExpression(const CDPredicateScope *scope,NSExpression 
    }
    else {
     rows->from=[NSString stringWithFormat:@"\"%@\" AS %@",table,alias];
-    [conditions addObject:[NSString stringWithFormat:@"%@ = %@",qualifiedColumn(alias,columnNameForProperty([[relationship inverseRelationship] name])),ownerKey]];
+    [conditions addObject:[NSString stringWithFormat:@"%@ = %@",qualifiedColumn(alias,columnOfProperty([relationship inverseRelationship])),ownerKey]];
    }
 
    /* Entities sharing the destination's table may have a column of the
       same name; only the destination's own rows are its members. */
-   if(rootEntity(destination)!=destination){
-    NSMutableArray *entityIDs=[NSMutableArray array];
-
-    [self _collectEntityIDsOfEntity:destination into:entityIDs];
-    [conditions addObject:[NSString stringWithFormat:@"%@ IN (%@)",qualifiedColumn(alias,@"Z_ENT"),[entityIDs componentsJoinedByString:@", "]]];
-   }
-
-   rows->where=[conditions componentsJoinedByString:@" AND "];
+   rows->where=[[conditions componentsJoinedByString:@" AND "] stringByAppendingString:[self _onlyRowsOfEntity:destination column:qualifiedColumn(alias,@"Z_ENT")]];
    rows->alias=alias;
    rows->entity=destination;
    rows->ownerKey=ownerKey;
@@ -2733,7 +2944,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
     else
      return nil;
 
-    [terms addObject:[NSString stringWithFormat:@"\"%@\"%@ %@",columnNameForProperty(key),collate,[descriptor ascending]?@"ASC":@"DESC"]];
+    [terms addObject:[NSString stringWithFormat:@"\"%@\"%@ %@",columnOf(entity,key),collate,[descriptor ascending]?@"ASC":@"DESC"]];
    }
 
    return [terms componentsJoinedByString:@", "];
@@ -3002,9 +3213,11 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
      /* Foreign key on the destination table (inverse is to-one). */
      NSRelationshipDescription *inverse=[relationship inverseRelationship];
      NSString                  *destinationTable=tableNameForEntity([relationship destinationEntity]);
-     NSString                  *foreignKeyColumn=columnNameForProperty([inverse name]);
+     NSString                  *foreignKeyColumn=columnOfProperty(inverse);
 
-     NSString *clearSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = NULL WHERE \"%@\" = %lld",destinationTable,foreignKeyColumn,foreignKeyColumn,primaryKey];
+     /* A member that left an ordered to-many keeps no place in it. */
+     NSString *clearOrder=[relationship isOrdered]?[NSString stringWithFormat:@", \"%@\" = NULL",foreignKeyOrderColumn(relationship)]:@"";
+     NSString *clearSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = NULL%@ WHERE \"%@\" = %lld%@",destinationTable,foreignKeyColumn,clearOrder,foreignKeyColumn,primaryKey,[self _onlyRowsOfEntity:[relationship destinationEntity] column:@"Z_ENT"]];
 
      if(!executeSQL(DATABASE,clearSQL,error))
       return NO;
@@ -3016,7 +3229,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
       NSString *setSQL;
 
       if([relationship isOrdered])
-       setSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = %lld, \"%@\" = %lld WHERE Z_PK = %lld",destinationTable,foreignKeyColumn,primaryKey,orderColumnForRelationship(relationship),position,memberKey];
+       setSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = %lld, \"%@\" = %lld WHERE Z_PK = %lld",destinationTable,foreignKeyColumn,primaryKey,foreignKeyOrderColumn(relationship),position,memberKey];
       else
        setSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = %lld WHERE Z_PK = %lld",destinationTable,foreignKeyColumn,primaryKey,memberKey];
 
@@ -3054,7 +3267,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
      continue;
 
     [properties addObject:property];
-    [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(name)]];
+    [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnOf(entity,name)]];
     if(attributeStoresExternally(property))
      [external addObject:property];
    }
@@ -3079,7 +3292,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
     NSMutableArray *read=[NSMutableArray arrayWithObject:@"Z_OPT"];
 
     for(NSAttributeDescription *attribute in external)
-     [read addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty([attribute name])]];
+     [read addObject:[NSString stringWithFormat:@"\"%@\"",columnOf(entity,[attribute name])]];
     layout->readExternal=prepareStatement(DATABASE,[NSString stringWithFormat:@"SELECT %@ FROM \"%@\" WHERE Z_PK = ?",[read componentsJoinedByString:@", "],table],error);
    }
    if(layout->insert==NULL || layout->update==NULL || layout->updateAtVersion==NULL || ([external count]>0 && layout->readExternal==NULL))
@@ -3568,7 +3781,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
       return nil;
      }
 
-     [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(name)]];
+     [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnOf(entity,name)]];
      [placeholders addObject:@"?"];
      [boundAttributes addObject:property];
      [boundValues addObject:value];
@@ -3686,7 +3899,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
      continue;
     }
 
-    [assignments addObject:[NSString stringWithFormat:@"\"%@\" = ?",columnNameForProperty(name)]];
+    [assignments addObject:[NSString stringWithFormat:@"\"%@\" = ?",columnOf(entity,name)]];
     [boundAttributes addObject:property];
     [boundValues addObject:(value!=nil)?value:(id)[NSNull null]];
    }
@@ -3752,7 +3965,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
        executeSQL(DATABASE,@"ROLLBACK",NULL);
        return nil;
       }
-      update=prepareStatement(DATABASE,[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = ? WHERE Z_PK = %@",tableNameForEntity(entity),columnNameForProperty([attribute name]),pk],error);
+      update=prepareStatement(DATABASE,[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = ? WHERE Z_PK = %@",tableNameForEntity(entity),columnOfProperty(attribute),pk],error);
       if(update==NULL){
        executeSQL(DATABASE,@"ROLLBACK",NULL);
        return nil;
@@ -4387,7 +4600,7 @@ static long long pragmaValue(sqlite3 *database,NSString *pragma){
    NSMutableArray *columns=[NSMutableArray array];
 
    for(NSAttributeDescription *attribute in attributes)
-    [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty([attribute name])]];
+    [columns addObject:[NSString stringWithFormat:@"\"%@\"",columnOfProperty(attribute)]];
 
    NSString     *sql=[NSString stringWithFormat:@"SELECT %@ FROM \"%@\" WHERE %@",[columns componentsJoinedByString:@", "],tableNameForEntity(entity),whereSQL];
    sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
@@ -4537,7 +4750,7 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
     NSMutableDictionary *byKey=[NSMutableDictionary dictionary];
 
     for(NSString *name in names)
-     [selectColumns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(name)]];
+     [selectColumns addObject:[NSString stringWithFormat:@"\"%@\"",columnOf(entity,name)]];
     for(NSManagedObjectID *objectID in ids)
      [byKey setObject:objectID forKey:[NSNumber numberWithLongLong:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID])]];
 
@@ -4581,7 +4794,7 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
    NSMutableArray      *selectColumns=[NSMutableArray arrayWithObject:@"Z_OPT"];
 
    for(NSString *name in names)
-    [selectColumns addObject:[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(name)]];
+    [selectColumns addObject:[NSString stringWithFormat:@"\"%@\"",columnOf(entity,name)]];
 
    NSString     *sql=[NSString stringWithFormat:@"SELECT %@ FROM \"%@\" WHERE Z_PK = %lld",[selectColumns componentsJoinedByString:@", "],tableNameForEntity(entity),primaryKey];
    sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
@@ -4607,7 +4820,7 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
    NSEntityDescription *destination=[relationship destinationEntity];
 
    if(![relationship isToMany]){
-    NSString     *sql=[NSString stringWithFormat:@"SELECT \"%@\" FROM \"%@\" WHERE Z_PK = %lld",columnNameForProperty([relationship name]),tableNameForEntity([objectID entity]),primaryKey];
+    NSString     *sql=[NSString stringWithFormat:@"SELECT \"%@\" FROM \"%@\" WHERE Z_PK = %lld",columnOf([objectID entity],[relationship name]),tableNameForEntity([objectID entity]),primaryKey];
     sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
 
     if(statement==NULL)
@@ -4636,10 +4849,10 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
    else {
     NSRelationshipDescription *inverse=[relationship inverseRelationship];
     NSString                  *orderBy=[relationship isOrdered]
-        ?[NSString stringWithFormat:@"\"%@\"",orderColumnForRelationship(relationship)]
+        ?[NSString stringWithFormat:@"\"%@\"",foreignKeyOrderColumn(relationship)]
         :@"Z_PK";
 
-    sql=[NSString stringWithFormat:@"SELECT Z_PK FROM \"%@\" WHERE \"%@\" = %lld ORDER BY %@",tableNameForEntity(destination),columnNameForProperty([inverse name]),primaryKey,orderBy];
+    sql=[NSString stringWithFormat:@"SELECT Z_PK FROM \"%@\" WHERE \"%@\" = %lld%@ ORDER BY %@",tableNameForEntity(destination),columnOfProperty(inverse),primaryKey,[self _onlyRowsOfEntity:destination column:@"Z_ENT"],orderBy];
    }
 
    sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);

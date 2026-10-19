@@ -46,6 +46,7 @@ extern NSString * const CDSQLStoreMigrateSchemaOption;
     NSString *_schemaName;                  /* the schema, or database, if any */
     NSMutableDictionary *_entityIDs;        /* entity name -> NSNumber (Z_ENT) */
     NSMutableDictionary *_entityNamesByID;  /* NSNumber (Z_ENT) -> entity name */
+    NSMutableDictionary *_entityIDLists;    /* entity name -> its and its subentities' Z_ENTs, as SQL ("3, 4") */
     NSMutableDictionary *_rowVersions;      /* "table/pk" -> NSNumber (Z_OPT) */
     unsigned long long _writeGeneration;    /* writes made, against rows read ahead */
     NSMutableDictionary *_rowSQL;           /* the SQL a row of an entity is written with */
@@ -236,6 +237,10 @@ typedef enum {
 /* Migration DDL */
 - (NSString *)renameColumnSQLForTable:(NSString *)table from:(NSString *)oldName definition:(NSString *)definition;
 - (NSString *)changeColumnTypeSQLForTable:(NSString *)table column:(NSString *)column definition:(NSString *)definition;
+/* An expression's value as a column of the given DDL type is to hold it,
+   where the database does not convert it on assignment by itself
+   (PostgreSQL); optional. */
+- (NSString *)expression:(NSString *)expression castToColumnType:(NSString *)type;
 - (NSString *)dropTableSQLForTable:(NSString *)table;
 - (BOOL)dropSchemaWithError:(NSError **)error;
 

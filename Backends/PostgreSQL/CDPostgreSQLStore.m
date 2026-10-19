@@ -519,6 +519,10 @@ static const char **postgresParameterValues(NSArray *parameters){
                                      [self quoted:table],[self quoted:column],type,[self quoted:column],type];
 }
 
+-(NSString *)expression:(NSString *)expression castToColumnType:(NSString *)type {
+   return [NSString stringWithFormat:@"%@::%@",expression,type];
+}
+
 -(NSString *)dropTableSQLForTable:(NSString *)table {
    return [NSString stringWithFormat:@"DROP TABLE IF EXISTS %@ CASCADE",[self quoted:table]];
 }

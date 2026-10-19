@@ -20,6 +20,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #import "CDSQLStore.h"
 #import "CDSQLQuery.h"
+#import <objc/runtime.h>
 
 static long long advisoryLockKeyForSchema(NSString *schema);
 
@@ -94,6 +95,110 @@ static NSString *memberOrderColumnForRelationship(NSRelationshipDescription *rel
     return @"FOK_REFLEXIVE";
 
    return orderColumnForRelationship([relationship inverseRelationship]);
+}
+
+/* The entity of entity's chain that declares the property name: the
+   highest that has it. */
+static NSEntityDescription *declaringEntity(NSEntityDescription *entity,NSString *name){
+   while([entity superentity]!=nil && [[[entity superentity] propertiesByName] objectForKey:name]!=nil)
+    entity=[entity superentity];
+
+   return entity;
+}
+
+/* Whether a property has a column of its own: a stored attribute, or a
+   to-one's foreign key. */
+static BOOL propertyHasColumn(NSPropertyDescription *property){
+   if([property isTransient])
+    return NO;
+   if([property isKindOfClass:[NSAttributeDescription class]])
+    return YES;
+   return [property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany];
+}
+
+static void assignColumnsOfEntity(NSEntityDescription *entity,NSMutableSet *taken,NSMutableDictionary *byKey,NSMutableArray *list){
+   NSDictionary *byName=[entity propertiesByName];
+   NSDictionary *inherited=[[entity superentity] propertiesByName];
+
+   for(NSString *name in [[byName allKeys] sortedArrayUsingSelector:@selector(compare:)]){
+    NSPropertyDescription *property=[byName objectForKey:name];
+
+    if([inherited objectForKey:name]!=nil || !propertyHasColumn(property))
+     continue;
+
+    NSString   *base=columnNameForProperty(name);
+    NSString   *column=base;
+    NSUInteger  suffix=1;
+
+    while([taken containsObject:column])
+     column=[base stringByAppendingFormat:@"%lu",(unsigned long)suffix++];
+
+    [taken addObject:column];
+    [byKey setObject:column forKey:[NSString stringWithFormat:@"%@.%@",[entity name],name]];
+    [list addObject:[NSArray arrayWithObjects:column,property,nil]];
+   }
+
+   NSSortDescriptor *byEntityName=[NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES];
+
+   for(NSEntityDescription *subentity in [[entity subentities] sortedArrayUsingDescriptors:[NSArray arrayWithObject:byEntityName]])
+    assignColumnsOfEntity(subentity,taken,byKey,list);
+}
+
+static char CDColumnsOfTableKey;
+
+/* The columns of the table of entity's root, as Apple's store names them
+   (and the SQLite store): one table holds an entity and all its
+   subentities, and siblings may each declare a property of one name.  The
+   first of them - in the table's entities depth first, siblings by name,
+   each one's properties by name - is Z<NAME>, each later one the first of
+   Z<NAME>1, Z<NAME>2, ... still free.  "byKey" is each column by
+   "<declaring entity>.<property>", "list" the columns and their properties
+   in that order.  Worked out once and kept on the root entity, a model in
+   use being fixed. */
+static NSDictionary *columnsOfTable(NSEntityDescription *entity){
+   NSEntityDescription *root=rootEntity(entity);
+   NSDictionary        *columns=objc_getAssociatedObject(root,&CDColumnsOfTableKey);
+
+   if(columns!=nil)
+    return columns;
+
+   @synchronized(root){
+    columns=objc_getAssociatedObject(root,&CDColumnsOfTableKey);
+    if(columns==nil){
+     NSMutableSet        *taken=[NSMutableSet setWithObjects:@"Z_PK",@"Z_ENT",@"Z_OPT",nil];
+     NSMutableDictionary *byKey=[NSMutableDictionary dictionary];
+     NSMutableArray      *list=[NSMutableArray array];
+
+     assignColumnsOfEntity(root,taken,byKey,list);
+     columns=[NSDictionary dictionaryWithObjectsAndKeys:byKey,@"byKey",list,@"list",nil];
+     objc_setAssociatedObject(root,&CDColumnsOfTableKey,columns,OBJC_ASSOCIATION_RETAIN);
+    }
+   }
+   return columns;
+}
+
+/* The column of the property name of entity (its own or inherited). */
+static NSString *columnOf(NSEntityDescription *entity,NSString *name){
+   NSString *key=[NSString stringWithFormat:@"%@.%@",[declaringEntity(entity,name) name],name];
+   NSString *column=[[columnsOfTable(entity) objectForKey:@"byKey"] objectForKey:key];
+
+   return (column!=nil)?column:columnNameForProperty(name);
+}
+
+static NSString *columnOfProperty(NSPropertyDescription *property){
+   return columnOf([property entity],[property name]);
+}
+
+/* The order of an ordered to-many kept by a foreign key: a column beside
+   the foreign key on the destination's table, named after it, as Apple's
+   store names it - Z_FOK_UNIT beside ZUNIT, Z_FOK_UNIT1 beside ZUNIT1. */
+static NSString *foreignKeyOrderColumn(NSRelationshipDescription *relationship){
+   return [@"Z_FOK_" stringByAppendingString:[columnOfProperty([relationship inverseRelationship]) substringFromIndex:1]];
+}
+
+/* The order column a store made before it named it so: after the to-many. */
+static NSString *legacyForeignKeyOrderColumn(NSRelationshipDescription *relationship){
+   return orderColumnForRelationship(relationship);
 }
 
 static long long primaryKeyFromReferenceObject(id referenceObject){
@@ -1205,6 +1310,7 @@ static NSString *externalReferenceName(NSData *stored){
    [_schemaName release];
    [_entityIDs release];
    [_entityNamesByID release];
+   [_entityIDLists release];
    [_rowVersions release];
    [_rowSQL release];
    [_externalDataStore release];
@@ -1343,6 +1449,39 @@ static NSString *externalReferenceName(NSData *stored){
 
    [_entityIDs setObject:number forKey:name];
    [_entityNamesByID setObject:name forKey:number];
+   [_entityIDLists removeAllObjects];
+}
+
+/* The condition that a row of entity's root table is entity's own, or one
+   of its subentities' - "alias"."Z_ENT" IN (3, 4) - or nil for a root
+   entity, whose table holds no other entity's rows.  Siblings sharing a
+   table may each declare a relationship of one name, and so share its
+   foreign-key column: a foreign key's rows are a destination's only when
+   they are of the destination's entities.  An entity with no Z_ENT yet has
+   no rows to tell apart, and gets nil rather than an IN (0) matching none. */
+-(NSString *)_onlyRowsOfEntity:(NSEntityDescription *)entity column:(NSString *)entityColumn {
+   if(rootEntity(entity)==entity || [_entityIDs objectForKey:[entity name]]==nil)
+    return nil;
+
+   NSString *list=[_entityIDLists objectForKey:[entity name]];
+
+   if(list==nil){
+    NSMutableArray *entityIDs=[NSMutableArray array];
+
+    [self _collectEntityIDsOfEntity:entity into:entityIDs];
+    list=[entityIDs componentsJoinedByString:@", "];
+    if(_entityIDLists==nil)
+     _entityIDLists=[[NSMutableDictionary alloc] init];
+    [_entityIDLists setObject:list forKey:[entity name]];
+   }
+   return [NSString stringWithFormat:@"%@ IN (%@)",entityColumn,list];
+}
+
+/* " AND " and that condition, or "" when there is none. */
+-(NSString *)_andOnlyRowsOfEntity:(NSEntityDescription *)entity column:(NSString *)entityColumn {
+   NSString *condition=[self _onlyRowsOfEntity:entity column:entityColumn];
+
+   return (condition==nil)?@"":[@" AND " stringByAppendingString:condition];
 }
 
 -(long long)_entityIDForEntity:(NSEntityDescription *)entity {
@@ -1417,31 +1556,29 @@ static NSString *externalReferenceName(NSData *stored){
    read the layout from here, so the two cannot drift apart. */
 -(NSArray *)_columnSpecsForRootEntity:(NSEntityDescription *)entity amongEntities:(NSArray *)storeEntities {
    NSMutableArray      *specs=[NSMutableArray array];
-   NSMutableDictionary *properties=[NSMutableDictionary dictionary];
 
    [specs addObject:[NSDictionary dictionaryWithObjectsAndKeys:@"Z_PK",@"name",[self _bigIntegerType],@"type",nil]];
    [specs addObject:[NSDictionary dictionaryWithObjectsAndKeys:@"Z_ENT",@"name",[self _integerType],@"type",nil]];
    [specs addObject:[NSDictionary dictionaryWithObjectsAndKeys:@"Z_OPT",@"name",[self _integerType],@"type",nil]];
 
-   collectPropertiesOfEntitySubtree(entity,properties);
-
-   for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
-    NSPropertyDescription *property=[properties objectForKey:name];
+   for(NSArray *entry in [columnsOfTable(entity) objectForKey:@"list"]){
+    NSString              *column=[entry objectAtIndex:0];
+    NSPropertyDescription *property=[entry objectAtIndex:1];
 
     if([property isKindOfClass:[NSAttributeDescription class]]){
      NSAttributeDescription *attribute=(NSAttributeDescription *)property;
      NSString               *source=generatedColumnSourceName(attribute,entity);
      NSMutableDictionary    *spec=[NSMutableDictionary dictionaryWithObjectsAndKeys:
-                                      columnNameForProperty(name),@"name",
+                                      column,@"name",
                                       [self columnTypeForAttributeType:[attribute attributeType]],@"type",
                                       nil];
 
      if(source!=nil)
-      [spec setObject:columnNameForProperty(source) forKey:@"generatedFrom"];
+      [spec setObject:columnOf([property entity],source) forKey:@"generatedFrom"];
      [specs addObject:spec];
     }
-    else if([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany])
-     [specs addObject:[NSDictionary dictionaryWithObjectsAndKeys:columnNameForProperty(name),@"name",[self _bigIntegerType],@"type",nil]];
+    else
+     [specs addObject:[NSDictionary dictionaryWithObjectsAndKeys:column,@"name",[self _bigIntegerType],@"type",nil]];
    }
 
    /* An ordered foreign-key to-many keeps its order in a hidden Z_FOK_
@@ -1451,7 +1588,7 @@ static NSString *externalReferenceName(NSData *stored){
      if([incoming isToMany] && [incoming isOrdered] &&
         !relationshipUsesJoinTable(incoming) &&
         rootEntity([incoming destinationEntity])==entity)
-      [specs addObject:[NSDictionary dictionaryWithObjectsAndKeys:orderColumnForRelationship(incoming),@"name",[self _bigIntegerType],@"type",nil]];
+      [specs addObject:[NSDictionary dictionaryWithObjectsAndKeys:foreignKeyOrderColumn(incoming),@"name",[self _bigIntegerType],@"type",nil]];
 
    return specs;
 }
@@ -1613,6 +1750,12 @@ static NSString *externalReferenceName(NSData *stored){
     [super setMetadata:metadata];
 
     if(![self _loadEntityIDs:error]){
+     [self command:@"ROLLBACK" parameters:nil error:NULL];
+     [self releaseCreationLock];
+     return NO;
+    }
+
+    if(![self _upgradeColumnNamesWithError:error]){
      [self command:@"ROLLBACK" parameters:nil error:NULL];
      [self releaseCreationLock];
      return NO;
@@ -1856,7 +1999,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
     if(![relationship isToMany]){
      /* A foreign key on this side points at the destination's row. */
      [from addObject:[NSString stringWithFormat:@"%@ %@",quoted(tableNameForEntity(destination)),alias]];
-     [where addObject:[NSString stringWithFormat:@"%@.\"Z_PK\" = %@.%@",alias,currentRef,quoted(columnNameForProperty([relationship name]))]];
+     [where addObject:[NSString stringWithFormat:@"%@.\"Z_PK\" = %@.%@",alias,currentRef,quoted(columnOfProperty(relationship))]];
     }
     else {
      if(crossedToMany!=NULL)
@@ -1875,8 +2018,12 @@ static NSString * const CDSQLOuterAlias=@"t0";
       /* The foreign key lives on the destination's row. */
       NSRelationshipDescription *inverse=[relationship inverseRelationship];
 
+      NSString *onlyDestination=[self _onlyRowsOfEntity:destination column:[NSString stringWithFormat:@"%@.\"Z_ENT\"",alias]];
+
       [from addObject:[NSString stringWithFormat:@"%@ %@",quoted(tableNameForEntity(destination)),alias]];
-      [where addObject:[NSString stringWithFormat:@"%@.%@ = %@.\"Z_PK\"",alias,quoted(columnNameForProperty([inverse name])),currentRef]];
+      [where addObject:[NSString stringWithFormat:@"%@.%@ = %@.\"Z_PK\"",alias,quoted(columnOfProperty(inverse)),currentRef]];
+      if(onlyDestination!=nil)
+       [where addObject:onlyDestination];
      }
     }
 
@@ -2207,7 +2354,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
    if(constant==[NSNull null])
     constant=nil;
 
-   return [self _clauseForColumn:[NSString stringWithFormat:@"%@.%@",alias,quoted(columnNameForProperty(keyPath))]
+   return [self _clauseForColumn:[NSString stringWithFormat:@"%@.%@",alias,quoted(columnOfProperty(property))]
                        attribute:(NSAttributeDescription *)property
                         operator:[comparison predicateOperatorType]
                  caseInsensitive:((options&NSCaseInsensitivePredicateOption)!=0)
@@ -2507,7 +2654,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
     if(![leaf isKindOfClass:[NSAttributeDescription class]])
      return nil;
 
-    NSString *clause=[self _clauseForColumn:[NSString stringWithFormat:@"%@.%@",alias,quoted(columnNameForProperty([segments lastObject]))]
+    NSString *clause=[self _clauseForColumn:[NSString stringWithFormat:@"%@.%@",alias,quoted(columnOfProperty(leaf))]
                                   attribute:(NSAttributeDescription *)leaf
                                    operator:operator
                             caseInsensitive:caseInsensitive
@@ -2536,7 +2683,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
 
    NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:keyPath];
 
-   NSString *column=[NSString stringWithFormat:@"%@.%@",CDSQLOuterAlias,quoted(columnNameForProperty(keyPath))];
+   NSString *column=[NSString stringWithFormat:@"%@.%@",CDSQLOuterAlias,quoted((property!=nil)?columnOfProperty(property):columnNameForProperty(keyPath))];
 
    /* To-one relationships compare against the destination row's Z_PK. */
    if([property isKindOfClass:[NSRelationshipDescription class]]){
@@ -2760,7 +2907,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
 
        [joins addObject:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.\"Z_PK\" = %@.%@",
                                                    quoted(tableNameForEntity([relationship destinationEntity])),alias,
-                                                   alias,qualifier,quoted(columnNameForProperty(segment))]];
+                                                   alias,qualifier,quoted(columnOfProperty(relationship))]];
        [aliasesByKeyPath setObject:alias forKey:walked];
        existing=alias;
       }
@@ -2777,7 +2924,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
 
     SEL       selector=[descriptor selector];
     NSString *selectorName=(selector!=NULL)?NSStringFromSelector(selector):nil;
-    NSString *term=[NSString stringWithFormat:@"%@.%@",qualifier,quoted(columnNameForProperty(leafKey))];
+    NSString *term=[NSString stringWithFormat:@"%@.%@",qualifier,quoted(columnOfProperty(property))];
 
     if(selectorName!=nil && [selectorName isEqualToString:@"caseInsensitiveCompare:"]){
      if([(NSAttributeDescription *)property attributeType]!=NSStringAttributeType)
@@ -2885,7 +3032,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
      /* The foreign key is on this side, pointing at the destination row. */
      [query addJoin:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.\"Z_PK\" = %@.%@",
                      quoted(tableNameForEntity(destination)),alias,
-                     alias,currentAlias,quoted(columnNameForProperty([relationship name]))]];
+                     alias,currentAlias,quoted(columnOfProperty(relationship))]];
     }
     else if(relationshipUsesJoinTable(relationship)){
      NSDictionary *join=[self _joinSpecForRelationship:relationship];
@@ -2905,9 +3052,10 @@ static NSString * const CDSQLOuterAlias=@"t0";
      if(inverse==nil)
       return nil;
 
-     [query addJoin:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.%@ = %@.\"Z_PK\"",
+     [query addJoin:[NSString stringWithFormat:@"LEFT JOIN %@ %@ ON %@.%@ = %@.\"Z_PK\"%@",
                      quoted(tableNameForEntity(destination)),alias,
-                     alias,quoted(columnNameForProperty([inverse name])),currentAlias]];
+                     alias,quoted(columnOfProperty(inverse)),currentAlias,
+                     [self _andOnlyRowsOfEntity:destination column:[NSString stringWithFormat:@"%@.\"Z_ENT\"",alias]]]];
     }
 
     [aliases setObject:alias forKey:prefix];
@@ -3009,7 +3157,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
     [joinState setObject:[NSNumber numberWithBool:YES] forKey:@"local"];
    }
 
-   return [NSString stringWithFormat:@"%@(%@.%@)",aggregate,alias,quoted(columnNameForProperty(last))];
+   return [NSString stringWithFormat:@"%@(%@.%@)",aggregate,alias,quoted(columnOfProperty(property))];
 }
 
 /* A predicate over the select list rather than over columns: a HAVING
@@ -3178,7 +3326,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
      NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:name];
 
      if([property isKindOfClass:[NSAttributeDescription class]]){
-      expression=[NSString stringWithFormat:@"%@.%@",CDSQLOuterAlias,quoted(columnNameForProperty(name))];
+      expression=[NSString stringWithFormat:@"%@.%@",CDSQLOuterAlias,quoted(columnOfProperty(property))];
       [plainNames addObject:name];
      }
     }
@@ -3207,7 +3355,7 @@ static NSString * const CDSQLOuterAlias=@"t0";
     if(![property isKindOfClass:[NSAttributeDescription class]])
      return nil;
 
-    NSString *expression=[NSString stringWithFormat:@"%@.%@",CDSQLOuterAlias,quoted(columnNameForProperty(name))];
+    NSString *expression=[NSString stringWithFormat:@"%@.%@",CDSQLOuterAlias,quoted(columnOfProperty(property))];
 
     /* A grouped column can be named in HAVING and in ORDER BY whether or
        not the request also selected it. */
@@ -3748,8 +3896,11 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
      /* Foreign key on the destination table (the inverse is to-one). */
      NSRelationshipDescription *inverse=[relationship inverseRelationship];
      NSString                  *destinationTable=quoted(tableNameForEntity([relationship destinationEntity]));
-     NSString                  *foreignKeyColumn=quoted(columnNameForProperty([inverse name]));
-     NSString                  *clearSQL=[NSString stringWithFormat:@"UPDATE %@ SET %@ = NULL WHERE %@ = %lld",destinationTable,foreignKeyColumn,foreignKeyColumn,primaryKey];
+     NSString                  *foreignKeyColumn=quoted(columnOfProperty(inverse));
+     /* A member that left an ordered to-many keeps no place in it. */
+     NSString                  *clearOrder=[relationship isOrdered]?[NSString stringWithFormat:@", %@ = NULL",quoted(foreignKeyOrderColumn(relationship))]:@"";
+     NSString                  *clearSQL=[NSString stringWithFormat:@"UPDATE %@ SET %@ = NULL%@ WHERE %@ = %lld%@",destinationTable,foreignKeyColumn,clearOrder,foreignKeyColumn,primaryKey,
+                                                                    [self _andOnlyRowsOfEntity:[relationship destinationEntity] column:@"\"Z_ENT\""]];
 
      if(![self command:clearSQL parameters:nil error:error])
       return NO;
@@ -3763,7 +3914,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
       if([relationship isOrdered])
        setSQL=[NSString stringWithFormat:@"UPDATE %@ SET %@ = %lld, %@ = %lld WHERE \"Z_PK\" = %lld",
                                          destinationTable,foreignKeyColumn,primaryKey,
-                                         quoted(orderColumnForRelationship(relationship)),position,memberKey];
+                                         quoted(foreignKeyOrderColumn(relationship)),position,memberKey];
       else
        setSQL=[NSString stringWithFormat:@"UPDATE %@ SET %@ = %lld WHERE \"Z_PK\" = %lld",destinationTable,foreignKeyColumn,primaryKey,memberKey];
 
@@ -3873,7 +4024,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     else
      continue;
 
-    [names addObject:columnNameForProperty(name)];
+    [names addObject:columnOf(entity,name)];
     [parameters addObject:(text!=nil)?(id)text:(id)[NSNull null]];
    }
 
@@ -3983,9 +4134,9 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     NSPropertyDescription *property=[properties objectForKey:name];
 
     if([property isKindOfClass:[NSAttributeDescription class]])
-     [types setObject:[self columnTypeForAttributeType:[(NSAttributeDescription *)property attributeType]] forKey:columnNameForProperty(name)];
+     [types setObject:[self columnTypeForAttributeType:[(NSAttributeDescription *)property attributeType]] forKey:columnOf(entity,name)];
     else if([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany])
-     [types setObject:[self _bigIntegerType] forKey:columnNameForProperty(name)];
+     [types setObject:[self _bigIntegerType] forKey:columnOf(entity,name)];
    }
    return types;
 }
@@ -4058,7 +4209,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
       NSMutableArray *columns=[NSMutableArray arrayWithObject:@"\"Z_PK\""];
 
       for(NSAttributeDescription *attribute in externalAttributes)
-       [columns addObject:quoted(columnNameForProperty([attribute name]))];
+       [columns addObject:quoted(columnOfProperty(attribute))];
 
       id<CDSQLResult> stored=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" IN (%@) FOR UPDATE",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),[keys componentsJoinedByString:@", "]] parameters:nil error:error];
       int             row;
@@ -4173,7 +4324,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     NSMutableArray *columns=[NSMutableArray array];
 
     for(NSAttributeDescription *attribute in externalAttributes)
-     [columns addObject:quoted(columnNameForProperty([attribute name]))];
+     [columns addObject:quoted(columnOfProperty(attribute))];
 
     id<CDSQLResult> stored=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" = %lld FOR UPDATE",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),primaryKey] parameters:nil error:error];
     NSUInteger      i;
@@ -4614,7 +4765,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
 
      id text=(value==[NSNull null])?nil:textParameterForAttribute(attribute,value);
 
-     [columns addObject:quoted(columnNameForProperty(name))];
+     [columns addObject:quoted(columnOf(entity,name))];
      [parameters addObject:(text!=nil)?(id)text:(id)[NSNull null]];
      [placeholders addObject:[NSString stringWithFormat:@"$%lu",(unsigned long)[parameters count]]];
     }
@@ -4698,7 +4849,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     id text=(value==nil || value==[NSNull null])?nil:textParameterForAttribute((NSAttributeDescription *)property,value);
 
     [parameters addObject:(text!=nil)?(id)text:(id)[NSNull null]];
-    [assignments addObject:[NSString stringWithFormat:@"%@ = $%lu",quoted(columnNameForProperty(name)),(unsigned long)[parameters count]]];
+    [assignments addObject:[NSString stringWithFormat:@"%@ = $%lu",quoted(columnOf(entity,name)),(unsigned long)[parameters count]]];
    }
 
    if(![self command:@"BEGIN" parameters:nil error:error])
@@ -4736,7 +4887,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
       NSData *stored=(value==[NSNull null])?nil:[self _storedExternalValue:value error:error];
 
       if((value!=[NSNull null] && stored==nil) ||
-         ![self command:[NSString stringWithFormat:@"UPDATE %@ SET %@ = $1 WHERE \"Z_PK\" = %@",quoted(tableNameForEntity(entity)),quoted(columnNameForProperty([attribute name])),key]
+         ![self command:[NSString stringWithFormat:@"UPDATE %@ SET %@ = $1 WHERE \"Z_PK\" = %@",quoted(tableNameForEntity(entity)),quoted(columnOfProperty(attribute)),key]
              parameters:[NSArray arrayWithObject:(stored!=nil)?parameterFromData(stored):(id)[NSNull null]] error:error]){
        [self command:@"ROLLBACK" parameters:nil error:NULL];
        return nil;
@@ -4914,7 +5065,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    NSMutableArray *columns=[NSMutableArray array];
 
    for(NSAttributeDescription *attribute in attributes)
-    [columns addObject:quoted(columnNameForProperty([attribute name]))];
+    [columns addObject:quoted(columnOfProperty(attribute))];
 
    /* Locking, as the row writer's read is, and for the same reasons. */
    id<CDSQLResult> result=[self execute:[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE %@ FOR UPDATE",[columns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),whereSQL] parameters:nil error:error];
@@ -4941,7 +5092,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
      if(![property isKindOfClass:[NSAttributeDescription class]] || [(NSAttributeDescription *)property attributeType]!=NSBinaryDataAttributeType)
       continue;
 
-     NSString *column=[NSString stringWithFormat:@"%@.%@",tableNameForEntity(entity),columnNameForProperty([property name])];
+     NSString *column=[NSString stringWithFormat:@"%@.%@",tableNameForEntity(entity),columnOf(entity,[property name])];
 
      [binary setObject:property forKey:column];
      if(attributeStoresExternally(property))
@@ -5256,17 +5407,13 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
      continue;
 
     NSString            *table=tableNameForEntity(entity);
-    NSMutableDictionary *properties=[NSMutableDictionary dictionary];
 
     if([[entity subentities] count]>0)
      [statements addObject:[NSArray arrayWithObjects:[NSString stringWithFormat:@"%@_Z_ENT_INDEX",table],table,quoted(@"Z_ENT"),@"",nil]];
 
-    collectPropertiesOfEntitySubtree(entity,properties);
-    for(NSString *name in [[properties allKeys] sortedArrayUsingSelector:@selector(compare:)]){
-     NSPropertyDescription *property=[properties objectForKey:name];
-
-     if([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany]){
-      NSString *column=columnNameForProperty(name);
+    for(NSArray *entry in [columnsOfTable(entity) objectForKey:@"list"]){
+     if([[entry objectAtIndex:1] isKindOfClass:[NSRelationshipDescription class]]){
+      NSString *column=[entry objectAtIndex:0];
 
       [statements addObject:[NSArray arrayWithObjects:[NSString stringWithFormat:@"%@_%@_INDEX",table,column],table,quoted(column),@"",nil]];
      }
@@ -5321,10 +5468,10 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     if([property isKindOfClass:[NSRelationshipDescription class]]){
      if([(NSRelationshipDescription *)property isToMany] || [elements count]==1)
       return nil;
-     column=quoted(columnNameForProperty([property name]));
+     column=quoted(columnOf([index entity],[property name]));
     }
     else if([property isKindOfClass:[NSAttributeDescription class]] && ![property isTransient]){
-     column=quoted(columnNameForProperty([property name]));
+     column=quoted(columnOf([index entity],[property name]));
      if([self respondsToSelector:@selector(indexedColumn:attributeType:)])
       column=[self indexedColumn:column attributeType:[(NSAttributeDescription *)property attributeType]];
     }
@@ -5381,16 +5528,13 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    /* The old column name of a property that was renamed, so that its data
       can be carried across rather than dropped and re-added. */
    NSMutableDictionary *renamedFrom=[NSMutableDictionary dictionary];
-   NSMutableDictionary *properties=[NSMutableDictionary dictionary];
 
-   collectPropertiesOfEntitySubtree(entity,properties);
-
-   for(NSString *name in properties){
-    NSPropertyDescription *property=[properties objectForKey:name];
+   for(NSArray *entry in [columnsOfTable(entity) objectForKey:@"list"]){
+    NSPropertyDescription *property=[entry objectAtIndex:1];
     NSString              *oldName=[property renamingIdentifier];
 
-    if(oldName!=nil && ![oldName isEqualToString:name])
-     [renamedFrom setObject:columnNameForProperty(oldName) forKey:columnNameForProperty(name)];
+    if(oldName!=nil && ![oldName isEqualToString:[property name]])
+     [renamedFrom setObject:columnNameForProperty(oldName) forKey:[entry objectAtIndex:0]];
    }
 
    for(NSDictionary *spec in specs){
@@ -5449,6 +5593,87 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
      return NO;
 
    return YES;
+}
+
+/* A store made before columns were named as Apple's store names them kept
+   siblings' properties of one name in one column, Z<NAME>, and an ordered
+   to-many's order in Z_FOK_<to-many>.  Each column it lacks is added, with
+   the values of its own entities' rows moved into it from the column they
+   shared - those of the property's declaring entity and its subentities,
+   by Z_ENT - and the foreign keys' indexes made.  A store that has its
+   columns already, made since or upgraded before, is left as it is.  This
+   comes before any schema migration, which would otherwise add the column
+   empty and drop the order column. */
+/* A shared column's value for the column of spec: it was typed after the
+   first sibling to declare it, which may not be this one's type. */
+-(NSString *)_legacyValue:(NSString *)column forSpec:(NSDictionary *)spec {
+   if(![self respondsToSelector:@selector(expression:castToColumnType:)])
+    return column;
+   return [self expression:column castToColumnType:[spec objectForKey:@"type"]];
+}
+
+-(BOOL)_upgradeColumnNamesWithError:(NSError **)error {
+   NSArray *entities=[self _storeEntities];
+   BOOL     upgraded=NO;
+
+   for(NSEntityDescription *entity in entities){
+    if([entity superentity]!=nil)
+     continue;
+
+    NSString *table=tableNameForEntity(entity);
+
+    if(![self tableExists:table])
+     continue;
+
+    NSDictionary        *existing=[self _columnTypesForTable:table generated:nil];
+    NSMutableDictionary *specs=[NSMutableDictionary dictionary];
+
+    for(NSDictionary *spec in [self _columnSpecsForRootEntity:entity amongEntities:entities])
+     [specs setObject:spec forKey:[spec objectForKey:@"name"]];
+
+    for(NSArray *entry in [columnsOfTable(entity) objectForKey:@"list"]){
+     NSString              *column=[entry objectAtIndex:0];
+     NSPropertyDescription *property=[entry objectAtIndex:1];
+     NSString              *legacy=columnNameForProperty([property name]);
+     NSDictionary          *spec=[specs objectForKey:column];
+
+     if([existing objectForKey:column]!=nil || [existing objectForKey:legacy]==nil ||
+        spec==nil || [spec objectForKey:@"generatedFrom"]!=nil)
+      continue;
+
+     NSMutableArray *entityIDs=[NSMutableArray array];
+
+     [self _collectEntityIDsOfEntity:declaringEntity([property entity],[property name]) into:entityIDs];
+     if(![self _command:[NSString stringWithFormat:@"ALTER TABLE %@ ADD COLUMN %@",quoted(table),[self columnDefinitionFromSpec:spec]] parameters:nil error:error] ||
+        ![self _command:[NSString stringWithFormat:@"UPDATE %@ SET %@ = %@, %@ = NULL WHERE \"Z_ENT\" IN (%@)",quoted(table),quoted(column),[self _legacyValue:quoted(legacy) forSpec:spec],quoted(legacy),[entityIDs componentsJoinedByString:@", "]] parameters:nil error:error])
+      return NO;
+     upgraded=YES;
+    }
+
+    for(NSEntityDescription *other in entities)
+     for(NSRelationshipDescription *incoming in [[other relationshipsByName] allValues]){
+      if(![incoming isToMany] || ![incoming isOrdered] || relationshipUsesJoinTable(incoming) ||
+         rootEntity([incoming destinationEntity])!=entity)
+       continue;
+
+      NSString     *column=foreignKeyOrderColumn(incoming);
+      NSString     *legacy=legacyForeignKeyOrderColumn(incoming);
+      NSDictionary *spec=[specs objectForKey:column];
+
+      if([existing objectForKey:column]!=nil || [existing objectForKey:legacy]==nil || spec==nil)
+       continue;
+
+      NSMutableArray *entityIDs=[NSMutableArray array];
+
+      [self _collectEntityIDsOfEntity:[incoming destinationEntity] into:entityIDs];
+      if(![self _command:[NSString stringWithFormat:@"ALTER TABLE %@ ADD COLUMN %@",quoted(table),[self columnDefinitionFromSpec:spec]] parameters:nil error:error] ||
+         ![self _command:[NSString stringWithFormat:@"UPDATE %@ SET %@ = %@ WHERE \"Z_ENT\" IN (%@)",quoted(table),quoted(column),quoted(legacy),[entityIDs componentsJoinedByString:@", "]] parameters:nil error:error])
+       return NO;
+      upgraded=YES;
+     }
+   }
+
+   return !upgraded || [self _createIndexesForEntities:entities error:error];
 }
 
 -(BOOL)_migrateSchemaWithError:(NSError **)error {
@@ -5518,6 +5743,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
 
     [_entityNamesByID removeObjectForKey:[_entityIDs objectForKey:name]];
     [_entityIDs removeObjectForKey:name];
+    [_entityIDLists removeAllObjects];
    }
 
    for(NSEntityDescription *entity in sortedEntities)
@@ -6229,7 +6455,7 @@ static NSArray *rowNamesOfProperties(NSDictionary *properties){
    NSMutableArray      *selectColumns=[NSMutableArray arrayWithObject:@"\"Z_OPT\""];
 
    for(NSString *name in names)
-    [selectColumns addObject:quoted(columnNameForProperty(name))];
+    [selectColumns addObject:quoted(columnOf(entity,name))];
 
    NSString *sql=[NSString stringWithFormat:@"SELECT %@ FROM %@ WHERE \"Z_PK\" = %lld",[selectColumns componentsJoinedByString:@", "],quoted(tableNameForEntity(entity)),primaryKey];
    id<CDSQLResult> result=[self execute:sql parameters:nil error:error];
@@ -6274,7 +6500,7 @@ static NSArray *rowNamesOfProperties(NSDictionary *properties){
     NSMutableDictionary *byKey=[NSMutableDictionary dictionary];
 
     for(NSString *name in names)
-     [selectColumns addObject:quoted(columnNameForProperty(name))];
+     [selectColumns addObject:quoted(columnOf(entity,name))];
     for(NSManagedObjectID *objectID in ids)
      [byKey setObject:objectID forKey:[NSNumber numberWithLongLong:primaryKeyFromReferenceObject([self referenceObjectForObjectID:objectID])]];
 
@@ -6317,10 +6543,10 @@ static NSArray *rowNamesOfProperties(NSDictionary *properties){
     /* The destination row's Z_ENT comes back with the foreign key, so
        resolving a subentity costs no second round trip. */
     NSString *sql=[NSString stringWithFormat:@"SELECT t.%@, d.\"Z_ENT\" FROM %@ t LEFT JOIN %@ d ON d.\"Z_PK\" = t.%@ WHERE t.\"Z_PK\" = %lld",
-                                             quoted(columnNameForProperty([relationship name])),
+                                             quoted(columnOf([objectID entity],[relationship name])),
                                              quoted(tableNameForEntity([objectID entity])),
                                              quoted(tableNameForEntity(destination)),
-                                             quoted(columnNameForProperty([relationship name])),
+                                             quoted(columnOf([objectID entity],[relationship name])),
                                              primaryKey];
     id<CDSQLResult> result=[self execute:sql parameters:nil error:error];
 
@@ -6361,13 +6587,13 @@ static NSArray *rowNamesOfProperties(NSDictionary *properties){
    else {
     NSRelationshipDescription *inverse=[relationship inverseRelationship];
     NSString                  *orderBy=[relationship isOrdered]
-        ?quoted(orderColumnForRelationship(relationship))
+        ?quoted(foreignKeyOrderColumn(relationship))
         :@"\"Z_PK\"";
 
-    sql=[NSString stringWithFormat:@"SELECT \"Z_PK\", \"Z_ENT\" FROM %@ WHERE %@ = %lld ORDER BY %@",
+    sql=[NSString stringWithFormat:@"SELECT \"Z_PK\", \"Z_ENT\" FROM %@ WHERE %@ = %lld%@ ORDER BY %@",
                                    quoted(tableNameForEntity(destination)),
-                                   quoted(columnNameForProperty([inverse name])),
-                                   primaryKey,orderBy];
+                                   quoted(columnOfProperty(inverse)),
+                                   primaryKey,[self _andOnlyRowsOfEntity:destination column:@"\"Z_ENT\""],orderBy];
    }
 
    id<CDSQLResult> result=[self execute:sql parameters:nil error:error];
