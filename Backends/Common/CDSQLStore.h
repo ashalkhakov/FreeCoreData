@@ -237,6 +237,10 @@ typedef enum {
 /* Migration DDL */
 - (NSString *)renameColumnSQLForTable:(NSString *)table from:(NSString *)oldName definition:(NSString *)definition;
 - (NSString *)changeColumnTypeSQLForTable:(NSString *)table column:(NSString *)column definition:(NSString *)definition;
+/* An expression's value as a column of the given DDL type is to hold it,
+   where the database does not convert it on assignment by itself
+   (PostgreSQL); optional. */
+- (NSString *)expression:(NSString *)expression castToColumnType:(NSString *)type;
 - (NSString *)dropTableSQLForTable:(NSString *)table;
 - (BOOL)dropSchemaWithError:(NSError **)error;
 

@@ -3749,3 +3749,209 @@ static NSArray *CDSQLSiblingNotes(id members)
     [self assertSiblingsKeepTheirRelationshipsOfOneName:NO];
     [self assertSiblingsKeepTheirRelationshipsOfOneName:YES];
 }
+
+/* -- siblings' properties of one name: columns of their own -------------- */
+
+/* Three siblings each declaring a to-one "unit" and an attribute "note"
+   - a string in Ant and Cat, a number in Bee - declared out of name order;
+   Ant's and Bee's units have ordered inverses. */
+static NSManagedObjectModel *CDSQLSiblingColumnsModel(void)
+{
+    NSEntityDescription *unit = [[NSEntityDescription alloc] init];
+    NSEntityDescription *root = [[NSEntityDescription alloc] init];
+    NSEntityDescription *cat = [[NSEntityDescription alloc] init];
+    NSEntityDescription *ant = [[NSEntityDescription alloc] init];
+    NSEntityDescription *bee = [[NSEntityDescription alloc] init];
+    NSMutableArray *inverses = [NSMutableArray array];
+
+    [unit setName:@"Unit"];
+    [root setName:@"Root"];
+    [cat setName:@"Cat"];
+    [ant setName:@"Ant"];
+    [bee setName:@"Bee"];
+    for (NSEntityDescription *entity in @[ unit, root, cat, ant, bee ])
+        [entity setManagedObjectClassName:@"NSManagedObject"];
+
+    for (NSEntityDescription *sibling in @[ cat, ant, bee ]) {
+        NSRelationshipDescription *toUnit = [[NSRelationshipDescription alloc] init];
+        NSRelationshipDescription *members = [[NSRelationshipDescription alloc] init];
+        NSAttributeDescription *note = [[NSAttributeDescription alloc] init];
+
+        [toUnit setName:@"unit"];
+        [toUnit setMinCount:0];
+        [toUnit setMaxCount:1];
+        [toUnit setOptional:YES];
+        [toUnit setDestinationEntity:unit];
+        [members setName:[[sibling name] lowercaseString]];
+        [members setMinCount:0];
+        [members setMaxCount:0];
+        [members setOptional:YES];
+        [members setOrdered:sibling != cat];
+        [members setDestinationEntity:sibling];
+        [toUnit setInverseRelationship:members];
+        [members setInverseRelationship:toUnit];
+        [inverses addObject:members];
+        [note setName:@"note"];
+        [note setAttributeType:sibling == bee ? NSInteger64AttributeType : NSStringAttributeType];
+        [note setOptional:YES];
+        [sibling setProperties:@[ toUnit, note ]];
+    }
+
+    NSAttributeDescription *base = [[NSAttributeDescription alloc] init];
+    [base setName:@"base"];
+    [base setAttributeType:NSStringAttributeType];
+    [base setOptional:YES];
+    [root setProperties:@[ base ]];
+    [root setSubentities:@[ cat, ant, bee ]];
+    [unit setProperties:inverses];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ unit, root, cat, ant, bee ]];
+    return model;
+}
+
+- (NSManagedObjectContext *)siblingColumnsContext
+{
+    NSPersistentStoreCoordinator *coordinator =
+        [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:CDSQLSiblingColumnsModel()];
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    NSError *error = nil;
+
+    options[[self schemaNameOptionKey]] = [NSString stringWithFormat:@"%@_col", self.storeOptions[[self schemaNameOptionKey]]];
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:[self storeType] configuration:nil
+                                                        URL:self.storeURL options:options error:&error], @"%@", error);
+
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    [context setPersistentStoreCoordinator:coordinator];
+    return context;
+}
+
+- (void)destroySiblingColumnsSchema
+{
+    NSString *schema = [NSString stringWithFormat:@"%@_col", self.storeOptions[[self schemaNameOptionKey]]];
+
+    [[self storeClass] destroyStoreAtURL:self.storeURL options:@{ [self schemaNameOptionKey] : schema } error:NULL];
+}
+
+- (void)fillSiblingColumns
+{
+    NSManagedObjectContext *context = [self siblingColumnsContext];
+    NSManagedObject *unit = [NSEntityDescription insertNewObjectForEntityForName:@"Unit" inManagedObjectContext:context];
+
+    for (NSString *name in @[ @"Cat", @"Ant", @"Bee" ])
+        for (NSString *suffix in @[ @"1", @"2" ]) {
+            NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:name inManagedObjectContext:context];
+            [object setValue:[name stringByAppendingString:suffix] forKey:@"base"];
+            [object setValue:[name isEqualToString:@"Bee"] ? (id)@([suffix intValue] * 10) : [name stringByAppendingString:suffix] forKey:@"note"];
+            [object setValue:unit forKey:@"unit"];
+        }
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+}
+
+/* A column's values in a sibling's rows, by base: "-" for NULL, or the
+   error when there is no such column. */
+- (NSArray *)siblingColumn:(NSString *)column ofEntity:(NSString *)entityName inContext:(NSManagedObjectContext *)context
+{
+    id<CDSQLStoreCatalogue> store = (id)[[[context persistentStoreCoordinator] persistentStores] firstObject];
+    NSError *error = nil;
+    NSString *sql = [NSString stringWithFormat:@"SELECT \"%@\" FROM \"ZROOT\" WHERE \"Z_ENT\" = (SELECT \"Z_ENT\" FROM \"Z_PRIMARYKEY\" WHERE \"Z_NAME\" = $1) ORDER BY \"ZBASE\"", column];
+    id<CDSQLCatalogueRows> rows = [store execute:sql parameters:@[ entityName ] error:&error];
+    NSMutableArray *values = [NSMutableArray array];
+
+    if (rows == nil)
+        return @[ @"no column" ];
+    for (NSUInteger row = 0; row < [rows rowCount]; row++)
+        [values addObject:[rows isNullAtRow:row column:0] ? @"-" : [rows stringAtRow:row column:0]];
+    return values;
+}
+
+- (void)assertSiblingColumnsInContext:(NSManagedObjectContext *)context label:(NSString *)label
+{
+    NSArray *expected = @[ @[ @"Ant", @"ZUNIT", @"ZNOTE", @"Z_FOK_UNIT" ],
+                           @[ @"Bee", @"ZUNIT1", @"ZNOTE1", @"Z_FOK_UNIT1" ],
+                           @[ @"Cat", @"ZUNIT2", @"ZNOTE2", @"" ] ];
+
+    for (NSArray *row in expected) {
+        for (NSString *column in @[ @"ZUNIT", @"ZUNIT1", @"ZUNIT2" ]) {
+            NSArray *values = [self siblingColumn:column ofEntity:row[0] inContext:context];
+            XCTAssertEqual([values count], (NSUInteger)2, @"%@: %@ %@: %@", label, row[0], column, values);
+            XCTAssertEqual([values containsObject:@"-"], ![column isEqualToString:row[1]], @"%@: %@ %@: %@", label, row[0], column, values);
+        }
+        NSArray *notes = [row[0] isEqualToString:@"Bee"] ? @[ @"10", @"20" ]
+                         : @[ [row[0] stringByAppendingString:@"1"], [row[0] stringByAppendingString:@"2"] ];
+        XCTAssertEqualObjects([self siblingColumn:row[2] ofEntity:row[0] inContext:context], notes, @"%@: %@ %@", label, row[0], row[2]);
+        if ([row[3] length] > 0) {
+            NSArray *order = [self siblingColumn:row[3] ofEntity:row[0] inContext:context];
+            XCTAssertEqual([order count], (NSUInteger)2, @"%@: %@ %@: %@", label, row[0], row[3], order);
+            if ([order count] == 2)
+                XCTAssertLessThan([order[0] longLongValue], [order[1] longLongValue], @"%@: %@ %@: %@", label, row[0], row[3], order);
+        }
+    }
+
+    NSFetchRequest *units = [NSFetchRequest fetchRequestWithEntityName:@"Unit"];
+    NSArray *found = [context executeFetchRequest:units error:NULL];
+    XCTAssertEqual([found count], (NSUInteger)1, @"%@", label);
+    if ([found count] != 1)
+        return;
+    XCTAssertEqualObjects([[[found[0] valueForKey:@"ant"] array] valueForKey:@"note"], (@[ @"Ant1", @"Ant2" ]), @"%@", label);
+    XCTAssertEqualObjects([[[found[0] valueForKey:@"bee"] array] valueForKey:@"note"], (@[ @10, @20 ]), @"%@", label);
+    XCTAssertEqualObjects([[[[found[0] valueForKey:@"cat"] allObjects] valueForKey:@"note"] sortedArrayUsingSelector:@selector(compare:)],
+                          (@[ @"Cat1", @"Cat2" ]), @"%@", label);
+
+    NSFetchRequest *bees = [NSFetchRequest fetchRequestWithEntityName:@"Bee"];
+    [bees setPredicate:[NSPredicate predicateWithFormat:@"note > 15"]];
+    XCTAssertEqualObjects([[context executeFetchRequest:bees error:NULL] valueForKey:@"base"], @[ @"Bee2" ], @"%@", label);
+}
+
+/* As Apple's store names them: the first sibling by name takes ZUNIT and
+   ZNOTE, each later one the next suffix; an ordered to-many's order sits
+   beside its foreign key, named after it. */
+- (void)testSiblingsPropertiesOfOneNameHaveColumnsOfTheirOwn
+{
+    [self destroySiblingColumnsSchema];
+    [self fillSiblingColumns];
+    [self assertSiblingColumnsInContext:[self siblingColumnsContext] label:@"made"];
+    [self destroySiblingColumnsSchema];
+}
+
+/* A store made before siblings' properties had columns of their own - one
+   ZUNIT and one ZNOTE for all of them, an ordered to-many's order in
+   Z_FOK_<to-many> - gets them when it is opened, each with its own
+   entities' values. */
+- (void)testAStoreWithSiblingsSharingAColumnIsGivenTheirOwn
+{
+    [self destroySiblingColumnsSchema];
+    [self fillSiblingColumns];
+
+    NSManagedObjectContext *context = [self siblingColumnsContext];
+    id<CDSQLStoreCatalogue> store = (id)[[[context persistentStoreCoordinator] persistentStores] firstObject];
+    for (NSString *sql in @[ @"UPDATE \"ZROOT\" SET \"ZUNIT\" = COALESCE(\"ZUNIT\", \"ZUNIT1\", \"ZUNIT2\"), \"ZNOTE\" = COALESCE(\"ZNOTE\", \"ZNOTE2\")",
+                             @"UPDATE \"ZROOT\" SET \"ZNOTE\" = CAST(\"ZNOTE1\" AS CHAR(20)) WHERE \"ZNOTE1\" IS NOT NULL",
+                             @"ALTER TABLE \"ZROOT\" DROP COLUMN \"ZUNIT1\"", @"ALTER TABLE \"ZROOT\" DROP COLUMN \"ZUNIT2\"",
+                             @"ALTER TABLE \"ZROOT\" DROP COLUMN \"ZNOTE1\"", @"ALTER TABLE \"ZROOT\" DROP COLUMN \"ZNOTE2\"",
+                             @"ALTER TABLE \"ZROOT\" RENAME COLUMN \"Z_FOK_UNIT\" TO \"Z_FOK_ANT\"",
+                             @"ALTER TABLE \"ZROOT\" RENAME COLUMN \"Z_FOK_UNIT1\" TO \"Z_FOK_BEE\"" ]) {
+        NSError *error = nil;
+        XCTAssertNotNil([store execute:sql parameters:nil error:&error], @"%@: %@", sql, error);
+    }
+    XCTAssertEqualObjects([self siblingColumn:@"ZUNIT1" ofEntity:@"Bee" inContext:context], @[ @"no column" ]);
+    context = nil;
+    store = nil;
+
+    context = [self siblingColumnsContext];
+    [self assertSiblingColumnsInContext:context label:@"upgraded"];
+    XCTAssertEqualObjects([self siblingColumn:@"ZNOTE" ofEntity:@"Bee" inContext:context], (@[ @"-", @"-" ]));
+
+    /* And it goes on as one made so. */
+    NSFetchRequest *bees = [NSFetchRequest fetchRequestWithEntityName:@"Bee"];
+    [bees setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"base" ascending:YES] ]];
+    NSArray *found = [context executeFetchRequest:bees error:NULL];
+    if ([found count] == 2) {
+        [found[0] setValue:@30 forKey:@"note"];
+        NSError *error = nil;
+        XCTAssertTrue([context save:&error], @"%@", error);
+        XCTAssertEqualObjects([self siblingColumn:@"ZNOTE1" ofEntity:@"Bee" inContext:context], (@[ @"30", @"20" ]));
+    }
+    [self destroySiblingColumnsSchema];
+}

@@ -2621,4 +2621,179 @@ static NSArray *siblingNotes(id members)
     }
 }
 
+/* Three siblings each declaring a to-one "unit" and an attribute "note"
+   - a string in Ant and Cat, a number in Bee - declared out of name order;
+   Ant's and Bee's units have ordered inverses. */
+static NSManagedObjectModel *siblingColumnsModel(void)
+{
+    NSEntityDescription *unit = fleetEntity(@"Unit");
+    NSEntityDescription *root = fleetEntity(@"Root");
+    NSEntityDescription *cat = fleetEntity(@"Cat");
+    NSEntityDescription *ant = fleetEntity(@"Ant");
+    NSEntityDescription *bee = fleetEntity(@"Bee");
+    NSMutableArray *inverses = [NSMutableArray array];
+
+    for (NSEntityDescription *sibling in @[ cat, ant, bee ]) {
+        NSRelationshipDescription *toUnit = fleetRelationship(@"unit", NO);
+        NSRelationshipDescription *members = fleetRelationship([[sibling name] lowercaseString], YES);
+        [members setOrdered:sibling != cat];
+        fleetInverses(toUnit, unit, members, sibling);
+        [inverses addObject:members];
+        [sibling setProperties:@[ toUnit, fleetAttribute(@"note", sibling == bee ? NSInteger64AttributeType : NSStringAttributeType) ]];
+    }
+    [root setProperties:@[ fleetAttribute(@"base", NSStringAttributeType) ]];
+    [root setSubentities:@[ cat, ant, bee ]];
+    [unit setProperties:inverses];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ unit, root, cat, ant, bee ]];
+    return model;
+}
+
+/* One unit with two of each sibling, in order; saved. */
+- (void)fillSiblingColumnsInContext:(NSManagedObjectContext *)ctx
+{
+    NSManagedObject *unit = fleetObject(ctx, @"Unit", @{});
+    for (NSString *name in @[ @"Cat", @"Ant", @"Bee" ])
+        for (NSString *suffix in @[ @"1", @"2" ]) {
+            id note = [name isEqualToString:@"Bee"] ? (id)@([suffix intValue] * 10) : [name stringByAppendingString:suffix];
+            fleetObject(ctx, name, @{ @"base" : [name stringByAppendingString:suffix], @"note" : note, @"unit" : unit });
+        }
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+}
+
+/* Each sibling's values and order read back. */
+- (void)assertSiblingColumnsReadBackWithModel:(NSManagedObjectModel *)model label:(NSString *)label
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:model options:nil];
+    NSArray *units = [self fetchEntityNamed:@"Unit" inContext:ctx predicate:nil sortDescriptors:nil];
+    XCTAssertEqual([units count], (NSUInteger)1, @"%@", label);
+    if ([units count] != 1)
+        return;
+
+    XCTAssertEqualObjects([[[units[0] valueForKey:@"ant"] array] valueForKey:@"note"], (@[ @"Ant1", @"Ant2" ]), @"%@", label);
+    XCTAssertEqualObjects([[[units[0] valueForKey:@"bee"] array] valueForKey:@"note"], (@[ @10, @20 ]), @"%@", label);
+    XCTAssertEqualObjects([[[[units[0] valueForKey:@"cat"] allObjects] valueForKey:@"note"] sortedArrayUsingSelector:@selector(compare:)],
+                          (@[ @"Cat1", @"Cat2" ]), @"%@", label);
+
+    NSArray *roots = [self fetchEntityNamed:@"Root" inContext:ctx predicate:nil
+                            sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"base" ascending:YES] ]];
+    XCTAssertEqualObjects([roots valueForKeyPath:@"entity.name"], (@[ @"Ant", @"Ant", @"Bee", @"Bee", @"Cat", @"Cat" ]), @"%@", label);
+    for (NSManagedObject *object in roots)
+        XCTAssertEqual([object valueForKey:@"unit"], units[0], @"%@ %@", label, [object valueForKey:@"base"]);
+
+    NSArray *found = [self fetchEntityNamed:@"Bee" inContext:ctx predicate:[NSPredicate predicateWithFormat:@"note > 15"] sortDescriptors:nil];
+    XCTAssertEqualObjects([found valueForKey:@"base"], @[ @"Bee2" ], @"%@", label);
+    found = [self fetchEntityNamed:@"Ant" inContext:ctx predicate:[NSPredicate predicateWithFormat:@"note == 'Ant2' AND unit != nil"] sortDescriptors:nil];
+    XCTAssertEqualObjects([found valueForKey:@"base"], @[ @"Ant2" ], @"%@", label);
+}
+
+/* Rows of a sibling, as a column's values: "-" for NULL.  The column is
+   not quoted: SQLite takes a quoted name that is no column for a string. */
+- (NSArray *)storedColumn:(NSString *)column ofEntity:(NSString *)entityName
+{
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    NSMutableArray *values = [NSMutableArray array];
+    NSString *sql = [NSString stringWithFormat:
+        @"SELECT %@ FROM ZROOT WHERE Z_ENT = (SELECT Z_ENT FROM Z_PRIMARYKEY WHERE Z_NAME = '%@') ORDER BY ZBASE", column, entityName];
+
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    if (sqlite3_prepare_v2(database, [sql UTF8String], -1, &statement, NULL) == SQLITE_OK)
+        while (sqlite3_step(statement) == SQLITE_ROW)
+            [values addObject:sqlite3_column_type(statement, 0) == SQLITE_NULL ? @"-"
+                              : [NSString stringWithUTF8String:(const char *)sqlite3_column_text(statement, 0)]];
+    else
+        [values addObject:[NSString stringWithFormat:@"no column %@", column]];
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return values;
+}
+
+/* Order values, which Apple's store spaces apart: the first before the
+   second. */
+- (void)assertStoredOrder:(NSArray *)values label:(NSString *)label
+{
+    XCTAssertEqual([values count], (NSUInteger)2, @"%@: %@", label, values);
+    if ([values count] != 2)
+        return;
+    XCTAssertFalse([values containsObject:@"-"], @"%@: %@", label, values);
+    XCTAssertLessThan([values[0] longLongValue], [values[1] longLongValue], @"%@: %@", label, values);
+}
+
+/* As Apple's store names them: the first sibling by name takes ZUNIT and
+   ZNOTE, each later one the next suffix, whatever the order the siblings
+   were declared in; an ordered to-many's order sits beside its foreign
+   key, named after it. */
+- (void)testSiblingsPropertiesOfOneNameHaveColumnsOfTheirOwn
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:siblingColumnsModel() options:nil];
+    [self fillSiblingColumnsInContext:ctx];
+
+    NSArray *expected = @[ @[ @"Ant", @"ZUNIT", @"ZNOTE", @"Z_FOK_UNIT" ],
+                           @[ @"Bee", @"ZUNIT1", @"ZNOTE1", @"Z_FOK_UNIT1" ],
+                           @[ @"Cat", @"ZUNIT2", @"ZNOTE2", @"" ] ];
+    for (NSArray *row in expected) {
+        for (NSString *column in @[ @"ZUNIT", @"ZUNIT1", @"ZUNIT2" ]) {
+            NSArray *values = [self storedColumn:column ofEntity:row[0]];
+            BOOL own = [column isEqualToString:row[1]];
+            XCTAssertEqual([values count], (NSUInteger)2, @"%@ %@: %@", row[0], column, values);
+            XCTAssertEqual([values containsObject:@"-"], !own, @"%@ %@: %@", row[0], column, values);
+        }
+        NSArray *notes = [self storedColumn:row[2] ofEntity:row[0]];
+        NSArray *expectedNotes = [row[0] isEqualToString:@"Bee"] ? @[ @"10", @"20" ] : @[ [row[0] stringByAppendingString:@"1"], [row[0] stringByAppendingString:@"2"] ];
+        XCTAssertEqualObjects(notes, expectedNotes, @"%@ %@", row[0], row[2]);
+        if ([row[3] length] > 0)
+            [self assertStoredOrder:[self storedColumn:row[3] ofEntity:row[0]] label:[NSString stringWithFormat:@"%@ %@", row[0], row[3]]];
+    }
+
+    [self assertSiblingColumnsReadBackWithModel:siblingColumnsModel() label:@"reopened"];
+}
+
+#if __has_include(<CoreData/CDExternalDataStore.h>)
+/* A store made before siblings' properties had columns of their own: one
+   ZUNIT and one ZNOTE for all of them, and the order of each ordered
+   to-many in Z_FOK_<to-many>.  Opened, it gets the columns, each with its
+   own entities' values. */
+- (void)testAStoreWithSiblingsSharingAColumnIsGivenTheirOwn
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:siblingColumnsModel() options:nil];
+    [self fillSiblingColumnsInContext:ctx];
+    ctx = nil;
+
+    /* The columns as such a store had them. */
+    sqlite3 *database = NULL;
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    for (NSString *sql in @[ @"UPDATE ZROOT SET ZUNIT = COALESCE(ZUNIT, ZUNIT1, ZUNIT2), ZNOTE = COALESCE(ZNOTE, ZNOTE1, ZNOTE2)",
+                             @"DROP INDEX ZROOT_ZUNIT1_INDEX", @"DROP INDEX ZROOT_ZUNIT2_INDEX",
+                             @"ALTER TABLE ZROOT DROP COLUMN ZUNIT1", @"ALTER TABLE ZROOT DROP COLUMN ZUNIT2",
+                             @"ALTER TABLE ZROOT DROP COLUMN ZNOTE1", @"ALTER TABLE ZROOT DROP COLUMN ZNOTE2",
+                             @"ALTER TABLE ZROOT RENAME COLUMN Z_FOK_UNIT TO Z_FOK_ANT",
+                             @"ALTER TABLE ZROOT RENAME COLUMN Z_FOK_UNIT1 TO Z_FOK_BEE" ]) {
+        char *message = NULL;
+        XCTAssertEqual(sqlite3_exec(database, [sql UTF8String], NULL, NULL, &message), SQLITE_OK, @"%@: %s", sql, message);
+        sqlite3_free(message);
+    }
+    sqlite3_close(database);
+    NSArray *before = [self storedColumn:@"ZUNIT1" ofEntity:@"Bee"];
+    XCTAssertEqualObjects(before, @[ @"no column ZUNIT1" ], @"%@", before);
+
+    [self assertSiblingColumnsReadBackWithModel:siblingColumnsModel() label:@"upgraded"];
+    XCTAssertEqualObjects([self storedColumn:@"ZNOTE1" ofEntity:@"Bee"], (@[ @"10", @"20" ]));
+    XCTAssertEqualObjects([self storedColumn:@"ZNOTE" ofEntity:@"Bee"], (@[ @"-", @"-" ]));
+    XCTAssertEqualObjects([self storedColumn:@"ZUNIT" ofEntity:@"Ant"], (@[ @"1", @"1" ]));
+    [self assertStoredOrder:[self storedColumn:@"Z_FOK_UNIT1" ofEntity:@"Bee"] label:@"upgraded Bee Z_FOK_UNIT1"];
+
+    /* And it goes on as one made so: written, and read back again. */
+    ctx = [self contextWithModel:siblingColumnsModel() options:nil];
+    NSArray *bees = [self fetchEntityNamed:@"Bee" inContext:ctx predicate:nil
+                           sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"base" ascending:YES] ]];
+    [bees[0] setValue:@30 forKey:@"note"];
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"%@", error);
+    XCTAssertEqualObjects([self storedColumn:@"ZNOTE1" ofEntity:@"Bee"], (@[ @"30", @"20" ]));
+}
+#endif
+
 @end
