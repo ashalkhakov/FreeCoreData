@@ -2035,10 +2035,12 @@ static id CDUndoRestoredValue(id value){
         nil]];
    NSEndMapTableEnumeration(&state);
 
+   /* Keys of its own: "inserted" and the like are the change
+      notifications' keys, whose values are sets of objects. */
    NSDictionary *event=[NSDictionary dictionaryWithObjectsAndKeys:
-       updated,@"updated",
-       [[_undoEventInserted copy] autorelease],@"inserted",
-       [[_undoEventDeleted copy] autorelease],@"deleted",
+       updated,@"undoUpdated",
+       [[_undoEventInserted copy] autorelease],@"undoInserted",
+       [[_undoEventDeleted copy] autorelease],@"undoDeleted",
        nil];
 
    [_undoManager registerUndoWithTarget:self
@@ -2050,7 +2052,7 @@ static id CDUndoRestoredValue(id value){
 -(void)_undoApplyEvent:(NSDictionary *)event {
    /* Resurrect deletions first so value restores may reference the
       objects again. */
-   for(NSDictionary *record in [event objectForKey:@"deleted"]){
+   for(NSDictionary *record in [event objectForKey:@"undoDeleted"]){
     NSManagedObject *object=[record objectForKey:@"object"];
     BOOL             wasInserted=[[record objectForKey:@"wasInserted"] boolValue];
 
@@ -2103,7 +2105,7 @@ static id CDUndoRestoredValue(id value){
     }
    }
 
-   for(NSDictionary *record in [event objectForKey:@"updated"]){
+   for(NSDictionary *record in [event objectForKey:@"undoUpdated"]){
     NSManagedObject *object=[record objectForKey:@"object"];
     NSDictionary    *values=[record objectForKey:@"values"];
 
@@ -2114,7 +2116,7 @@ static id CDUndoRestoredValue(id value){
     }
    }
 
-   for(NSManagedObject *object in [[event objectForKey:@"inserted"] reverseObjectEnumerator]){
+   for(NSManagedObject *object in [[event objectForKey:@"undoInserted"] reverseObjectEnumerator]){
     /* An "inserted" record covers two cases.  A never-saved object (it
        is still insert-pending) is forgotten outright: after undoing its
        insertion the context reports no inserted OR deleted objects, as

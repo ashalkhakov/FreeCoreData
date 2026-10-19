@@ -324,6 +324,87 @@ static NSManagedObjectModel *XMLStoreTestModel(void)
     XCTAssertFalse([written containsString:@"NSStoreTypeKey"]);
     XCTAssertFalse([written containsString:@"NSStoreUUIDKey"]);
 }
+
+/* Saves one employee, then takes the file's <UUID> element away, keeping
+   in its metadata - when uuid is given - the copy an older store wrote
+   under the old key name. */
+- (void)writeStoreWithoutItsUUIDElementKeeping:(NSString *)uuid
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:XMLStoreTestModel()];
+    [[NSEntityDescription insertNewObjectForEntityForName:@"Employee"
+                                   inManagedObjectContext:ctx]
+        setValue:@"Alice" forKey:@"name"];
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    NSXMLDocument *doc = [[NSXMLDocument alloc]
+        initWithContentsOfURL:self.storeURL options:0 error:&error];
+    NSXMLElement *info = [[[doc rootElement] elementsForName:@"databaseInfo"] lastObject];
+    NSXMLElement *uuidElement = [[info elementsForName:@"UUID"] lastObject];
+    [info removeChildAtIndex:[uuidElement index]];
+
+    NSXMLElement *element = [[info elementsForName:@"metadata"] lastObject];
+    NSMutableDictionary *old = [[NSPropertyListSerialization
+        propertyListWithData:[[element stringValue] dataUsingEncoding:NSUTF8StringEncoding]
+                     options:NSPropertyListMutableContainers format:NULL error:&error] mutableCopy];
+    [old removeObjectForKey:NSStoreUUIDKey];
+    if (uuid != nil)
+        [old setObject:uuid forKey:@"NSStoreUUIDKey"];
+    NSData *plist = [NSPropertyListSerialization dataWithPropertyList:old
+        format:NSPropertyListXMLFormat_v1_0 options:0 error:&error];
+    [element setStringValue:[[NSString alloc] initWithData:plist encoding:NSUTF8StringEncoding]];
+    XCTAssertTrue([[doc XMLData] writeToURL:self.storeURL atomically:YES]);
+}
+
+/* A file with no <UUID> element of its own takes the UUID an older store
+   kept in its metadata under the old key name - as the metadata read
+   without opening it does too - and has the element when saved. */
+- (void)testAFileWithNoUUIDElementTakesTheOneUnderTheOldKeyName
+{
+    NSString *uuid = @"5B2E0C51-0B5A-4F3B-9E0E-6C1D2A3B4C5D";
+    [self writeStoreWithoutItsUUIDElementKeeping:uuid];
+
+    NSError *error = nil;
+    NSDictionary *read = [NSPersistentStoreCoordinator
+        metadataForPersistentStoreOfType:NSXMLStoreType URL:self.storeURL error:&error];
+    XCTAssertEqualObjects([read objectForKey:NSStoreUUIDKey], uuid);
+
+    NSManagedObjectContext *ctx = [self contextWithModel:XMLStoreTestModel()];
+    NSPersistentStore *store = [[[ctx persistentStoreCoordinator] persistentStores] firstObject];
+    XCTAssertEqualObjects([store identifier], uuid);
+    XCTAssertEqualObjects([[[ctx persistentStoreCoordinator] metadataForPersistentStore:store] objectForKey:NSStoreUUIDKey], uuid);
+    XCTAssertEqual([[self fetchEntityNamed:@"Employee" inContext:ctx] count], (NSUInteger)1);
+
+    [[NSEntityDescription insertNewObjectForEntityForName:@"Employee"
+                                   inManagedObjectContext:ctx]
+        setValue:@"Bob" forKey:@"name"];
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+    NSString *written = [NSString stringWithContentsOfURL:self.storeURL encoding:NSUTF8StringEncoding error:&error];
+    NSString *element = [NSString stringWithFormat:@"<UUID>%@</UUID>", uuid];
+    XCTAssertTrue([written containsString:element], @"%@", written);
+}
+
+/* And one with no UUID anywhere opens - with one of its own, kept. */
+- (void)testAFileWithNoUUIDAtAllOpensWithOneOfItsOwn
+{
+    [self writeStoreWithoutItsUUIDElementKeeping:nil];
+
+    NSManagedObjectContext *ctx = [self contextWithModel:XMLStoreTestModel()];
+    NSPersistentStore *store = [[[ctx persistentStoreCoordinator] persistentStores] firstObject];
+    XCTAssertNotNil(store);
+    NSString *uuid = [store identifier];
+    XCTAssertGreaterThan([uuid length], (NSUInteger)0);
+    XCTAssertEqual([[self fetchEntityNamed:@"Employee" inContext:ctx] count], (NSUInteger)1);
+
+    [[NSEntityDescription insertNewObjectForEntityForName:@"Employee"
+                                   inManagedObjectContext:ctx]
+        setValue:@"Bob" forKey:@"name"];
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+    NSDictionary *read = [NSPersistentStoreCoordinator
+        metadataForPersistentStoreOfType:NSXMLStoreType URL:self.storeURL error:&error];
+    XCTAssertEqualObjects([read objectForKey:NSStoreUUIDKey], uuid);
+}
 #endif
 
 /* -- Apple interoperability -------------------------------------------- */
