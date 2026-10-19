@@ -2473,4 +2473,80 @@ static NSManagedObjectModel *familyModel(void)
     }
 }
 
+
+/* Two sibling entities, each declaring a to-one of the same name to the
+   same entity with an inverse of its own: one table holds both, in one
+   column, and each keeps its own destination and inverse. */
+static NSManagedObjectModel *siblingsSharingARelationshipNameModel(NSArray *order)
+{
+    NSEntityDescription *unit = fleetEntity(@"Unit");
+    NSEntityDescription *event = fleetEntity(@"Event");
+    NSEntityDescription *metered = fleetEntity(@"Metered");
+    NSEntityDescription *income = fleetEntity(@"Income");
+
+    NSRelationshipDescription *meteredUnit = fleetRelationship(@"unit", NO);
+    NSRelationshipDescription *meteredEvents = fleetRelationship(@"meteredEvents", YES);
+    NSRelationshipDescription *incomeUnit = fleetRelationship(@"unit", NO);
+    NSRelationshipDescription *incomes = fleetRelationship(@"incomes", YES);
+
+    fleetInverses(meteredUnit, unit, meteredEvents, metered);
+    fleetInverses(incomeUnit, unit, incomes, income);
+
+    [unit setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), meteredEvents, incomes ]];
+    [event setProperties:@[ fleetAttribute(@"note", NSStringAttributeType) ]];
+    [metered setProperties:@[ meteredUnit ]];
+    [income setProperties:@[ incomeUnit ]];
+    NSDictionary *byName = @{ @"Metered" : metered, @"Income" : income };
+    [event setSubentities:@[ byName[order[0]], byName[order[1]] ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ unit, event, metered, income ]];
+    return model;
+}
+
+- (void)assertSiblingsKeepTheirRelationshipsOfOneName:(NSArray *)order
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:siblingsSharingARelationshipNameModel(order) options:nil];
+    NSManagedObject *km = fleetObject(ctx, @"Unit", @{ @"name" : @"km" });
+    NSManagedObject *mi = fleetObject(ctx, @"Unit", @{ @"name" : @"mi" });
+    fleetObject(ctx, @"Metered", @{ @"note" : @"a", @"unit" : km });
+    fleetObject(ctx, @"Income", @{ @"note" : @"b", @"unit" : km });
+    fleetObject(ctx, @"Income", @{ @"note" : @"c", @"unit" : mi });
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    /* Another, added to a unit already saved. */
+    ctx = [self contextWithModel:siblingsSharingARelationshipNameModel(order) options:nil];
+    NSArray *units = [self fetchEntityNamed:@"Unit" inContext:ctx predicate:nil
+                            sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+    XCTAssertEqual([units count], (NSUInteger)2, @"%@", order);
+    if ([units count] != 2)
+        return;
+    fleetObject(ctx, @"Metered", @{ @"note" : @"d", @"unit" : units[1] });
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    ctx = [self contextWithModel:siblingsSharingARelationshipNameModel(order) options:nil];
+    NSArray *events = [self fetchEntityNamed:@"Event" inContext:ctx predicate:nil
+                             sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"note" ascending:YES] ]];
+    XCTAssertEqualObjects([events valueForKeyPath:@"entity.name"], (@[ @"Metered", @"Income", @"Income", @"Metered" ]), @"%@", order);
+    XCTAssertEqualObjects([events valueForKeyPath:@"unit.name"], (@[ @"km", @"km", @"mi", @"mi" ]), @"%@", order);
+
+    ctx = [self contextWithModel:siblingsSharingARelationshipNameModel(order) options:nil];
+    units = [self fetchEntityNamed:@"Unit" inContext:ctx predicate:nil
+                   sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+    NSSortDescriptor *byNote = [NSSortDescriptor sortDescriptorWithKey:@"self" ascending:YES];
+    XCTAssertEqualObjects([[[units[0] valueForKeyPath:@"meteredEvents.note"] allObjects] sortedArrayUsingDescriptors:@[ byNote ]], @[ @"a" ], @"%@", order);
+    XCTAssertEqualObjects([[[units[0] valueForKeyPath:@"incomes.note"] allObjects] sortedArrayUsingDescriptors:@[ byNote ]], @[ @"b" ], @"%@", order);
+    XCTAssertEqualObjects([[[units[1] valueForKeyPath:@"meteredEvents.note"] allObjects] sortedArrayUsingDescriptors:@[ byNote ]], @[ @"d" ], @"%@", order);
+    XCTAssertEqualObjects([[[units[1] valueForKeyPath:@"incomes.note"] allObjects] sortedArrayUsingDescriptors:@[ byNote ]], @[ @"c" ], @"%@", order);
+}
+
+- (void)testSiblingsKeepTheirRelationshipsOfOneName
+{
+    [self assertSiblingsKeepTheirRelationshipsOfOneName:@[ @"Metered", @"Income" ]];
+    [self removeStoreFilesAtURL:self.storeURL];
+    [self assertSiblingsKeepTheirRelationshipsOfOneName:@[ @"Income", @"Metered" ]];
+}
+
 @end

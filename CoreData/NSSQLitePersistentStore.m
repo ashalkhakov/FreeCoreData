@@ -787,6 +787,21 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
     [self _collectEntityIDsOfEntity:subentity into:result];
 }
 
+/* " AND Z_ENT IN (...)" for an entity sharing its root's table, "" for a
+   root: the rows of the table that are entity's.  Entities sharing a
+   table may each have a column of one name - siblings each declaring a
+   relationship of one name - so a foreign key's rows are only the
+   destination's when they are of the destination's entities. */
+-(NSString *)_onlyRowsOfEntity:(NSEntityDescription *)entity column:(NSString *)entityColumn {
+   if(rootEntity(entity)==entity)
+    return @"";
+
+   NSMutableArray *entityIDs=[NSMutableArray array];
+
+   [self _collectEntityIDsOfEntity:entity into:entityIDs];
+   return [NSString stringWithFormat:@" AND %@ IN (%@)",entityColumn,[entityIDs componentsJoinedByString:@", "]];
+}
+
 /* Properties of entity including the ones inherited from superentities.
    Transient properties are never persisted, so they are left out. */
 static void collectPropertiesOfEntityChain(NSEntityDescription *entity,NSMutableDictionary *result){
@@ -2125,14 +2140,7 @@ static BOOL resolveKeyPathExpression(const CDPredicateScope *scope,NSExpression 
 
    /* Entities sharing the destination's table may have a column of the
       same name; only the destination's own rows are its members. */
-   if(rootEntity(destination)!=destination){
-    NSMutableArray *entityIDs=[NSMutableArray array];
-
-    [self _collectEntityIDsOfEntity:destination into:entityIDs];
-    [conditions addObject:[NSString stringWithFormat:@"%@ IN (%@)",qualifiedColumn(alias,@"Z_ENT"),[entityIDs componentsJoinedByString:@", "]]];
-   }
-
-   rows->where=[conditions componentsJoinedByString:@" AND "];
+   rows->where=[[conditions componentsJoinedByString:@" AND "] stringByAppendingString:[self _onlyRowsOfEntity:destination column:qualifiedColumn(alias,@"Z_ENT")]];
    rows->alias=alias;
    rows->entity=destination;
    rows->ownerKey=ownerKey;
@@ -3004,7 +3012,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
      NSString                  *destinationTable=tableNameForEntity([relationship destinationEntity]);
      NSString                  *foreignKeyColumn=columnNameForProperty([inverse name]);
 
-     NSString *clearSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = NULL WHERE \"%@\" = %lld",destinationTable,foreignKeyColumn,foreignKeyColumn,primaryKey];
+     NSString *clearSQL=[NSString stringWithFormat:@"UPDATE \"%@\" SET \"%@\" = NULL WHERE \"%@\" = %lld%@",destinationTable,foreignKeyColumn,foreignKeyColumn,primaryKey,[self _onlyRowsOfEntity:[relationship destinationEntity] column:@"Z_ENT"]];
 
      if(!executeSQL(DATABASE,clearSQL,error))
       return NO;
@@ -4639,7 +4647,7 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
         ?[NSString stringWithFormat:@"\"%@\"",orderColumnForRelationship(relationship)]
         :@"Z_PK";
 
-    sql=[NSString stringWithFormat:@"SELECT Z_PK FROM \"%@\" WHERE \"%@\" = %lld ORDER BY %@",tableNameForEntity(destination),columnNameForProperty([inverse name]),primaryKey,orderBy];
+    sql=[NSString stringWithFormat:@"SELECT Z_PK FROM \"%@\" WHERE \"%@\" = %lld%@ ORDER BY %@",tableNameForEntity(destination),columnNameForProperty([inverse name]),primaryKey,[self _onlyRowsOfEntity:destination column:@"Z_ENT"],orderBy];
    }
 
    sqlite3_stmt *statement=prepareStatement(DATABASE,sql,error);
