@@ -2232,6 +2232,90 @@ static NSPredicate *countedSubquery(NSString *collection, NSString *variable, NS
     [self assertFleet:psc entity:@"Vehicle" format:@"owner.name BEGINSWITH 'C'" answers:@[ @"V3" ]];
 }
 
+/* A to-one back to the same entity: a family tree, whose table has the
+   foreign key (ZPARENT) a lookup by parent reads in the same table. */
+static NSManagedObjectModel *familyModel(void)
+{
+    NSEntityDescription *person = fleetEntity(@"Person");
+    NSRelationshipDescription *parent = fleetRelationship(@"parent", NO);
+    NSRelationshipDescription *children = fleetRelationship(@"children", YES);
+
+    fleetInverses(parent, person, children, person);
+    [person setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), parent, children ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ person ]];
+    return model;
+}
+
+/* A and Z have no parent; B and C are A's children, D is B's, E is D's. */
+- (NSPersistentStoreCoordinator *)familyCoordinator
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:familyModel() options:nil];
+
+    NSManagedObject *a = fleetObject(ctx, @"Person", @{ @"name" : @"A" });
+    NSManagedObject *b = fleetObject(ctx, @"Person", @{ @"name" : @"B", @"parent" : a });
+    fleetObject(ctx, @"Person", @{ @"name" : @"C", @"parent" : a });
+    NSManagedObject *d = fleetObject(ctx, @"Person", @{ @"name" : @"D", @"parent" : b });
+    fleetObject(ctx, @"Person", @{ @"name" : @"E", @"parent" : d });
+    fleetObject(ctx, @"Person", @{ @"name" : @"Z" });
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+    return [ctx persistentStoreCoordinator];
+}
+
+- (void)testKeyPathsThroughAToOneToTheSameEntity
+{
+    NSPersistentStoreCoordinator *psc = [self familyCoordinator];
+
+    [self assertFleet:psc entity:@"Person" format:@"parent.name == 'A'" answers:@[ @"B", @"C" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.parent.name == 'A'" answers:@[ @"D" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.parent.parent.name == 'A'" answers:@[ @"E" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.name BEGINSWITH 'D'" answers:@[ @"E" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.name == nil" answers:@[ @"A", @"Z" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.parent == nil" answers:@[ @"A", @"B", @"C", @"Z" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.name == name" answers:@[]];
+}
+
+- (void)testToManysOfTheSameEntity
+{
+    NSPersistentStoreCoordinator *psc = [self familyCoordinator];
+
+    [self assertFleet:psc entity:@"Person" format:@"ANY children.name == 'D'" answers:@[ @"B" ]];
+    [self assertFleet:psc entity:@"Person" format:@"children.@count == 2" answers:@[ @"A" ]];
+    [self assertFleet:psc entity:@"Person" format:@"children.@count == 0" answers:@[ @"C", @"E", @"Z" ]];
+    /* Correlated with the fetched row's own parent, a lookup in the same
+       table: NULL for A, so none of A's children count (memory, where
+       nil is unequal to every name, counts them). */
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"SUBQUERY(children, $c, $c.name != parent.name).@count > 0"]
+              answers:@[ @"B", @"D" ]
+          inMemoryToo:NO];
+    /* Siblings, through the parent: none for those who have none. */
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"ANY parent.children.name == 'C'"]
+              answers:@[ @"B", @"C" ]
+          inMemoryToo:NO];
+}
+
+/* Unequal through a to-one that is not set: Apple's store finds no row
+   there - the lookup is NULL, unequal to nothing - where memory finds
+   one (nil is unequal to 'A').  The store's answer is Apple's. */
+- (void)testUnequalThroughAToOneThatIsNotSet
+{
+    NSPersistentStoreCoordinator *psc = [self familyCoordinator];
+
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"parent.name != 'A'"]
+              answers:@[ @"D", @"E" ]
+          inMemoryToo:NO];
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"NOT (parent.name == 'A')"]
+              answers:@[ @"D", @"E" ]
+          inMemoryToo:NO];
+}
+
 - (void)testCountsOfAToMany
 {
     NSPersistentStoreCoordinator *psc = [self fleetCoordinator];

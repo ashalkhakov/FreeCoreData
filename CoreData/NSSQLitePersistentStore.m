@@ -2046,7 +2046,13 @@ static BOOL resolveKeyPathExpression(const CDPredicateScope *scope,NSExpression 
     if(!scope->allowsSubqueries)
      return nil;
 
-    ownerKey=[self _primaryKeyReachedFrom:reference entity:path.entity keys:[path.keys subarrayWithRange:NSMakeRange(0,count-1)] scope:scope reached:&owner];
+    /* The owner's key is read inside the lookup, so the fetched table's
+       columns are qualified: bare, a foreign key would name the lookup's
+       own column when its table has one of that name - always, when a
+       to-one leads back to the same entity (parent.name). */
+    CDPredicateScope inner=nestedScope(scope,nil,nil,nil);
+
+    ownerKey=[self _primaryKeyReachedFrom:referenceOfKeyPath(path,&inner) entity:path.entity keys:[path.keys subarrayWithRange:NSMakeRange(0,count-1)] scope:scope reached:&owner];
 
     if(ownerKey==nil)
      return nil;
