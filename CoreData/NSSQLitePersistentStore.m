@@ -1134,7 +1134,7 @@ static NSString *sqlLiteralForBinding(NSDictionary *binding){
 
    if([index partialIndexPredicate]!=nil){
     NSMutableArray *bindings=[NSMutableArray array];
-    NSString       *clause=[self _translatePredicate:[index partialIndexPredicate] entity:entity bindings:bindings];
+    NSString       *clause=[self _translatePredicate:[index partialIndexPredicate] entity:entity allowingSubqueries:NO bindings:bindings];
 
     /* Written the way Apple's store writes it: bare column names (the
        clause holds no literal yet, so every quote is an identifier's),
@@ -1802,64 +1802,414 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    return result;
 }
 
--(NSString *)_translateComparisonPredicate:(NSComparisonPredicate *)comparison entity:(NSEntityDescription *)entity bindings:(NSMutableArray *)bindings {
-   if([comparison comparisonPredicateModifier]!=NSDirectPredicateModifier)
-    return nil;
+/* ------------------------------------------------------------------ */
+#pragma mark - Key paths through relationships
+/* ------------------------------------------------------------------ */
 
-   NSComparisonPredicateOptions options=[comparison options];
+/* Where a part of a predicate is translated.  The fetched entity's table
+   is the query's own and carries no alias: its columns are written bare at
+   the top level, and qualified with the table's name inside a subquery -
+   where every table is given an alias, so that the name can only mean the
+   outer one.  A SUBQUERY's variable, and the rows an ANY walks, are scopes
+   of their own, naming the alias of the table their rows are in; key paths
+   not through a variable still start from the fetched object, as they do
+   when NSPredicate evaluates a SUBQUERY in memory.
 
-   /* Only exact and [c] matches translate exactly; diacritic- or
-      locale-sensitive matching happens in memory. */
-   if((options&~NSCaseInsensitivePredicateOption)!=0)
-    return nil;
+   A partial index's predicate is translated with allowsSubqueries off:
+   SQLite takes no subquery there. */
+typedef struct CDPredicateScope {
+   NSEntityDescription           *rootEntity;
+   BOOL                           nested;
+   BOOL                           allowsSubqueries;
+   NSUInteger                    *aliasCount;
+   NSString                      *variable;
+   NSString                      *alias;
+   NSEntityDescription           *entity;
+   const struct CDPredicateScope *outer;
+} CDPredicateScope;
 
-   BOOL caseInsensitive=(options&NSCaseInsensitivePredicateOption)!=0;
+/* A key path, and where it starts: the fetched object, or the rows of the
+   table `alias` names (a SUBQUERY's variable, or the rows an ANY walks). */
+typedef struct {
+   BOOL                 fromRoot;
+   NSString            *alias;
+   NSEntityDescription *entity;
+   NSArray             *keys;
+} CDKeyPath;
 
-   NSExpression *lhs=[comparison leftExpression];
-   NSExpression *rhs=[comparison rightExpression];
-   NSPredicateOperatorType operator=[comparison predicateOperatorType];
+/* The rows a to-many key path reaches, as the FROM and WHERE of a subquery
+   correlated with the row the key path starts from. */
+typedef struct {
+   NSString            *from;
+   NSString            *where;
+   NSString            *alias;
+   NSEntityDescription *entity;
+   NSString            *ownerKey;     /* the Z_PK of the row owning them */
+   BOOL                 throughToOne; /* reached through to-ones first */
+} CDToManyRows;
 
-   /* Normalize to <keypath> <operator> <constant>, flipping the operator
-      when the predicate was written the other way around. */
-   if([lhs expressionType]==NSConstantValueExpressionType && [rhs expressionType]==NSKeyPathExpressionType){
-    NSExpression *swap=lhs; lhs=rhs; rhs=swap;
+static NSString *qualifiedColumn(NSString *reference,NSString *column){
+   if(reference==nil)
+    return [NSString stringWithFormat:@"\"%@\"",column];
 
-    switch(operator){
-     case NSLessThanPredicateOperatorType:            operator=NSGreaterThanPredicateOperatorType; break;
-     case NSLessThanOrEqualToPredicateOperatorType:   operator=NSGreaterThanOrEqualToPredicateOperatorType; break;
-     case NSGreaterThanPredicateOperatorType:         operator=NSLessThanPredicateOperatorType; break;
-     case NSGreaterThanOrEqualToPredicateOperatorType:operator=NSLessThanOrEqualToPredicateOperatorType; break;
-     case NSEqualToPredicateOperatorType:
-     case NSNotEqualToPredicateOperatorType:
-      break;
-     default:
-      return nil;
-    }
+   return [NSString stringWithFormat:@"%@.\"%@\"",reference,column];
+}
+
+static NSString *referenceOfKeyPath(CDKeyPath path,const CDPredicateScope *scope){
+   if(!path.fromRoot)
+    return path.alias;
+
+   return scope->nested?[NSString stringWithFormat:@"\"%@\"",tableNameForEntity(scope->rootEntity)]:nil;
+}
+
+static NSString *nextAlias(const CDPredicateScope *scope){
+   (*scope->aliasCount)++;
+
+   return [NSString stringWithFormat:@"t%lu",(unsigned long)*scope->aliasCount];
+}
+
+static CDPredicateScope nestedScope(const CDPredicateScope *outer,NSString *variable,NSString *alias,NSEntityDescription *entity){
+   CDPredicateScope scope=*outer;
+
+   scope.nested=YES;
+   scope.variable=variable;
+   scope.alias=alias;
+   scope.entity=entity;
+   scope.outer=outer;
+
+   return scope;
+}
+
+/* The key an argument names: a key path expression, or the constant string
+   Apple's parser makes the argument of valueForKeyPath:. */
+static NSString *keyOfArgument(NSExpression *argument){
+   @try {
+    if([argument expressionType]==NSKeyPathExpressionType)
+     return [argument keyPath];
+    if([argument expressionType]==NSConstantValueExpressionType && [[argument constantValue] isKindOfClass:[NSString class]])
+     return [argument constantValue];
+   } @catch(NSException *exception){
    }
 
-   if([lhs expressionType]!=NSKeyPathExpressionType)
+   return nil;
+}
+
+/* Splits an expression reading a key path into what it is read from (nil:
+   the evaluated object) and the key path.  $x.name is a valueForKeyPath:
+   function over the variable in Apple's Foundation and a key path
+   composition - left the variable, right the key path - in gnustep-base;
+   SUBQUERY(...).@count reads @count from the subquery the same two ways.
+   The parts are asked for by duck typing, so neither framework has to
+   publish what the other does not. */
+static BOOL splitKeyPathExpression(NSExpression *expression,NSExpression **operand,NSString **keyPath){
+   *operand=nil;
+   *keyPath=nil;
+
+   @try {
+    switch([expression expressionType]){
+
+     case NSKeyPathExpressionType:
+      *keyPath=[expression keyPath];
+      return (*keyPath!=nil);
+
+     case NSFunctionExpressionType: {
+      if(![[expression function] isEqualToString:@"valueForKeyPath:"])
+       return NO;
+
+      NSArray *arguments=[expression arguments];
+
+      if([arguments count]!=1)
+       return NO;
+
+      *operand=[expression operand];
+      *keyPath=keyOfArgument([arguments objectAtIndex:0]);
+      return (*operand!=nil && *keyPath!=nil);
+     }
+
+     case NSConstantValueExpressionType:
+     case NSEvaluatedObjectExpressionType:
+     case NSVariableExpressionType:
+     case NSUnionSetExpressionType:
+     case NSIntersectSetExpressionType:
+     case NSMinusSetExpressionType:
+     case NSSubqueryExpressionType:
+     case NSAggregateExpressionType:
+      return NO;
+
+     default: {
+      NSExpression *left=[expression leftExpression];
+      NSExpression *right=[expression rightExpression];
+
+      if(left==nil || right==nil || [right expressionType]!=NSKeyPathExpressionType)
+       return NO;
+
+      *operand=left;
+      *keyPath=[right keyPath];
+      return (*keyPath!=nil);
+     }
+    }
+   } @catch(NSException *exception){
+    return NO;
+   }
+}
+
+/* Where a key path read from operand starts: the evaluated object - the
+   fetched one, inside a SUBQUERY too - or a variable a SUBQUERY around it
+   binds.  NO for anything else. */
+static BOOL resolveKeyPath(const CDPredicateScope *scope,NSExpression *operand,NSString *keyPath,CDKeyPath *path){
+   NSArray *keys=[keyPath componentsSeparatedByString:@"."];
+
+   for(NSString *key in keys)
+    if([key length]==0)
+     return NO;
+
+   path->keys=keys;
+
+   if(operand==nil || [operand expressionType]==NSEvaluatedObjectExpressionType){
+    path->fromRoot=YES;
+    path->alias=nil;
+    path->entity=scope->rootEntity;
+    return YES;
+   }
+
+   if([operand expressionType]!=NSVariableExpressionType)
+    return NO;
+
+   for(const CDPredicateScope *check=scope;check!=NULL;check=check->outer)
+    if(check->variable!=nil && [check->variable isEqualToString:[operand variable]]){
+     path->fromRoot=NO;
+     path->alias=check->alias;
+     path->entity=check->entity;
+     return YES;
+    }
+
+   return NO;
+}
+
+static BOOL resolveKeyPathExpression(const CDPredicateScope *scope,NSExpression *expression,CDKeyPath *path){
+   NSExpression *operand=nil;
+   NSString     *keyPath=nil;
+
+   if(!splitKeyPathExpression(expression,&operand,&keyPath))
+    return NO;
+
+   return resolveKeyPath(scope,operand,keyPath,path);
+}
+
+/* The Z_PK of the row a chain of to-one keys reaches from reference - NULL
+   where one of them is not set - and the entity it is of; nil when a key
+   is not a to-one relationship.  The first key is a column of the
+   reference's own row, each further one a lookup by primary key. */
+-(NSString *)_primaryKeyReachedFrom:(NSString *)reference entity:(NSEntityDescription *)entity keys:(NSArray *)keys scope:(const CDPredicateScope *)scope reached:(NSEntityDescription **)reached {
+   NSString            *key=qualifiedColumn(reference,@"Z_PK");
+   NSEntityDescription *current=entity;
+   NSUInteger           index=0;
+
+   for(NSString *name in keys){
+    NSRelationshipDescription *relationship=[propertiesForEntityChain(current) objectForKey:name];
+
+    if(![relationship isKindOfClass:[NSRelationshipDescription class]] || [relationship isToMany] || [relationship destinationEntity]==nil)
+     return nil;
+
+    if(index==0)
+     key=qualifiedColumn(reference,columnNameForProperty(name));
+    else {
+     if(!scope->allowsSubqueries)
+      return nil;
+
+     NSString *alias=nextAlias(scope);
+
+     key=[NSString stringWithFormat:@"(SELECT %@ FROM \"%@\" AS %@ WHERE %@ = %@)",qualifiedColumn(alias,columnNameForProperty(name)),tableNameForEntity(current),alias,qualifiedColumn(alias,@"Z_PK"),key];
+    }
+
+    current=[relationship destinationEntity];
+    index++;
+   }
+
+   *reached=current;
+   return key;
+}
+
+/* The SQL value of a key path naming an attribute or a to-one relationship
+   through to-ones only: a column, or a lookup that is NULL when a to-one on
+   the way is not set, as the key path's value is nil then. */
+-(NSString *)_columnForKeyPath:(CDKeyPath)path scope:(const CDPredicateScope *)scope property:(NSPropertyDescription **)property {
+   NSString            *reference=referenceOfKeyPath(path,scope);
+   NSUInteger           count=[path.keys count];
+   NSEntityDescription *owner=path.entity;
+   NSString            *ownerKey=nil;
+
+   if(count==0)
     return nil;
 
+   if(count>1){
+    if(!scope->allowsSubqueries)
+     return nil;
+
+    /* The owner's key is read inside the lookup, so the fetched table's
+       columns are qualified: bare, a foreign key would name the lookup's
+       own column when its table has one of that name - always, when a
+       to-one leads back to the same entity (parent.name). */
+    CDPredicateScope inner=nestedScope(scope,nil,nil,nil);
+
+    ownerKey=[self _primaryKeyReachedFrom:referenceOfKeyPath(path,&inner) entity:path.entity keys:[path.keys subarrayWithRange:NSMakeRange(0,count-1)] scope:scope reached:&owner];
+
+    if(ownerKey==nil)
+     return nil;
+   }
+
+   NSString              *name=[path.keys lastObject];
+   NSPropertyDescription *leaf=[propertiesForEntityChain(owner) objectForKey:name];
+
+   if([leaf isKindOfClass:[NSRelationshipDescription class]]){
+    if([(NSRelationshipDescription *)leaf isToMany])
+     return nil;
+   }
+   else if(![leaf isKindOfClass:[NSAttributeDescription class]])
+    return nil;
+
+   *property=leaf;
+
+   if(count==1)
+    return qualifiedColumn(reference,columnNameForProperty(name));
+
+   NSString *alias=nextAlias(scope);
+
+   return [NSString stringWithFormat:@"(SELECT %@ FROM \"%@\" AS %@ WHERE %@ = %@)",qualifiedColumn(alias,columnNameForProperty(name)),tableNameForEntity(owner),alias,qualifiedColumn(alias,@"Z_PK"),ownerKey];
+}
+
+/* The rows a key path of to-ones ending in a to-many reaches: those of the
+   destination table whose foreign key names the owner, or, for a
+   many-to-many or inverse-less to-many, those its join table pairs with
+   the owner. */
+-(BOOL)_toManyRows:(CDToManyRows *)rows keyPath:(CDKeyPath)path scope:(const CDPredicateScope *)scope {
+   NSUInteger count=[path.keys count];
+
+   if(!scope->allowsSubqueries || count==0)
+    return NO;
+
+   /* The owner's key is only ever read inside the subquery (or beside it,
+      at the same level), so the fetched table's columns are qualified. */
+   CDPredicateScope     inner=nestedScope(scope,nil,nil,nil);
+   NSEntityDescription *owner=nil;
+   NSString            *ownerKey=[self _primaryKeyReachedFrom:referenceOfKeyPath(path,&inner) entity:path.entity keys:[path.keys subarrayWithRange:NSMakeRange(0,count-1)] scope:&inner reached:&owner];
+
+   if(ownerKey==nil)
+    return NO;
+
+   NSRelationshipDescription *relationship=[propertiesForEntityChain(owner) objectForKey:[path.keys lastObject]];
+
+   if(![relationship isKindOfClass:[NSRelationshipDescription class]] || ![relationship isToMany])
+    return NO;
+
+   NSEntityDescription *destination=[relationship destinationEntity];
+
+   if(destination==nil || [_entityIDs objectForKey:[destination name]]==nil || [_entityIDs objectForKey:[[relationship entity] name]]==nil)
+    return NO;
+
+   NSString       *alias=nextAlias(scope);
+   NSString       *table=tableNameForEntity(destination);
+   NSMutableArray *conditions=[NSMutableArray array];
+
+   if(relationshipUsesJoinTable(relationship)){
+    NSDictionary *join=[self _joinSpecForRelationship:relationship];
+    NSString     *joinAlias=nextAlias(scope);
+
+    rows->from=[NSString stringWithFormat:@"\"%@\" AS %@ JOIN \"%@\" AS %@ ON %@ = %@",[join objectForKey:@"table"],joinAlias,table,alias,qualifiedColumn(alias,@"Z_PK"),qualifiedColumn(joinAlias,[join objectForKey:@"destinationColumn"])];
+    [conditions addObject:[NSString stringWithFormat:@"%@ = %@",qualifiedColumn(joinAlias,[join objectForKey:@"ownerColumn"]),ownerKey]];
+   }
+   else {
+    rows->from=[NSString stringWithFormat:@"\"%@\" AS %@",table,alias];
+    [conditions addObject:[NSString stringWithFormat:@"%@ = %@",qualifiedColumn(alias,columnNameForProperty([[relationship inverseRelationship] name])),ownerKey]];
+   }
+
+   /* Entities sharing the destination's table may have a column of the
+      same name; only the destination's own rows are its members. */
+   if(rootEntity(destination)!=destination){
+    NSMutableArray *entityIDs=[NSMutableArray array];
+
+    [self _collectEntityIDsOfEntity:destination into:entityIDs];
+    [conditions addObject:[NSString stringWithFormat:@"%@ IN (%@)",qualifiedColumn(alias,@"Z_ENT"),[entityIDs componentsJoinedByString:@", "]]];
+   }
+
+   rows->where=[conditions componentsJoinedByString:@" AND "];
+   rows->alias=alias;
+   rows->entity=destination;
+   rows->ownerKey=ownerKey;
+   rows->throughToOne=(count>1);
+
+   return YES;
+}
+
+/* Attribute types that compare with one another in SQL as they do in
+   memory: numbers with numbers, strings with strings, dates with dates. */
+static int attributeComparisonFamily(NSPropertyDescription *property){
+   if(![property isKindOfClass:[NSAttributeDescription class]] || attributeStoresExternally(property) || !attributeComparesExactlyInSQL((NSAttributeDescription *)property))
+    return 0;
+
+   switch([(NSAttributeDescription *)property attributeType]){
+    case NSStringAttributeType: return 2;
+    case NSDateAttributeType:   return 3;
+    default:                    return 1;
+   }
+}
+
+/* One key path's value compared with another's, as `$x.odometer <
+   odometer`.  NULL compares as SQL has it - false - which is what Apple's
+   store answers, as it does for a constant. */
+static NSString *columnComparisonClause(NSString *left,NSPropertyDescription *leftProperty,NSString *right,NSPropertyDescription *rightProperty,NSPredicateOperatorType operator,NSComparisonPredicateOptions options){
+   int family=attributeComparisonFamily(leftProperty);
+
+   if(options!=0 || family==0 || family!=attributeComparisonFamily(rightProperty))
+    return nil;
+
+   NSString *operatorSQL;
+
+   switch(operator){
+    case NSEqualToPredicateOperatorType:              operatorSQL=@"="; break;
+    case NSNotEqualToPredicateOperatorType:           operatorSQL=@"<>"; break;
+    case NSLessThanPredicateOperatorType:             operatorSQL=@"<"; break;
+    case NSLessThanOrEqualToPredicateOperatorType:    operatorSQL=@"<="; break;
+    case NSGreaterThanPredicateOperatorType:          operatorSQL=@">"; break;
+    case NSGreaterThanOrEqualToPredicateOperatorType: operatorSQL=@">="; break;
+    default:                                          return nil;
+   }
+
+   return [NSString stringWithFormat:@"%@ %@ %@",left,operatorSQL,right];
+}
+
+/* ------------------------------------------------------------------ */
+#pragma mark - Comparisons
+/* ------------------------------------------------------------------ */
+
+/* A value - a column, or a lookup through to-ones - compared with the
+   right-hand side: a constant, a constant collection (IN, BETWEEN), or
+   another key path. */
+-(NSString *)_clauseForColumn:(NSString *)column property:(NSPropertyDescription *)property operator:(NSPredicateOperatorType)operator options:(NSComparisonPredicateOptions)options rhs:(NSExpression *)rhs scope:(const CDPredicateScope *)scope bindings:(NSMutableArray *)bindings {
+   BOOL caseInsensitive=(options&NSCaseInsensitivePredicateOption)!=0;
    BOOL rhsIsCollection=(operator==NSInPredicateOperatorType || operator==NSBetweenPredicateOperatorType);
 
-   if(!rhsIsCollection && [rhs expressionType]!=NSConstantValueExpressionType)
-    return nil;
+   if(!rhsIsCollection && [rhs expressionType]!=NSConstantValueExpressionType){
+    CDKeyPath              other;
+    NSPropertyDescription *otherProperty=nil;
 
-   NSString *keyPath=[lhs keyPath];
+    if(!resolveKeyPathExpression(scope,rhs,&other))
+     return nil;
 
-   /* Key paths crossing relationships would need SQL joins. */
-   if([keyPath rangeOfString:@"."].location!=NSNotFound)
-    return nil;
+    NSString *otherColumn=[self _columnForKeyPath:other scope:scope property:&otherProperty];
 
-   NSPropertyDescription *property=[propertiesForEntityChain(entity) objectForKey:keyPath];
-   id                     constant=rhsIsCollection?nil:resolvedConstantValue([rhs constantValue]);
+    if(otherColumn==nil)
+     return nil;
+
+    return columnComparisonClause(column,property,otherColumn,otherProperty,operator,options);
+   }
+
+   id constant=rhsIsCollection?nil:resolvedConstantValue([rhs constantValue]);
 
    if(constant==[NSNull null])
     constant=nil;
    if([constant isKindOfClass:[NSExpression class]])
     return nil;
-
-   NSString *column=[NSString stringWithFormat:@"\"%@\"",columnNameForProperty(keyPath)];
 
    /* To-one relationships compare against the destination row's Z_PK. */
    if([property isKindOfClass:[NSRelationshipDescription class]]){
@@ -2017,17 +2367,287 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    }
 }
 
-/* Translates predicate into a SQL boolean expression over entity's table,
-   appending the bound parameter values to bindings.  Returns nil when the
-   predicate contains constructs that cannot be translated exactly. */
--(NSString *)_translatePredicate:(NSPredicate *)predicate entity:(NSEntityDescription *)entity bindings:(NSMutableArray *)bindings {
+/* ANY toMany.key <op> <value>: some member's value matches - an EXISTS
+   over the members.  The key path may reach the to-many through to-ones
+   first and go on through to-ones after it; a second to-many is left to
+   the in-memory fallback, as Apple's store refuses it.  So is a nil
+   constant: in memory ANY skips the nils a to-many's values hold, while
+   SQL would find them. */
+-(NSString *)_translateAnyComparisonOfKeyPath:(CDKeyPath)path operator:(NSPredicateOperatorType)operator options:(NSComparisonPredicateOptions)options rhs:(NSExpression *)rhs scope:(const CDPredicateScope *)scope bindings:(NSMutableArray *)bindings {
+   NSEntityDescription *current=path.entity;
+   NSUInteger           count=[path.keys count];
+   NSUInteger           toManyIndex=NSNotFound;
+
+   for(NSUInteger index=0;index<count && toManyIndex==NSNotFound;index++){
+    NSRelationshipDescription *relationship=[propertiesForEntityChain(current) objectForKey:[path.keys objectAtIndex:index]];
+
+    if(![relationship isKindOfClass:[NSRelationshipDescription class]])
+     return nil;
+    if([relationship isToMany])
+     toManyIndex=index;
+    else
+     current=[relationship destinationEntity];
+   }
+
+   if(toManyIndex==NSNotFound || toManyIndex+1>=count)
+    return nil;
+
+   if(operator!=NSInPredicateOperatorType && operator!=NSBetweenPredicateOperatorType &&
+      [rhs expressionType]==NSConstantValueExpressionType){
+    id constant=resolvedConstantValue([rhs constantValue]);
+
+    if(constant==nil || constant==[NSNull null])
+     return nil;
+   }
+
+   CDKeyPath    collection=path;
+   CDToManyRows rows;
+
+   collection.keys=[path.keys subarrayWithRange:NSMakeRange(0,toManyIndex+1)];
+
+   if(![self _toManyRows:&rows keyPath:collection scope:scope])
+    return nil;
+
+   CDPredicateScope       inner=nestedScope(scope,nil,rows.alias,rows.entity);
+   CDKeyPath              member={NO,rows.alias,rows.entity,[path.keys subarrayWithRange:NSMakeRange(toManyIndex+1,count-toManyIndex-1)]};
+   NSPropertyDescription *property=nil;
+   NSString              *column=[self _columnForKeyPath:member scope:&inner property:&property];
+
+   if(column==nil)
+    return nil;
+
+   NSString *clause=[self _clauseForColumn:column property:property operator:operator options:options rhs:rhs scope:&inner bindings:bindings];
+
+   if(clause==nil)
+    return nil;
+
+   return [NSString stringWithFormat:@"EXISTS (SELECT 1 FROM %@ WHERE %@ AND %@)",rows.from,rows.where,clause];
+}
+
+/* What an expression counts, when it counts a to-many: the key path of
+   toMany.@count and count:(toMany), or the collection, variable and
+   predicate of SUBQUERY(...).@count and count:(SUBQUERY(...)) - the last
+   is how ODataKit writes an OData any() or all().  NO when the expression
+   counts nothing. */
+static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NSString **keyPath,NSString **variable,NSPredicate **predicate){
+   NSExpression *subquery=nil;
+
+   *operand=nil;
+   *keyPath=nil;
+   *variable=nil;
+   *predicate=nil;
+
+   @try {
+    if([expression expressionType]==NSFunctionExpressionType && [[expression function] isEqualToString:@"count:"]){
+     NSArray *arguments=[expression arguments];
+
+     if([arguments count]!=1)
+      return NO;
+
+     NSExpression *argument=[arguments objectAtIndex:0];
+
+     if([argument expressionType]==NSSubqueryExpressionType)
+      subquery=argument;
+     else if(!splitKeyPathExpression(argument,operand,keyPath))
+      return NO;
+    }
+    else {
+     NSExpression *source=nil;
+     NSString     *path=nil;
+
+     if(!splitKeyPathExpression(expression,&source,&path))
+      return NO;
+
+     if([path isEqualToString:@"@count"]){
+      if([source expressionType]!=NSSubqueryExpressionType)
+       return NO;
+      subquery=source;
+     }
+     else if([path hasSuffix:@".@count"]){
+      *operand=source;
+      *keyPath=[path substringToIndex:[path length]-[@".@count" length]];
+     }
+     else
+      return NO;
+    }
+
+    if(subquery!=nil){
+     id collection=[subquery collection];
+
+     if(![collection isKindOfClass:[NSExpression class]] || !splitKeyPathExpression(collection,operand,keyPath))
+      return NO;
+
+     *variable=[subquery variable];
+     *predicate=[subquery predicate];
+
+     if(*variable==nil)
+      return NO;
+    }
+   } @catch(NSException *exception){
+    return NO;
+   }
+
+   return (*keyPath!=nil);
+}
+
+/* A count of a to-many's members - all of them, or those a SUBQUERY's
+   predicate holds for - compared with a whole number.  Compared with
+   nought, it is whether there is one (EXISTS); otherwise a correlated
+   COUNT(*).
+
+   Reached through a to-one that is not set, the count is nil in memory,
+   and nil is equal to, less and greater than no number, but unequal to
+   every one; that is said in SQL as well. */
+-(NSString *)_translateCountOf:(NSExpression *)lhs operator:(NSPredicateOperatorType)operator options:(NSComparisonPredicateOptions)options rhs:(NSExpression *)rhs scope:(const CDPredicateScope *)scope bindings:(NSMutableArray *)bindings isCount:(BOOL *)isCount {
+   NSExpression *operand=nil;
+   NSString     *keyPath=nil;
+   NSString     *variable=nil;
+   NSPredicate  *predicate=nil;
+
+   *isCount=countedCollection(lhs,&operand,&keyPath,&variable,&predicate);
+
+   if(!*isCount)
+    return nil;
+
+   if(options!=0 || [rhs expressionType]!=NSConstantValueExpressionType)
+    return nil;
+
+   id number=resolvedConstantValue([rhs constantValue]);
+
+   if(![number isKindOfClass:[NSNumber class]] || [number doubleValue]!=(double)[number longLongValue])
+    return nil;
+
+   long long count=[number longLongValue];
+   NSString *operatorSQL;
+
+   switch(operator){
+    case NSEqualToPredicateOperatorType:              operatorSQL=@"="; break;
+    case NSNotEqualToPredicateOperatorType:           operatorSQL=@"<>"; break;
+    case NSLessThanPredicateOperatorType:             operatorSQL=@"<"; break;
+    case NSLessThanOrEqualToPredicateOperatorType:    operatorSQL=@"<="; break;
+    case NSGreaterThanPredicateOperatorType:          operatorSQL=@">"; break;
+    case NSGreaterThanOrEqualToPredicateOperatorType: operatorSQL=@">="; break;
+    default:                                          return nil;
+   }
+
+   CDKeyPath    collection;
+   CDToManyRows rows;
+
+   if(!resolveKeyPath(scope,operand,keyPath,&collection))
+    return nil;
+   if(![self _toManyRows:&rows keyPath:collection scope:scope])
+    return nil;
+
+   NSString *where=rows.where;
+
+   if(predicate!=nil){
+    CDPredicateScope inner=nestedScope(scope,variable,rows.alias,rows.entity);
+    NSString        *clause=[self _translatePredicate:predicate scope:&inner bindings:bindings];
+
+    if(clause==nil)
+     return nil;
+
+    where=[NSString stringWithFormat:@"%@ AND (%@)",where,clause];
+   }
+
+   BOOL     some=((operator==NSGreaterThanPredicateOperatorType && count==0) ||
+                  (operator==NSGreaterThanOrEqualToPredicateOperatorType && count==1) ||
+                  (operator==NSNotEqualToPredicateOperatorType && count==0));
+   BOOL     none=((operator==NSEqualToPredicateOperatorType && count==0) ||
+                  (operator==NSLessThanPredicateOperatorType && count==1) ||
+                  (operator==NSLessThanOrEqualToPredicateOperatorType && count==0));
+   NSString *clause;
+
+   if(some || none)
+    clause=[NSString stringWithFormat:@"%@EXISTS (SELECT 1 FROM %@ WHERE %@)",none?@"NOT ":@"",rows.from,where];
+   else
+    clause=[NSString stringWithFormat:@"(SELECT COUNT(*) FROM %@ WHERE %@) %@ %lld",rows.from,where,operatorSQL,count];
+
+   if(!rows.throughToOne)
+    return clause;
+
+   if(operator==NSNotEqualToPredicateOperatorType)
+    return [NSString stringWithFormat:@"(%@ IS NULL OR %@)",rows.ownerKey,clause];
+
+   return [NSString stringWithFormat:@"(%@ IS NOT NULL AND %@)",rows.ownerKey,clause];
+}
+
+-(NSString *)_translateComparisonPredicate:(NSComparisonPredicate *)comparison scope:(const CDPredicateScope *)scope bindings:(NSMutableArray *)bindings {
+   NSComparisonPredicateModifier modifier=[comparison comparisonPredicateModifier];
+
+   /* ALL is refused by Apple's store; it is evaluated in memory. */
+   if(modifier!=NSDirectPredicateModifier && modifier!=NSAnyPredicateModifier)
+    return nil;
+
+   NSComparisonPredicateOptions options=[comparison options];
+
+   /* Only exact and [c] matches translate exactly; diacritic- or
+      locale-sensitive matching happens in memory. */
+   if((options&~NSCaseInsensitivePredicateOption)!=0)
+    return nil;
+
+   NSExpression           *lhs=[comparison leftExpression];
+   NSExpression           *rhs=[comparison rightExpression];
+   NSPredicateOperatorType operator=[comparison predicateOperatorType];
+
+   /* Normalize to <value> <operator> <constant or value>, flipping the
+      operator when the predicate was written the other way around. */
+   if([lhs expressionType]==NSConstantValueExpressionType && [rhs expressionType]!=NSConstantValueExpressionType){
+    if(modifier!=NSDirectPredicateModifier)
+     return nil;
+
+    NSExpression *swap=lhs; lhs=rhs; rhs=swap;
+
+    switch(operator){
+     case NSLessThanPredicateOperatorType:            operator=NSGreaterThanPredicateOperatorType; break;
+     case NSLessThanOrEqualToPredicateOperatorType:   operator=NSGreaterThanOrEqualToPredicateOperatorType; break;
+     case NSGreaterThanPredicateOperatorType:         operator=NSLessThanPredicateOperatorType; break;
+     case NSGreaterThanOrEqualToPredicateOperatorType:operator=NSLessThanOrEqualToPredicateOperatorType; break;
+     case NSEqualToPredicateOperatorType:
+     case NSNotEqualToPredicateOperatorType:
+      break;
+     default:
+      return nil;
+    }
+   }
+
+   if(modifier==NSDirectPredicateModifier){
+    BOOL      isCount=NO;
+    NSString *clause=[self _translateCountOf:lhs operator:operator options:options rhs:rhs scope:scope bindings:bindings isCount:&isCount];
+
+    if(isCount)
+     return clause;
+   }
+
+   CDKeyPath path;
+
+   if(!resolveKeyPathExpression(scope,lhs,&path))
+    return nil;
+
+   if(modifier==NSAnyPredicateModifier)
+    return [self _translateAnyComparisonOfKeyPath:path operator:operator options:options rhs:rhs scope:scope bindings:bindings];
+
+   NSPropertyDescription *property=nil;
+   NSString              *column=[self _columnForKeyPath:path scope:scope property:&property];
+
+   if(column==nil)
+    return nil;
+
+   return [self _clauseForColumn:column property:property operator:operator options:options rhs:rhs scope:scope bindings:bindings];
+}
+
+/* Translates predicate into a SQL boolean expression in scope, appending
+   the bound parameter values to bindings in the order their placeholders
+   appear.  Returns nil when the predicate contains constructs that cannot
+   be translated exactly. */
+-(NSString *)_translatePredicate:(NSPredicate *)predicate scope:(const CDPredicateScope *)scope bindings:(NSMutableArray *)bindings {
    if([predicate isKindOfClass:[NSCompoundPredicate class]]){
     NSCompoundPredicate *compound=(NSCompoundPredicate *)predicate;
     NSArray             *subpredicates=[compound subpredicates];
     NSMutableArray      *clauses=[NSMutableArray array];
 
     for(NSPredicate *subpredicate in subpredicates){
-     NSString *clause=[self _translatePredicate:subpredicate entity:entity bindings:bindings];
+     NSString *clause=[self _translatePredicate:subpredicate scope:scope bindings:bindings];
 
      if(clause==nil)
       return nil;
@@ -2054,7 +2674,7 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
    }
 
    if([predicate isKindOfClass:[NSComparisonPredicate class]])
-    return [self _translateComparisonPredicate:(NSComparisonPredicate *)predicate entity:entity bindings:bindings];
+    return [self _translateComparisonPredicate:(NSComparisonPredicate *)predicate scope:scope bindings:bindings];
 
    /* Constant predicates ([NSPredicate predicateWithValue:]). */
    if([predicate isEqual:[NSPredicate predicateWithValue:YES]])
@@ -2063,6 +2683,27 @@ static NSArray *constantCollectionFromExpression(NSExpression *expression){
     return @"0";
 
    return nil;
+}
+
+-(NSString *)_translatePredicate:(NSPredicate *)predicate entity:(NSEntityDescription *)entity allowingSubqueries:(BOOL)allowingSubqueries bindings:(NSMutableArray *)bindings {
+   NSUInteger       aliasCount=0;
+   CDPredicateScope scope={ entity,NO,allowingSubqueries,&aliasCount,nil,nil,nil,NULL };
+
+   return [self _translatePredicate:predicate scope:&scope bindings:bindings];
+}
+
+/* Translates predicate into a SQL boolean expression over entity's table,
+   appending the bound parameter values to bindings.  Returns nil when the
+   predicate contains constructs that cannot be translated exactly.
+
+   Key paths through relationships are subqueries correlated with the
+   fetched row, as in Apple's store: through to-ones, a lookup of the
+   value by primary key; through a to-many - ANY, @count, SUBQUERY - an
+   EXISTS or a COUNT(*) over its members.  The fetched table keeps no
+   alias, so the rest of the query, and every other user of a WHERE
+   clause, is untouched. */
+-(NSString *)_translatePredicate:(NSPredicate *)predicate entity:(NSEntityDescription *)entity bindings:(NSMutableArray *)bindings {
+   return [self _translatePredicate:predicate entity:entity allowingSubqueries:YES bindings:bindings];
 }
 
 /* Translates the sort descriptors into an ORDER BY fragment, or nil when

@@ -277,7 +277,13 @@ it makes nothing of an R-tree element, nor of an index that is only a
 to-one, and an existing store keeps the indexes it has. The SQL backends
 make the same ones, and also when they bring a schema up to a model.
 Predicates that translate to SQL run in the database; others are
-evaluated in memory over fetched rows. Same-table plain-copy derived
+evaluated in memory over fetched rows. Key paths through relationships
+are subqueries correlated with the fetched row, which keeps no alias:
+through to-ones, a lookup by primary key; through a to-many - `ANY`,
+`@count`, `SUBQUERY(...).@count`, `count:(...)` - an `EXISTS` or a
+`COUNT(*)` over its members, by foreign key or join table. `ALL`, a nil
+compared with `ANY`, and a key path through two to-manys stay in memory.
+Same-table plain-copy derived
 attributes become `GENERATED ALWAYS AS (...) STORED` columns (excluded
 from INSERT/UPDATE); every other derivation is computed by the shared
 engine at save time. String transforms deliberately do not use SQLite's

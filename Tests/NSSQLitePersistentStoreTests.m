@@ -1991,4 +1991,486 @@ static NSManagedObjectModel *reflexiveModel(BOOL ordered)
     }
 }
 
+/* ------------------------------------------------------------------ */
+#pragma mark - Predicates through to-many relationships
+/* ------------------------------------------------------------------ */
+
+/* Owners have vehicles, vehicles have fill-ups and tags (many to many).
+   A fill-up is a Reading, which keeps the odometer; an Inspection is
+   another, in the same table, with no vehicle.
+
+     A - V1: f1 (1), F10 (10), fnil (no odometer); tagged x
+       - V2: none
+     B
+     C - V3: f7 (7); tagged x
+         V4: f3 (3)                 (no owner)
+         V5: "V5" (no odometer)     (no owner)
+         (no name): (no note) (4)   (no owner)
+         orphan (2), with no vehicle
+
+   Each expected answer below is what Apple's store answers (the macOS
+   run), and, where the comment does not say otherwise, what evaluating
+   the predicate in memory answers too. */
+static NSAttributeDescription *fleetAttribute(NSString *name, NSAttributeType type)
+{
+    NSAttributeDescription *attribute = [[NSAttributeDescription alloc] init];
+    [attribute setName:name];
+    [attribute setAttributeType:type];
+    [attribute setOptional:YES];
+    return attribute;
+}
+
+static NSRelationshipDescription *fleetRelationship(NSString *name, BOOL toMany)
+{
+    NSRelationshipDescription *relationship = [[NSRelationshipDescription alloc] init];
+    [relationship setName:name];
+    [relationship setMinCount:0];
+    [relationship setMaxCount:toMany ? 0 : 1];
+    [relationship setOptional:YES];
+    [relationship setDeleteRule:NSNullifyDeleteRule];
+    return relationship;
+}
+
+static NSEntityDescription *fleetEntity(NSString *name)
+{
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    [entity setName:name];
+    [entity setManagedObjectClassName:@"NSManagedObject"];
+    return entity;
+}
+
+static void fleetInverses(NSRelationshipDescription *one, NSEntityDescription *oneDestination,
+                          NSRelationshipDescription *other, NSEntityDescription *otherDestination)
+{
+    [one setDestinationEntity:oneDestination];
+    [other setDestinationEntity:otherDestination];
+    [one setInverseRelationship:other];
+    [other setInverseRelationship:one];
+}
+
+static NSManagedObjectModel *fleetModel(void)
+{
+    NSEntityDescription *owner = fleetEntity(@"Owner");
+    NSEntityDescription *vehicle = fleetEntity(@"Vehicle");
+    NSEntityDescription *reading = fleetEntity(@"Reading");
+    NSEntityDescription *fillUp = fleetEntity(@"FillUp");
+    NSEntityDescription *inspection = fleetEntity(@"Inspection");
+    NSEntityDescription *tag = fleetEntity(@"Tag");
+
+    NSRelationshipDescription *vehicles = fleetRelationship(@"vehicles", YES);
+    NSRelationshipDescription *vehicleOwner = fleetRelationship(@"owner", NO);
+    NSRelationshipDescription *fillUps = fleetRelationship(@"fillUps", YES);
+    NSRelationshipDescription *fillUpVehicle = fleetRelationship(@"vehicle", NO);
+    NSRelationshipDescription *tags = fleetRelationship(@"tags", YES);
+    NSRelationshipDescription *tagged = fleetRelationship(@"vehicles", YES);
+
+    fleetInverses(vehicles, vehicle, vehicleOwner, owner);
+    fleetInverses(fillUps, fillUp, fillUpVehicle, vehicle);
+    fleetInverses(tags, tag, tagged, vehicle);
+
+    [owner setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), vehicles ]];
+    [vehicle setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), vehicleOwner, fillUps, tags ]];
+    [reading setProperties:@[ fleetAttribute(@"odometer", NSInteger64AttributeType) ]];
+    [fillUp setProperties:@[ fleetAttribute(@"note", NSStringAttributeType), fillUpVehicle ]];
+    [tag setProperties:@[ fleetAttribute(@"label", NSStringAttributeType), tagged ]];
+    [reading setSubentities:@[ fillUp, inspection ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ owner, vehicle, reading, fillUp, inspection, tag ]];
+    return model;
+}
+
+static NSManagedObject *fleetObject(NSManagedObjectContext *ctx, NSString *entityName, NSDictionary *values)
+{
+    NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entityName
+                                                            inManagedObjectContext:ctx];
+    [object setValuesForKeysWithDictionary:values];
+    return object;
+}
+
+/* Saves the fleet, and answers the coordinator it is in. */
+- (NSPersistentStoreCoordinator *)fleetCoordinator
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:fleetModel() options:nil];
+
+    NSManagedObject *a = fleetObject(ctx, @"Owner", @{ @"name" : @"A" });
+    fleetObject(ctx, @"Owner", @{ @"name" : @"B" });
+    NSManagedObject *c = fleetObject(ctx, @"Owner", @{ @"name" : @"C" });
+    NSManagedObject *v1 = fleetObject(ctx, @"Vehicle", @{ @"name" : @"V1", @"owner" : a });
+    fleetObject(ctx, @"Vehicle", @{ @"name" : @"V2", @"owner" : a });
+    NSManagedObject *v3 = fleetObject(ctx, @"Vehicle", @{ @"name" : @"V3", @"owner" : c });
+    NSManagedObject *v4 = fleetObject(ctx, @"Vehicle", @{ @"name" : @"V4" });
+    NSManagedObject *v5 = fleetObject(ctx, @"Vehicle", @{ @"name" : @"V5" });
+    NSManagedObject *unnamed = fleetObject(ctx, @"Vehicle", @{});
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"f1", @"odometer" : @1, @"vehicle" : v1 });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"F10", @"odometer" : @10, @"vehicle" : v1 });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"fnil", @"vehicle" : v1 });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"f7", @"odometer" : @7, @"vehicle" : v3 });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"f3", @"odometer" : @3, @"vehicle" : v4 });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"V5", @"vehicle" : v5 });
+    fleetObject(ctx, @"FillUp", @{ @"odometer" : @4, @"vehicle" : unnamed });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"orphan", @"odometer" : @2 });
+    fleetObject(ctx, @"Inspection", @{ @"odometer" : @100 });
+    NSManagedObject *x = fleetObject(ctx, @"Tag", @{ @"label" : @"x" });
+    fleetObject(ctx, @"Tag", @{ @"label" : @"y" });
+    [[v1 mutableSetValueForKey:@"tags"] addObject:x];
+    [[v3 mutableSetValueForKey:@"tags"] addObject:x];
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+    return [ctx persistentStoreCoordinator];
+}
+
+static NSString *fleetNameKey(NSString *entityName)
+{
+    return [entityName isEqualToString:@"FillUp"] ? @"note" : @"name";
+}
+
+/* The names of objects, sorted, with "-" for a missing one. */
+static NSArray *fleetNames(NSArray *objects, NSString *key)
+{
+    NSMutableArray *names = [NSMutableArray array];
+    for (NSManagedObject *object in objects) {
+        id name = [object valueForKey:key];
+        [names addObject:name != nil ? name : @"-"];
+    }
+    return [names sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (NSManagedObjectContext *)contextOnFleet:(NSPersistentStoreCoordinator *)psc
+{
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+    return ctx;
+}
+
+/* Fetches with predicate, in a context of its own, and checks the answer;
+   when inMemoryToo, also that evaluating the predicate over every object
+   answers the same. */
+- (void)assertFleet:(NSPersistentStoreCoordinator *)psc
+             entity:(NSString *)entityName
+          predicate:(NSPredicate *)predicate
+            answers:(NSArray *)expected
+         inMemoryToo:(BOOL)inMemoryToo
+{
+    NSManagedObjectContext *ctx = [self contextOnFleet:psc];
+    NSString *key = fleetNameKey(entityName);
+    NSArray *fetched = [self fetchEntityNamed:entityName inContext:ctx predicate:predicate sortDescriptors:nil];
+
+    XCTAssertEqualObjects(fleetNames(fetched, key), expected, @"%@: %@", entityName, predicate);
+
+    if (inMemoryToo) {
+        NSManagedObjectContext *other = [self contextOnFleet:psc];
+        NSArray *every = [self fetchEntityNamed:entityName inContext:other predicate:nil sortDescriptors:nil];
+        XCTAssertEqualObjects(fleetNames([every filteredArrayUsingPredicate:predicate], key), expected,
+                              @"in memory, %@: %@", entityName, predicate);
+    }
+}
+
+- (void)assertFleet:(NSPersistentStoreCoordinator *)psc
+             entity:(NSString *)entityName
+             format:(NSString *)format
+            answers:(NSArray *)expected
+{
+    [self assertFleet:psc entity:entityName predicate:[NSPredicate predicateWithFormat:format] answers:expected inMemoryToo:YES];
+}
+
+/* count:(SUBQUERY(collection, $variable, predicate)) <operator> number, as
+   ODataKit writes an OData any() or all(). */
+static NSPredicate *countedSubquery(NSString *collection, NSString *variable, NSString *format,
+                                    NSPredicateOperatorType operator, NSInteger number)
+{
+    NSExpression *subquery = [NSExpression expressionForSubquery:[NSExpression expressionForKeyPath:collection]
+                                           usingIteratorVariable:variable
+                                                       predicate:[NSPredicate predicateWithFormat:format]];
+    NSExpression *count = [NSExpression expressionForFunction:@"count:" arguments:@[ subquery ]];
+    return [NSComparisonPredicate predicateWithLeftExpression:count
+                                              rightExpression:[NSExpression expressionForConstantValue:@(number)]
+                                                     modifier:NSDirectPredicateModifier
+                                                         type:operator
+                                                      options:0];
+}
+
+- (void)testAnyThroughAToMany
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.odometer < 5" answers:@[ @"-", @"V1", @"V4" ]];
+    /* A fill-up with no odometer is not unequal to 10 - in SQL, and in
+       memory, where ANY passes over the nils. */
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.odometer != 10" answers:@[ @"-", @"V1", @"V3", @"V4" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.note ==[c] 'f10'" answers:@[ @"V1" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.note BEGINSWITH 'f'" answers:@[ @"V1", @"V3", @"V4" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.odometer IN {1, 7}" answers:@[ @"V1", @"V3" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.odometer > 3 OR fillUps.@count == 0"
+              answers:@[ @"-", @"V1", @"V2", @"V3" ]];
+    /* Many to many, through a join table. */
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY tags.label == 'x'" answers:@[ @"V1", @"V3" ]];
+    /* Through a to-one first: none where it is not set.  (Apple's
+       Foundation answers so in memory too; gnustep-base raises, a nil
+       not being a collection, which is why these are not checked in
+       memory here.) */
+    [self assertFleet:psc entity:@"Vehicle"
+            predicate:[NSPredicate predicateWithFormat:@"ANY owner.vehicles.name == 'V2'"]
+              answers:@[ @"V1", @"V2" ]
+          inMemoryToo:NO];
+    [self assertFleet:psc entity:@"FillUp"
+            predicate:[NSPredicate predicateWithFormat:@"ANY vehicle.fillUps.odometer > 5"]
+              answers:@[ @"F10", @"f1", @"f7", @"fnil" ]
+          inMemoryToo:NO];
+}
+
+/* Key paths through to-ones are lookups, NULL where a to-one on the way
+   is not set - as the key path's value is nil then. */
+- (void)testKeyPathsThroughToOnes
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"FillUp" format:@"vehicle.owner.name == 'A'" answers:@[ @"F10", @"f1", @"fnil" ]];
+    [self assertFleet:psc entity:@"FillUp" format:@"vehicle.name == nil" answers:@[ @"-", @"orphan" ]];
+    [self assertFleet:psc entity:@"FillUp" format:@"vehicle.owner == nil" answers:@[ @"-", @"V5", @"f3", @"orphan" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"owner.name BEGINSWITH 'C'" answers:@[ @"V3" ]];
+}
+
+/* A to-one back to the same entity: a family tree, whose table has the
+   foreign key (ZPARENT) a lookup by parent reads in the same table. */
+static NSManagedObjectModel *familyModel(void)
+{
+    NSEntityDescription *person = fleetEntity(@"Person");
+    NSRelationshipDescription *parent = fleetRelationship(@"parent", NO);
+    NSRelationshipDescription *children = fleetRelationship(@"children", YES);
+
+    fleetInverses(parent, person, children, person);
+    [person setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), parent, children ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ person ]];
+    return model;
+}
+
+/* A and Z have no parent; B and C are A's children, D is B's, E is D's. */
+- (NSPersistentStoreCoordinator *)familyCoordinator
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:familyModel() options:nil];
+
+    NSManagedObject *a = fleetObject(ctx, @"Person", @{ @"name" : @"A" });
+    NSManagedObject *b = fleetObject(ctx, @"Person", @{ @"name" : @"B", @"parent" : a });
+    fleetObject(ctx, @"Person", @{ @"name" : @"C", @"parent" : a });
+    NSManagedObject *d = fleetObject(ctx, @"Person", @{ @"name" : @"D", @"parent" : b });
+    fleetObject(ctx, @"Person", @{ @"name" : @"E", @"parent" : d });
+    fleetObject(ctx, @"Person", @{ @"name" : @"Z" });
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+    return [ctx persistentStoreCoordinator];
+}
+
+- (void)testKeyPathsThroughAToOneToTheSameEntity
+{
+    NSPersistentStoreCoordinator *psc = [self familyCoordinator];
+
+    [self assertFleet:psc entity:@"Person" format:@"parent.name == 'A'" answers:@[ @"B", @"C" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.parent.name == 'A'" answers:@[ @"D" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.parent.parent.name == 'A'" answers:@[ @"E" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.name BEGINSWITH 'D'" answers:@[ @"E" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.name == nil" answers:@[ @"A", @"Z" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.parent == nil" answers:@[ @"A", @"B", @"C", @"Z" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.name == name" answers:@[]];
+}
+
+- (void)testToManysOfTheSameEntity
+{
+    NSPersistentStoreCoordinator *psc = [self familyCoordinator];
+
+    [self assertFleet:psc entity:@"Person" format:@"ANY children.name == 'D'" answers:@[ @"B" ]];
+    [self assertFleet:psc entity:@"Person" format:@"children.@count == 2" answers:@[ @"A" ]];
+    [self assertFleet:psc entity:@"Person" format:@"children.@count == 0" answers:@[ @"C", @"E", @"Z" ]];
+    /* Correlated with the fetched row's own parent, a lookup in the same
+       table: NULL for A, so none of A's children count (memory, where
+       nil is unequal to every name, counts them). */
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"SUBQUERY(children, $c, $c.name != parent.name).@count > 0"]
+              answers:@[ @"B", @"D" ]
+          inMemoryToo:NO];
+    /* Siblings, through the parent: none for those who have none. */
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"ANY parent.children.name == 'C'"]
+              answers:@[ @"B", @"C" ]
+          inMemoryToo:NO];
+}
+
+/* Unequal through a to-one that is not set: Apple's store finds no row
+   there - the lookup is NULL, unequal to nothing - where memory finds
+   one (nil is unequal to 'A').  The store's answer is Apple's. */
+- (void)testUnequalThroughAToOneThatIsNotSet
+{
+    NSPersistentStoreCoordinator *psc = [self familyCoordinator];
+
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"parent.name != 'A'"]
+              answers:@[ @"D", @"E" ]
+          inMemoryToo:NO];
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"NOT (parent.name == 'A')"]
+              answers:@[ @"D", @"E" ]
+          inMemoryToo:NO];
+}
+
+- (void)testCountsOfAToMany
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"Vehicle" format:@"fillUps.@count > 1" answers:@[ @"V1" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"fillUps.@count == 0" answers:@[ @"V2" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"fillUps.@count != 1" answers:@[ @"V1", @"V2" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"tags.@count == 0" answers:@[ @"-", @"V2", @"V4", @"V5" ]];
+    [self assertFleet:psc entity:@"Owner" format:@"vehicles.@count == 0" answers:@[ @"B" ]];
+    /* Through a to-one: an orphan's count is nil, unequal to 1 (Apple's
+       store counts it as 0, which differs from memory only for a
+       comparison 0 satisfies). */
+    [self assertFleet:psc entity:@"FillUp" format:@"vehicle.fillUps.@count == 1" answers:@[ @"-", @"V5", @"f3", @"f7" ]];
+    [self assertFleet:psc entity:@"FillUp" format:@"vehicle.fillUps.@count != 1"
+              answers:@[ @"F10", @"f1", @"fnil", @"orphan" ]];
+}
+
+- (void)testSubqueriesOfAToMany
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer < 5).@count > 0"
+              answers:@[ @"-", @"V1", @"V4" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer < 5).@count == 0"
+              answers:@[ @"V2", @"V3", @"V5" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer < 5).@count == 1"
+              answers:@[ @"-", @"V1", @"V4" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer == nil).@count > 0"
+              answers:@[ @"V1", @"V5" ]];
+    [self assertFleet:psc entity:@"Vehicle"
+               format:@"SUBQUERY(fillUps, $x, $x.odometer > 0 AND $x.note CONTAINS[c] 'f').@count >= 2"
+              answers:@[ @"V1" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer > 3 OR $x.note == 'V5').@count > 0"
+              answers:@[ @"-", @"V1", @"V3", @"V5" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer > 3).@count > 0 AND name BEGINSWITH 'V'"
+              answers:@[ @"V1", @"V3" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(tags, $t, $t.label == 'x').@count > 0"
+              answers:@[ @"V1", @"V3" ]];
+    /* Through to-ones inside, and the fetched object's own key paths. */
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.vehicle.owner.name == 'A').@count > 0"
+              answers:@[ @"V1" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.note != name).@count > 0"
+              answers:@[ @"V1", @"V3", @"V4" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, name == nil).@count > 0" answers:@[ @"-" ]];
+    /* Nested. */
+    [self assertFleet:psc entity:@"Owner" format:@"SUBQUERY(vehicles, $v, ANY $v.fillUps.odometer > 5).@count > 0"
+              answers:@[ @"A", @"C" ]];
+    [self assertFleet:psc entity:@"Owner"
+               format:@"SUBQUERY(vehicles, $v, SUBQUERY($v.fillUps, $f, $f.odometer > 5).@count > 0).@count > 0"
+              answers:@[ @"A", @"C" ]];
+}
+
+/* The fill-ups with an earlier one in the same vehicle: a subquery of the
+   fetched entity's own table, correlated with the fetched row through a
+   to-one. */
+- (void)testACorrelatedSubqueryThroughAToOne
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"FillUp" format:@"SUBQUERY(vehicle.fillUps, $x, $x.odometer < odometer).@count > 0"
+              answers:@[ @"F10" ]];
+    [self assertFleet:psc entity:@"FillUp" format:@"SUBQUERY(vehicle.fillUps, $x, $x.odometer < odometer).@count != 1"
+              answers:@[ @"-", @"V5", @"f1", @"f3", @"f7", @"fnil", @"orphan" ]];
+}
+
+/* Where Apple's store answers as SQL does rather than as memory does, the
+   store answers as Apple's: NULL equals and is unequal to nothing. */
+- (void)testNullsInASubqueryCompareAsInApplesStore
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    /* In memory V5's fill-up, with no odometer, is unequal to 10. */
+    [self assertFleet:psc entity:@"Vehicle"
+            predicate:[NSPredicate predicateWithFormat:@"SUBQUERY(fillUps, $x, $x.odometer != 10).@count > 0"]
+              answers:@[ @"-", @"V1", @"V3", @"V4" ]
+          inMemoryToo:NO];
+    /* In memory the unnamed vehicle's fill-up, with no note, matches it. */
+    [self assertFleet:psc entity:@"Vehicle"
+            predicate:[NSPredicate predicateWithFormat:@"SUBQUERY(fillUps, $x, $x.note == name).@count > 0"]
+              answers:@[ @"V5" ]
+          inMemoryToo:NO];
+}
+
+/* What ODataKit makes of Vehicles?$filter=FillUps/any(f: f/Odometer lt 5),
+   of FillUps/any(), and, through a to-one, of
+   FillUps?$filter=Vehicle/FillUps/all(e: not (e/Odometer lt $it/Odometer)):
+   a counted SUBQUERY, guarded by the to-one being there. */
+- (void)testODataKitsLambdas
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"Vehicle"
+            predicate:countedSubquery(@"fillUps", @"v0", @"$v0.odometer != nil AND $v0.odometer < 5", NSGreaterThanPredicateOperatorType, 0)
+              answers:@[ @"-", @"V1", @"V4" ]
+          inMemoryToo:YES];
+
+    NSExpression *count = [NSExpression expressionForFunction:@"count:"
+                                                    arguments:@[ [NSExpression expressionForKeyPath:@"fillUps"] ]];
+    [self assertFleet:psc entity:@"Vehicle"
+            predicate:[NSComparisonPredicate predicateWithLeftExpression:count
+                                                         rightExpression:[NSExpression expressionForConstantValue:@0]
+                                                                modifier:NSDirectPredicateModifier
+                                                                    type:NSGreaterThanPredicateOperatorType
+                                                                 options:0]
+              answers:@[ @"-", @"V1", @"V3", @"V4", @"V5" ]
+          inMemoryToo:YES];
+
+    NSPredicate *none = countedSubquery(@"vehicle.fillUps", @"v0", @"$v0.odometer != nil AND $v0.odometer < odometer",
+                                        NSEqualToPredicateOperatorType, 0);
+    [self assertFleet:psc entity:@"FillUp"
+            predicate:[NSCompoundPredicate andPredicateWithSubpredicates:@[ [NSPredicate predicateWithFormat:@"vehicle != nil"], none ]]
+              answers:@[ @"-", @"V5", @"f1", @"f3", @"f7", @"fnil" ]
+          inMemoryToo:YES];
+}
+
+/* A predicate through a to-many is the store's to answer, not memory's:
+   asked for object IDs, a fresh context is left with nothing registered
+   (evaluating in memory would have registered every row and faulted in
+   each one's fill-ups), and a page of the answer is that page. */
+- (void)testPredicatesThroughToManysAreEvaluatedInSQL
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+    NSArray *cases = @[
+        @[ @"Vehicle", [NSPredicate predicateWithFormat:@"ANY fillUps.odometer < 5"] ],
+        @[ @"Vehicle", [NSPredicate predicateWithFormat:@"fillUps.@count != 1"] ],
+        @[ @"Vehicle", [NSPredicate predicateWithFormat:@"ANY tags.label == 'x' OR SUBQUERY(fillUps, $x, $x.odometer > 3).@count > 0"] ],
+        @[ @"Vehicle", countedSubquery(@"fillUps", @"v0", @"$v0.odometer != nil AND $v0.odometer < 5", NSGreaterThanPredicateOperatorType, 0) ],
+        @[ @"FillUp", [NSPredicate predicateWithFormat:@"SUBQUERY(vehicle.fillUps, $x, $x.odometer < odometer).@count == 0"] ],
+        @[ @"Owner", [NSPredicate predicateWithFormat:@"SUBQUERY(vehicles, $v, ANY $v.fillUps.odometer > 5).@count > 0"] ],
+    ];
+
+    for (NSArray *each in cases) {
+        NSString *entityName = each[0];
+        NSPredicate *predicate = each[1];
+        NSManagedObjectContext *ctx = [self contextOnFleet:psc];
+        NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:entityName];
+        [fetch setPredicate:predicate];
+        [fetch setResultType:NSManagedObjectIDResultType];
+
+        NSError *error = nil;
+        NSArray *objectIDs = [ctx executeFetchRequest:fetch error:&error];
+        XCTAssertNotNil(objectIDs, @"%@: %@", predicate, error);
+        XCTAssertTrue([objectIDs count] > 1, @"%@", predicate);
+        XCTAssertEqual([[ctx registeredObjects] count], (NSUInteger)0, @"%@ registered objects", predicate);
+
+        NSArray *sorted = @[ [NSSortDescriptor sortDescriptorWithKey:fleetNameKey(entityName) ascending:YES] ];
+        NSArray *all = [self fetchEntityNamed:entityName inContext:ctx predicate:predicate sortDescriptors:sorted];
+
+        [fetch setResultType:NSManagedObjectResultType];
+        [fetch setSortDescriptors:sorted];
+        [fetch setFetchOffset:1];
+        [fetch setFetchLimit:1];
+        NSArray *page = [ctx executeFetchRequest:fetch error:&error];
+        XCTAssertEqualObjects(page, [all subarrayWithRange:NSMakeRange(1, 1)], @"%@", predicate);
+    }
+}
+
 @end
