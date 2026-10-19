@@ -98,6 +98,55 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     return ctx;
 }
 
+/* -reset tells its observers, before it returns, that every object it had
+   is gone: the IDs of them all - temporary ones for objects never saved -
+   under NSInvalidatedAllObjectsKey, and nothing of the changes still
+   pending.  An empty context tells them too. */
+- (void)testResetPostsTheIDsOfEveryObjectItHad
+{
+    NSManagedObjectContext *ctx = [self contextWithNoteEntity];
+    NSMutableArray *notes = [NSMutableArray array];
+    id observer = [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSManagedObjectContextObjectsDidChangeNotification
+        object:ctx queue:nil usingBlock:^(NSNotification *note) {
+            [notes addObject:[note userInfo]];
+        }];
+
+    [ctx reset];
+    XCTAssertEqual([notes count], (NSUInteger)1);
+    XCTAssertEqualObjects([[notes lastObject] objectForKey:NSInvalidatedAllObjectsKey], @[]);
+
+    NSManagedObject *saved = [NSEntityDescription insertNewObjectForEntityForName:@"Note"
+                                                           inManagedObjectContext:ctx];
+    [saved setValue:@"saved" forKey:@"text"];
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"%@", error);
+    [ctx processPendingChanges];
+
+    NSManagedObject *fetched = [[ctx executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Note"] error:NULL] firstObject];
+    [fetched setValue:@"changed" forKey:@"text"];
+    NSManagedObject *inserted = [NSEntityDescription insertNewObjectForEntityForName:@"Note"
+                                                              inManagedObjectContext:ctx];
+    NSSet *expected = [NSSet setWithObjects:[fetched objectID], [inserted objectID], nil];
+
+    [notes removeAllObjects];
+    [ctx reset];
+    XCTAssertEqual([notes count], (NSUInteger)1);
+    NSDictionary *userInfo = [notes lastObject];
+    XCTAssertNil([userInfo objectForKey:NSInsertedObjectsKey]);
+    XCTAssertNil([userInfo objectForKey:NSUpdatedObjectsKey]);
+    NSArray *invalidated = [userInfo objectForKey:NSInvalidatedAllObjectsKey];
+    XCTAssertTrue([invalidated isKindOfClass:[NSArray class]]);
+    XCTAssertEqualObjects([NSSet setWithArray:invalidated], expected);
+    XCTAssertEqual([[ctx registeredObjects] count], (NSUInteger)0);
+
+    /* Nothing more comes once the changes it had would have been processed. */
+    [ctx processPendingChanges];
+    XCTAssertEqual([notes count], (NSUInteger)1);
+
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+}
+
 - (void)testProcessPendingChangesPostsObjectsDidChangeNotification
 {
     NSManagedObjectContext *ctx = [self contextWithNoteEntity];
