@@ -147,6 +147,79 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     [[NSNotificationCenter defaultCenter] removeObserver:observer];
 }
 
+/* A merge is told of at once, as on Apple: one objects-did-change
+   notification posted before the merge returns, with the merge's
+   insertions, deletions and refreshes and whatever the context had
+   pending of its own - an object edited here and refreshed by the merge
+   is both updated and refreshed.  Nothing is left for the event's end.
+   The same for a merge of a save's object IDs into several contexts. */
+- (void)testAMergeIsToldOfAtOnce
+{
+    for (NSString *how in @[ @"notification", @"remote" ]) {
+        NSManagedObjectContext *saving = [self contextWithNoteEntity];
+        NSManagedObjectContext *merging = [[NSManagedObjectContext alloc] init];
+        [merging setPersistentStoreCoordinator:[saving persistentStoreCoordinator]];
+
+        NSManagedObject *edited = [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:saving];
+        NSManagedObject *gone = [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:saving];
+        [edited setValue:@"edited" forKey:@"text"];
+        [gone setValue:@"gone" forKey:@"text"];
+        NSError *error = nil;
+        XCTAssertTrue([saving save:&error], @"%@", error);
+
+        NSManagedObject *mergingEdited = [merging existingObjectWithID:[edited objectID] error:NULL];
+        NSManagedObject *mergingGone = [merging existingObjectWithID:[gone objectID] error:NULL];
+        [merging processPendingChanges];
+
+        NSMutableArray *notes = [NSMutableArray array];
+        id observer = [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSManagedObjectContextObjectsDidChangeNotification
+            object:merging queue:nil usingBlock:^(NSNotification *note) {
+                [notes addObject:[note userInfo]];
+            }];
+
+        NSManagedObject *local = [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:merging];
+        [local setValue:@"local" forKey:@"text"];
+        [mergingEdited setValue:@"edited here" forKey:@"text"];
+
+        NSManagedObject *added = [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:saving];
+        [added setValue:@"added" forKey:@"text"];
+        [edited setValue:@"edited there" forKey:@"text"];
+        [saving deleteObject:gone];
+        __block NSDictionary *saved = nil;
+        id saveObserver = [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSManagedObjectContextDidSaveNotification
+            object:saving queue:nil usingBlock:^(NSNotification *note) {
+                saved = [note userInfo];
+            }];
+        XCTAssertTrue([saving save:&error], @"%@", error);
+        [[NSNotificationCenter defaultCenter] removeObserver:saveObserver];
+
+        if ([how isEqualToString:@"notification"])
+            [merging mergeChangesFromContextDidSaveNotification:
+                [NSNotification notificationWithName:NSManagedObjectContextDidSaveNotification object:saving userInfo:saved]];
+        else {
+            NSMutableDictionary *ids = [NSMutableDictionary dictionary];
+            for (NSString *key in @[ NSInsertedObjectsKey, NSUpdatedObjectsKey, NSDeletedObjectsKey ])
+                ids[key] = [[saved[key] allObjects] valueForKey:@"objectID"];
+            [NSManagedObjectContext mergeChangesFromRemoteContextSave:ids intoContexts:@[ merging ]];
+        }
+
+        XCTAssertEqual([notes count], (NSUInteger)1, @"%@: told before the merge returns", how);
+        NSDictionary *userInfo = [notes lastObject];
+        NSSet *inserted = userInfo[NSInsertedObjectsKey];
+        XCTAssertEqual([inserted count], (NSUInteger)2, @"%@", how);
+        XCTAssertTrue([inserted containsObject:local], @"%@", how);
+        XCTAssertTrue([userInfo[NSUpdatedObjectsKey] containsObject:mergingEdited], @"%@", how);
+        XCTAssertTrue([userInfo[NSRefreshedObjectsKey] containsObject:mergingEdited], @"%@", how);
+        XCTAssertTrue([userInfo[NSDeletedObjectsKey] containsObject:mergingGone], @"%@", how);
+
+        [merging processPendingChanges];
+        XCTAssertEqual([notes count], (NSUInteger)1, @"%@: nothing left for the event's end", how);
+        [[NSNotificationCenter defaultCenter] removeObserver:observer];
+    }
+}
+
 - (void)testProcessPendingChangesPostsObjectsDidChangeNotification
 {
     NSManagedObjectContext *ctx = [self contextWithNoteEntity];
