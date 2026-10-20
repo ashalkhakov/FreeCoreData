@@ -1840,7 +1840,10 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 
    if(![_pendingDeletedObjects containsObject:object] && ![_pendingInsertedObjects containsObject:object]){
     [_pendingRefreshedObjects addObject:object];
-    [_pendingUpdatedObjects removeObject:object];
+    /* Changes kept are still changes: Apple reports such an object both
+       updated and refreshed. */
+    if(!flag)
+     [_pendingUpdatedObjects removeObject:object];
     [self _requestProcessPendingChanges];
    }
 }
@@ -3482,6 +3485,9 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
         [context _requestProcessPendingChanges];
        }
       }
+
+      /* Told of at once, as by -mergeChangesFromContextDidSaveNotification:. */
+      [context processPendingChanges];
      }];
    }
 }
@@ -3556,6 +3562,10 @@ static id objectIDsFromObjects(id objects){
     deletedIDs=objectIDsFromObjects([userInfo objectForKey:NSDeletedObjectsKey]);
 
    [self _mergeInsertedObjectIDs:insertedIDs updatedObjectIDs:updatedIDs deletedObjectIDs:deletedIDs];
+
+   /* As Apple's: the merge is told of at once, with whatever else was
+      pending, before it returns - not as the event ends. */
+   [self processPendingChanges];
 }
 
 
