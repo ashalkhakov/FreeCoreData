@@ -98,6 +98,9 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
        applied - not those a merge marks deleted, whose rules the saving
        context applied. */
     NSMutableSet *_deletionsToPropagate;
+    /* Objects a merge of another context's save marked deleted: their rows
+       are gone, so a save reports them but writes nothing for them. */
+    NSMutableSet *_mergedDeletions;
     /* A thread-confined context's thread is the one it was made on: the
        main thread's has its changes processed by the main run loop. */
     BOOL _confinedToMainThread;

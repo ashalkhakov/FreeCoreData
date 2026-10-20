@@ -176,6 +176,7 @@ static char CDContextQueueSpecificKey;
    _requestedProcessPendingChanges = NO;
    _processingPendingChanges = 0;
    _deletionsToPropagate=[[NSMutableSet alloc] init];
+   _mergedDeletions=[[NSMutableSet alloc] init];
    /* Apple's default: a deletion's rules are applied as the event that
       made it ends, not at the save. */
    _propagatesDeletesAtEndOfEvent = YES;
@@ -391,6 +392,7 @@ static char CDContextQueueSpecificKey;
    [_updatedObjects release];
    [_deletedObjects release];
    [_deletionsToPropagate release];
+   [_mergedDeletions release];
    [_pendingInsertedObjects release];
    [_pendingUpdatedObjects release];
    [_pendingDeletedObjects release];
@@ -572,6 +574,7 @@ static char CDContextQueueSpecificKey;
    [_updatedObjects removeAllObjects];
    [_deletedObjects removeAllObjects];
    [_deletionsToPropagate removeAllObjects];
+   [_mergedDeletions removeAllObjects];
    [self _discardPendingChangeNotifications];
    NSResetMapTable(_objectIdToObject);
 
@@ -606,6 +609,7 @@ static char CDContextQueueSpecificKey;
    [_updatedObjects removeAllObjects];
    [_deletedObjects removeAllObjects];
    [_deletionsToPropagate removeAllObjects];
+   [_mergedDeletions removeAllObjects];
    [self _discardPendingChangeNotifications];
 }
 
@@ -2364,8 +2368,20 @@ static id CDUndoRestoredValue(id value){
 
 /* Applies NSCascadeDeleteRule by deleting destination objects of cascade
    relationships of already-deleted objects, transitively. */
+/* The deleted objects whose deletion is this context's to write: all but
+   those a merge marked deleted. */
+-(NSArray *)_ownDeletedObjects {
+   if([_mergedDeletions count]==0)
+    return [_deletedObjects allObjects];
+
+   NSMutableSet *own=[NSMutableSet setWithSet:_deletedObjects];
+
+   [own minusSet:_mergedDeletions];
+   return [own allObjects];
+}
+
 -(void)_propagateCascadeDeletes {
-   [self _propagateCascadeDeletesOf:[_deletedObjects allObjects]];
+   [self _propagateCascadeDeletesOf:[self _ownDeletedObjects]];
 }
 
 -(void)_propagateCascadeDeletesOf:(NSArray *)deletedObjects {
@@ -2406,7 +2422,7 @@ static id CDUndoRestoredValue(id value){
 -(BOOL)_validateChangesForSave:(NSError **)errorp {
    NSMutableArray *errors=[NSMutableArray array];
 
-   for(NSManagedObject *deleted in _deletedObjects){
+   for(NSManagedObject *deleted in [self _ownDeletedObjects]){
     NSError *validationError=nil;
 
     if(![deleted validateForDelete:&validationError] && validationError!=nil)
@@ -2493,7 +2509,7 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
    NSMapTable     *byStore=NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,NSObjectMapValueCallBacks,0);
    NSMutableArray *stores=[NSMutableArray array];
 
-   [checked unionSet:_deletedObjects];
+   [checked addObjectsFromArray:[self _ownDeletedObjects]];
 
    for(NSManagedObject *object in checked){
     if([object _storeVersion]==0 || [_insertedObjects containsObject:object] || [[object objectID] isTemporaryID])
@@ -2711,7 +2727,7 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
 /* Applies NSNullifyDeleteRule semantics: disconnects deleted objects from
    the graph right before they are removed from their stores. */
 -(void)_nullifyRelationshipsOfDeletedObjects {
-   [self _nullifyRelationshipsOf:[_deletedObjects allObjects] onlyByRule:NO];
+   [self _nullifyRelationshipsOf:[self _ownDeletedObjects] onlyByRule:NO];
 }
 
 /* Empties the relationships of deleted objects - every one, at the save,
@@ -3004,6 +3020,7 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
 
 -(BOOL)_saveToParent:(NSError **)errorp {
    NSManagedObjectContext *parent=_parentContext;
+   NSSet                  *mergedDeletions=[[_mergedDeletions copy] autorelease];
 
    [self processPendingChanges];
    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextWillSaveNotification object:self];
@@ -3055,6 +3072,10 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
      for(NSManagedObject *object in notifyDeleted){
       NSManagedObjectID *deletedID=[object objectID];
 
+      /* deleted by a merge: the parent learns of it as this context did */
+      if([mergedDeletions containsObject:object])
+       continue;
+
       /* an object born and deleted in the child never reached the
          parent; there is nothing to delete there */
       if([deletedID isTemporaryID] && [parent objectRegisteredForID:deletedID]==nil)
@@ -3078,6 +3099,7 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
    }
    [_deletedObjects removeAllObjects];
    [_deletionsToPropagate removeAllObjects];
+   [_mergedDeletions removeAllObjects];
 
    for(NSManagedObject *object in notifyInserted)
     [object _promoteCurrentValuesToCommitted:[insertSnapshots objectForKey:object]];
@@ -3228,7 +3250,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
      [incrementalUpdated addObject:check];
    }
 
-   for(NSManagedObject *check in _deletedObjects){
+   for(NSManagedObject *check in [self _ownDeletedObjects]){
     if([[check objectID] isTemporaryID])
      continue;
     if([[[check objectID] persistentStore] isKindOfClass:[NSIncrementalStore class]])
@@ -3346,6 +3368,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
     [_updatedObjects removeAllObjects];
     [_deletedObjects removeAllObjects];
     [_deletionsToPropagate removeAllObjects];
+    [_mergedDeletions removeAllObjects];
 
     /* Fold the saved changes into the committed snapshots so that
        -changedValues is empty and -committedValuesForKeys: reflects the
@@ -3435,6 +3458,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
         [context->_insertedObjects removeObject:local];
         [context->_updatedObjects removeObject:local];
         [context->_deletedObjects addObject:local];
+        [context->_mergedDeletions addObject:local];
 
         [context->_pendingDeletedObjects addObject:local];
         [context->_pendingInsertedObjects removeObject:local];
@@ -3484,6 +3508,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
      [_insertedObjects removeObject:local];
      [_updatedObjects removeObject:local];
      [_deletedObjects addObject:local];
+     [_mergedDeletions addObject:local];
 
      [_pendingDeletedObjects addObject:local];
      [_pendingInsertedObjects removeObject:local];
