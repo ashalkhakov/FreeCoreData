@@ -432,29 +432,40 @@ static id CDPublicValue(NSManagedObjectContext *context,NSPropertyDescription *p
    return objects;
 }
 
--(NSDictionary *)changedValues {
+/* The names of the persistent properties whose pending value is not the
+   saved one: what -changedValues gives, without making its values
+   objects - for the framework's own callers, which want only the names. */
+-(NSArray *)_changedPersistentKeys {
    if([_changedValues count]==0)
-    return [NSDictionary dictionary];
+    return [NSArray array];
 
-   NSDictionary        *properties=[[self entity] propertiesByName];
-   NSDictionary        *committed=[self isInserted]?nil:[self _committedValues];
-   NSMutableDictionary *changed=[NSMutableDictionary dictionaryWithCapacity:[_changedValues count]];
+   NSDictionary   *properties=[[self entity] propertiesByName];
+   NSDictionary   *committed=[self isInserted]?nil:[self _committedValues];
+   NSMutableArray *keys=[NSMutableArray arrayWithCapacity:[_changedValues count]];
 
    for(NSString *name in _changedValues){
     NSPropertyDescription *property=[properties objectForKey:name];
-    id                     value=[_changedValues objectForKey:name];
 
     if([property isTransient])
      continue;
-    if(committed!=nil && CDValueIsCommitted(property,value,[committed objectForKey:name]))
+    if(committed!=nil && CDValueIsCommitted(property,[_changedValues objectForKey:name],[committed objectForKey:name]))
      continue;
-    [changed setObject:CDPublicValue(_context,property,value) forKey:name];
+    [keys addObject:name];
    }
+   return keys;
+}
+
+-(NSDictionary *)changedValues {
+   NSDictionary        *properties=[[self entity] propertiesByName];
+   NSMutableDictionary *changed=[NSMutableDictionary dictionary];
+
+   for(NSString *name in [self _changedPersistentKeys])
+    [changed setObject:CDPublicValue(_context,[properties objectForKey:name],[_changedValues objectForKey:name]) forKey:name];
    return changed;
 }
 
 -(BOOL)hasPersistentChangedValues {
-   return [[self changedValues] count]>0;
+   return [[self _changedPersistentKeys] count]>0;
 }
 
 -(NSDictionary *)_committedValuesFromIncrementalStore:(NSIncrementalStore *)store {

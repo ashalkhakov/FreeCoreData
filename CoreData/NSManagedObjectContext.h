@@ -89,9 +89,15 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
     NSMapTable *_objectIdToObject;
 
     BOOL _requestedProcessPendingChanges;
-    /* Inside -processPendingChanges: a fetch made from it (an object's
-       -prepareForDeletion, an observer) does not process them again. */
-    BOOL _processingPendingChanges;
+    /* How deep inside -processPendingChanges' propagation and undo
+       registration: a fetch made from there (an object's
+       -prepareForDeletion, an observer of a nullify) does not process
+       them again. */
+    NSUInteger _processingPendingChanges;
+    /* Objects deleted in this context since their rules were last
+       applied - not those a merge marks deleted, whose rules the saving
+       context applied. */
+    NSMutableSet *_deletionsToPropagate;
     /* A thread-confined context's thread is the one it was made on: the
        main thread's has its changes processed by the main run loop. */
     BOOL _confinedToMainThread;

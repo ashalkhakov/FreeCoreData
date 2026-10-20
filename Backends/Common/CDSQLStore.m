@@ -3779,15 +3779,23 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
 
     NSMutableArray *rows=[NSMutableArray array];
 
+    /* Rows of the attributes only, asked for by name: relationships are
+       no part of a row, and asked for they would be read as objects. */
+    NSDictionary   *propertiesByName=[entity propertiesByName];
+    NSMutableArray *attributeNames=[NSMutableArray array];
+
+    for(NSString *name in names)
+     if([[propertiesByName objectForKey:name] isKindOfClass:[NSAttributeDescription class]])
+      [attributeNames addObject:name];
+
     for(NSManagedObject *object in objects){
-     NSDictionary        *snapshot=[object committedValuesForKeys:nil];
+     NSDictionary        *snapshot=[object committedValuesForKeys:attributeNames];
      NSMutableDictionary *row=[NSMutableDictionary dictionary];
 
-     for(NSString *name in names){
+     for(NSString *name in attributeNames){
       id value=[snapshot objectForKey:name];
 
-      if(value==nil || value==[NSNull null] || [value isKindOfClass:[NSManagedObjectID class]] ||
-         [value isKindOfClass:[NSManagedObject class]] || [value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSOrderedSet class]])
+      if(value==nil || value==[NSNull null])
        continue;
       [row setObject:value forKey:name];
      }

@@ -59,6 +59,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)_setStoreVersion:(unsigned long long)version;
 - (void)_resetCommittedValuesAfterSavePreservingTransients;
 - (void)_discardChangedValues;
+/* The names -changedValues would give, its values left as they are kept. */
+- (NSArray *)_changedPersistentKeys;
 - (void)_discardChangedValueForKey:(NSString *)key;
 - (void)_setFault:(BOOL)isFault;
 /* -setValue:forKey: without calling a setter the class implements: the

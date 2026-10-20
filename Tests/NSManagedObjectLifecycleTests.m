@@ -313,6 +313,23 @@ static NSManagedObjectModel *LifecycleTestModel(void)
 
 @end
 
+#if __has_include(<CoreData/CDExternalDataStore.h>)
+/* Raises once, when told of a change. */
+@interface PropagationRaiser : NSObject
+@property (nonatomic) BOOL raised;
+@end
+
+@implementation PropagationRaiser
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    if (!self.raised) {
+        self.raised = YES;
+        [NSException raise:NSInternalInconsistencyException format:@"raised while %@ changed", keyPath];
+    }
+}
+@end
+#endif
+
 @implementation NSManagedObjectLifecycleTests
 
 - (void)setUp
@@ -1858,6 +1875,89 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertFalse([[owner valueForKey:@"parts"] containsObject:a]);
     XCTAssertNil([a valueForKey:@"owner"]);
 }
+
+/* A deletion merged from another context's save is that context's: its
+   rules were applied there.  The receiving context takes the part out of
+   its owner's to-many, as Apple's does, but the owner is not one of its
+   changes - it would write it again, over the saving context's write. */
+- (void)testAMergedDeletionLeavesItsOwnerUnchanged
+{
+    NSManagedObjectContext *saving = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:saving];
+    NSManagedObjectContext *merging = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    merging.persistentStoreCoordinator = saving.persistentStoreCoordinator;
+    NSManagedObject *mergingOwner = [merging existingObjectWithID:[owner objectID] error:NULL];
+    /* The part to be deleted is one it has read. */
+    NSManagedObject *saved = [self partNamed:@"a" of:owner];
+    NSManagedObject *read = [merging existingObjectWithID:[saved objectID] error:NULL];
+    XCTAssertEqualObjects([read valueForKey:@"name"], @"a");
+    XCTAssertEqual([[mergingOwner valueForKey:@"parts"] count], (NSUInteger)2);
+
+    id observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSManagedObjectContextDidSaveNotification
+                                                                    object:saving queue:nil usingBlock:^(NSNotification *note) {
+        [merging mergeChangesFromContextDidSaveNotification:note];
+    }];
+    [saving deleteObject:saved];
+    NSError *error = nil;
+    XCTAssertTrue([saving save:&error], @"%@", error);
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+
+    [merging processPendingChanges];
+    XCTAssertEqual([[mergingOwner valueForKey:@"parts"] count], (NSUInteger)1);
+    XCTAssertEqual([merging.updatedObjects count], (NSUInteger)0, @"%@", merging.updatedObjects);
+    XCTAssertEqual([merging.deletedObjects count], (NSUInteger)1, @"%@", merging.deletedObjects);
+}
+
+/* An object changed in one event and deleted in a later one is a deleted
+   object, not an updated one, as on Apple; its owner is the updated one. */
+- (void)testAnObjectChangedThenDeletedIsNotUpdated
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    NSManagedObject *a = [self partNamed:@"a" of:owner];
+
+    [a setValue:@"a2" forKey:@"name"];
+    [context processPendingChanges];
+    XCTAssertTrue([context.updatedObjects containsObject:a]);
+
+    __block NSDictionary *userInfo = nil;
+    id observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSManagedObjectContextObjectsDidChangeNotification
+                                                                    object:context queue:nil usingBlock:^(NSNotification *note) {
+        userInfo = note.userInfo;
+    }];
+    [context deleteObject:a];
+    [context processPendingChanges];
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+
+    XCTAssertEqualObjects(context.updatedObjects, [NSSet setWithObject:owner]);
+    XCTAssertEqualObjects(context.deletedObjects, [NSSet setWithObject:a]);
+    XCTAssertEqualObjects(userInfo[NSUpdatedObjectsKey], [NSSet setWithObject:owner]);
+    XCTAssertEqualObjects(userInfo[NSDeletedObjectsKey], [NSSet setWithObject:a]);
+}
+
+#if __has_include(<CoreData/CDExternalDataStore.h>)
+/* A raise from inside the processing of pending changes - here an
+   observer of the owner told of the nullify - does not leave the context
+   believing it is still processing them: a later fetch processes them
+   first, as it should. */
+- (void)testARaiseWhileProcessingLeavesFetchesProcessingPendingChanges
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    PropagationRaiser *raiser = [[PropagationRaiser alloc] init];
+
+    [owner addObserver:raiser forKeyPath:@"parts" options:0 context:NULL];
+    [context deleteObject:[self partNamed:@"a" of:owner]];
+    XCTAssertThrows([context processPendingChanges]);
+    [owner removeObserver:raiser forKeyPath:@"parts"];
+    XCTAssertTrue(raiser.raised);
+
+    NSManagedObject *b = [self partNamed:@"b" of:owner];
+    [context deleteObject:b];
+    [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"PropagatedOwner"] error:NULL];
+    XCTAssertFalse([[owner valueForKey:@"parts"] containsObject:b], @"the fetch processed the deletion first");
+}
+#endif
 
 /* A part moved to another owner: as on Apple, the old owner's to-many
    loses it at once, and the part's committed and changed values give the

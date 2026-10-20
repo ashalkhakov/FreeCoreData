@@ -1812,6 +1812,17 @@ static NSSet *columnsOfExistingTable(sqlite3 *database,NSString *table){
 /* The tombstone for a deletion: the last values of the entity's
    attributes marked preservesValueInHistoryOnDeletion, as a binary
    plist keyed by attribute name; nil when the entity flags none. */
+/* The attributes whose values a deleted object's history keeps. */
+static NSArray *preservedAttributeNames(NSEntityDescription *entity){
+   NSMutableArray *names=[NSMutableArray array];
+   NSDictionary   *attributes=[entity attributesByName];
+
+   for(NSString *name in attributes)
+    if([[attributes objectForKey:name] preservesValueInHistoryOnDeletion])
+     [names addObject:name];
+   return names;
+}
+
 -(NSData *)_tombstoneForEntity:(NSEntityDescription *)entity values:(NSDictionary *)values {
    NSMutableDictionary *tombstone=nil;
    NSDictionary        *attributes=[entity attributesByName];
@@ -3111,15 +3122,23 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
 
     NSMutableArray *rows=[NSMutableArray array];
 
+    /* Rows of the attributes only, asked for by name: relationships are
+       no part of a row, and asked for they would be read as objects. */
+    NSDictionary   *propertiesByName=[entity propertiesByName];
+    NSMutableArray *attributeNames=[NSMutableArray array];
+
+    for(NSString *name in names)
+     if([[propertiesByName objectForKey:name] isKindOfClass:[NSAttributeDescription class]])
+      [attributeNames addObject:name];
+
     for(NSManagedObject *object in objects){
-     NSDictionary        *snapshot=[object committedValuesForKeys:nil];
+     NSDictionary        *snapshot=[object committedValuesForKeys:attributeNames];
      NSMutableDictionary *row=[NSMutableDictionary dictionary];
 
-     for(NSString *name in names){
+     for(NSString *name in attributeNames){
       id value=[snapshot objectForKey:name];
 
-      if(value==nil || value==[NSNull null] || [value isKindOfClass:[NSManagedObjectID class]] ||
-         [value isKindOfClass:[NSManagedObject class]] || [value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSOrderedSet class]])
+      if(value==nil || value==[NSNull null])
        continue;
       [row setObject:value forKey:name];
      }
@@ -3348,7 +3367,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
     if(attributeStoresExternally(property)){
      NSData *stored=[storedExternal objectForKey:name];
 
-     if(rowAsRead && [[object changedValues] objectForKey:name]==nil)
+     if(rowAsRead && ![[object _changedPersistentKeys] containsObject:name])
       value=stored;
      else {
       NSData *current=[object valueForKey:name];
@@ -3596,7 +3615,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
     }
 
     for(NSManagedObject *object in [request updatedObjects]){
-     NSArray  *changedKeys=[[[object changedValues] allKeys] sortedArrayUsingSelector:@selector(compare:)];
+     NSArray  *changedKeys=[[object _changedPersistentKeys] sortedArrayUsingSelector:@selector(compare:)];
      NSString *updatedProperties=([changedKeys count]>0)?[changedKeys componentsJoinedByString:@","]:nil;
 
      if(![self _recordHistoryChangeInTransaction:transactionID type:NSPersistentHistoryChangeTypeUpdate entity:[object entity] primaryKey:[self _primaryKeyOfObjectID:[object objectID]] updatedProperties:updatedProperties tombstone:nil error:error]){
@@ -3606,7 +3625,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
     }
 
     for(NSManagedObject *object in [request deletedObjects]){
-     NSData *tombstone=[self _tombstoneForEntity:[object entity] values:[object committedValuesForKeys:nil]];
+     NSData *tombstone=[self _tombstoneForEntity:[object entity] values:[object committedValuesForKeys:preservedAttributeNames([object entity])]];
 
      if(![self _recordHistoryChangeInTransaction:transactionID type:NSPersistentHistoryChangeTypeDelete entity:[object entity] primaryKey:[self _primaryKeyOfObjectID:[object objectID]] updatedProperties:nil tombstone:tombstone error:error]){
       executeSQL(DATABASE,@"ROLLBACK",NULL);
