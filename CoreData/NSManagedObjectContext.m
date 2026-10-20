@@ -2156,6 +2156,7 @@ static id CDUndoRestoredValue(id value){
      if([_registeredObjects containsObject:object]){
       NSPersistentStore *store=[_storeCoordinator _persistentStoreForObject:object];
 
+      [object _setManagedObjectContext:self];   /* the save let it go */
       [[object objectID] setStoreIdentifier:[store identifier]];
       [[object objectID] setPersistentStore:store];
       NSMapInsert(_objectIdToObject,[object objectID],object);
@@ -3018,6 +3019,14 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
    [self _requestProcessPendingChanges];
 }
 
+/* As Apple's: once the save is told, the objects it deleted have no
+   context - an object's context going nil is how one tells it is gone. */
+-(void)_detachSavedDeletions:(NSSet *)deleted {
+   for(NSManagedObject *object in deleted)
+    if([object managedObjectContext]==self)
+     [object _setManagedObjectContext:nil];
+}
+
 -(BOOL)_saveToParent:(NSError **)errorp {
    NSManagedObjectContext *parent=_parentContext;
    NSSet                  *mergedDeletions=[[_mergedDeletions copy] autorelease];
@@ -3123,6 +3132,7 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
    [notifyInfo setObject:notifyDeleted forKey:NSDeletedObjectsKey];
 
    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification object:self userInfo:notifyInfo];
+   [self _detachSavedDeletions:notifyDeleted];
 
    return YES;
 }
@@ -3398,6 +3408,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
     [notifyInfo setObject:notifyDeleted forKey:NSDeletedObjectsKey];
 
     [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification object:self userInfo:notifyInfo];
+    [self _detachSavedDeletions:notifyDeleted];
 
     return YES;
    }

@@ -2798,7 +2798,8 @@ static NSManagedObjectModel *siblingColumnsModel(void)
 
 /* A context that merged another context's save deleting objects saves as
    Apple's does: the rows are gone already, so it writes nothing for them
-   - no conflict over rows it cannot find - but reports them deleted. */
+   - no conflict over rows it cannot find - but reports them deleted, and
+   lets them go. */
 - (void)testAContextThatMergedADeletionSaves
 {
     NSEntityDescription *owner = fleetEntity(@"Owner"), *part = fleetEntity(@"Part"), *bit = fleetEntity(@"Bit");
@@ -2824,7 +2825,7 @@ static NSManagedObjectModel *siblingColumnsModel(void)
     NSManagedObjectContext *merging = [[NSManagedObjectContext alloc] init];
     [merging setPersistentStoreCoordinator:[saving persistentStoreCoordinator]];
     NSManagedObject *mergingOwner = [merging existingObjectWithID:[o objectID] error:NULL];
-    XCTAssertNotNil([merging existingObjectWithID:[p objectID] error:NULL]);
+    NSManagedObject *mergingPart = [merging existingObjectWithID:[p objectID] error:NULL];
     XCTAssertNotNil([merging existingObjectWithID:[b objectID] error:NULL]);
 
     id observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSManagedObjectContextDidSaveNotification
@@ -2850,6 +2851,7 @@ static NSManagedObjectModel *siblingColumnsModel(void)
     XCTAssertEqual([saved[NSDeletedObjectsKey] count], (NSUInteger)2);
     XCTAssertEqual([saved[NSUpdatedObjectsKey] count], (NSUInteger)0);
     XCTAssertFalse([merging hasChanges]);
+    XCTAssertNil([mergingPart managedObjectContext]);
 
     /* And it goes on saving its own changes. */
     [mergingOwner setValue:@"renamed" forKey:@"name"];

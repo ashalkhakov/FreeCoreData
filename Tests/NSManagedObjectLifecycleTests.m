@@ -1959,6 +1959,38 @@ static NSManagedObjectModel *LifecycleTestModel(void)
 }
 #endif
 
+/* Once a save is told, an object it deleted has no context, as on Apple:
+   still its context while the did-save notification is posted, nil when
+   the save returns - for a root context's save and a child's. */
+- (void)testADeletedObjectHasNoContextOnceSaved
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    NSManagedObject *a = [self partNamed:@"a" of:owner];
+    __block NSManagedObjectContext *duringNotification = nil;
+    id observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSManagedObjectContextDidSaveNotification
+                                                                    object:context queue:nil usingBlock:^(NSNotification *note) {
+        duringNotification = [[note.userInfo[NSDeletedObjectsKey] anyObject] managedObjectContext];
+    }];
+
+    [context deleteObject:a];
+    XCTAssertEqual([a managedObjectContext], context);
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+    XCTAssertEqual(duringNotification, context);
+    XCTAssertNil([a managedObjectContext]);
+    XCTAssertEqual([owner managedObjectContext], context);
+
+    NSManagedObjectContext *child = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    child.parentContext = context;
+    NSManagedObject *b = [child existingObjectWithID:[[self partNamed:@"b" of:owner] objectID] error:NULL];
+    XCTAssertNotNil(b);
+    [child deleteObject:b];
+    XCTAssertTrue([child save:&error], @"%@", error);
+    XCTAssertNil([b managedObjectContext]);
+}
+
 /* A part moved to another owner: as on Apple, the old owner's to-many
    loses it at once, and the part's committed and changed values give the
    owners themselves - not their object IDs - so the old one can be found
