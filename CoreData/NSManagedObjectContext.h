@@ -94,6 +94,9 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
        -prepareForDeletion, an observer of a nullify) does not process
        them again. */
     NSUInteger _processingPendingChanges;
+    /* An object deleted since the event's changes were last processed:
+       only then does a fetch process them first, as Apple's does. */
+    BOOL _deletedSinceProcessing;
     /* Objects deleted in this context since their rules were last
        applied - not those a merge marks deleted, whose rules the saving
        context applied. */

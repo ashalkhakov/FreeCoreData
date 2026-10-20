@@ -431,6 +431,7 @@ static char CDContextQueueSpecificKey;
 }
 
 -(void)_discardPendingChangeNotifications {
+   _deletedSinceProcessing=NO;
    [_pendingInsertedObjects removeAllObjects];
    [_pendingUpdatedObjects removeAllObjects];
    [_pendingDeletedObjects removeAllObjects];
@@ -1128,11 +1129,13 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
        (_parentContext==nil)?[self persistentStoreCoordinator]:nil;
 
    /* As Apple's: a fetch (or count) that sees pending changes processes
-      them first, so it sees a deletion's rules applied - a deleted
-      object out of its owner's to-many, cascades deleted.  Dictionary
-      rows, which reflect the stores only, leave them pending. */
+      them first when one of them is a deletion, so it sees the
+      deletion's rules applied - a deleted object out of its owner's
+      to-many, cascades deleted.  Inserts and updates alone stay pending,
+      told of as the event ends.  Dictionary rows, which reflect the
+      stores only, leave them pending. */
    if([fetchRequest includesPendingChanges] && [fetchRequest resultType]!=NSDictionaryResultType &&
-      _processingPendingChanges==0)
+      _processingPendingChanges==0 && _deletedSinceProcessing)
     [self processPendingChanges];
 
    [lockedCoordinator lock];
@@ -1788,6 +1791,7 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 
    [_deletedObjects addObject:object];
    [_deletionsToPropagate addObject:object];
+   _deletedSinceProcessing=YES;
 
    /* An object that was inserted and deleted in the same event is not
       reported at all, matching Apple's behavior. */
@@ -1965,6 +1969,7 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    tell. */
 -(NSDictionary *)_takePendingChanges {
     _requestedProcessPendingChanges = NO;
+    _deletedSinceProcessing = NO;
 
     /* Undo registration happens at event granularity, before the early
        return: an insert-then-delete of the same object nets out of the
