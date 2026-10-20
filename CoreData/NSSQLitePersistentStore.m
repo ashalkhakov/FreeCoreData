@@ -3118,7 +3118,8 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
      for(NSString *name in names){
       id value=[snapshot objectForKey:name];
 
-      if(value==nil || value==[NSNull null] || [value isKindOfClass:[NSManagedObjectID class]] || [value isKindOfClass:[NSSet class]])
+      if(value==nil || value==[NSNull null] || [value isKindOfClass:[NSManagedObjectID class]] ||
+         [value isKindOfClass:[NSManagedObject class]] || [value isKindOfClass:[NSSet class]] || [value isKindOfClass:[NSOrderedSet class]])
        continue;
       [row setObject:value forKey:name];
      }

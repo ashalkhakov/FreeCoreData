@@ -410,6 +410,28 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
    return [ids isEqualToSet:([committed isKindOfClass:[NSSet class]]?committed:[NSSet setWithArray:[committed allObjects]])];
 }
 
+/* A value as Apple's -changedValues and -committedValuesForKeys: give it:
+   a relationship's objects, not the object IDs the framework keeps them
+   by (a to-many as a set, or an ordered set where it is ordered); nothing
+   as NSNull. */
+static id CDPublicValue(NSManagedObjectContext *context,NSPropertyDescription *property,id value){
+   if(value==nil || value==[NSNull null])
+    return [NSNull null];
+   if(![property isKindOfClass:[NSRelationshipDescription class]])
+    return value;
+
+   NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
+
+   if(![relationship isToMany])
+    return ([value isKindOfClass:[NSManagedObjectID class]] && context!=nil)?[context objectWithID:value]:value;
+
+   id objects=[relationship isOrdered]?(id)[NSMutableOrderedSet orderedSet]:(id)[NSMutableSet set];
+
+   for(id member in value)
+    [objects addObject:([member isKindOfClass:[NSManagedObjectID class]] && context!=nil)?[context objectWithID:member]:member];
+   return objects;
+}
+
 -(NSDictionary *)changedValues {
    if([_changedValues count]==0)
     return [NSDictionary dictionary];
@@ -426,7 +448,7 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
      continue;
     if(committed!=nil && CDValueIsCommitted(property,value,[committed objectForKey:name]))
      continue;
-    [changed setObject:value forKey:name];
+    [changed setObject:CDPublicValue(_context,property,value) forKey:name];
    }
    return changed;
 }
@@ -936,50 +958,44 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
 }
 
 -(NSDictionary *)committedValuesForKeys:(NSArray *)keys {
+   /* As Apple's: each property asked for (every one, for nil keys) with
+      its saved value - nil as NSNull, a relationship's as its objects -
+      and nothing for an object never saved. */
+   NSDictionary        *committed=[self _committedValues];
+   NSDictionary        *properties=[[self entity] propertiesByName];
+   NSMutableDictionary *result=[NSMutableDictionary dictionary];
+
+   if(committed==nil)
+    return result;
+
    if(keys==nil){
     /* Unfired to-many faults are omitted rather than fired - asking
        for everything must not cost one store round trip per to-many
        relationship.  (Internal callers that only need the row use
        -_committedValues directly.) */
-    NSDictionary *committed=[self _committedValues];
-    BOOL          hasFaults=NO;
+    for(NSString *name in properties){
+     NSPropertyDescription *property=[properties objectForKey:name];
+     id                     value=[committed objectForKey:name];
 
-    for(id value in [committed allValues])
-     if([value isKindOfClass:[CDRelationshipFault class]]){
-      hasFaults=YES;
-      break;
-     }
-
-    if(!hasFaults)
-     return committed;
-
-    NSMutableDictionary *filtered=[NSMutableDictionary dictionary];
-
-    for(NSString *key in [committed allKeys]){
-     id value=[committed objectForKey:key];
-
-     if(![value isKindOfClass:[CDRelationshipFault class]])
-      [filtered setObject:value forKey:key];
+     if([property isTransient] || [value isKindOfClass:[CDRelationshipFault class]])
+      continue;
+     [result setObject:CDPublicValue(_context,property,value) forKey:name];
     }
-    return filtered;
-   }
-   else {
-    NSMutableDictionary *result=[NSMutableDictionary dictionary];
-
-    for(NSString *key in keys){
-     id object=[[self _committedValues] objectForKey:key];
-
-     /* An explicitly requested to-many fires its fault. */
-     if([object isKindOfClass:[CDRelationshipFault class]])
-      object=[self _resolveRelationshipFault:object forKey:key];
-
-     if(object!=nil){
-      [result setObject:object forKey:key];
-     }
-    }
-
     return result;
    }
+
+   for(NSString *key in keys){
+    NSPropertyDescription *property=[properties objectForKey:key];
+    id                     object=[committed objectForKey:key];
+
+    if(property==nil)
+     continue;
+    /* An explicitly requested to-many fires its fault. */
+    if([object isKindOfClass:[CDRelationshipFault class]])
+     object=[self _resolveRelationshipFault:object forKey:key];
+    [result setObject:CDPublicValue(_context,property,object) forKey:key];
+   }
+   return result;
 }
 
 - (void) didSave {

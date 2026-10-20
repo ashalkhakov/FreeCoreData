@@ -1859,4 +1859,43 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertNil([a valueForKey:@"owner"]);
 }
 
+/* A part moved to another owner: as on Apple, the old owner's to-many
+   loses it at once, and the part's committed and changed values give the
+   owners themselves - not their object IDs - so the old one can be found
+   before the save. */
+- (void)testAPartMovedLeavesItsOldOwnerAtOnceAndRemembersIt
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    NSManagedObject *other = [NSEntityDescription insertNewObjectForEntityForName:@"PropagatedOwner" inManagedObjectContext:context];
+    NSManagedObject *lone = [NSEntityDescription insertNewObjectForEntityForName:@"PropagatedPart" inManagedObjectContext:context];
+    XCTAssertEqualObjects([lone committedValuesForKeys:nil], @{}, @"nothing saved of an unsaved object");
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+    NSManagedObject *a = [self partNamed:@"a" of:owner];
+
+    [a setValue:other forKey:@"owner"];
+    XCTAssertFalse([[owner valueForKey:@"parts"] containsObject:a]);
+    XCTAssertTrue([[other valueForKey:@"parts"] containsObject:a]);
+    XCTAssertEqual([[a committedValuesForKeys:@[ @"owner" ]] objectForKey:@"owner"], owner);
+    XCTAssertEqual([[a committedValuesForKeys:nil] objectForKey:@"owner"], owner);
+    XCTAssertEqual([[a changedValues] objectForKey:@"owner"], other);
+    NSSet *saved = [[owner committedValuesForKeys:@[ @"parts" ]] objectForKey:@"parts"];
+    XCTAssertTrue([saved isKindOfClass:[NSSet class]]);
+    XCTAssertTrue([saved containsObject:a], @"%@", saved);
+    XCTAssertEqualObjects([[owner changedValues] objectForKey:@"parts"], [NSSet setWithObject:[self partNamed:@"b" of:owner]]);
+    /* Nothing is NSNull. */
+    NSDictionary *nothing = [lone committedValuesForKeys:@[ @"owner", @"name" ]];
+    XCTAssertEqualObjects([nothing objectForKey:@"owner"], [NSNull null]);
+    XCTAssertEqualObjects([nothing objectForKey:@"name"], [NSNull null]);
+    XCTAssertEqualObjects([[lone committedValuesForKeys:nil] objectForKey:@"name"], [NSNull null]);
+    [a setValue:nil forKey:@"owner"];
+    XCTAssertEqualObjects([[a changedValues] objectForKey:@"owner"], [NSNull null]);
+
+    XCTAssertTrue([context save:&error], @"%@", error);
+    XCTAssertEqualObjects([[a committedValuesForKeys:@[ @"owner" ]] objectForKey:@"owner"], [NSNull null]);
+    XCTAssertEqualObjects([[owner committedValuesForKeys:@[ @"parts" ]] objectForKey:@"parts"],
+                          [NSSet setWithObject:[self partNamed:@"b" of:owner]]);
+}
+
 @end
