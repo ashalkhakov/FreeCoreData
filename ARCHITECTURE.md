@@ -192,10 +192,12 @@ in SQL.
 A deletion's rules are applied as the event that made it ends, as on
 Apple: `deleteObject:` only marks the object, and processing pending
 changes (`processPendingChanges`, the end of a run-loop event or a
-`performBlock:`, a fetch or count that includes pending changes)
-deletes what cascades and empties nullify relationships, so a deleted
-object leaves its owner's to-many before any save
-(`propagatesDeletesAtEndOfEvent`, YES by default).
+`performBlock:`, a fetch or count that includes pending changes when
+an object has been deleted since they were last processed) deletes what
+cascades and empties nullify relationships, so a deleted object leaves
+its owner's to-many before any save (`propagatesDeletesAtEndOfEvent`,
+YES by default). With inserts and updates alone pending, a fetch leaves
+them pending, as Apple's does, to be told of as the event ends.
 
 `save:` runs, in order: `processPendingChanges` and delete propagation
 (cascade/nullify per relationship delete rules, `validateForDelete:`

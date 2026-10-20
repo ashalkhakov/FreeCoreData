@@ -330,6 +330,22 @@ static NSManagedObjectModel *LifecycleTestModel(void)
 @end
 #endif
 
+/* Which changes a context's notification told of, last. */
+@interface ChangesListener : NSObject
+@property (nonatomic, copy) NSString *told;
+@end
+
+@implementation ChangesListener
+- (void)contextChanged:(NSNotification *)note
+{
+    NSMutableArray *keys = [NSMutableArray array];
+    for (NSString *key in @[ NSInsertedObjectsKey, NSUpdatedObjectsKey, NSDeletedObjectsKey ])
+        if (note.userInfo[key] != nil)
+            [keys addObject:key];
+    self.told = [keys componentsJoinedByString:@","];
+}
+@end
+
 @implementation NSManagedObjectLifecycleTests
 
 - (void)setUp
@@ -1773,6 +1789,65 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     XCTAssertEqual([context countForFetchRequest:fetch error:NULL], (NSUInteger)1);
     XCTAssertFalse([[owner valueForKey:@"parts"] containsObject:a]);
     XCTAssertNil([a valueForKey:@"owner"]);
+}
+
+/* What the context told of while it fetched (or counted), or "nothing". */
+- (NSString *)changesToldByFetching:(NSFetchRequest *)request count:(BOOL)count in:(NSManagedObjectContext *)context
+{
+    ChangesListener *listener = [[ChangesListener alloc] init];
+    listener.told = @"nothing";
+    [[NSNotificationCenter defaultCenter] addObserver:listener selector:@selector(contextChanged:)
+                                                 name:NSManagedObjectContextObjectsDidChangeNotification object:context];
+    if (count)
+        [context countForFetchRequest:request error:NULL];
+    else
+        [context executeFetchRequest:request error:NULL];
+    [[NSNotificationCenter defaultCenter] removeObserver:listener];
+    return listener.told;
+}
+
+/* Only a pending deletion makes a fetch or a count process the event's
+   changes first; inserts and updates alone are left pending, to be told
+   of as the event ends.  An array controller following its context adds
+   what it is told was inserted: told by a fetch made inside its own
+   -newObject, before -add: had added the object, it listed it twice. */
+- (void)testOnlyADeletionMakesAFetchProcessPendingChanges
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    NSFetchRequest *parts = [NSFetchRequest fetchRequestWithEntityName:@"PropagatedPart"];
+    ChangesListener *listener = [[ChangesListener alloc] init];
+
+    NSManagedObject *inserted = [NSEntityDescription insertNewObjectForEntityForName:@"PropagatedPart" inManagedObjectContext:context];
+    XCTAssertEqualObjects([self changesToldByFetching:parts count:NO in:context], @"nothing", @"an insert");
+    XCTAssertEqualObjects([self changesToldByFetching:parts count:YES in:context], @"nothing", @"an insert, counted");
+    XCTAssertEqual([[context executeFetchRequest:parts error:NULL] count], (NSUInteger)3, @"the fetch sees the insert");
+    [[NSNotificationCenter defaultCenter] addObserver:listener selector:@selector(contextChanged:)
+                                                 name:NSManagedObjectContextObjectsDidChangeNotification object:context];
+    [context processPendingChanges];
+    [[NSNotificationCenter defaultCenter] removeObserver:listener];
+    XCTAssertEqualObjects(listener.told, NSInsertedObjectsKey, @"the insert is told of as the event ends");
+
+    [[self partNamed:@"a" of:owner] setValue:@"c" forKey:@"name"];
+    XCTAssertEqualObjects([self changesToldByFetching:parts count:NO in:context], @"nothing", @"an update");
+    [context processPendingChanges];
+
+    [NSEntityDescription insertNewObjectForEntityForName:@"PropagatedPart" inManagedObjectContext:context];
+    [context deleteObject:inserted];
+    XCTAssertEqualObjects([self changesToldByFetching:parts count:NO in:context], @"inserted,deleted",
+                          @"a deletion is processed with the rest");
+    [NSEntityDescription insertNewObjectForEntityForName:@"PropagatedPart" inManagedObjectContext:context];
+    XCTAssertEqualObjects([self changesToldByFetching:parts count:NO in:context], @"nothing", @"not one processed already");
+    [context processPendingChanges];
+
+    context.propagatesDeletesAtEndOfEvent = NO;
+    [NSEntityDescription insertNewObjectForEntityForName:@"PropagatedPart" inManagedObjectContext:context];
+    [context deleteObject:[self partNamed:@"b" of:owner]];
+    XCTAssertEqualObjects([self changesToldByFetching:parts count:YES in:context], @"inserted,deleted",
+                          @"whether or not deletions propagate");
+    [NSEntityDescription insertNewObjectForEntityForName:@"PropagatedPart" inManagedObjectContext:context];
+    XCTAssertEqualObjects([self changesToldByFetching:parts count:NO in:context], @"nothing",
+                          @"nor one processed already while they do not");
 }
 
 /* A cascade deletes the parts as the event ends, and they leave the
