@@ -174,6 +174,12 @@ static char CDContextQueueSpecificKey;
    
    _objectIdToObject=NSCreateMapTable(NSObjectMapKeyCallBacks,NSObjectMapValueCallBacks,0);
    _requestedProcessPendingChanges = NO;
+   _processingPendingChanges = 0;
+   _deletionsToPropagate=[[NSMutableSet alloc] init];
+   _mergedDeletions=[[NSMutableSet alloc] init];
+   /* Apple's default: a deletion's rules are applied as the event that
+      made it ends, not at the save. */
+   _propagatesDeletesAtEndOfEvent = YES;
    _confinedToMainThread=[NSThread isMainThread];
    _concurrencyType=NSConfinementConcurrencyType;
    _workQueue=NULL;
@@ -385,6 +391,8 @@ static char CDContextQueueSpecificKey;
    [_insertedObjects release];
    [_updatedObjects release];
    [_deletedObjects release];
+   [_deletionsToPropagate release];
+   [_mergedDeletions release];
    [_pendingInsertedObjects release];
    [_pendingUpdatedObjects release];
    [_pendingDeletedObjects release];
@@ -565,6 +573,8 @@ static char CDContextQueueSpecificKey;
    [_insertedObjects removeAllObjects];
    [_updatedObjects removeAllObjects];
    [_deletedObjects removeAllObjects];
+   [_deletionsToPropagate removeAllObjects];
+   [_mergedDeletions removeAllObjects];
    [self _discardPendingChangeNotifications];
    NSResetMapTable(_objectIdToObject);
 
@@ -598,6 +608,8 @@ static char CDContextQueueSpecificKey;
    [_insertedObjects removeAllObjects];
    [_updatedObjects removeAllObjects];
    [_deletedObjects removeAllObjects];
+   [_deletionsToPropagate removeAllObjects];
+   [_mergedDeletions removeAllObjects];
    [self _discardPendingChangeNotifications];
 }
 
@@ -1114,6 +1126,14 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    NSArray *result=nil;
    NSPersistentStoreCoordinator *lockedCoordinator=
        (_parentContext==nil)?[self persistentStoreCoordinator]:nil;
+
+   /* As Apple's: a fetch (or count) that sees pending changes processes
+      them first, so it sees a deletion's rules applied - a deleted
+      object out of its owner's to-many, cascades deleted.  Dictionary
+      rows, which reflect the stores only, leave them pending. */
+   if([fetchRequest includesPendingChanges] && [fetchRequest resultType]!=NSDictionaryResultType &&
+      _processingPendingChanges==0)
+    [self processPendingChanges];
 
    [lockedCoordinator lock];
    NS_DURING
@@ -1767,6 +1787,7 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     [self _noteObjectDeletedForUndo:object];
 
    [_deletedObjects addObject:object];
+   [_deletionsToPropagate addObject:object];
 
    /* An object that was inserted and deleted in the same event is not
       reported at all, matching Apple's behavior. */
@@ -1886,7 +1907,63 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    }
 }
 
+/* Apple's delete propagation, at the end of the event that deleted: a
+   cascade relationship's objects deleted too, and a nullify
+   relationship's emptied, which takes the deleted object out of the
+   inverse (a to-many no longer holds it, a to-one no longer names it).
+   Deny and no-action relationships are left as they are, for the save to
+   refuse or keep.  The changes are the event's, and undone with it. */
+-(void)_propagateDeletes {
+   [_deletionsToPropagate intersectSet:_deletedObjects];   /* undone since */
+   if([_deletionsToPropagate count]==0)
+    return;
+
+   NSArray *deletions=[_deletionsToPropagate allObjects];
+
+   [_deletionsToPropagate removeAllObjects];
+   [self _propagateCascadeDeletesOf:deletions];
+
+   /* The cascade's deletions are this event's too. */
+   [_deletionsToPropagate intersectSet:_deletedObjects];
+   deletions=[deletions arrayByAddingObjectsFromArray:[_deletionsToPropagate allObjects]];
+   [_deletionsToPropagate removeAllObjects];
+
+   [self _nullifyRelationshipsOf:deletions onlyByRule:YES];
+
+   /* A deleted object is not an updated one, as on Apple: only the
+      objects it was taken out of are. */
+   for(NSManagedObject *deleted in _deletedObjects){
+    [_updatedObjects removeObject:deleted];
+    [_pendingUpdatedObjects removeObject:deleted];
+   }
+}
+
 -(void)_processPendingChanges {
+    NSDictionary *userInfo=nil;
+
+    /* Before anything is reported or registered for undo: the
+       propagation's own changes are this event's.  While the request
+       flag is still up, so that they do not ask for another event.  The
+       depth comes down however this ends, so that a raise from inside
+       does not leave every later fetch skipping pending changes. */
+    _processingPendingChanges++;
+    @try {
+     if(_propagatesDeletesAtEndOfEvent)
+      [self _propagateDeletes];
+     userInfo=[self _takePendingChanges];
+    }
+    @finally {
+     _processingPendingChanges--;
+    }
+
+    if(userInfo!=nil)
+     [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextObjectsDidChangeNotification object:self userInfo:userInfo];
+}
+
+/* The event's changes, registered for undo and taken out of the pending
+   sets as the notification's userInfo - nil when there is nothing to
+   tell. */
+-(NSDictionary *)_takePendingChanges {
     _requestedProcessPendingChanges = NO;
 
     /* Undo registration happens at event granularity, before the early
@@ -1905,7 +1982,7 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 
     if([_pendingInsertedObjects count]==0 && [_pendingUpdatedObjects count]==0 &&
        [_pendingDeletedObjects count]==0 && [_pendingRefreshedObjects count]==0)
-     return;
+     return nil;
 
     NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
 
@@ -1923,7 +2000,7 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     [_pendingDeletedObjects removeAllObjects];
     [_pendingRefreshedObjects removeAllObjects];
 
-    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextObjectsDidChangeNotification object:self userInfo:userInfo];
+    return userInfo;
 }
 
 -(void)processPendingChanges {
@@ -2079,6 +2156,7 @@ static id CDUndoRestoredValue(id value){
      if([_registeredObjects containsObject:object]){
       NSPersistentStore *store=[_storeCoordinator _persistentStoreForObject:object];
 
+      [object _setManagedObjectContext:self];   /* the save let it go */
       [[object objectID] setStoreIdentifier:[store identifier]];
       [[object objectID] setPersistentStore:store];
       NSMapInsert(_objectIdToObject,[object objectID],object);
@@ -2291,8 +2369,24 @@ static id CDUndoRestoredValue(id value){
 
 /* Applies NSCascadeDeleteRule by deleting destination objects of cascade
    relationships of already-deleted objects, transitively. */
+/* The deleted objects whose deletion is this context's to write: all but
+   those a merge marked deleted. */
+-(NSArray *)_ownDeletedObjects {
+   if([_mergedDeletions count]==0)
+    return [_deletedObjects allObjects];
+
+   NSMutableSet *own=[NSMutableSet setWithSet:_deletedObjects];
+
+   [own minusSet:_mergedDeletions];
+   return [own allObjects];
+}
+
 -(void)_propagateCascadeDeletes {
-   NSMutableArray *worklist=[NSMutableArray arrayWithArray:[_deletedObjects allObjects]];
+   [self _propagateCascadeDeletesOf:[self _ownDeletedObjects]];
+}
+
+-(void)_propagateCascadeDeletesOf:(NSArray *)deletedObjects {
+   NSMutableArray *worklist=[NSMutableArray arrayWithArray:deletedObjects];
    NSUInteger      index;
 
    for(index=0;index<[worklist count];index++){
@@ -2329,7 +2423,7 @@ static id CDUndoRestoredValue(id value){
 -(BOOL)_validateChangesForSave:(NSError **)errorp {
    NSMutableArray *errors=[NSMutableArray array];
 
-   for(NSManagedObject *deleted in _deletedObjects){
+   for(NSManagedObject *deleted in [self _ownDeletedObjects]){
     NSError *validationError=nil;
 
     if(![deleted validateForDelete:&validationError] && validationError!=nil)
@@ -2416,7 +2510,7 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
    NSMapTable     *byStore=NSCreateMapTable(NSNonOwnedPointerMapKeyCallBacks,NSObjectMapValueCallBacks,0);
    NSMutableArray *stores=[NSMutableArray array];
 
-   [checked unionSet:_deletedObjects];
+   [checked addObjectsFromArray:[self _ownDeletedObjects]];
 
    for(NSManagedObject *object in checked){
     if([object _storeVersion]==0 || [_insertedObjects containsObject:object] || [[object objectID] isTemporaryID])
@@ -2634,12 +2728,32 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
 /* Applies NSNullifyDeleteRule semantics: disconnects deleted objects from
    the graph right before they are removed from their stores. */
 -(void)_nullifyRelationshipsOfDeletedObjects {
-   for(NSManagedObject *deleted in [[_deletedObjects copy] autorelease]){
-    NSArray *properties=[[[deleted entity] propertiesByName] allValues];
+   [self _nullifyRelationshipsOf:[self _ownDeletedObjects] onlyByRule:NO];
+}
 
-    for(NSPropertyDescription *property in properties)
-     if([property isKindOfClass:[NSRelationshipDescription class]])
-      [deleted _setModeledValue:nil forKey:[property name]];
+/* Empties the relationships of deleted objects - every one, at the save,
+   or, at the end of an event, those whose rule is nullify, and only those
+   that hold anything - which takes each object out of its inverses.  Read
+   as cascade reads them, primitively: a deleted object's own accessors
+   are not called. */
+-(void)_nullifyRelationshipsOf:(NSArray *)deletedObjects onlyByRule:(BOOL)onlyByRule {
+   for(NSManagedObject *deleted in deletedObjects){
+    NSDictionary *relationships=[[deleted entity] relationshipsByName];
+
+    for(NSString *key in relationships){
+     NSRelationshipDescription *relationship=[relationships objectForKey:key];
+
+     if(onlyByRule){
+      if([relationship deleteRule]!=NSNullifyDeleteRule)
+       continue;
+
+      id value=[deleted primitiveValueForKey:key];
+
+      if(value==nil || value==[NSNull null] || ([relationship isToMany] && [value count]==0))
+       continue;
+     }
+     [deleted _setModeledValue:nil forKey:key];
+    }
    }
 }
 
@@ -2905,8 +3019,17 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
    [self _requestProcessPendingChanges];
 }
 
+/* As Apple's: once the save is told, the objects it deleted have no
+   context - an object's context going nil is how one tells it is gone. */
+-(void)_detachSavedDeletions:(NSSet *)deleted {
+   for(NSManagedObject *object in deleted)
+    if([object managedObjectContext]==self)
+     [object _setManagedObjectContext:nil];
+}
+
 -(BOOL)_saveToParent:(NSError **)errorp {
    NSManagedObjectContext *parent=_parentContext;
+   NSSet                  *mergedDeletions=[[_mergedDeletions copy] autorelease];
 
    [self processPendingChanges];
    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextWillSaveNotification object:self];
@@ -2958,6 +3081,10 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
      for(NSManagedObject *object in notifyDeleted){
       NSManagedObjectID *deletedID=[object objectID];
 
+      /* deleted by a merge: the parent learns of it as this context did */
+      if([mergedDeletions containsObject:object])
+       continue;
+
       /* an object born and deleted in the child never reached the
          parent; there is nothing to delete there */
       if([deletedID isTemporaryID] && [parent objectRegisteredForID:deletedID]==nil)
@@ -2980,6 +3107,8 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
     [_updatedObjects removeObject:deleted];
    }
    [_deletedObjects removeAllObjects];
+   [_deletionsToPropagate removeAllObjects];
+   [_mergedDeletions removeAllObjects];
 
    for(NSManagedObject *object in notifyInserted)
     [object _promoteCurrentValuesToCommitted:[insertSnapshots objectForKey:object]];
@@ -3003,6 +3132,7 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
    [notifyInfo setObject:notifyDeleted forKey:NSDeletedObjectsKey];
 
    [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification object:self userInfo:notifyInfo];
+   [self _detachSavedDeletions:notifyDeleted];
 
    return YES;
 }
@@ -3130,7 +3260,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
      [incrementalUpdated addObject:check];
    }
 
-   for(NSManagedObject *check in _deletedObjects){
+   for(NSManagedObject *check in [self _ownDeletedObjects]){
     if([[check objectID] isTemporaryID])
      continue;
     if([[[check objectID] persistentStore] isKindOfClass:[NSIncrementalStore class]])
@@ -3247,6 +3377,8 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
    if([errors count]==0){
     [_updatedObjects removeAllObjects];
     [_deletedObjects removeAllObjects];
+    [_deletionsToPropagate removeAllObjects];
+    [_mergedDeletions removeAllObjects];
 
     /* Fold the saved changes into the committed snapshots so that
        -changedValues is empty and -committedValuesForKeys: reflects the
@@ -3276,6 +3408,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
     [notifyInfo setObject:notifyDeleted forKey:NSDeletedObjectsKey];
 
     [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextDidSaveNotification object:self userInfo:notifyInfo];
+    [self _detachSavedDeletions:notifyDeleted];
 
     return YES;
    }
@@ -3336,6 +3469,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
         [context->_insertedObjects removeObject:local];
         [context->_updatedObjects removeObject:local];
         [context->_deletedObjects addObject:local];
+        [context->_mergedDeletions addObject:local];
 
         [context->_pendingDeletedObjects addObject:local];
         [context->_pendingInsertedObjects removeObject:local];
@@ -3385,6 +3519,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
      [_insertedObjects removeObject:local];
      [_updatedObjects removeObject:local];
      [_deletedObjects addObject:local];
+     [_mergedDeletions addObject:local];
 
      [_pendingDeletedObjects addObject:local];
      [_pendingInsertedObjects removeObject:local];

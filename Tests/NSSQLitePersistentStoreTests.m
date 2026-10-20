@@ -2796,4 +2796,71 @@ static NSManagedObjectModel *siblingColumnsModel(void)
 }
 #endif
 
+/* A context that merged another context's save deleting objects saves as
+   Apple's does: the rows are gone already, so it writes nothing for them
+   - no conflict over rows it cannot find - but reports them deleted, and
+   lets them go. */
+- (void)testAContextThatMergedADeletionSaves
+{
+    NSEntityDescription *owner = fleetEntity(@"Owner"), *part = fleetEntity(@"Part"), *bit = fleetEntity(@"Bit");
+    NSRelationshipDescription *parts = fleetRelationship(@"parts", YES), *partOwner = fleetRelationship(@"owner", NO);
+    NSRelationshipDescription *bits = fleetRelationship(@"bits", YES), *bitPart = fleetRelationship(@"part", NO);
+    [parts setDeleteRule:NSCascadeDeleteRule];
+    [bits setDeleteRule:NSCascadeDeleteRule];
+    fleetInverses(parts, part, partOwner, owner);
+    fleetInverses(bits, bit, bitPart, part);
+    [owner setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), parts ]];
+    [part setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), partOwner, bits ]];
+    [bit setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), bitPart ]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ owner, part, bit ]];
+
+    NSManagedObjectContext *saving = [self contextWithModel:model options:nil];
+    NSManagedObject *o = fleetObject(saving, @"Owner", @{ @"name" : @"o" });
+    NSManagedObject *p = fleetObject(saving, @"Part", @{ @"name" : @"p", @"owner" : o });
+    NSManagedObject *b = fleetObject(saving, @"Bit", @{ @"name" : @"b", @"part" : p });
+    NSError *error = nil;
+    XCTAssertTrue([saving save:&error], @"%@", error);
+
+    NSManagedObjectContext *merging = [[NSManagedObjectContext alloc] init];
+    [merging setPersistentStoreCoordinator:[saving persistentStoreCoordinator]];
+    NSManagedObject *mergingOwner = [merging existingObjectWithID:[o objectID] error:NULL];
+    NSManagedObject *mergingPart = [merging existingObjectWithID:[p objectID] error:NULL];
+    XCTAssertNotNil([merging existingObjectWithID:[b objectID] error:NULL]);
+
+    id observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSManagedObjectContextDidSaveNotification
+                                                                    object:saving queue:nil usingBlock:^(NSNotification *note) {
+        [merging mergeChangesFromContextDidSaveNotification:note];
+    }];
+    [saving deleteObject:p];
+    XCTAssertTrue([saving save:&error], @"%@", error);
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+
+    [merging processPendingChanges];
+    XCTAssertEqual([[merging deletedObjects] count], (NSUInteger)2);
+    XCTAssertEqual([[merging updatedObjects] count], (NSUInteger)0);
+    XCTAssertEqual([[mergingOwner valueForKey:@"parts"] count], (NSUInteger)0);
+
+    __block NSDictionary *saved = nil;
+    observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSManagedObjectContextDidSaveNotification
+                                                                 object:merging queue:nil usingBlock:^(NSNotification *note) {
+        saved = [note userInfo];
+    }];
+    XCTAssertTrue([merging save:&error], @"%@", error);
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+    XCTAssertEqual([saved[NSDeletedObjectsKey] count], (NSUInteger)2);
+    XCTAssertEqual([saved[NSUpdatedObjectsKey] count], (NSUInteger)0);
+    XCTAssertFalse([merging hasChanges]);
+    XCTAssertNil([mergingPart managedObjectContext]);
+
+    /* And it goes on saving its own changes. */
+    [mergingOwner setValue:@"renamed" forKey:@"name"];
+    XCTAssertTrue([merging save:&error], @"%@", error);
+    NSManagedObjectContext *reader = [[NSManagedObjectContext alloc] init];
+    [reader setPersistentStoreCoordinator:[saving persistentStoreCoordinator]];
+    NSArray *owners = [self fetchEntityNamed:@"Owner" inContext:reader predicate:nil sortDescriptors:nil];
+    XCTAssertEqualObjects([owners valueForKey:@"name"], @[ @"renamed" ]);
+    XCTAssertEqual([[self fetchEntityNamed:@"Part" inContext:reader predicate:nil sortDescriptors:nil] count], (NSUInteger)0);
+}
+
 @end

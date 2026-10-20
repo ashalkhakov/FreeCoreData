@@ -410,29 +410,62 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
    return [ids isEqualToSet:([committed isKindOfClass:[NSSet class]]?committed:[NSSet setWithArray:[committed allObjects]])];
 }
 
--(NSDictionary *)changedValues {
-   if([_changedValues count]==0)
-    return [NSDictionary dictionary];
+/* A value as Apple's -changedValues and -committedValuesForKeys: give it:
+   a relationship's objects, not the object IDs the framework keeps them
+   by (a to-many as a set, or an ordered set where it is ordered); nothing
+   as NSNull. */
+static id CDPublicValue(NSManagedObjectContext *context,NSPropertyDescription *property,id value){
+   if(value==nil || value==[NSNull null])
+    return [NSNull null];
+   if(![property isKindOfClass:[NSRelationshipDescription class]])
+    return value;
 
-   NSDictionary        *properties=[[self entity] propertiesByName];
-   NSDictionary        *committed=[self isInserted]?nil:[self _committedValues];
-   NSMutableDictionary *changed=[NSMutableDictionary dictionaryWithCapacity:[_changedValues count]];
+   NSRelationshipDescription *relationship=(NSRelationshipDescription *)property;
+
+   if(![relationship isToMany])
+    return ([value isKindOfClass:[NSManagedObjectID class]] && context!=nil)?[context objectWithID:value]:value;
+
+   id objects=[relationship isOrdered]?(id)[NSMutableOrderedSet orderedSet]:(id)[NSMutableSet set];
+
+   for(id member in value)
+    [objects addObject:([member isKindOfClass:[NSManagedObjectID class]] && context!=nil)?[context objectWithID:member]:member];
+   return objects;
+}
+
+/* The names of the persistent properties whose pending value is not the
+   saved one: what -changedValues gives, without making its values
+   objects - for the framework's own callers, which want only the names. */
+-(NSArray *)_changedPersistentKeys {
+   if([_changedValues count]==0)
+    return [NSArray array];
+
+   NSDictionary   *properties=[[self entity] propertiesByName];
+   NSDictionary   *committed=[self isInserted]?nil:[self _committedValues];
+   NSMutableArray *keys=[NSMutableArray arrayWithCapacity:[_changedValues count]];
 
    for(NSString *name in _changedValues){
     NSPropertyDescription *property=[properties objectForKey:name];
-    id                     value=[_changedValues objectForKey:name];
 
     if([property isTransient])
      continue;
-    if(committed!=nil && CDValueIsCommitted(property,value,[committed objectForKey:name]))
+    if(committed!=nil && CDValueIsCommitted(property,[_changedValues objectForKey:name],[committed objectForKey:name]))
      continue;
-    [changed setObject:value forKey:name];
+    [keys addObject:name];
    }
+   return keys;
+}
+
+-(NSDictionary *)changedValues {
+   NSDictionary        *properties=[[self entity] propertiesByName];
+   NSMutableDictionary *changed=[NSMutableDictionary dictionary];
+
+   for(NSString *name in [self _changedPersistentKeys])
+    [changed setObject:CDPublicValue(_context,[properties objectForKey:name],[_changedValues objectForKey:name]) forKey:name];
    return changed;
 }
 
 -(BOOL)hasPersistentChangedValues {
-   return [[self changedValues] count]>0;
+   return [[self _changedPersistentKeys] count]>0;
 }
 
 -(NSDictionary *)_committedValuesFromIncrementalStore:(NSIncrementalStore *)store {
@@ -936,50 +969,44 @@ static BOOL CDValueIsCommitted(NSPropertyDescription *property,id value,id commi
 }
 
 -(NSDictionary *)committedValuesForKeys:(NSArray *)keys {
+   /* As Apple's: each property asked for (every one, for nil keys) with
+      its saved value - nil as NSNull, a relationship's as its objects -
+      and nothing for an object never saved. */
+   NSDictionary        *committed=[self _committedValues];
+   NSDictionary        *properties=[[self entity] propertiesByName];
+   NSMutableDictionary *result=[NSMutableDictionary dictionary];
+
+   if(committed==nil)
+    return result;
+
    if(keys==nil){
     /* Unfired to-many faults are omitted rather than fired - asking
        for everything must not cost one store round trip per to-many
        relationship.  (Internal callers that only need the row use
        -_committedValues directly.) */
-    NSDictionary *committed=[self _committedValues];
-    BOOL          hasFaults=NO;
+    for(NSString *name in properties){
+     NSPropertyDescription *property=[properties objectForKey:name];
+     id                     value=[committed objectForKey:name];
 
-    for(id value in [committed allValues])
-     if([value isKindOfClass:[CDRelationshipFault class]]){
-      hasFaults=YES;
-      break;
-     }
-
-    if(!hasFaults)
-     return committed;
-
-    NSMutableDictionary *filtered=[NSMutableDictionary dictionary];
-
-    for(NSString *key in [committed allKeys]){
-     id value=[committed objectForKey:key];
-
-     if(![value isKindOfClass:[CDRelationshipFault class]])
-      [filtered setObject:value forKey:key];
+     if([property isTransient] || [value isKindOfClass:[CDRelationshipFault class]])
+      continue;
+     [result setObject:CDPublicValue(_context,property,value) forKey:name];
     }
-    return filtered;
-   }
-   else {
-    NSMutableDictionary *result=[NSMutableDictionary dictionary];
-
-    for(NSString *key in keys){
-     id object=[[self _committedValues] objectForKey:key];
-
-     /* An explicitly requested to-many fires its fault. */
-     if([object isKindOfClass:[CDRelationshipFault class]])
-      object=[self _resolveRelationshipFault:object forKey:key];
-
-     if(object!=nil){
-      [result setObject:object forKey:key];
-     }
-    }
-
     return result;
    }
+
+   for(NSString *key in keys){
+    NSPropertyDescription *property=[properties objectForKey:key];
+    id                     object=[committed objectForKey:key];
+
+    if(property==nil)
+     continue;
+    /* An explicitly requested to-many fires its fault. */
+    if([object isKindOfClass:[CDRelationshipFault class]])
+     object=[self _resolveRelationshipFault:object forKey:key];
+    [result setObject:CDPublicValue(_context,property,object) forKey:key];
+   }
+   return result;
 }
 
 - (void) didSave {
