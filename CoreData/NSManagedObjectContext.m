@@ -174,6 +174,10 @@ static char CDContextQueueSpecificKey;
    
    _objectIdToObject=NSCreateMapTable(NSObjectMapKeyCallBacks,NSObjectMapValueCallBacks,0);
    _requestedProcessPendingChanges = NO;
+   _processingPendingChanges = NO;
+   /* Apple's default: a deletion's rules are applied as the event that
+      made it ends, not at the save. */
+   _propagatesDeletesAtEndOfEvent = YES;
    _confinedToMainThread=[NSThread isMainThread];
    _concurrencyType=NSConfinementConcurrencyType;
    _workQueue=NULL;
@@ -1115,6 +1119,14 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    NSPersistentStoreCoordinator *lockedCoordinator=
        (_parentContext==nil)?[self persistentStoreCoordinator]:nil;
 
+   /* As Apple's: a fetch (or count) that sees pending changes processes
+      them first, so it sees a deletion's rules applied - a deleted
+      object out of its owner's to-many, cascades deleted.  Dictionary
+      rows, which reflect the stores only, leave them pending. */
+   if([fetchRequest includesPendingChanges] && [fetchRequest resultType]!=NSDictionaryResultType &&
+      !_processingPendingChanges)
+    [self processPendingChanges];
+
    [lockedCoordinator lock];
    NS_DURING
     result=[self _coordinatorLocked_executeFetchRequest:fetchRequest error:error];
@@ -1886,7 +1898,57 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    }
 }
 
+/* Apple's delete propagation, at the end of the event that deleted: a
+   cascade relationship's objects deleted too, and a nullify
+   relationship's emptied, which takes the deleted object out of the
+   inverse (a to-many no longer holds it, a to-one no longer names it).
+   Deny and no-action relationships are left as they are, for the save to
+   refuse or keep.  The changes are the event's, and undone with it. */
+-(void)_propagateDeletes {
+   if([_deletedObjects count]==0)
+    return;
+
+   NSSet *wereUpdated=[[_updatedObjects copy] autorelease];
+
+   [self _propagateCascadeDeletes];
+
+   for(NSManagedObject *deleted in [[_deletedObjects copy] autorelease]){
+    NSDictionary *relationships=[[deleted entity] relationshipsByName];
+
+    for(NSString *key in relationships){
+     NSRelationshipDescription *relationship=[relationships objectForKey:key];
+
+     if([relationship deleteRule]!=NSNullifyDeleteRule)
+      continue;
+
+     id value=[deleted valueForKey:key];
+
+     if(value==nil || ([relationship isToMany] && [value count]==0))
+      continue;
+
+     [deleted _setModeledValue:nil forKey:key];
+    }
+   }
+
+   /* A deleted object whose relationships were emptied (its own, or
+      the inverse of another's) is not an updated one: on Apple, only
+      the objects it was taken out of are. */
+   for(NSManagedObject *deleted in _deletedObjects){
+    if(![wereUpdated containsObject:deleted]){
+     [_updatedObjects removeObject:deleted];
+     [_pendingUpdatedObjects removeObject:deleted];
+    }
+   }
+}
+
 -(void)_processPendingChanges {
+    /* Before anything is reported or registered for undo: the
+       propagation's own changes are this event's.  While the request
+       flag is still up, so that they do not ask for another event. */
+    _processingPendingChanges = YES;
+    if(_propagatesDeletesAtEndOfEvent)
+     [self _propagateDeletes];
+
     _requestedProcessPendingChanges = NO;
 
     /* Undo registration happens at event granularity, before the early
@@ -1904,8 +1966,10 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     [self _releaseObjectsInsertedAndDeleted];
 
     if([_pendingInsertedObjects count]==0 && [_pendingUpdatedObjects count]==0 &&
-       [_pendingDeletedObjects count]==0 && [_pendingRefreshedObjects count]==0)
+       [_pendingDeletedObjects count]==0 && [_pendingRefreshedObjects count]==0){
+     _processingPendingChanges = NO;
      return;
+    }
 
     NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
 
@@ -1923,6 +1987,7 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     [_pendingDeletedObjects removeAllObjects];
     [_pendingRefreshedObjects removeAllObjects];
 
+    _processingPendingChanges = NO;
     [[NSNotificationCenter defaultCenter] postNotificationName:NSManagedObjectContextObjectsDidChangeNotification object:self userInfo:userInfo];
 }
 

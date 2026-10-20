@@ -89,6 +89,9 @@ typedef NSUInteger NSManagedObjectContextConcurrencyType;
     NSMapTable *_objectIdToObject;
 
     BOOL _requestedProcessPendingChanges;
+    /* Inside -processPendingChanges: a fetch made from it (an object's
+       -prepareForDeletion, an observer) does not process them again. */
+    BOOL _processingPendingChanges;
     /* A thread-confined context's thread is the one it was made on: the
        main thread's has its changes processed by the main run loop. */
     BOOL _confinedToMainThread;

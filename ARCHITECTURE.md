@@ -189,6 +189,14 @@ in SQL.
 
 ## Saving
 
+A deletion's rules are applied as the event that made it ends, as on
+Apple: `deleteObject:` only marks the object, and processing pending
+changes (`processPendingChanges`, the end of a run-loop event or a
+`performBlock:`, a fetch or count that includes pending changes)
+deletes what cascades and empties nullify relationships, so a deleted
+object leaves its owner's to-many before any save
+(`propagatesDeletesAtEndOfEvent`, YES by default).
+
 `save:` runs, in order: `processPendingChanges` and delete propagation
 (cascade/nullify per relationship delete rules, `validateForDelete:`
 honoring Deny); validation (`validateForInsert:`/`Update:` →

@@ -1643,4 +1643,220 @@ static NSManagedObjectModel *LifecycleTestModel(void)
     [self removeStoreAt:url];
 }
 
+#pragma mark Delete propagation at the end of the event
+
+/* An owner and its parts, with the delete rules asked for, in memory:
+   PropagatedOwner.parts <->> PropagatedPart.owner. */
+- (NSManagedObjectContext *)contextWithPartsRule:(NSDeleteRule)partsRule ownerRule:(NSDeleteRule)ownerRule
+{
+    NSEntityDescription *owner = [[NSEntityDescription alloc] init], *part = [[NSEntityDescription alloc] init];
+    owner.name = @"PropagatedOwner";
+    part.name = @"PropagatedPart";
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    name.name = @"name";
+    name.attributeType = NSStringAttributeType;
+    name.optional = YES;
+    NSRelationshipDescription *parts = [[NSRelationshipDescription alloc] init], *up = [[NSRelationshipDescription alloc] init];
+    parts.name = @"parts";
+    parts.destinationEntity = part;
+    parts.minCount = 0;
+    parts.maxCount = 0;
+    parts.optional = YES;
+    parts.deleteRule = partsRule;
+    up.name = @"owner";
+    up.destinationEntity = owner;
+    up.minCount = 0;
+    up.maxCount = 1;
+    up.optional = YES;
+    up.deleteRule = ownerRule;
+    parts.inverseRelationship = up;
+    up.inverseRelationship = parts;
+    owner.properties = @[ parts ];
+    part.properties = @[ name, up ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ owner, part ];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    context.persistentStoreCoordinator = coordinator;
+    return context;
+}
+
+/* An owner and two parts, saved; the owner returned, the parts in it. */
+- (NSManagedObject *)savedOwnerWithTwoPartsIn:(NSManagedObjectContext *)context
+{
+    NSManagedObject *owner = [NSEntityDescription insertNewObjectForEntityForName:@"PropagatedOwner" inManagedObjectContext:context];
+    for (NSString *name in @[ @"a", @"b" ]) {
+        NSManagedObject *part = [NSEntityDescription insertNewObjectForEntityForName:@"PropagatedPart" inManagedObjectContext:context];
+        [part setValue:name forKey:@"name"];
+        [part setValue:owner forKey:@"owner"];
+    }
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+    [context processPendingChanges];
+    return owner;
+}
+
+- (NSManagedObject *)partNamed:(NSString *)name of:(NSManagedObject *)owner
+{
+    for (NSManagedObject *part in [owner valueForKey:@"parts"])
+        if ([[part valueForKey:@"name"] isEqualToString:name])
+            return part;
+    return nil;
+}
+
+/* As on Apple: -deleteObject: only marks the object; processing the
+   event's changes applies the delete rules - a nullify relationship's
+   inverse no longer holds it, its owner is updated, and it is not. */
+- (void)testProcessingPendingChangesTakesADeletedObjectOutOfItsOwner
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    NSManagedObject *a = [self partNamed:@"a" of:owner];
+
+    [context deleteObject:a];
+    XCTAssertTrue(a.isDeleted);
+    XCTAssertTrue([[owner valueForKey:@"parts"] containsObject:a], @"not before the event ends");
+    XCTAssertEqual([a valueForKey:@"owner"], owner);
+
+    [context processPendingChanges];
+    XCTAssertFalse([[owner valueForKey:@"parts"] containsObject:a]);
+    XCTAssertEqual([[owner valueForKey:@"parts"] count], (NSUInteger)1);
+    XCTAssertNil([a valueForKey:@"owner"]);
+    XCTAssertTrue([context.updatedObjects containsObject:owner]);
+    XCTAssertFalse([context.updatedObjects containsObject:a]);
+    XCTAssertTrue([context.deletedObjects containsObject:a]);
+
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+    XCTAssertEqual([[owner valueForKey:@"parts"] count], (NSUInteger)1);
+}
+
+/* So does a fetch, or a count, that sees pending changes - and not one of
+   dictionaries, which sees only the store. */
+- (void)testAFetchAppliesTheDeleteRulesFirst
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    NSManagedObject *a = [self partNamed:@"a" of:owner];
+
+    [context deleteObject:a];
+    NSFetchRequest *rows = [NSFetchRequest fetchRequestWithEntityName:@"PropagatedOwner"];
+    rows.resultType = NSDictionaryResultType;
+    [context executeFetchRequest:rows error:NULL];
+    XCTAssertTrue([[owner valueForKey:@"parts"] containsObject:a], @"dictionaries leave it pending");
+    NSFetchRequest *saved = [NSFetchRequest fetchRequestWithEntityName:@"PropagatedOwner"];
+    saved.includesPendingChanges = NO;
+    [context executeFetchRequest:saved error:NULL];
+    XCTAssertTrue([[owner valueForKey:@"parts"] containsObject:a], @"so does a fetch without pending changes");
+
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"PropagatedPart"];
+    fetch.predicate = [NSPredicate predicateWithFormat:@"owner == %@", owner];
+    XCTAssertEqual([context countForFetchRequest:fetch error:NULL], (NSUInteger)1);
+    XCTAssertFalse([[owner valueForKey:@"parts"] containsObject:a]);
+    XCTAssertNil([a valueForKey:@"owner"]);
+}
+
+/* A cascade deletes the parts as the event ends, and they leave the
+   owner's to-many too. */
+- (void)testProcessingPendingChangesCascades
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSCascadeDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    NSManagedObject *a = [self partNamed:@"a" of:owner], *b = [self partNamed:@"b" of:owner];
+
+    [context deleteObject:owner];
+    XCTAssertFalse(a.isDeleted);
+    [context processPendingChanges];
+    XCTAssertTrue(a.isDeleted);
+    XCTAssertTrue(b.isDeleted);
+    XCTAssertEqual([context.deletedObjects count], (NSUInteger)3);
+    XCTAssertEqual([[owner valueForKey:@"parts"] count], (NSUInteger)0);
+    XCTAssertNil([a valueForKey:@"owner"]);
+    XCTAssertEqual([context.updatedObjects count], (NSUInteger)0, @"deleted objects are not updated ones");
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+}
+
+/* An owner deleted whose parts nullify: they are left without it. */
+- (void)testProcessingPendingChangesNullifiesTheParts
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    NSManagedObject *a = [self partNamed:@"a" of:owner];
+
+    [context deleteObject:owner];
+    [context processPendingChanges];
+    XCTAssertFalse(a.isDeleted);
+    XCTAssertNil([a valueForKey:@"owner"]);
+    XCTAssertTrue([context.updatedObjects containsObject:a]);
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"PropagatedPart"];
+    fetch.predicate = [NSPredicate predicateWithFormat:@"owner == %@", owner];
+    XCTAssertEqual([context countForFetchRequest:fetch error:NULL], (NSUInteger)0);
+}
+
+/* Deny and no action are left as they are, for the save. */
+- (void)testDenyAndNoActionAreLeftForTheSave
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSDenyDeleteRule ownerRule:NSNoActionDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    NSManagedObject *a = [self partNamed:@"a" of:owner];
+
+    [context deleteObject:a];
+    [context processPendingChanges];
+    XCTAssertTrue([[owner valueForKey:@"parts"] containsObject:a], @"no action");
+    XCTAssertEqual([a valueForKey:@"owner"], owner);
+    [context rollback];
+
+    [context deleteObject:owner];
+    [context processPendingChanges];
+    XCTAssertEqual([[owner valueForKey:@"parts"] count], (NSUInteger)2, @"deny");
+    XCTAssertFalse(a.isDeleted);
+    XCTAssertFalse([context save:NULL]);
+}
+
+/* A part made and deleted in one change leaves its owner as it leaves
+   the context. */
+- (void)testAnUnsavedPartDeletedLeavesItsOwner
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    NSManagedObject *c = [NSEntityDescription insertNewObjectForEntityForName:@"PropagatedPart" inManagedObjectContext:context];
+    [c setValue:owner forKey:@"owner"];
+
+    [context deleteObject:c];
+    [context processPendingChanges];
+    XCTAssertNil(c.managedObjectContext);
+    XCTAssertFalse([[owner valueForKey:@"parts"] containsObject:c]);
+    XCTAssertEqual([[owner valueForKey:@"parts"] count], (NSUInteger)2);
+}
+
+/* The rules' changes are the event's: undone with the deletion, and
+   made again with its redo. */
+- (void)testUndoingADeletionPutsItBackInItsOwner
+{
+    NSManagedObjectContext *context = [self contextWithPartsRule:NSNullifyDeleteRule ownerRule:NSNullifyDeleteRule];
+    context.undoManager = [[NSUndoManager alloc] init];
+    NSManagedObject *owner = [self savedOwnerWithTwoPartsIn:context];
+    [context.undoManager removeAllActions];
+    NSManagedObject *a = [self partNamed:@"a" of:owner];
+
+    [context deleteObject:a];
+    [context processPendingChanges];
+    XCTAssertFalse([[owner valueForKey:@"parts"] containsObject:a]);
+
+    [context.undoManager undo];
+    [context processPendingChanges];
+    XCTAssertFalse(a.isDeleted);
+    XCTAssertTrue([[owner valueForKey:@"parts"] containsObject:a]);
+    XCTAssertEqual([a valueForKey:@"owner"], owner);
+
+    [context.undoManager redo];
+    [context processPendingChanges];
+    XCTAssertTrue(a.isDeleted);
+    XCTAssertFalse([[owner valueForKey:@"parts"] containsObject:a]);
+    XCTAssertNil([a valueForKey:@"owner"]);
+}
+
 @end
