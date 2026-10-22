@@ -1069,8 +1069,10 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    array: returnsObjectsAsFaults NO realizes every returned fault, and
    relationshipKeyPathsForPrefetching is fulfilled by walking each key
    path (for incremental stores this drives newValueForRelationship
-   during the fetch instead of at first access).  Used on results the
-   context shaped itself; a store handling a pass-through request is
+   during the fetch instead of at first access), on the objects whose
+   entity has its first relationship: one may be a subentity's, as
+   Apple's are when it deletes an object.  Used on results the context
+   shaped itself; a store handling a pass-through request is
    responsible for its own options. */
 -(void)_finalizeFetchedObjects:(NSArray *)objects request:(NSFetchRequest *)request {
    /* A batched answer finalizes each batch as it reads it. */
@@ -1088,8 +1090,31 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
      [object _committedValues]; /* fires the row fault; to-many stay lazy */
 
     for(NSString *keyPath in keyPaths)
-     [object valueForKeyPath:keyPath];
+     [self _prefetchKeys:[keyPath componentsSeparatedByString:@"."] ofObject:object];
    }
+}
+
+/* Walks a prefetched key path from object one relationship at a time,
+   each only where the object reached has it: a key may be a subentity's,
+   at any step, and is passed over for objects of other entities. */
+-(void)_prefetchKeys:(NSArray *)keys ofObject:(NSManagedObject *)object {
+   NSString *key=[keys objectAtIndex:0];
+
+   if([[[object entity] relationshipsByName] objectForKey:key]==nil)
+    return;
+
+   id value=[object valueForKey:key];
+
+   if([keys count]==1 || value==nil)
+    return;
+
+   NSArray *rest=[keys subarrayWithRange:NSMakeRange(1,[keys count]-1)];
+
+   if([value isKindOfClass:[NSManagedObject class]])
+    [self _prefetchKeys:rest ofObject:value];
+   else
+    for(NSManagedObject *member in value)
+     [self _prefetchKeys:rest ofObject:member];
 }
 
 -(void)_prefetchRowsForObjects:(NSArray *)objects fromStore:(NSPersistentStore *)store {

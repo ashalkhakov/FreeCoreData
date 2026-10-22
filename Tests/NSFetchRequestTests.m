@@ -273,4 +273,118 @@ static NSManagedObjectModel *EntityTestModel(void)
     }
 }
 
+/* A key path to prefetch that names a subentity's relationship: Apple
+   prefetches it for the objects of that subentity and passes over the
+   others, whose entity has no such relationship; a fetch of a sibling
+   with it is answered as without. (Apple prefetches, deleting an object,
+   the relationships of every kind of its root entity so.) */
+- (void)testPrefetchingASubentitysRelationship
+{
+    NSEntityDescription *record = [[NSEntityDescription alloc] init];
+    NSEntityDescription *reading = [[NSEntityDescription alloc] init];
+    NSEntityDescription *inspection = [[NSEntityDescription alloc] init];
+    NSEntityDescription *answer = [[NSEntityDescription alloc] init];
+    [record setName:@"Record"];
+    [reading setName:@"MeterReading"];
+    [inspection setName:@"Inspection"];
+    [answer setName:@"Answer"];
+    for (NSEntityDescription *e in @[ record, reading, inspection, answer ])
+        [e setManagedObjectClassName:@"NSManagedObject"];
+    NSAttributeDescription *note = [[NSAttributeDescription alloc] init];
+    [note setName:@"note"];
+    [note setAttributeType:NSStringAttributeType];
+    [note setOptional:YES];
+    NSAttributeDescription *text = [[NSAttributeDescription alloc] init];
+    [text setName:@"text"];
+    [text setAttributeType:NSStringAttributeType];
+    [text setOptional:YES];
+    NSRelationshipDescription *answers = [[NSRelationshipDescription alloc] init];
+    [answers setName:@"answers"];
+    [answers setDestinationEntity:answer];
+    [answers setMaxCount:0];
+    [answers setOptional:YES];
+    [answers setDeleteRule:NSCascadeDeleteRule];
+    NSRelationshipDescription *of = [[NSRelationshipDescription alloc] init];
+    [of setName:@"inspection"];
+    [of setDestinationEntity:inspection];
+    [of setMaxCount:1];
+    [of setOptional:YES];
+    [answers setInverseRelationship:of];
+    [of setInverseRelationship:answers];
+    /* A log of records of every kind: a key path through it reaches the
+       subentity's relationship at its second step. */
+    NSEntityDescription *log = [[NSEntityDescription alloc] init];
+    [log setName:@"Log"];
+    [log setManagedObjectClassName:@"NSManagedObject"];
+    NSRelationshipDescription *logged = [[NSRelationshipDescription alloc] init];
+    [logged setName:@"records"];
+    [logged setDestinationEntity:record];
+    [logged setMaxCount:0];
+    [logged setOptional:YES];
+    NSRelationshipDescription *inLog = [[NSRelationshipDescription alloc] init];
+    [inLog setName:@"log"];
+    [inLog setDestinationEntity:log];
+    [inLog setMaxCount:1];
+    [inLog setOptional:YES];
+    [logged setInverseRelationship:inLog];
+    [inLog setInverseRelationship:logged];
+    [log setProperties:@[ logged ]];
+    [record setProperties:@[ note, inLog ]];
+    [inspection setProperties:@[ answers ]];
+    [answer setProperties:@[ text, of ]];
+    [record setSubentities:@[ reading, inspection ]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ record, reading, inspection, answer, log ]];
+    NSPersistentStoreCoordinator *coordinator =
+        [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType
+                                              configuration:nil URL:nil
+                                                    options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *seed = [[NSManagedObjectContext alloc]
+        initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [seed setPersistentStoreCoordinator:coordinator];
+    NSManagedObject *pump = [NSEntityDescription insertNewObjectForEntityForName:@"MeterReading"
+                                                          inManagedObjectContext:seed];
+    [pump setValue:@"At the pump" forKey:@"note"];
+    NSManagedObject *monthly = [NSEntityDescription insertNewObjectForEntityForName:@"Inspection"
+                                                             inManagedObjectContext:seed];
+    [monthly setValue:@"Monthly" forKey:@"note"];
+    NSManagedObject *yes = [NSEntityDescription insertNewObjectForEntityForName:@"Answer"
+                                                         inManagedObjectContext:seed];
+    [yes setValue:@"Yes" forKey:@"text"];
+    [yes setValue:monthly forKey:@"inspection"];
+    NSManagedObject *book = [NSEntityDescription insertNewObjectForEntityForName:@"Log"
+                                                          inManagedObjectContext:seed];
+    [pump setValue:book forKey:@"log"];
+    [monthly setValue:book forKey:@"log"];
+    XCTAssertTrue([seed save:&error], @"%@", error);
+
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc]
+        initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [context setPersistentStoreCoordinator:coordinator];
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Record"];
+    [fetch setRelationshipKeyPathsForPrefetching:@[ @"answers" ]];
+    NSArray *records = nil;
+    XCTAssertNoThrow(records = [context executeFetchRequest:fetch error:&error]);
+    XCTAssertEqual([records count], (NSUInteger)2, @"%@", error);
+    for (NSManagedObject *each in records) {
+        if ([[[each entity] name] isEqualToString:@"Inspection"])
+            XCTAssertEqualObjects([[[each valueForKey:@"answers"] anyObject] valueForKey:@"text"], @"Yes");
+    }
+
+    fetch = [NSFetchRequest fetchRequestWithEntityName:@"MeterReading"];
+    [fetch setRelationshipKeyPathsForPrefetching:@[ @"answers" ]];
+    NSArray *readings = nil;
+    XCTAssertNoThrow(readings = [context executeFetchRequest:fetch error:&error]);
+    XCTAssertEqual([readings count], (NSUInteger)1, @"%@", error);
+
+    fetch = [NSFetchRequest fetchRequestWithEntityName:@"Log"];
+    [fetch setRelationshipKeyPathsForPrefetching:@[ @"records.answers" ]];
+    NSArray *logs = nil;
+    XCTAssertNoThrow(logs = [context executeFetchRequest:fetch error:&error]);
+    XCTAssertEqual([logs count], (NSUInteger)1, @"%@", error);
+    XCTAssertEqual([[[logs firstObject] valueForKey:@"records"] count], (NSUInteger)2);
+}
+
 @end
