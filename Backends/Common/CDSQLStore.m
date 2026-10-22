@@ -6446,7 +6446,9 @@ static NSArray *rowNamesOfProperties(NSDictionary *properties){
      if(value!=nil)
       [values setObject:value forKey:name];
     }
-    else if(![result isNullAtRow:row column:column])
+    else if([result isNullAtRow:row column:column])
+     [values setObject:[NSNull null] forKey:name];   /* none, not unknown */
+    else
      [values setObject:[self _objectIDForPrimaryKey:[result longLongAtRow:row column:column] declaredDestination:[(NSRelationshipDescription *)property destinationEntity]] forKey:name];
    }
 

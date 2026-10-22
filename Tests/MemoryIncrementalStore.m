@@ -248,6 +248,11 @@ NSString * const MismatchIncrementalStoreType = @"MismatchIncrementalStoreType";
         }
         if ([relationship isToMany])
             continue;
+        /* A to-one stored as NSNull is one the store knows has none. */
+        if ([row objectForKey:key] == [NSNull null]) {
+            [values setObject:[NSNull null] forKey:key];
+            continue;
+        }
         [values setObject:[self newObjectIDForEntity:
                                     [relationship destinationEntity]
                                      referenceObject:[row objectForKey:key]]
