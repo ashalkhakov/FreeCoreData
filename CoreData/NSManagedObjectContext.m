@@ -1089,16 +1089,32 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     if(realize && [object isFault])
      [object _committedValues]; /* fires the row fault; to-many stay lazy */
 
-    NSDictionary *relationships=[[object entity] relationshipsByName];
-
-    for(NSString *keyPath in keyPaths){
-     NSRange dot=[keyPath rangeOfString:@"."];
-     NSString *first=dot.location==NSNotFound?keyPath:[keyPath substringToIndex:dot.location];
-
-     if([relationships objectForKey:first]!=nil)
-      [object valueForKeyPath:keyPath];
-    }
+    for(NSString *keyPath in keyPaths)
+     [self _prefetchKeys:[keyPath componentsSeparatedByString:@"."] ofObject:object];
    }
+}
+
+/* Walks a prefetched key path from object one relationship at a time,
+   each only where the object reached has it: a key may be a subentity's,
+   at any step, and is passed over for objects of other entities. */
+-(void)_prefetchKeys:(NSArray *)keys ofObject:(NSManagedObject *)object {
+   NSString *key=[keys objectAtIndex:0];
+
+   if([[[object entity] relationshipsByName] objectForKey:key]==nil)
+    return;
+
+   id value=[object valueForKey:key];
+
+   if([keys count]==1 || value==nil)
+    return;
+
+   NSArray *rest=[keys subarrayWithRange:NSMakeRange(1,[keys count]-1)];
+
+   if([value isKindOfClass:[NSManagedObject class]])
+    [self _prefetchKeys:rest ofObject:value];
+   else
+    for(NSManagedObject *member in value)
+     [self _prefetchKeys:rest ofObject:member];
 }
 
 -(void)_prefetchRowsForObjects:(NSArray *)objects fromStore:(NSPersistentStore *)store {

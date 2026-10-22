@@ -311,12 +311,30 @@ static NSManagedObjectModel *EntityTestModel(void)
     [of setOptional:YES];
     [answers setInverseRelationship:of];
     [of setInverseRelationship:answers];
-    [record setProperties:@[ note ]];
+    /* A log of records of every kind: a key path through it reaches the
+       subentity's relationship at its second step. */
+    NSEntityDescription *log = [[NSEntityDescription alloc] init];
+    [log setName:@"Log"];
+    [log setManagedObjectClassName:@"NSManagedObject"];
+    NSRelationshipDescription *logged = [[NSRelationshipDescription alloc] init];
+    [logged setName:@"records"];
+    [logged setDestinationEntity:record];
+    [logged setMaxCount:0];
+    [logged setOptional:YES];
+    NSRelationshipDescription *inLog = [[NSRelationshipDescription alloc] init];
+    [inLog setName:@"log"];
+    [inLog setDestinationEntity:log];
+    [inLog setMaxCount:1];
+    [inLog setOptional:YES];
+    [logged setInverseRelationship:inLog];
+    [inLog setInverseRelationship:logged];
+    [log setProperties:@[ logged ]];
+    [record setProperties:@[ note, inLog ]];
     [inspection setProperties:@[ answers ]];
     [answer setProperties:@[ text, of ]];
     [record setSubentities:@[ reading, inspection ]];
     NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
-    [model setEntities:@[ record, reading, inspection, answer ]];
+    [model setEntities:@[ record, reading, inspection, answer, log ]];
     NSPersistentStoreCoordinator *coordinator =
         [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
     NSError *error = nil;
@@ -336,6 +354,10 @@ static NSManagedObjectModel *EntityTestModel(void)
                                                          inManagedObjectContext:seed];
     [yes setValue:@"Yes" forKey:@"text"];
     [yes setValue:monthly forKey:@"inspection"];
+    NSManagedObject *book = [NSEntityDescription insertNewObjectForEntityForName:@"Log"
+                                                          inManagedObjectContext:seed];
+    [pump setValue:book forKey:@"log"];
+    [monthly setValue:book forKey:@"log"];
     XCTAssertTrue([seed save:&error], @"%@", error);
 
     NSManagedObjectContext *context = [[NSManagedObjectContext alloc]
@@ -356,6 +378,13 @@ static NSManagedObjectModel *EntityTestModel(void)
     NSArray *readings = nil;
     XCTAssertNoThrow(readings = [context executeFetchRequest:fetch error:&error]);
     XCTAssertEqual([readings count], (NSUInteger)1, @"%@", error);
+
+    fetch = [NSFetchRequest fetchRequestWithEntityName:@"Log"];
+    [fetch setRelationshipKeyPathsForPrefetching:@[ @"records.answers" ]];
+    NSArray *logs = nil;
+    XCTAssertNoThrow(logs = [context executeFetchRequest:fetch error:&error]);
+    XCTAssertEqual([logs count], (NSUInteger)1, @"%@", error);
+    XCTAssertEqual([[[logs firstObject] valueForKey:@"records"] count], (NSUInteger)2);
 }
 
 @end
