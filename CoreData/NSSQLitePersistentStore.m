@@ -4732,7 +4732,9 @@ static NSArray *rowNamesOfEntity(NSDictionary *properties){
      if(value!=nil)
       [values setObject:value forKey:name];
     }
-    else if(sqlite3_column_type(statement,column)!=SQLITE_NULL){
+    else if(sqlite3_column_type(statement,column)==SQLITE_NULL)
+     [values setObject:[NSNull null] forKey:name];   /* none, not unknown */
+    else {
      long long foreignKey=sqlite3_column_int64(statement,column);
 
      [values setObject:[self _objectIDForPrimaryKey:foreignKey declaredDestination:[(NSRelationshipDescription *)property destinationEntity]] forKey:name];

@@ -653,6 +653,27 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects([boss valueForKey:@"name"], @"Boss");
 }
 
+/* A to-one the node gives as NSNull is the store saying there is none:
+   firing the row fault asks nothing more for it, as on Apple (checked on
+   macOS 15), and it reads as nil.  Only a to-one the node leaves out is
+   asked for. */
+- (void)testAToOneTheNodeGivesAsNullIsNotAskedFor
+{
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Loner", @"name",
+                      [NSNull null], @"manager", nil]
+        forReference:@"p3"];
+
+    NSManagedObject *loner = [self.ctx objectWithID:
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"p3"]];
+    NSUInteger callsBefore = [self.store relationshipCallCount];
+
+    XCTAssertEqualObjects([loner valueForKey:@"name"], @"Loner");
+    XCTAssertNil([loner valueForKey:@"manager"]);
+    XCTAssertEqual([self.store relationshipCallCount], callsBefore,
+                   @"no newValueForRelationship for a to-one the node gives as NSNull");
+}
+
 /* To-many relationships are lazy: firing the row fault does not fetch
    them; the newValueForRelationship: round trip happens on first
    access and is cached.  Verified against Apple 2026-08-22: firing

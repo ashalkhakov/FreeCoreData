@@ -520,8 +520,10 @@ static id CDPublicValue(NSManagedObjectContext *context,NSPropertyDescription *p
       /* A to-one missing from the node is resolved NOW, as part of
          completing the row snapshot - Apple does the same (verified
          2026-08-22: firing a row fault whose node lacked a to-one cost
-         exactly one newValueForRelationship for it). */
-      if(value==nil || value==[NSNull null]){
+         exactly one newValueForRelationship for it).  NSNull is the
+         store saying there is none, and is not asked again: Apple's
+         asks nothing for it (checked on macOS 15). */
+      if(value==nil){
        NSError *relationshipError=nil;
 
        /* A round trip like the one above, serialized the same way. */
