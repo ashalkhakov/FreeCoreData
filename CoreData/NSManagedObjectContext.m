@@ -3227,6 +3227,16 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
    NSFreeMapTable(byStore);
 }
 
+/* A save the stores did not take leaves the context's changes as they
+   were: its inserted and updated objects, and its deleted objects on the
+   map again - only the permanent IDs its inserts took remain theirs. */
+-(void)_restoreChangesOfFailedSaveInserted:(NSSet *)inserted updated:(NSSet *)updated {
+   [_insertedObjects setSet:inserted];
+   [_updatedObjects setSet:updated];
+   for(NSManagedObject *deleted in _deletedObjects)
+    NSMapInsert(_objectIdToObject,[deleted objectID],deleted);
+}
+
 -(BOOL)_coordinatorLocked_save:(NSError **)errorp {
    if(_parentContext!=nil)
     return [self _saveToParent:errorp];
@@ -3300,6 +3310,14 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
      [incrementalDeleted addObject:check];
    }
 
+   /* The change sets as they stand, for a save that fails from here on:
+      the bookkeeping below takes the inserts out and the deletions off
+      the map before the stores answer, and a save retried once a merge
+      policy settles conflicts - or saved again by the application - must
+      still insert what it inserted and delete what it deleted. */
+   NSSet *insertedBeforeWrite=[[_insertedObjects copy] autorelease];
+   NSSet *updatedBeforeWrite=[[_updatedObjects copy] autorelease];
+
    for(NSManagedObject *deleted in _deletedObjects){
     NSPersistentStore *store=[_storeCoordinator _persistentStoreForObject:deleted];
 
@@ -3325,6 +3343,8 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
 
    if(![self obtainPermanentIDsForObjects:[_insertedObjects allObjects] error:&idError]){
     NSMutableDictionary *userInfo=[NSMutableDictionary dictionary];
+
+    [self _restoreChangesOfFailedSaveInserted:insertedBeforeWrite updated:updatedBeforeWrite];
    
     [userInfo setObject:@"obtainPermanentIDsForObjects failed" forKey:NSLocalizedDescriptionKey];
    
@@ -3446,6 +3466,8 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
     return YES;
    }
   
+   [self _restoreChangesOfFailedSaveInserted:insertedBeforeWrite updated:updatedBeforeWrite];
+
    /* As on Apple, one store's error is the save's, as it is: its domain,
       code and userInfo are what the application reads.  Errors of several
       stores are gathered under one. */

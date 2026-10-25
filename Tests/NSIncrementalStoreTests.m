@@ -590,6 +590,41 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects([row objectForKey:@"name"], @"Alicia");
 }
 
+/* A save the merge policy settles and tries again still inserts what it
+   inserts, as on Apple: the retry's request has the new objects among its
+   inserted ones, not its updated ones. */
+- (void)testARetriedSaveStillInsertsItsNewObjects
+{
+    [self seedRow:[NSDictionary dictionaryWithObjectsAndKeys:
+                      @"Alice", @"name", [NSNumber numberWithInt:30], @"age", nil]
+        forReference:@"a"];
+    NSManagedObject *alice = [self.ctx objectWithID:
+        [self.store newObjectIDForEntity:self.entity referenceObject:@"a"]];
+    XCTAssertEqualObjects([alice valueForKey:@"name"], @"Alice");
+    [self.ctx setMergePolicy:NSMergeByPropertyObjectTrumpMergePolicy];
+
+    [alice setValue:@"Alicia" forKey:@"name"];
+    for (NSString *name in @[ @"Bob", @"Carol" ]) {
+        NSManagedObject *boss = [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                                              inManagedObjectContext:self.ctx];
+        [boss setValue:[name stringByAppendingString:@"'s boss"] forKey:@"name"];
+        NSManagedObject *worker = [NSEntityDescription insertNewObjectForEntityForName:@"Person"
+                                                                inManagedObjectContext:self.ctx];
+        [worker setValue:name forKey:@"name"];
+        [worker setValue:boss forKey:@"manager"];
+    }
+
+    self.store.conflictingSaves = 1;
+    NSUInteger savesBefore = [self.store saveRequestCount];
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"settled and saved again: %@", error);
+    XCTAssertEqual([self.store saveRequestCount], savesBefore + 2);
+    XCTAssertEqual([self.store lastInsertedCount], (NSUInteger)4, @"the retry inserts the new objects");
+    XCTAssertEqual([self.store lastUpdatedCount], (NSUInteger)1, @"and updates only Alice");
+    XCTAssertFalse([self.ctx hasChanges]);
+    XCTAssertEqual([[self.store tableForEntityName:@"Person"] count], (NSUInteger)5);
+}
+
 - (void)testDictionaryFetchIsShapedByTheStore
 {
     /* On a clean context the store itself answers a dictionary fetch,
