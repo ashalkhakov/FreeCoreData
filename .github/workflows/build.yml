@@ -48,8 +48,6 @@ jobs:
       library: true
       extra-packages: sqlite3 postgresql libmariadbclient
       databases: postgres mysql mariadb
-      wine: true
-      wine-make: '-C Tests;-C Tests/ModelBuilder'
 
   macos:
     uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1
