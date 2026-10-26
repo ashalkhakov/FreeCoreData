@@ -23,7 +23,7 @@ CDSQLBackendsTogetherTests_OBJCFLAGS = -fno-objc-arc
 # -I../../.. the repository root (for <CoreData/CoreData.h>).
 CDSQLBackendsTogetherTests_INCLUDE_DIRS = -I.. -I../../PostgreSQL -I../../MySQL -I../../..
 
-FRAMEWORK_BUILD_DIR = $(CURDIR)/../../../CoreData.framework/Versions/Current
+FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../../../CoreData.framework/Versions/Current) $(CURDIR)/../../../CoreData.framework)
 COMMON_BUILD_DIR = $(CURDIR)/../$(GNUSTEP_OBJ_DIR_NAME)
 POSTGRES_BUILD_DIR = $(CURDIR)/../../PostgreSQL/$(GNUSTEP_OBJ_DIR_NAME)
 MYSQL_BUILD_DIR = $(CURDIR)/../../MySQL/$(GNUSTEP_OBJ_DIR_NAME)
@@ -49,5 +49,5 @@ backends:
 run-tests: backends all $(BUNDLE_NAME).bundle
 	@echo "Running XCTest bundle: $(BUNDLE_NAME)"
 	. $(GNUSTEP_MAKEFILES)/GNUstep.sh; \
-	LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(COMMON_BUILD_DIR):$(POSTGRES_BUILD_DIR):$(MYSQL_BUILD_DIR):$$LD_LIBRARY_PATH" \
+	LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(COMMON_BUILD_DIR):$(POSTGRES_BUILD_DIR):$(MYSQL_BUILD_DIR):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$(COMMON_BUILD_DIR):$(POSTGRES_BUILD_DIR):$(MYSQL_BUILD_DIR):$$PATH" \
 	$(XCTEST) "$(BUNDLE_NAME).bundle"

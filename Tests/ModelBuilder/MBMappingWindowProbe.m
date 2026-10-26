@@ -309,7 +309,7 @@ int main(void)
     /* Beside the fixture: the models are found by the paths the file
        records, which are the project's. */
     NSString *saved = [[fixture stringByDeletingLastPathComponent] stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"probe-%d.xcmappingmodel", (int)getpid()]];
+        [NSString stringWithFormat:@"probe-%d.xcmappingmodel", [[NSProcessInfo processInfo] processIdentifier]]];
     [[NSFileManager defaultManager] removeItemAtPath:saved error:NULL];
     ok = [doc writeToURL:[NSURL fileURLWithPath:saved] ofType:@"Core Data Mapping Model" error:&error];
     MBMappingDocument *again = [[MBMappingDocument alloc] init];
@@ -390,7 +390,7 @@ int main(void)
           "beside the model, named for the two versions");
 
     NSString *created = [[fixture stringByDeletingLastPathComponent] stringByAppendingPathComponent:
-        [NSString stringWithFormat:@"new-%d.xcmappingmodel", (int)getpid()]];
+        [NSString stringWithFormat:@"new-%d.xcmappingmodel", [[NSProcessInfo processInfo] processIdentifier]]];
     ok = [panel createMappingModelAtPath:created error:&error];
     CHECK(ok, "Create writes the mapping model");
     MBMappingDocument *made = [[MBMappingDocument alloc] init];

@@ -41,13 +41,13 @@ ADDITIONAL_INCLUDE_DIRS += $(MYSQL_CFLAGS)
 
 CDMySQLStoreTests_INCLUDE_DIRS = -I.. -I../../Common -I../../Common/Tests -I../../..
 
-FRAMEWORK_BUILD_DIR = $(CURDIR)/../../../CoreData.framework/Versions/Current
+FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../../../CoreData.framework/Versions/Current) $(CURDIR)/../../../CoreData.framework)
 BACKEND_BUILD_DIR = $(CURDIR)/../$(GNUSTEP_OBJ_DIR_NAME)
 COMMON_BUILD_DIR = $(CURDIR)/../../Common/$(GNUSTEP_OBJ_DIR_NAME)
 
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(BACKEND_BUILD_DIR) -L$(COMMON_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
 
-CDMySQLStoreTests_OBJC_LIBS += -lCDMySQLStore -lCDSQLStore -lCoreData -lXCTest $(MYSQL_LIBS)
+CDMySQLStoreTests_OBJC_LIBS += -lCDMySQLStore -lCDSQLStore -lCoreData -lXCTest $(MYSQL_LIBS) -ldispatch
 
 XCTEST ?= xctest
 
@@ -67,5 +67,5 @@ backend:
 run-tests: backend all $(BUNDLE_NAME).bundle
 	@echo "Running XCTest bundle: $(BUNDLE_NAME)"
 	. $(GNUSTEP_MAKEFILES)/GNUstep.sh; \
-	LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(BACKEND_BUILD_DIR):$(COMMON_BUILD_DIR):$$LD_LIBRARY_PATH" \
+	LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(BACKEND_BUILD_DIR):$(COMMON_BUILD_DIR):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$(BACKEND_BUILD_DIR):$(COMMON_BUILD_DIR):$$PATH" \
 	$(XCTEST) "$(BUNDLE_NAME).bundle"

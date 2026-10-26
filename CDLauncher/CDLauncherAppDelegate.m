@@ -116,10 +116,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         if ([root length])
             [roots addObject:root];
     }
+    /* The bundle's own executable, as the platform names it (with .exe on
+       Windows). */
     for (NSString *root in roots) {
-        NSString *path = [root stringByAppendingPathComponent:
-                             [NSString stringWithFormat:@"%@.app/%@", app, app]];
-        if ([files isExecutableFileAtPath:path])
+        NSString *wrapper = [root stringByAppendingPathComponent:[app stringByAppendingPathExtension:@"app"]];
+        NSString *path = [[NSBundle bundleWithPath:wrapper] executablePath];
+        if (path != nil && [files isExecutableFileAtPath:path])
             return path;
     }
     return nil;
@@ -144,6 +146,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
        meaningful sense, and closing it must not take the app along. */
     NSTask *task = [[NSTask alloc] init];
     [task setLaunchPath:executable];
+    /* In the launcher's own look: the theme an installer gives the launcher
+       is a default of its domain alone, which the app it starts does not
+       read (and is WinUXTheme on Windows). */
+    NSString *theme = [[NSUserDefaults standardUserDefaults] stringForKey:@"GSTheme"];
+    if ([theme length])
+        [task setArguments:@[ @"-GSTheme", theme ]];
     @try {
         [task launch];
     } @catch (NSException *problem) {

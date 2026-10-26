@@ -26,7 +26,7 @@ libCDSQLStore_OBJCFLAGS = -fno-objc-arc
 
 # -I../.. is the repository root, so that <CoreData/CoreData.h> resolves to
 # the headers of the framework built in this tree.
-FRAMEWORK_BUILD_DIR = $(CURDIR)/../../CoreData.framework/Versions/Current
+FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../../CoreData.framework/Versions/Current) $(CURDIR)/../../CoreData.framework)
 
 ADDITIONAL_INCLUDE_DIRS += -I../..
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR)

@@ -41,6 +41,14 @@ jobs:
       extra-packages: libsqlite3-dev libpq-dev libmariadb-dev
       databases: postgres mysql mariadb
 
+  windows:
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@v1
+    with:
+      tag: ${{ inputs.tag }}
+      library: true
+      extra-packages: sqlite3 postgresql libmariadbclient
+      databases: postgres mysql mariadb
+
   macos:
     uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1
     with:

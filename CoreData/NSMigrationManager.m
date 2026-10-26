@@ -201,7 +201,19 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    _userInfo=userInfo;
 }
 
+/* The source and destination stores leave their coordinators, closing
+   their files, so that whoever migrated can delete, replace or reopen them
+   at once (on Windows an open file can be neither deleted nor replaced),
+   rather than when the coordinators happen to be deallocated. */
+-(void)_closeStores {
+   for(NSPersistentStore *store in [[[_sourceCoordinator persistentStores] copy] autorelease])
+    [_sourceCoordinator removePersistentStore:store error:NULL];
+   for(NSPersistentStore *store in [[[_destinationCoordinator persistentStores] copy] autorelease])
+    [_destinationCoordinator removePersistentStore:store error:NULL];
+}
+
 -(void)reset {
+   [self _closeStores];
    [_associationsByMappingName removeAllObjects];
    [_sourceContext release];
    _sourceContext=nil;
@@ -399,7 +411,15 @@ static BOOL cancelledError(NSMigrationManager *self,NSError *migrationError,NSEr
                                                                       error:error];
 }
 
+/* The migration, its stores closed when it is over, however it ends. */
 -(BOOL)migrateStoreFromURL:(NSURL *)sourceURL type:(NSString *)sStoreType options:(NSDictionary *)sOptions withMappingModel:(NSMappingModel *)mappings toDestinationURL:(NSURL *)dURL destinationType:(NSString *)dStoreType destinationOptions:(NSDictionary *)dOptions error:(NSError **)error {
+   BOOL result=[self _migrateStoreFromURL:sourceURL type:sStoreType options:sOptions withMappingModel:mappings toDestinationURL:dURL destinationType:dStoreType destinationOptions:dOptions error:error];
+
+   [self _closeStores];
+   return result;
+}
+
+-(BOOL)_migrateStoreFromURL:(NSURL *)sourceURL type:(NSString *)sStoreType options:(NSDictionary *)sOptions withMappingModel:(NSMappingModel *)mappings toDestinationURL:(NSURL *)dURL destinationType:(NSString *)dStoreType destinationOptions:(NSDictionary *)dOptions error:(NSError **)error {
    [self reset];
 
    mappings=[mappings retain];
