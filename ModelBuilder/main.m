@@ -32,30 +32,64 @@ static BOOL MBLoadNib(NSString *name, id owner)
    The menu itself lives in MainMenu.xib; only this submenu is dynamic,
    so it is the one piece attached in code. */
 @interface MBVersionMenuDelegate : NSObject <NSMenuDelegate>
+{
+  /* Being filled: GNUstep's -[NSMenu update] asks its delegate again for
+     each item changed (through -itemChanged:, as a menu in the window, a
+     Windows theme's, redraws it), without end. */
+  BOOL filling;
+}
 @end
 
 @implementation MBVersionMenuDelegate
 
-- (void)menuNeedsUpdate:(NSMenu *)menu
+/* What the submenu shows: each item's title and version name (NSNull for
+   the disabled "No Model Open"). */
+static NSArray *MBVersionMenuItems(void)
 {
-  while ([menu numberOfItems] > 0)
-    [menu removeItemAtIndex:0];
   MBDocument *document = (MBDocument *)
       [[NSDocumentController sharedDocumentController] currentDocument];
-  if (![document isKindOfClass:[MBDocument class]]) {
-    NSMenuItem *none = [menu addItemWithTitle:@"No Model Open" action:NULL keyEquivalent:@""];
-    none.enabled = NO;
-    return;
-  }
+  if (![document isKindOfClass:[MBDocument class]])
+    return @[ @[ @"No Model Open", [NSNull null] ] ];
+  NSMutableArray *items = [NSMutableArray array];
   for (NSString *name in [document versionNames]) {
     NSString *title = [name stringByDeletingPathExtension];
     if ([name isEqualToString:document.currentVersionName])
       title = [title stringByAppendingString:@" (current)"];
-    NSMenuItem *item = [menu addItemWithTitle:title
+    [items addObject:@[ title, name ]];
+  }
+  return items;
+}
+
+- (void)menuNeedsUpdate:(NSMenu *)menu
+{
+  if (filling)
+    return;
+  NSArray *items = MBVersionMenuItems();
+  /* An update that would change nothing changes nothing. */
+  BOOL same = [menu numberOfItems] == (NSInteger)[items count];
+  for (NSUInteger i = 0; same && i < [items count]; i++) {
+    NSMenuItem *have = [menu itemAtIndex:(NSInteger)i];
+    id name = items[i][1];
+    same = [have.title isEqualToString:items[i][0]]
+        && ((name == [NSNull null]) ? have.representedObject == nil : [have.representedObject isEqual:name]);
+  }
+  if (same)
+    return;
+  filling = YES;
+  while ([menu numberOfItems] > 0)
+    [menu removeItemAtIndex:0];
+  for (NSArray *entry in items) {
+    if (entry[1] == [NSNull null]) {
+      NSMenuItem *none = [menu addItemWithTitle:entry[0] action:NULL keyEquivalent:@""];
+      none.enabled = NO;
+      continue;
+    }
+    NSMenuItem *item = [menu addItemWithTitle:entry[0]
                                        action:@selector(selectVersionMenuItem:)
                                 keyEquivalent:@""];
-    item.representedObject = name;   /* nil target: responder chain */
+    item.representedObject = entry[1];   /* nil target: responder chain */
   }
+  filling = NO;
 }
 
 @end
