@@ -16,6 +16,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (NSPropertyDescription *)_propertyForSelector:(SEL)selector;
 - (void)_installPropertyAccessors;
 - (void)_setInstantiated;
+/* Whether the entity's class sets the named property - its own or one it
+   inherits - with a setter it implements itself, not a generated one. */
+- (BOOL)_hasCustomSetterForPropertyNamed:(NSString *)name;
 @end
 
 /* Returns YES when the IMP is one of the property accessors that the

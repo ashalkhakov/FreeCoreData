@@ -23,6 +23,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSSQLitePersistentStore.h"
 #import <CoreData/CDExternalDataStore.h>
 #import "NSManagedObjectID-Private.h"
+#import "NSManagedObject-Private.h"
 #import "NSDerivedAttributeDescription-Private.h"
 #import "NSPersistentHistory-Private.h"
 #import "CoreDataUtilities.h"
@@ -32,24 +33,24 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 + (BOOL)destroyStoreAtURL:(NSURL *)url options:(NSDictionary *)options error:(NSError **)error;
 @end
 
-NSString * const NSStoreTypeKey=@"NSStoreTypeKey";
-NSString * const NSStoreUUIDKey=@"NSStoreUUIDKey";
+NSString * const NSStoreTypeKey=@"NSStoreType";
+NSString * const NSStoreUUIDKey=@"NSStoreUUID";
 NSString * const NSStoreModelVersionHashesKey=@"NSStoreModelVersionHashes";
 NSString * const NSStoreModelVersionIdentifiersKey=@"NSStoreModelVersionIdentifiers";
 
-NSString * const NSXMLStoreType=@"NSXMLStoreType";
+NSString * const NSXMLStoreType=@"XML";
 NSString * const NSSQLiteStoreType=@"SQLite";
 NSString * const NSSQLiteManualVacuumOption=@"NSSQLiteManualVacuumOption";
-NSString * const NSInMemoryStoreType=@"NSInMemoryStoreType";
+NSString * const NSInMemoryStoreType=@"InMemory";
 NSString * const NSMigratePersistentStoresAutomaticallyOption=@"NSMigratePersistentStoresAutomaticallyOption";
 NSString * const NSReadOnlyPersistentStoreOption=@"NSReadOnlyPersistentStoreOption";
 NSString * const NSInferMappingModelAutomaticallyOption=@"NSInferMappingModelAutomaticallyOption";
 NSString * const NSIgnorePersistentStoreVersioningOption=@"NSIgnorePersistentStoreVersioningOption";
 
 NSString * const NSPersistentStoreCoordinatorStoresDidChangeNotification=@"NSPersistentStoreCoordinatorStoresDidChangeNotification";
-NSString * const NSAddedPersistentStoresKey=@"NSAddedPersistentStoresKey";
-NSString * const NSRemovedPersistentStoresKey=@"NSRemovedPersistentStoresKey";
-NSString * const NSUUIDChangedPersistentStoresKey=@"NSUUIDChangedPersistentStoresKey";
+NSString * const NSAddedPersistentStoresKey=@"added";
+NSString * const NSRemovedPersistentStoresKey=@"removed";
+NSString * const NSUUIDChangedPersistentStoresKey=@"changedUUID";
 
 NSString * const NSPersistentHistoryTrackingKey=@"NSPersistentHistoryTrackingKey";
 NSString * const NSPersistentStoreRemoteChangeNotificationPostOptionKey=@"NSPersistentStoreRemoteChangeNotificationOptionKey";
@@ -468,7 +469,7 @@ static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,
      for(NSAttributeDescription *attribute in [[entity attributesByName] allValues]){
       if([attribute isTransient] || [attribute isKindOfClass:[NSDerivedAttributeDescription class]])
        continue;
-      [copy setValue:[original valueForKey:[attribute name]] forKey:[attribute name]];
+      [copy _setModeledValue:[original valueForKey:[attribute name]] forKey:[attribute name]];
      }
      [made addObject:copy];
     }
@@ -507,7 +508,7 @@ static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,
        if(![relationship isToMany]){
         NSManagedObjectID *mapped=(value!=nil)?[copies objectForKey:[value objectID]]:nil;
 
-        [copy setValue:(mapped!=nil)?[context objectWithID:mapped]:nil forKey:name];
+        [copy _setModeledValue:(mapped!=nil)?[context objectWithID:mapped]:nil forKey:name];
         continue;
        }
 
@@ -520,9 +521,9 @@ static BOOL finishBatch(NSManagedObjectContext *context,NSAutoreleasePool *pool,
          [related addObject:[context objectWithID:mapped]];
        }
        if([relationship isOrdered])
-        [copy setValue:[NSOrderedSet orderedSetWithArray:related] forKey:name];
+        [copy _setModeledValue:[NSOrderedSet orderedSetWithArray:related] forKey:name];
        else
-        [copy setValue:[NSSet setWithArray:related] forKey:name];
+        [copy _setModeledValue:[NSSet setWithArray:related] forKey:name];
       }
      }
      if(!finishBatch(context,pool,atOnce,originals!=nil,error))

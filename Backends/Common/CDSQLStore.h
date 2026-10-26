@@ -46,8 +46,10 @@ extern NSString * const CDSQLStoreMigrateSchemaOption;
     NSString *_schemaName;                  /* the schema, or database, if any */
     NSMutableDictionary *_entityIDs;        /* entity name -> NSNumber (Z_ENT) */
     NSMutableDictionary *_entityNamesByID;  /* NSNumber (Z_ENT) -> entity name */
+    NSMutableDictionary *_entityIDLists;    /* entity name -> its and its subentities' Z_ENTs, as SQL ("3, 4") */
     NSMutableDictionary *_rowVersions;      /* "table/pk" -> NSNumber (Z_OPT) */
     unsigned long long _writeGeneration;    /* writes made, against rows read ahead */
+    NSMutableDictionary *_rowSQL;           /* the SQL a row of an entity is written with */
     /* External binary data, when the options name a CDExternalDataStore:
        where it is kept, the names the request being executed has
        written (taken away again if it fails) and those it let go of
@@ -96,6 +98,10 @@ typedef enum {
 - (id<CDSQLResult>)execute:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
 - (BOOL)command:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
 - (BOOL)command:(NSString *)sql parameters:(NSArray *)parameters affected:(long long *)affected error:(NSError **)error;
+/* The same for a statement run again and again with other parameters, which
+   the driver may prepare once on the server (-runPreparedSQL:...). */
+- (id<CDSQLResult>)executePrepared:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
+- (BOOL)preparedCommand:(NSString *)sql parameters:(NSArray *)parameters affected:(long long *)affected error:(NSError **)error;
 - (BOOL)tableExists:(NSString *)name;
 
 /* An identifier, quoted the way both dialects accept (MySQL is asked for
@@ -133,6 +139,13 @@ typedef enum {
 /* Run one statement.  Reconnecting and retrying is the caller's business;
    this just tries. */
 - (id<CDSQLResult>)runSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
+
+/* Run one statement the store runs again and again with other parameters
+   - a row written - and so worth preparing once on the server and keeping,
+   for this connection, until it is closed or reopened.  The SQL text is
+   the same each time; the parameters differ.  CDSQLStore's own runs it
+   as -runSQL:parameters:error: does, for a driver that cannot. */
+- (id<CDSQLResult>)runPreparedSQL:(NSString *)sql parameters:(NSArray *)parameters error:(NSError **)error;
 
 /* How many rows the last statement changed. */
 - (long long)rowsAffected;
@@ -195,7 +208,16 @@ typedef enum {
 
 /* Statements that differ */
 - (NSString *)upsertClauseForColumns:(NSArray *)columns keyColumns:(NSArray *)keyColumns;
-- (long long)allocatePrimaryKeyForRootEntityID:(long long)entityID error:(NSError **)error;
+/* An UPDATE of rows rows of table in one statement, each to values of its
+   own and each only while its row is still the version expected - so that
+   how many rows it changed says whether any was not.  Its parameters, a
+   row after another: the row's key, the version expected, then its values
+   for columns, whose SQL types are types.  CDSQLStore's answers nil, for a
+   dialect that cannot, whose rows are updated one at a time. */
+- (NSString *)batchUpdateSQLForTable:(NSString *)table columns:(NSArray *)columns columnTypes:(NSArray *)types rows:(NSUInteger)rows;
+/* Reserves count keys of a root entity's key space in one statement,
+   answering the last of them (the block ends there), or 0. */
+- (long long)allocatePrimaryKeys:(long long)count forRootEntityID:(long long)entityID error:(NSError **)error;
 - (long long)insertHistoryTransactionWithParameters:(NSArray *)parameters error:(NSError **)error;
 
 /* Introspection */
@@ -215,6 +237,10 @@ typedef enum {
 /* Migration DDL */
 - (NSString *)renameColumnSQLForTable:(NSString *)table from:(NSString *)oldName definition:(NSString *)definition;
 - (NSString *)changeColumnTypeSQLForTable:(NSString *)table column:(NSString *)column definition:(NSString *)definition;
+/* An expression's value as a column of the given DDL type is to hold it,
+   where the database does not convert it on assignment by itself
+   (PostgreSQL); optional. */
+- (NSString *)expression:(NSString *)expression castToColumnType:(NSString *)type;
 - (NSString *)dropTableSQLForTable:(NSString *)table;
 - (BOOL)dropSchemaWithError:(NSError **)error;
 

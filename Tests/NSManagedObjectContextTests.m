@@ -98,6 +98,128 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     return ctx;
 }
 
+/* -reset tells its observers, before it returns, that every object it had
+   is gone: the IDs of them all - temporary ones for objects never saved -
+   under NSInvalidatedAllObjectsKey, and nothing of the changes still
+   pending.  An empty context tells them too. */
+- (void)testResetPostsTheIDsOfEveryObjectItHad
+{
+    NSManagedObjectContext *ctx = [self contextWithNoteEntity];
+    NSMutableArray *notes = [NSMutableArray array];
+    id observer = [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSManagedObjectContextObjectsDidChangeNotification
+        object:ctx queue:nil usingBlock:^(NSNotification *note) {
+            [notes addObject:[note userInfo]];
+        }];
+
+    [ctx reset];
+    XCTAssertEqual([notes count], (NSUInteger)1);
+    XCTAssertEqualObjects([[notes lastObject] objectForKey:NSInvalidatedAllObjectsKey], @[]);
+
+    NSManagedObject *saved = [NSEntityDescription insertNewObjectForEntityForName:@"Note"
+                                                           inManagedObjectContext:ctx];
+    [saved setValue:@"saved" forKey:@"text"];
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"%@", error);
+    [ctx processPendingChanges];
+
+    NSManagedObject *fetched = [[ctx executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Note"] error:NULL] firstObject];
+    [fetched setValue:@"changed" forKey:@"text"];
+    NSManagedObject *inserted = [NSEntityDescription insertNewObjectForEntityForName:@"Note"
+                                                              inManagedObjectContext:ctx];
+    NSSet *expected = [NSSet setWithObjects:[fetched objectID], [inserted objectID], nil];
+
+    [notes removeAllObjects];
+    [ctx reset];
+    XCTAssertEqual([notes count], (NSUInteger)1);
+    NSDictionary *userInfo = [notes lastObject];
+    XCTAssertNil([userInfo objectForKey:NSInsertedObjectsKey]);
+    XCTAssertNil([userInfo objectForKey:NSUpdatedObjectsKey]);
+    NSArray *invalidated = [userInfo objectForKey:NSInvalidatedAllObjectsKey];
+    XCTAssertTrue([invalidated isKindOfClass:[NSArray class]]);
+    XCTAssertEqualObjects([NSSet setWithArray:invalidated], expected);
+    XCTAssertEqual([[ctx registeredObjects] count], (NSUInteger)0);
+
+    /* Nothing more comes once the changes it had would have been processed. */
+    [ctx processPendingChanges];
+    XCTAssertEqual([notes count], (NSUInteger)1);
+
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+}
+
+/* A merge is told of at once, as on Apple: one objects-did-change
+   notification posted before the merge returns, with the merge's
+   insertions, deletions and refreshes and whatever the context had
+   pending of its own - an object edited here and refreshed by the merge
+   is both updated and refreshed.  Nothing is left for the event's end.
+   The same for a merge of a save's object IDs into several contexts. */
+- (void)testAMergeIsToldOfAtOnce
+{
+    for (NSString *how in @[ @"notification", @"remote" ]) {
+        NSManagedObjectContext *saving = [self contextWithNoteEntity];
+        NSManagedObjectContext *merging = [[NSManagedObjectContext alloc] init];
+        [merging setPersistentStoreCoordinator:[saving persistentStoreCoordinator]];
+
+        NSManagedObject *edited = [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:saving];
+        NSManagedObject *gone = [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:saving];
+        [edited setValue:@"edited" forKey:@"text"];
+        [gone setValue:@"gone" forKey:@"text"];
+        NSError *error = nil;
+        XCTAssertTrue([saving save:&error], @"%@", error);
+
+        NSManagedObject *mergingEdited = [merging existingObjectWithID:[edited objectID] error:NULL];
+        NSManagedObject *mergingGone = [merging existingObjectWithID:[gone objectID] error:NULL];
+        [merging processPendingChanges];
+
+        NSMutableArray *notes = [NSMutableArray array];
+        id observer = [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSManagedObjectContextObjectsDidChangeNotification
+            object:merging queue:nil usingBlock:^(NSNotification *note) {
+                [notes addObject:[note userInfo]];
+            }];
+
+        NSManagedObject *local = [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:merging];
+        [local setValue:@"local" forKey:@"text"];
+        [mergingEdited setValue:@"edited here" forKey:@"text"];
+
+        NSManagedObject *added = [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:saving];
+        [added setValue:@"added" forKey:@"text"];
+        [edited setValue:@"edited there" forKey:@"text"];
+        [saving deleteObject:gone];
+        __block NSDictionary *saved = nil;
+        id saveObserver = [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSManagedObjectContextDidSaveNotification
+            object:saving queue:nil usingBlock:^(NSNotification *note) {
+                saved = [note userInfo];
+            }];
+        XCTAssertTrue([saving save:&error], @"%@", error);
+        [[NSNotificationCenter defaultCenter] removeObserver:saveObserver];
+
+        if ([how isEqualToString:@"notification"])
+            [merging mergeChangesFromContextDidSaveNotification:
+                [NSNotification notificationWithName:NSManagedObjectContextDidSaveNotification object:saving userInfo:saved]];
+        else {
+            NSMutableDictionary *ids = [NSMutableDictionary dictionary];
+            for (NSString *key in @[ NSInsertedObjectsKey, NSUpdatedObjectsKey, NSDeletedObjectsKey ])
+                ids[key] = [[saved[key] allObjects] valueForKey:@"objectID"];
+            [NSManagedObjectContext mergeChangesFromRemoteContextSave:ids intoContexts:@[ merging ]];
+        }
+
+        XCTAssertEqual([notes count], (NSUInteger)1, @"%@: told before the merge returns", how);
+        NSDictionary *userInfo = [notes lastObject];
+        NSSet *inserted = userInfo[NSInsertedObjectsKey];
+        XCTAssertEqual([inserted count], (NSUInteger)2, @"%@", how);
+        XCTAssertTrue([inserted containsObject:local], @"%@", how);
+        XCTAssertTrue([userInfo[NSUpdatedObjectsKey] containsObject:mergingEdited], @"%@", how);
+        XCTAssertTrue([userInfo[NSRefreshedObjectsKey] containsObject:mergingEdited], @"%@", how);
+        XCTAssertTrue([userInfo[NSDeletedObjectsKey] containsObject:mergingGone], @"%@", how);
+
+        [merging processPendingChanges];
+        XCTAssertEqual([notes count], (NSUInteger)1, @"%@: nothing left for the event's end", how);
+        [[NSNotificationCenter defaultCenter] removeObserver:observer];
+    }
+}
+
 - (void)testProcessPendingChangesPostsObjectsDidChangeNotification
 {
     NSManagedObjectContext *ctx = [self contextWithNoteEntity];
@@ -244,6 +366,115 @@ static NSArray *InverseTestNames(id objects)
     [cy setValue:bob forKey:@"partner"];
     XCTAssertEqualObjects([bob valueForKey:@"partner"], cy);
     XCTAssertNil([ann valueForKey:@"partner"]);
+}
+
+/* Every string constant has the value Apple's Core Data gives it (as
+   printed on macOS 15), not its own name: code that matches a notification
+   or a key by string, such as gnustep-gui's controllers, which cannot link
+   Core Data, then works with both. */
+- (void)testStringConstantsHaveCoreDataValues
+{
+    NSDictionary *expected = @{
+        @"NSAddedPersistentStoresKey": @"added",
+        @"NSAffectedStoresErrorKey": @"NSAffectedStoresErrorKey",
+        @"NSDeletedObjectIDsKey": @"deleted_objectIDs",
+        @"NSDeletedObjectsKey": @"deleted",
+        @"NSDetailedErrorsKey": @"NSDetailedErrors",
+        @"NSIgnorePersistentStoreVersioningOption": @"NSIgnorePersistentStoreVersioningOption",
+        @"NSInMemoryStoreType": @"InMemory",
+        @"NSInferMappingModelAutomaticallyOption": @"NSInferMappingModelAutomaticallyOption",
+        @"NSInsertedObjectIDsKey": @"inserted_objectIDs",
+        @"NSInsertedObjectsKey": @"inserted",
+        @"NSInvalidatedAllObjectsKey": @"invalidatedAll",
+        @"NSInvalidatedObjectsKey": @"invalidated",
+        @"NSManagedObjectContextDidSaveNotification": @"NSManagingContextDidSaveChangesNotification",
+        @"NSManagedObjectContextDidSaveObjectIDsNotification": @"NSManagedObjectContextDidSaveObjectIDsNotification",
+        @"NSManagedObjectContextObjectsDidChangeNotification": @"NSObjectsChangedInManagingContextNotification",
+        @"NSManagedObjectContextWillSaveNotification": @"NSManagingContextWillSaveChangesNotification",
+        @"NSMigratePersistentStoresAutomaticallyOption": @"NSMigratePersistentStoresAutomaticallyOption",
+        @"NSMigrationDestinationObjectKey": @"destination",
+        @"NSMigrationEntityMappingKey": @"entityMapping",
+        @"NSMigrationEntityPolicyKey": @"entityPolicy",
+        @"NSMigrationManagerKey": @"manager",
+        @"NSMigrationPropertyMappingKey": @"propertyMapping",
+        @"NSMigrationSourceObjectKey": @"source",
+        @"NSPersistentHistoryTokenKey": @"historyToken",
+        @"NSPersistentHistoryTrackingKey": @"NSPersistentHistoryTrackingKey",
+        @"NSPersistentStoreCoordinatorStoresDidChangeNotification": @"NSPersistentStoreCoordinatorStoresDidChangeNotification",
+        @"NSPersistentStoreRemoteChangeNotification": @"NSPersistentStoreRemoteChangeNotification",
+        @"NSPersistentStoreRemoteChangeNotificationPostOptionKey": @"NSPersistentStoreRemoteChangeNotificationOptionKey",
+        @"NSPersistentStoreSaveConflictsErrorKey": @"conflictList",
+        @"NSReadOnlyPersistentStoreOption": @"NSReadOnlyPersistentStoreOption",
+        @"NSRefreshedObjectsKey": @"refreshed",
+        @"NSRemovedPersistentStoresKey": @"removed",
+        @"NSSQLiteErrorDomain": @"NSSQLiteErrorDomain",
+        @"NSSQLiteManualVacuumOption": @"NSSQLiteManualVacuumOption",
+        @"NSSQLiteStoreType": @"SQLite",
+        @"NSStoreModelVersionHashesKey": @"NSStoreModelVersionHashes",
+        @"NSStoreModelVersionIdentifiersKey": @"NSStoreModelVersionIdentifiers",
+        @"NSStoreTypeKey": @"NSStoreType",
+        @"NSStoreUUIDKey": @"NSStoreUUID",
+        @"NSUUIDChangedPersistentStoresKey": @"changedUUID",
+        @"NSUpdatedObjectIDsKey": @"updated_objectIDs",
+        @"NSUpdatedObjectsKey": @"updated",
+        @"NSValidationKeyErrorKey": @"NSValidationErrorKey",
+        @"NSValidationObjectErrorKey": @"NSValidationErrorObject",
+        @"NSValidationPredicateErrorKey": @"NSValidationErrorPredicate",
+        @"NSValidationValueErrorKey": @"NSValidationErrorValue",
+        @"NSXMLStoreType": @"XML",
+    };
+    NSDictionary *actual = @{
+        @"NSAddedPersistentStoresKey": NSAddedPersistentStoresKey,
+        @"NSAffectedStoresErrorKey": NSAffectedStoresErrorKey,
+        @"NSDeletedObjectIDsKey": NSDeletedObjectIDsKey,
+        @"NSDeletedObjectsKey": NSDeletedObjectsKey,
+        @"NSDetailedErrorsKey": NSDetailedErrorsKey,
+        @"NSIgnorePersistentStoreVersioningOption": NSIgnorePersistentStoreVersioningOption,
+        @"NSInMemoryStoreType": NSInMemoryStoreType,
+        @"NSInferMappingModelAutomaticallyOption": NSInferMappingModelAutomaticallyOption,
+        @"NSInsertedObjectIDsKey": NSInsertedObjectIDsKey,
+        @"NSInsertedObjectsKey": NSInsertedObjectsKey,
+        @"NSInvalidatedAllObjectsKey": NSInvalidatedAllObjectsKey,
+        @"NSInvalidatedObjectsKey": NSInvalidatedObjectsKey,
+        @"NSManagedObjectContextDidSaveNotification": NSManagedObjectContextDidSaveNotification,
+        @"NSManagedObjectContextDidSaveObjectIDsNotification": NSManagedObjectContextDidSaveObjectIDsNotification,
+        @"NSManagedObjectContextObjectsDidChangeNotification": NSManagedObjectContextObjectsDidChangeNotification,
+        @"NSManagedObjectContextWillSaveNotification": NSManagedObjectContextWillSaveNotification,
+        @"NSMigratePersistentStoresAutomaticallyOption": NSMigratePersistentStoresAutomaticallyOption,
+        @"NSMigrationDestinationObjectKey": NSMigrationDestinationObjectKey,
+        @"NSMigrationEntityMappingKey": NSMigrationEntityMappingKey,
+        @"NSMigrationEntityPolicyKey": NSMigrationEntityPolicyKey,
+        @"NSMigrationManagerKey": NSMigrationManagerKey,
+        @"NSMigrationPropertyMappingKey": NSMigrationPropertyMappingKey,
+        @"NSMigrationSourceObjectKey": NSMigrationSourceObjectKey,
+        @"NSPersistentHistoryTokenKey": NSPersistentHistoryTokenKey,
+        @"NSPersistentHistoryTrackingKey": NSPersistentHistoryTrackingKey,
+        @"NSPersistentStoreCoordinatorStoresDidChangeNotification": NSPersistentStoreCoordinatorStoresDidChangeNotification,
+        @"NSPersistentStoreRemoteChangeNotification": NSPersistentStoreRemoteChangeNotification,
+        @"NSPersistentStoreRemoteChangeNotificationPostOptionKey": NSPersistentStoreRemoteChangeNotificationPostOptionKey,
+        @"NSPersistentStoreSaveConflictsErrorKey": NSPersistentStoreSaveConflictsErrorKey,
+        @"NSReadOnlyPersistentStoreOption": NSReadOnlyPersistentStoreOption,
+        @"NSRefreshedObjectsKey": NSRefreshedObjectsKey,
+        @"NSRemovedPersistentStoresKey": NSRemovedPersistentStoresKey,
+        @"NSSQLiteErrorDomain": NSSQLiteErrorDomain,
+        @"NSSQLiteManualVacuumOption": NSSQLiteManualVacuumOption,
+        @"NSSQLiteStoreType": NSSQLiteStoreType,
+        @"NSStoreModelVersionHashesKey": NSStoreModelVersionHashesKey,
+        @"NSStoreModelVersionIdentifiersKey": NSStoreModelVersionIdentifiersKey,
+        @"NSStoreTypeKey": NSStoreTypeKey,
+        @"NSStoreUUIDKey": NSStoreUUIDKey,
+        @"NSUUIDChangedPersistentStoresKey": NSUUIDChangedPersistentStoresKey,
+        @"NSUpdatedObjectIDsKey": NSUpdatedObjectIDsKey,
+        @"NSUpdatedObjectsKey": NSUpdatedObjectsKey,
+        @"NSValidationKeyErrorKey": NSValidationKeyErrorKey,
+        @"NSValidationObjectErrorKey": NSValidationObjectErrorKey,
+        @"NSValidationPredicateErrorKey": NSValidationPredicateErrorKey,
+        @"NSValidationValueErrorKey": NSValidationValueErrorKey,
+        @"NSXMLStoreType": NSXMLStoreType,
+    };
+    for (NSString *name in expected)
+        XCTAssertEqualObjects([actual objectForKey:name],
+                              [expected objectForKey:name], @"%@", name);
 }
 
 @end

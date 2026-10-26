@@ -41,6 +41,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    has made no write since (generation).  Held only by a fault; given up
    when the object goes away or is turned into a fault again. */
 - (void)_holdPrefetchedRow:(NSIncrementalStoreNode *)row generation:(unsigned long long)generation;
+/* After a save: the committed values made those of row, the one the
+   store has just written (read with the others the context saved), or
+   read from the store when row is nil; transient values carried across. */
+/* What absorbing snapshot changes in this object's values, as its
+   key-value observers are to be told: a dictionary for each key that
+   differs (see -_changeNoticesForSnapshot: in NSManagedObject.m). */
+- (NSArray *)_changeNoticesForSnapshot:(NSDictionary *)snapshot;
+- (void)_resetCommittedValuesAfterSaveFromRow:(NSIncrementalStoreNode *)row generation:(unsigned long long)generation;
 - (NSDictionary *)_cachedCommittedValues;
 - (void)_invalidateCommittedValues;
 /* The version of the incremental store's row this object's committed
@@ -51,8 +59,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)_setStoreVersion:(unsigned long long)version;
 - (void)_resetCommittedValuesAfterSavePreservingTransients;
 - (void)_discardChangedValues;
+/* The names -changedValues would give, its values left as they are kept. */
+- (NSArray *)_changedPersistentKeys;
 - (void)_discardChangedValueForKey:(NSString *)key;
 - (void)_setFault:(BOOL)isFault;
+/* -setValue:forKey: without calling a setter the class implements: the
+   framework's own writes (see NSManagedObject.m). */
+- (void)_setModeledValue:(id)value forKey:(NSString *)key;
 
 /* Nested-context value transport (see NSManagedObject.m). */
 - (NSDictionary *)_snapshotOfCurrentValuesChangedOnly:(BOOL)changedOnly;

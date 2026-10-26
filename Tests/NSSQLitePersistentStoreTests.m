@@ -1151,6 +1151,133 @@ static NSDictionary *migratedValues(void)
     return names;
 }
 
+/* -- permanent IDs ------------------------------------------------------ */
+
+/* Thing, a subentity of it, Special, and Other, a root of its own. */
+static NSManagedObjectModel *keyedModel(void)
+{
+    NSAttributeDescription *number = [[NSAttributeDescription alloc] init];
+    number.name = @"number";
+    number.attributeType = NSInteger64AttributeType;
+    number.optional = YES;
+    NSEntityDescription *thing = [[NSEntityDescription alloc] init];
+    thing.name = @"Thing";
+    thing.properties = @[ number ];
+    NSEntityDescription *special = [[NSEntityDescription alloc] init];
+    special.name = @"Special";
+    thing.subentities = @[ special ];
+    NSAttributeDescription *count = [[NSAttributeDescription alloc] init];
+    count.name = @"count";
+    count.attributeType = NSInteger64AttributeType;
+    count.optional = YES;
+    NSEntityDescription *other = [[NSEntityDescription alloc] init];
+    other.name = @"Other";
+    other.properties = @[ count ];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    model.entities = @[ thing, special, other ];
+    return model;
+}
+
+static long long primaryKeyOf(NSManagedObject *object)
+{
+    return [[[[[object objectID] URIRepresentation] lastPathComponent] substringFromIndex:1] longLongValue];
+}
+
+/* The keys of objects, by their root entity's name. */
+static NSDictionary *keysByRoot(NSArray *objects)
+{
+    NSMutableDictionary *keys = [NSMutableDictionary dictionary];
+    for (NSManagedObject *object in objects) {
+        NSEntityDescription *root = [object entity];
+        while ([root superentity] != nil)
+            root = [root superentity];
+        if (keys[root.name] == nil)
+            keys[root.name] = [NSMutableSet set];
+        [keys[root.name] addObject:@(primaryKeyOf(object))];
+    }
+    return keys;
+}
+
+static NSSet *keysFrom(long long first, long long last)
+{
+    NSMutableSet *keys = [NSMutableSet set];
+    for (long long key = first; key <= last; key++)
+        [keys addObject:@(key)];
+    return keys;
+}
+
+- (NSArray *)insertKeyed:(int)count inContext:(NSManagedObjectContext *)context
+{
+    NSMutableArray *objects = [NSMutableArray array];
+    for (int i = 0; i < count; i++)
+        [objects addObject:[NSEntityDescription insertNewObjectForEntityForName:(i % 3 == 0) ? @"Thing" : (i % 3 == 1) ? @"Special" : @"Other"
+                                                         inManagedObjectContext:context]];
+    return objects;
+}
+
+- (long long)maxKeyOf:(NSString *)entityName
+{
+    return [self storePragma:[[NSString stringWithFormat:@"SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_NAME = '%@'", entityName] UTF8String]];
+}
+
+/* New objects' keys come a block to each root entity, as Apple's do: an
+   entity and its subentities draw from one key space, the keys are
+   distinct and leave no gap, Z_MAX is the highest handed out, and a
+   later save, from another context, reuses none. */
+- (void)testPermanentIDsComeInABlockForEachRootEntity
+{
+    NSManagedObjectContext *context = [self contextWithModel:keyedModel() options:nil];
+    NSArray *objects = [self insertKeyed:150 inContext:context];
+    NSError *error = nil;
+    XCTAssertTrue([context obtainPermanentIDsForObjects:objects error:&error], @"%@", error);
+    for (NSManagedObject *object in objects)
+        XCTAssertFalse([[object objectID] isTemporaryID]);
+    NSDictionary *keys = keysByRoot(objects);
+    XCTAssertEqualObjects(keys[@"Thing"], keysFrom(1, 100), @"Thing and Special share a key space");
+    XCTAssertEqualObjects(keys[@"Other"], keysFrom(1, 50));
+    XCTAssertTrue([context save:&error], @"%@", error);
+    XCTAssertEqual([self maxKeyOf:@"Thing"], 100);
+    XCTAssertEqual([self maxKeyOf:@"Other"], 50);
+
+    NSManagedObjectContext *later = [[NSManagedObjectContext alloc] init];
+    later.persistentStoreCoordinator = context.persistentStoreCoordinator;
+    NSArray *more = [self insertKeyed:30 inContext:later];
+    XCTAssertTrue([later save:&error], @"%@", error);
+    keys = keysByRoot(more);
+    XCTAssertEqualObjects(keys[@"Thing"], keysFrom(101, 120));
+    XCTAssertEqualObjects(keys[@"Other"], keysFrom(51, 60));
+    XCTAssertEqual([self maxKeyOf:@"Thing"], 120);
+}
+
+/* A store that cannot give every object its key gives none: no object
+   takes a permanent ID, and every Z_MAX is as it was.  Made to fail by
+   taking away Other's key row behind the store's back; FreeCoreData's
+   alone, as nothing says what Apple's does then. */
+- (void)testPermanentIDsAreAllOrNothing
+{
+    if (NSClassFromString(@"NSSQLitePersistentStore") == nil)
+        return;
+
+    NSManagedObjectContext *context = [self contextWithModel:keyedModel() options:nil];
+    XCTAssertTrue([context save:NULL]);
+    NSArray *objects = [self insertKeyed:30 inContext:context];
+    XCTAssertTrue([context obtainPermanentIDsForObjects:@[ objects[0] ] error:NULL]);
+    long long thingMax = [self maxKeyOf:@"Thing"];
+    XCTAssertEqual(thingMax, 1);
+
+    sqlite3 *database = NULL;
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    XCTAssertEqual(sqlite3_exec(database, "DELETE FROM Z_PRIMARYKEY WHERE Z_NAME = 'Other'", NULL, NULL, NULL), SQLITE_OK);
+    sqlite3_close(database);
+
+    NSError *error = nil;
+    XCTAssertFalse([context obtainPermanentIDsForObjects:objects error:&error]);
+    XCTAssertNotNil(error);
+    for (NSManagedObject *object in [objects subarrayWithRange:NSMakeRange(1, [objects count] - 1)])
+        XCTAssertTrue([[object objectID] isTemporaryID], @"%@ took no permanent ID", [[object entity] name]);
+    XCTAssertEqual([self maxKeyOf:@"Thing"], thingMax, @"Thing's keys were not taken");
+}
+
 - (void)testMetadataContainsTypeUUIDAndVersionHashes
 {
     [self populateStore];
@@ -1862,6 +1989,878 @@ static NSManagedObjectModel *reflexiveModel(BOOL ordered)
         XCTAssertEqual(wins, 1, @"round %d", round);
         (void)contexts;
     }
+}
+
+/* ------------------------------------------------------------------ */
+#pragma mark - Predicates through to-many relationships
+/* ------------------------------------------------------------------ */
+
+/* Owners have vehicles, vehicles have fill-ups and tags (many to many).
+   A fill-up is a Reading, which keeps the odometer; an Inspection is
+   another, in the same table, with no vehicle.
+
+     A - V1: f1 (1), F10 (10), fnil (no odometer); tagged x
+       - V2: none
+     B
+     C - V3: f7 (7); tagged x
+         V4: f3 (3)                 (no owner)
+         V5: "V5" (no odometer)     (no owner)
+         (no name): (no note) (4)   (no owner)
+         orphan (2), with no vehicle
+
+   Each expected answer below is what Apple's store answers (the macOS
+   run), and, where the comment does not say otherwise, what evaluating
+   the predicate in memory answers too. */
+static NSAttributeDescription *fleetAttribute(NSString *name, NSAttributeType type)
+{
+    NSAttributeDescription *attribute = [[NSAttributeDescription alloc] init];
+    [attribute setName:name];
+    [attribute setAttributeType:type];
+    [attribute setOptional:YES];
+    return attribute;
+}
+
+static NSRelationshipDescription *fleetRelationship(NSString *name, BOOL toMany)
+{
+    NSRelationshipDescription *relationship = [[NSRelationshipDescription alloc] init];
+    [relationship setName:name];
+    [relationship setMinCount:0];
+    [relationship setMaxCount:toMany ? 0 : 1];
+    [relationship setOptional:YES];
+    [relationship setDeleteRule:NSNullifyDeleteRule];
+    return relationship;
+}
+
+static NSEntityDescription *fleetEntity(NSString *name)
+{
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    [entity setName:name];
+    [entity setManagedObjectClassName:@"NSManagedObject"];
+    return entity;
+}
+
+static void fleetInverses(NSRelationshipDescription *one, NSEntityDescription *oneDestination,
+                          NSRelationshipDescription *other, NSEntityDescription *otherDestination)
+{
+    [one setDestinationEntity:oneDestination];
+    [other setDestinationEntity:otherDestination];
+    [one setInverseRelationship:other];
+    [other setInverseRelationship:one];
+}
+
+static NSManagedObjectModel *fleetModel(void)
+{
+    NSEntityDescription *owner = fleetEntity(@"Owner");
+    NSEntityDescription *vehicle = fleetEntity(@"Vehicle");
+    NSEntityDescription *reading = fleetEntity(@"Reading");
+    NSEntityDescription *fillUp = fleetEntity(@"FillUp");
+    NSEntityDescription *inspection = fleetEntity(@"Inspection");
+    NSEntityDescription *tag = fleetEntity(@"Tag");
+
+    NSRelationshipDescription *vehicles = fleetRelationship(@"vehicles", YES);
+    NSRelationshipDescription *vehicleOwner = fleetRelationship(@"owner", NO);
+    NSRelationshipDescription *fillUps = fleetRelationship(@"fillUps", YES);
+    NSRelationshipDescription *fillUpVehicle = fleetRelationship(@"vehicle", NO);
+    NSRelationshipDescription *tags = fleetRelationship(@"tags", YES);
+    NSRelationshipDescription *tagged = fleetRelationship(@"vehicles", YES);
+
+    fleetInverses(vehicles, vehicle, vehicleOwner, owner);
+    fleetInverses(fillUps, fillUp, fillUpVehicle, vehicle);
+    fleetInverses(tags, tag, tagged, vehicle);
+
+    [owner setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), vehicles ]];
+    [vehicle setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), vehicleOwner, fillUps, tags ]];
+    [reading setProperties:@[ fleetAttribute(@"odometer", NSInteger64AttributeType) ]];
+    [fillUp setProperties:@[ fleetAttribute(@"note", NSStringAttributeType), fillUpVehicle ]];
+    [tag setProperties:@[ fleetAttribute(@"label", NSStringAttributeType), tagged ]];
+    [reading setSubentities:@[ fillUp, inspection ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ owner, vehicle, reading, fillUp, inspection, tag ]];
+    return model;
+}
+
+static NSManagedObject *fleetObject(NSManagedObjectContext *ctx, NSString *entityName, NSDictionary *values)
+{
+    NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entityName
+                                                            inManagedObjectContext:ctx];
+    [object setValuesForKeysWithDictionary:values];
+    return object;
+}
+
+/* Saves the fleet, and answers the coordinator it is in. */
+- (NSPersistentStoreCoordinator *)fleetCoordinator
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:fleetModel() options:nil];
+
+    NSManagedObject *a = fleetObject(ctx, @"Owner", @{ @"name" : @"A" });
+    fleetObject(ctx, @"Owner", @{ @"name" : @"B" });
+    NSManagedObject *c = fleetObject(ctx, @"Owner", @{ @"name" : @"C" });
+    NSManagedObject *v1 = fleetObject(ctx, @"Vehicle", @{ @"name" : @"V1", @"owner" : a });
+    fleetObject(ctx, @"Vehicle", @{ @"name" : @"V2", @"owner" : a });
+    NSManagedObject *v3 = fleetObject(ctx, @"Vehicle", @{ @"name" : @"V3", @"owner" : c });
+    NSManagedObject *v4 = fleetObject(ctx, @"Vehicle", @{ @"name" : @"V4" });
+    NSManagedObject *v5 = fleetObject(ctx, @"Vehicle", @{ @"name" : @"V5" });
+    NSManagedObject *unnamed = fleetObject(ctx, @"Vehicle", @{});
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"f1", @"odometer" : @1, @"vehicle" : v1 });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"F10", @"odometer" : @10, @"vehicle" : v1 });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"fnil", @"vehicle" : v1 });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"f7", @"odometer" : @7, @"vehicle" : v3 });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"f3", @"odometer" : @3, @"vehicle" : v4 });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"V5", @"vehicle" : v5 });
+    fleetObject(ctx, @"FillUp", @{ @"odometer" : @4, @"vehicle" : unnamed });
+    fleetObject(ctx, @"FillUp", @{ @"note" : @"orphan", @"odometer" : @2 });
+    fleetObject(ctx, @"Inspection", @{ @"odometer" : @100 });
+    NSManagedObject *x = fleetObject(ctx, @"Tag", @{ @"label" : @"x" });
+    fleetObject(ctx, @"Tag", @{ @"label" : @"y" });
+    [[v1 mutableSetValueForKey:@"tags"] addObject:x];
+    [[v3 mutableSetValueForKey:@"tags"] addObject:x];
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+    return [ctx persistentStoreCoordinator];
+}
+
+static NSString *fleetNameKey(NSString *entityName)
+{
+    return [entityName isEqualToString:@"FillUp"] ? @"note" : @"name";
+}
+
+/* The names of objects, sorted, with "-" for a missing one. */
+static NSArray *fleetNames(NSArray *objects, NSString *key)
+{
+    NSMutableArray *names = [NSMutableArray array];
+    for (NSManagedObject *object in objects) {
+        id name = [object valueForKey:key];
+        [names addObject:name != nil ? name : @"-"];
+    }
+    return [names sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (NSManagedObjectContext *)contextOnFleet:(NSPersistentStoreCoordinator *)psc
+{
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+    return ctx;
+}
+
+/* Fetches with predicate, in a context of its own, and checks the answer;
+   when inMemoryToo, also that evaluating the predicate over every object
+   answers the same. */
+- (void)assertFleet:(NSPersistentStoreCoordinator *)psc
+             entity:(NSString *)entityName
+          predicate:(NSPredicate *)predicate
+            answers:(NSArray *)expected
+         inMemoryToo:(BOOL)inMemoryToo
+{
+    NSManagedObjectContext *ctx = [self contextOnFleet:psc];
+    NSString *key = fleetNameKey(entityName);
+    NSArray *fetched = [self fetchEntityNamed:entityName inContext:ctx predicate:predicate sortDescriptors:nil];
+
+    XCTAssertEqualObjects(fleetNames(fetched, key), expected, @"%@: %@", entityName, predicate);
+
+    if (inMemoryToo) {
+        NSManagedObjectContext *other = [self contextOnFleet:psc];
+        NSArray *every = [self fetchEntityNamed:entityName inContext:other predicate:nil sortDescriptors:nil];
+        XCTAssertEqualObjects(fleetNames([every filteredArrayUsingPredicate:predicate], key), expected,
+                              @"in memory, %@: %@", entityName, predicate);
+    }
+}
+
+- (void)assertFleet:(NSPersistentStoreCoordinator *)psc
+             entity:(NSString *)entityName
+             format:(NSString *)format
+            answers:(NSArray *)expected
+{
+    [self assertFleet:psc entity:entityName predicate:[NSPredicate predicateWithFormat:format] answers:expected inMemoryToo:YES];
+}
+
+/* count:(SUBQUERY(collection, $variable, predicate)) <operator> number, as
+   ODataKit writes an OData any() or all(). */
+static NSPredicate *countedSubquery(NSString *collection, NSString *variable, NSString *format,
+                                    NSPredicateOperatorType operator, NSInteger number)
+{
+    NSExpression *subquery = [NSExpression expressionForSubquery:[NSExpression expressionForKeyPath:collection]
+                                           usingIteratorVariable:variable
+                                                       predicate:[NSPredicate predicateWithFormat:format]];
+    NSExpression *count = [NSExpression expressionForFunction:@"count:" arguments:@[ subquery ]];
+    return [NSComparisonPredicate predicateWithLeftExpression:count
+                                              rightExpression:[NSExpression expressionForConstantValue:@(number)]
+                                                     modifier:NSDirectPredicateModifier
+                                                         type:operator
+                                                      options:0];
+}
+
+- (void)testAnyThroughAToMany
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.odometer < 5" answers:@[ @"-", @"V1", @"V4" ]];
+    /* A fill-up with no odometer is not unequal to 10 - in SQL, and in
+       memory, where ANY passes over the nils. */
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.odometer != 10" answers:@[ @"-", @"V1", @"V3", @"V4" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.note ==[c] 'f10'" answers:@[ @"V1" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.note BEGINSWITH 'f'" answers:@[ @"V1", @"V3", @"V4" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.odometer IN {1, 7}" answers:@[ @"V1", @"V3" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY fillUps.odometer > 3 OR fillUps.@count == 0"
+              answers:@[ @"-", @"V1", @"V2", @"V3" ]];
+    /* Many to many, through a join table. */
+    [self assertFleet:psc entity:@"Vehicle" format:@"ANY tags.label == 'x'" answers:@[ @"V1", @"V3" ]];
+    /* Through a to-one first: none where it is not set.  (Apple's
+       Foundation answers so in memory too; gnustep-base raises, a nil
+       not being a collection, which is why these are not checked in
+       memory here.) */
+    [self assertFleet:psc entity:@"Vehicle"
+            predicate:[NSPredicate predicateWithFormat:@"ANY owner.vehicles.name == 'V2'"]
+              answers:@[ @"V1", @"V2" ]
+          inMemoryToo:NO];
+    [self assertFleet:psc entity:@"FillUp"
+            predicate:[NSPredicate predicateWithFormat:@"ANY vehicle.fillUps.odometer > 5"]
+              answers:@[ @"F10", @"f1", @"f7", @"fnil" ]
+          inMemoryToo:NO];
+}
+
+/* Key paths through to-ones are lookups, NULL where a to-one on the way
+   is not set - as the key path's value is nil then. */
+- (void)testKeyPathsThroughToOnes
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"FillUp" format:@"vehicle.owner.name == 'A'" answers:@[ @"F10", @"f1", @"fnil" ]];
+    [self assertFleet:psc entity:@"FillUp" format:@"vehicle.name == nil" answers:@[ @"-", @"orphan" ]];
+    [self assertFleet:psc entity:@"FillUp" format:@"vehicle.owner == nil" answers:@[ @"-", @"V5", @"f3", @"orphan" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"owner.name BEGINSWITH 'C'" answers:@[ @"V3" ]];
+}
+
+/* A to-one back to the same entity: a family tree, whose table has the
+   foreign key (ZPARENT) a lookup by parent reads in the same table. */
+static NSManagedObjectModel *familyModel(void)
+{
+    NSEntityDescription *person = fleetEntity(@"Person");
+    NSRelationshipDescription *parent = fleetRelationship(@"parent", NO);
+    NSRelationshipDescription *children = fleetRelationship(@"children", YES);
+
+    fleetInverses(parent, person, children, person);
+    [person setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), parent, children ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ person ]];
+    return model;
+}
+
+/* A and Z have no parent; B and C are A's children, D is B's, E is D's. */
+- (NSPersistentStoreCoordinator *)familyCoordinator
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:familyModel() options:nil];
+
+    NSManagedObject *a = fleetObject(ctx, @"Person", @{ @"name" : @"A" });
+    NSManagedObject *b = fleetObject(ctx, @"Person", @{ @"name" : @"B", @"parent" : a });
+    fleetObject(ctx, @"Person", @{ @"name" : @"C", @"parent" : a });
+    NSManagedObject *d = fleetObject(ctx, @"Person", @{ @"name" : @"D", @"parent" : b });
+    fleetObject(ctx, @"Person", @{ @"name" : @"E", @"parent" : d });
+    fleetObject(ctx, @"Person", @{ @"name" : @"Z" });
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+    return [ctx persistentStoreCoordinator];
+}
+
+- (void)testKeyPathsThroughAToOneToTheSameEntity
+{
+    NSPersistentStoreCoordinator *psc = [self familyCoordinator];
+
+    [self assertFleet:psc entity:@"Person" format:@"parent.name == 'A'" answers:@[ @"B", @"C" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.parent.name == 'A'" answers:@[ @"D" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.parent.parent.name == 'A'" answers:@[ @"E" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.name BEGINSWITH 'D'" answers:@[ @"E" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.name == nil" answers:@[ @"A", @"Z" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.parent == nil" answers:@[ @"A", @"B", @"C", @"Z" ]];
+    [self assertFleet:psc entity:@"Person" format:@"parent.name == name" answers:@[]];
+}
+
+- (void)testToManysOfTheSameEntity
+{
+    NSPersistentStoreCoordinator *psc = [self familyCoordinator];
+
+    [self assertFleet:psc entity:@"Person" format:@"ANY children.name == 'D'" answers:@[ @"B" ]];
+    [self assertFleet:psc entity:@"Person" format:@"children.@count == 2" answers:@[ @"A" ]];
+    [self assertFleet:psc entity:@"Person" format:@"children.@count == 0" answers:@[ @"C", @"E", @"Z" ]];
+    /* Correlated with the fetched row's own parent, a lookup in the same
+       table: NULL for A, so none of A's children count (memory, where
+       nil is unequal to every name, counts them). */
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"SUBQUERY(children, $c, $c.name != parent.name).@count > 0"]
+              answers:@[ @"B", @"D" ]
+          inMemoryToo:NO];
+    /* Siblings, through the parent: none for those who have none. */
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"ANY parent.children.name == 'C'"]
+              answers:@[ @"B", @"C" ]
+          inMemoryToo:NO];
+}
+
+/* Unequal through a to-one that is not set: Apple's store finds no row
+   there - the lookup is NULL, unequal to nothing - where memory finds
+   one (nil is unequal to 'A').  The store's answer is Apple's. */
+- (void)testUnequalThroughAToOneThatIsNotSet
+{
+    NSPersistentStoreCoordinator *psc = [self familyCoordinator];
+
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"parent.name != 'A'"]
+              answers:@[ @"D", @"E" ]
+          inMemoryToo:NO];
+    [self assertFleet:psc entity:@"Person"
+            predicate:[NSPredicate predicateWithFormat:@"NOT (parent.name == 'A')"]
+              answers:@[ @"D", @"E" ]
+          inMemoryToo:NO];
+}
+
+- (void)testCountsOfAToMany
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"Vehicle" format:@"fillUps.@count > 1" answers:@[ @"V1" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"fillUps.@count == 0" answers:@[ @"V2" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"fillUps.@count != 1" answers:@[ @"V1", @"V2" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"tags.@count == 0" answers:@[ @"-", @"V2", @"V4", @"V5" ]];
+    [self assertFleet:psc entity:@"Owner" format:@"vehicles.@count == 0" answers:@[ @"B" ]];
+    /* Through a to-one: an orphan's count is nil, unequal to 1 (Apple's
+       store counts it as 0, which differs from memory only for a
+       comparison 0 satisfies). */
+    [self assertFleet:psc entity:@"FillUp" format:@"vehicle.fillUps.@count == 1" answers:@[ @"-", @"V5", @"f3", @"f7" ]];
+    [self assertFleet:psc entity:@"FillUp" format:@"vehicle.fillUps.@count != 1"
+              answers:@[ @"F10", @"f1", @"fnil", @"orphan" ]];
+}
+
+- (void)testSubqueriesOfAToMany
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer < 5).@count > 0"
+              answers:@[ @"-", @"V1", @"V4" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer < 5).@count == 0"
+              answers:@[ @"V2", @"V3", @"V5" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer < 5).@count == 1"
+              answers:@[ @"-", @"V1", @"V4" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer == nil).@count > 0"
+              answers:@[ @"V1", @"V5" ]];
+    [self assertFleet:psc entity:@"Vehicle"
+               format:@"SUBQUERY(fillUps, $x, $x.odometer > 0 AND $x.note CONTAINS[c] 'f').@count >= 2"
+              answers:@[ @"V1" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer > 3 OR $x.note == 'V5').@count > 0"
+              answers:@[ @"-", @"V1", @"V3", @"V5" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.odometer > 3).@count > 0 AND name BEGINSWITH 'V'"
+              answers:@[ @"V1", @"V3" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(tags, $t, $t.label == 'x').@count > 0"
+              answers:@[ @"V1", @"V3" ]];
+    /* Through to-ones inside, and the fetched object's own key paths. */
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.vehicle.owner.name == 'A').@count > 0"
+              answers:@[ @"V1" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, $x.note != name).@count > 0"
+              answers:@[ @"V1", @"V3", @"V4" ]];
+    [self assertFleet:psc entity:@"Vehicle" format:@"SUBQUERY(fillUps, $x, name == nil).@count > 0" answers:@[ @"-" ]];
+    /* Nested. */
+    [self assertFleet:psc entity:@"Owner" format:@"SUBQUERY(vehicles, $v, ANY $v.fillUps.odometer > 5).@count > 0"
+              answers:@[ @"A", @"C" ]];
+    [self assertFleet:psc entity:@"Owner"
+               format:@"SUBQUERY(vehicles, $v, SUBQUERY($v.fillUps, $f, $f.odometer > 5).@count > 0).@count > 0"
+              answers:@[ @"A", @"C" ]];
+}
+
+/* The fill-ups with an earlier one in the same vehicle: a subquery of the
+   fetched entity's own table, correlated with the fetched row through a
+   to-one. */
+- (void)testACorrelatedSubqueryThroughAToOne
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"FillUp" format:@"SUBQUERY(vehicle.fillUps, $x, $x.odometer < odometer).@count > 0"
+              answers:@[ @"F10" ]];
+    [self assertFleet:psc entity:@"FillUp" format:@"SUBQUERY(vehicle.fillUps, $x, $x.odometer < odometer).@count != 1"
+              answers:@[ @"-", @"V5", @"f1", @"f3", @"f7", @"fnil", @"orphan" ]];
+}
+
+/* Where Apple's store answers as SQL does rather than as memory does, the
+   store answers as Apple's: NULL equals and is unequal to nothing. */
+- (void)testNullsInASubqueryCompareAsInApplesStore
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    /* In memory V5's fill-up, with no odometer, is unequal to 10. */
+    [self assertFleet:psc entity:@"Vehicle"
+            predicate:[NSPredicate predicateWithFormat:@"SUBQUERY(fillUps, $x, $x.odometer != 10).@count > 0"]
+              answers:@[ @"-", @"V1", @"V3", @"V4" ]
+          inMemoryToo:NO];
+    /* In memory the unnamed vehicle's fill-up, with no note, matches it. */
+    [self assertFleet:psc entity:@"Vehicle"
+            predicate:[NSPredicate predicateWithFormat:@"SUBQUERY(fillUps, $x, $x.note == name).@count > 0"]
+              answers:@[ @"V5" ]
+          inMemoryToo:NO];
+}
+
+/* What ODataKit makes of Vehicles?$filter=FillUps/any(f: f/Odometer lt 5),
+   of FillUps/any(), and, through a to-one, of
+   FillUps?$filter=Vehicle/FillUps/all(e: not (e/Odometer lt $it/Odometer)):
+   a counted SUBQUERY, guarded by the to-one being there. */
+- (void)testODataKitsLambdas
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+
+    [self assertFleet:psc entity:@"Vehicle"
+            predicate:countedSubquery(@"fillUps", @"v0", @"$v0.odometer != nil AND $v0.odometer < 5", NSGreaterThanPredicateOperatorType, 0)
+              answers:@[ @"-", @"V1", @"V4" ]
+          inMemoryToo:YES];
+
+    NSExpression *count = [NSExpression expressionForFunction:@"count:"
+                                                    arguments:@[ [NSExpression expressionForKeyPath:@"fillUps"] ]];
+    [self assertFleet:psc entity:@"Vehicle"
+            predicate:[NSComparisonPredicate predicateWithLeftExpression:count
+                                                         rightExpression:[NSExpression expressionForConstantValue:@0]
+                                                                modifier:NSDirectPredicateModifier
+                                                                    type:NSGreaterThanPredicateOperatorType
+                                                                 options:0]
+              answers:@[ @"-", @"V1", @"V3", @"V4", @"V5" ]
+          inMemoryToo:YES];
+
+    NSPredicate *none = countedSubquery(@"vehicle.fillUps", @"v0", @"$v0.odometer != nil AND $v0.odometer < odometer",
+                                        NSEqualToPredicateOperatorType, 0);
+    [self assertFleet:psc entity:@"FillUp"
+            predicate:[NSCompoundPredicate andPredicateWithSubpredicates:@[ [NSPredicate predicateWithFormat:@"vehicle != nil"], none ]]
+              answers:@[ @"-", @"V5", @"f1", @"f3", @"f7", @"fnil" ]
+          inMemoryToo:YES];
+}
+
+/* A predicate through a to-many is the store's to answer, not memory's:
+   asked for object IDs, a fresh context is left with nothing registered
+   (evaluating in memory would have registered every row and faulted in
+   each one's fill-ups), and a page of the answer is that page. */
+- (void)testPredicatesThroughToManysAreEvaluatedInSQL
+{
+    NSPersistentStoreCoordinator *psc = [self fleetCoordinator];
+    NSArray *cases = @[
+        @[ @"Vehicle", [NSPredicate predicateWithFormat:@"ANY fillUps.odometer < 5"] ],
+        @[ @"Vehicle", [NSPredicate predicateWithFormat:@"fillUps.@count != 1"] ],
+        @[ @"Vehicle", [NSPredicate predicateWithFormat:@"ANY tags.label == 'x' OR SUBQUERY(fillUps, $x, $x.odometer > 3).@count > 0"] ],
+        @[ @"Vehicle", countedSubquery(@"fillUps", @"v0", @"$v0.odometer != nil AND $v0.odometer < 5", NSGreaterThanPredicateOperatorType, 0) ],
+        @[ @"FillUp", [NSPredicate predicateWithFormat:@"SUBQUERY(vehicle.fillUps, $x, $x.odometer < odometer).@count == 0"] ],
+        @[ @"Owner", [NSPredicate predicateWithFormat:@"SUBQUERY(vehicles, $v, ANY $v.fillUps.odometer > 5).@count > 0"] ],
+    ];
+
+    for (NSArray *each in cases) {
+        NSString *entityName = each[0];
+        NSPredicate *predicate = each[1];
+        NSManagedObjectContext *ctx = [self contextOnFleet:psc];
+        NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:entityName];
+        [fetch setPredicate:predicate];
+        [fetch setResultType:NSManagedObjectIDResultType];
+
+        NSError *error = nil;
+        NSArray *objectIDs = [ctx executeFetchRequest:fetch error:&error];
+        XCTAssertNotNil(objectIDs, @"%@: %@", predicate, error);
+        XCTAssertTrue([objectIDs count] > 1, @"%@", predicate);
+        XCTAssertEqual([[ctx registeredObjects] count], (NSUInteger)0, @"%@ registered objects", predicate);
+
+        NSArray *sorted = @[ [NSSortDescriptor sortDescriptorWithKey:fleetNameKey(entityName) ascending:YES] ];
+        NSArray *all = [self fetchEntityNamed:entityName inContext:ctx predicate:predicate sortDescriptors:sorted];
+
+        [fetch setResultType:NSManagedObjectResultType];
+        [fetch setSortDescriptors:sorted];
+        [fetch setFetchOffset:1];
+        [fetch setFetchLimit:1];
+        NSArray *page = [ctx executeFetchRequest:fetch error:&error];
+        XCTAssertEqualObjects(page, [all subarrayWithRange:NSMakeRange(1, 1)], @"%@", predicate);
+    }
+}
+
+
+/* Two sibling entities, each declaring a to-one of the same name to the
+   same entity with an inverse of its own: one table holds both, in one
+   column, and each keeps its own destination and inverse. */
+static NSManagedObjectModel *siblingsSharingARelationshipNameModel(NSArray *order, BOOL ordered)
+{
+    NSEntityDescription *unit = fleetEntity(@"Unit");
+    NSEntityDescription *event = fleetEntity(@"Event");
+    NSEntityDescription *metered = fleetEntity(@"Metered");
+    NSEntityDescription *income = fleetEntity(@"Income");
+
+    NSRelationshipDescription *meteredUnit = fleetRelationship(@"unit", NO);
+    NSRelationshipDescription *meteredEvents = fleetRelationship(@"meteredEvents", YES);
+    NSRelationshipDescription *incomeUnit = fleetRelationship(@"unit", NO);
+    NSRelationshipDescription *incomes = fleetRelationship(@"incomes", YES);
+
+    [meteredEvents setOrdered:ordered];
+    [incomes setOrdered:ordered];
+    fleetInverses(meteredUnit, unit, meteredEvents, metered);
+    fleetInverses(incomeUnit, unit, incomes, income);
+
+    [unit setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), meteredEvents, incomes ]];
+    [event setProperties:@[ fleetAttribute(@"note", NSStringAttributeType) ]];
+    [metered setProperties:@[ meteredUnit ]];
+    [income setProperties:@[ incomeUnit ]];
+    NSDictionary *byName = @{ @"Metered" : metered, @"Income" : income };
+    [event setSubentities:@[ byName[order[0]], byName[order[1]] ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ unit, event, metered, income ]];
+    return model;
+}
+
+/* The notes of a to-many's members: in order when it is ordered, sorted
+   when it is not. */
+static NSArray *siblingNotes(id members)
+{
+    if ([members isKindOfClass:[NSOrderedSet class]])
+        return [[members array] valueForKey:@"note"];
+    return [[[members allObjects] valueForKey:@"note"] sortedArrayUsingSelector:@selector(compare:)];
+}
+
+/* km and mi, by name, in a context of their own. */
+- (NSArray *)siblingUnitsWithModel:(NSManagedObjectModel *)model context:(NSManagedObjectContext **)ctxp
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:model options:nil];
+    NSArray *units = [self fetchEntityNamed:@"Unit" inContext:ctx predicate:nil
+                            sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+    *ctxp = ctx;
+    return units;
+}
+
+- (void)assertSiblingUnits:(NSArray *)units
+                   metered:(NSArray *)kmMetered :(NSArray *)miMetered
+                   incomes:(NSArray *)kmIncomes :(NSArray *)miIncomes
+                     label:(NSString *)label
+{
+    XCTAssertEqual([units count], (NSUInteger)2, @"%@", label);
+    if ([units count] != 2)
+        return;
+    XCTAssertEqualObjects(siblingNotes([units[0] valueForKey:@"meteredEvents"]), kmMetered, @"km metered, %@", label);
+    XCTAssertEqualObjects(siblingNotes([units[1] valueForKey:@"meteredEvents"]), miMetered, @"mi metered, %@", label);
+    XCTAssertEqualObjects(siblingNotes([units[0] valueForKey:@"incomes"]), kmIncomes, @"km incomes, %@", label);
+    XCTAssertEqualObjects(siblingNotes([units[1] valueForKey:@"incomes"]), miIncomes, @"mi incomes, %@", label);
+}
+
+- (void)assertSiblingsKeepTheirRelationshipsOfOneName:(NSArray *)order ordered:(BOOL)ordered
+{
+    NSString *label = [NSString stringWithFormat:@"%@%@", order, ordered ? @", ordered" : @""];
+    NSManagedObjectContext *ctx = [self contextWithModel:siblingsSharingARelationshipNameModel(order, ordered) options:nil];
+    NSManagedObject *km = fleetObject(ctx, @"Unit", @{ @"name" : @"km" });
+    NSManagedObject *mi = fleetObject(ctx, @"Unit", @{ @"name" : @"mi" });
+    fleetObject(ctx, @"Metered", @{ @"note" : @"a", @"unit" : km });
+    fleetObject(ctx, @"Income", @{ @"note" : @"b", @"unit" : km });
+    fleetObject(ctx, @"Income", @{ @"note" : @"c", @"unit" : mi });
+
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    /* Another, added to a unit already saved. */
+    NSArray *units = [self siblingUnitsWithModel:siblingsSharingARelationshipNameModel(order, ordered) context:&ctx];
+    XCTAssertEqual([units count], (NSUInteger)2, @"%@", label);
+    if ([units count] != 2)
+        return;
+    fleetObject(ctx, @"Metered", @{ @"note" : @"d", @"unit" : units[1] });
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    ctx = [self contextWithModel:siblingsSharingARelationshipNameModel(order, ordered) options:nil];
+    NSArray *events = [self fetchEntityNamed:@"Event" inContext:ctx predicate:nil
+                             sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"note" ascending:YES] ]];
+    XCTAssertEqualObjects([events valueForKeyPath:@"entity.name"], (@[ @"Metered", @"Income", @"Income", @"Metered" ]), @"%@", label);
+    XCTAssertEqualObjects([events valueForKeyPath:@"unit.name"], (@[ @"km", @"km", @"mi", @"mi" ]), @"%@", label);
+
+    units = [self siblingUnitsWithModel:siblingsSharingARelationshipNameModel(order, ordered) context:&ctx];
+    [self assertSiblingUnits:units metered:@[ @"a" ] :@[ @"d" ] incomes:@[ @"b" ] :@[ @"c" ] label:label];
+
+    /* A member moved between owners leaves only its own sibling's
+       relationship: b to mi keeps a on km, the metered events of mi
+       keep d. */
+    units = [self siblingUnitsWithModel:siblingsSharingARelationshipNameModel(order, ordered) context:&ctx];
+    if ([units count] != 2)
+        return;
+    NSManagedObject *b = [[[units[0] valueForKey:@"incomes"] objectEnumerator] nextObject];
+    [b setValue:units[1] forKey:@"unit"];
+    /* Ordered, b joins mi's incomes after c. */
+    NSArray *miIncomes = ordered ? @[ @"c", @"b" ] : @[ @"b", @"c" ];
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    units = [self siblingUnitsWithModel:siblingsSharingARelationshipNameModel(order, ordered) context:&ctx];
+    [self assertSiblingUnits:units metered:@[ @"a" ] :@[ @"d" ] incomes:@[] :miIncomes label:label];
+
+    /* And one removed: a leaves km's metered events, b and c stay mi's
+       incomes. */
+    NSManagedObject *a = [[[units[0] valueForKey:@"meteredEvents"] objectEnumerator] nextObject];
+    if (ordered)
+        [[units[0] mutableOrderedSetValueForKey:@"meteredEvents"] removeObject:a];
+    else
+        [[units[0] mutableSetValueForKey:@"meteredEvents"] removeObject:a];
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    units = [self siblingUnitsWithModel:siblingsSharingARelationshipNameModel(order, ordered) context:&ctx];
+    [self assertSiblingUnits:units metered:@[] :@[ @"d" ] incomes:@[] :miIncomes label:label];
+    events = [self fetchEntityNamed:@"Event" inContext:ctx predicate:nil
+                    sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"note" ascending:YES] ]];
+    XCTAssertEqualObjects([events valueForKeyPath:@"unit.name"], (@[ [NSNull null], @"mi", @"mi", @"mi" ]), @"%@", label);
+
+    /* Predicates through each sibling's inverse find only its own rows. */
+    NSArray *found = [self fetchEntityNamed:@"Unit" inContext:ctx
+                                  predicate:[NSPredicate predicateWithFormat:@"ANY incomes.note == 'b'"] sortDescriptors:nil];
+    XCTAssertEqualObjects([found valueForKey:@"name"], @[ @"mi" ], @"%@", label);
+    found = [self fetchEntityNamed:@"Unit" inContext:ctx
+                         predicate:[NSPredicate predicateWithFormat:@"ANY meteredEvents.note == 'b'"] sortDescriptors:nil];
+    XCTAssertEqualObjects([found valueForKey:@"name"], @[], @"%@", label);
+    found = [self fetchEntityNamed:@"Unit" inContext:ctx
+                         predicate:[NSPredicate predicateWithFormat:@"meteredEvents.@count == 1 AND incomes.@count == 2"] sortDescriptors:nil];
+    XCTAssertEqualObjects([found valueForKey:@"name"], @[ @"mi" ], @"%@", label);
+}
+
+- (void)testSiblingsKeepTheirRelationshipsOfOneName
+{
+    for (NSNumber *ordered in @[ @NO, @YES ]) {
+        [self assertSiblingsKeepTheirRelationshipsOfOneName:@[ @"Metered", @"Income" ] ordered:[ordered boolValue]];
+        [self removeStoreFilesAtURL:self.storeURL];
+        [self assertSiblingsKeepTheirRelationshipsOfOneName:@[ @"Income", @"Metered" ] ordered:[ordered boolValue]];
+        [self removeStoreFilesAtURL:self.storeURL];
+    }
+}
+
+/* Three siblings each declaring a to-one "unit" and an attribute "note"
+   - a string in Ant and Cat, a number in Bee - declared out of name order;
+   Ant's and Bee's units have ordered inverses. */
+static NSManagedObjectModel *siblingColumnsModel(void)
+{
+    NSEntityDescription *unit = fleetEntity(@"Unit");
+    NSEntityDescription *root = fleetEntity(@"Root");
+    NSEntityDescription *cat = fleetEntity(@"Cat");
+    NSEntityDescription *ant = fleetEntity(@"Ant");
+    NSEntityDescription *bee = fleetEntity(@"Bee");
+    NSMutableArray *inverses = [NSMutableArray array];
+
+    for (NSEntityDescription *sibling in @[ cat, ant, bee ]) {
+        NSRelationshipDescription *toUnit = fleetRelationship(@"unit", NO);
+        NSRelationshipDescription *members = fleetRelationship([[sibling name] lowercaseString], YES);
+        [members setOrdered:sibling != cat];
+        fleetInverses(toUnit, unit, members, sibling);
+        [inverses addObject:members];
+        [sibling setProperties:@[ toUnit, fleetAttribute(@"note", sibling == bee ? NSInteger64AttributeType : NSStringAttributeType) ]];
+    }
+    [root setProperties:@[ fleetAttribute(@"base", NSStringAttributeType) ]];
+    [root setSubentities:@[ cat, ant, bee ]];
+    [unit setProperties:inverses];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ unit, root, cat, ant, bee ]];
+    return model;
+}
+
+/* One unit with two of each sibling, in order; saved. */
+- (void)fillSiblingColumnsInContext:(NSManagedObjectContext *)ctx
+{
+    NSManagedObject *unit = fleetObject(ctx, @"Unit", @{});
+    for (NSString *name in @[ @"Cat", @"Ant", @"Bee" ])
+        for (NSString *suffix in @[ @"1", @"2" ]) {
+            id note = [name isEqualToString:@"Bee"] ? (id)@([suffix intValue] * 10) : [name stringByAppendingString:suffix];
+            fleetObject(ctx, name, @{ @"base" : [name stringByAppendingString:suffix], @"note" : note, @"unit" : unit });
+        }
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+}
+
+/* Each sibling's values and order read back. */
+- (void)assertSiblingColumnsReadBackWithModel:(NSManagedObjectModel *)model label:(NSString *)label
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:model options:nil];
+    NSArray *units = [self fetchEntityNamed:@"Unit" inContext:ctx predicate:nil sortDescriptors:nil];
+    XCTAssertEqual([units count], (NSUInteger)1, @"%@", label);
+    if ([units count] != 1)
+        return;
+
+    XCTAssertEqualObjects([[[units[0] valueForKey:@"ant"] array] valueForKey:@"note"], (@[ @"Ant1", @"Ant2" ]), @"%@", label);
+    XCTAssertEqualObjects([[[units[0] valueForKey:@"bee"] array] valueForKey:@"note"], (@[ @10, @20 ]), @"%@", label);
+    XCTAssertEqualObjects([[[[units[0] valueForKey:@"cat"] allObjects] valueForKey:@"note"] sortedArrayUsingSelector:@selector(compare:)],
+                          (@[ @"Cat1", @"Cat2" ]), @"%@", label);
+
+    NSArray *roots = [self fetchEntityNamed:@"Root" inContext:ctx predicate:nil
+                            sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"base" ascending:YES] ]];
+    XCTAssertEqualObjects([roots valueForKeyPath:@"entity.name"], (@[ @"Ant", @"Ant", @"Bee", @"Bee", @"Cat", @"Cat" ]), @"%@", label);
+    for (NSManagedObject *object in roots)
+        XCTAssertEqual([object valueForKey:@"unit"], units[0], @"%@ %@", label, [object valueForKey:@"base"]);
+
+    NSArray *found = [self fetchEntityNamed:@"Bee" inContext:ctx predicate:[NSPredicate predicateWithFormat:@"note > 15"] sortDescriptors:nil];
+    XCTAssertEqualObjects([found valueForKey:@"base"], @[ @"Bee2" ], @"%@", label);
+    found = [self fetchEntityNamed:@"Ant" inContext:ctx predicate:[NSPredicate predicateWithFormat:@"note == 'Ant2' AND unit != nil"] sortDescriptors:nil];
+    XCTAssertEqualObjects([found valueForKey:@"base"], @[ @"Ant2" ], @"%@", label);
+}
+
+/* Rows of a sibling, as a column's values: "-" for NULL.  The column is
+   not quoted: SQLite takes a quoted name that is no column for a string. */
+- (NSArray *)storedColumn:(NSString *)column ofEntity:(NSString *)entityName
+{
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    NSMutableArray *values = [NSMutableArray array];
+    NSString *sql = [NSString stringWithFormat:
+        @"SELECT %@ FROM ZROOT WHERE Z_ENT = (SELECT Z_ENT FROM Z_PRIMARYKEY WHERE Z_NAME = '%@') ORDER BY ZBASE", column, entityName];
+
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    if (sqlite3_prepare_v2(database, [sql UTF8String], -1, &statement, NULL) == SQLITE_OK)
+        while (sqlite3_step(statement) == SQLITE_ROW)
+            [values addObject:sqlite3_column_type(statement, 0) == SQLITE_NULL ? @"-"
+                              : [NSString stringWithUTF8String:(const char *)sqlite3_column_text(statement, 0)]];
+    else
+        [values addObject:[NSString stringWithFormat:@"no column %@", column]];
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return values;
+}
+
+/* Order values, which Apple's store spaces apart: the first before the
+   second. */
+- (void)assertStoredOrder:(NSArray *)values label:(NSString *)label
+{
+    XCTAssertEqual([values count], (NSUInteger)2, @"%@: %@", label, values);
+    if ([values count] != 2)
+        return;
+    XCTAssertFalse([values containsObject:@"-"], @"%@: %@", label, values);
+    XCTAssertLessThan([values[0] longLongValue], [values[1] longLongValue], @"%@: %@", label, values);
+}
+
+/* As Apple's store names them: the first sibling by name takes ZUNIT and
+   ZNOTE, each later one the next suffix, whatever the order the siblings
+   were declared in; an ordered to-many's order sits beside its foreign
+   key, named after it. */
+- (void)testSiblingsPropertiesOfOneNameHaveColumnsOfTheirOwn
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:siblingColumnsModel() options:nil];
+    [self fillSiblingColumnsInContext:ctx];
+
+    NSArray *expected = @[ @[ @"Ant", @"ZUNIT", @"ZNOTE", @"Z_FOK_UNIT" ],
+                           @[ @"Bee", @"ZUNIT1", @"ZNOTE1", @"Z_FOK_UNIT1" ],
+                           @[ @"Cat", @"ZUNIT2", @"ZNOTE2", @"" ] ];
+    for (NSArray *row in expected) {
+        for (NSString *column in @[ @"ZUNIT", @"ZUNIT1", @"ZUNIT2" ]) {
+            NSArray *values = [self storedColumn:column ofEntity:row[0]];
+            BOOL own = [column isEqualToString:row[1]];
+            XCTAssertEqual([values count], (NSUInteger)2, @"%@ %@: %@", row[0], column, values);
+            XCTAssertEqual([values containsObject:@"-"], !own, @"%@ %@: %@", row[0], column, values);
+        }
+        NSArray *notes = [self storedColumn:row[2] ofEntity:row[0]];
+        NSArray *expectedNotes = [row[0] isEqualToString:@"Bee"] ? @[ @"10", @"20" ] : @[ [row[0] stringByAppendingString:@"1"], [row[0] stringByAppendingString:@"2"] ];
+        XCTAssertEqualObjects(notes, expectedNotes, @"%@ %@", row[0], row[2]);
+        if ([row[3] length] > 0)
+            [self assertStoredOrder:[self storedColumn:row[3] ofEntity:row[0]] label:[NSString stringWithFormat:@"%@ %@", row[0], row[3]]];
+    }
+
+    [self assertSiblingColumnsReadBackWithModel:siblingColumnsModel() label:@"reopened"];
+}
+
+#if __has_include(<CoreData/CDExternalDataStore.h>)
+/* A store made before siblings' properties had columns of their own: one
+   ZUNIT and one ZNOTE for all of them, and the order of each ordered
+   to-many in Z_FOK_<to-many>.  Opened, it gets the columns, each with its
+   own entities' values. */
+- (void)testAStoreWithSiblingsSharingAColumnIsGivenTheirOwn
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:siblingColumnsModel() options:nil];
+    [self fillSiblingColumnsInContext:ctx];
+    ctx = nil;
+
+    /* The columns as such a store had them. */
+    sqlite3 *database = NULL;
+    sqlite3_open([[self.storeURL path] UTF8String], &database);
+    for (NSString *sql in @[ @"UPDATE ZROOT SET ZUNIT = COALESCE(ZUNIT, ZUNIT1, ZUNIT2), ZNOTE = COALESCE(ZNOTE, ZNOTE1, ZNOTE2)",
+                             @"DROP INDEX ZROOT_ZUNIT1_INDEX", @"DROP INDEX ZROOT_ZUNIT2_INDEX",
+                             @"ALTER TABLE ZROOT DROP COLUMN ZUNIT1", @"ALTER TABLE ZROOT DROP COLUMN ZUNIT2",
+                             @"ALTER TABLE ZROOT DROP COLUMN ZNOTE1", @"ALTER TABLE ZROOT DROP COLUMN ZNOTE2",
+                             @"ALTER TABLE ZROOT RENAME COLUMN Z_FOK_UNIT TO Z_FOK_ANT",
+                             @"ALTER TABLE ZROOT RENAME COLUMN Z_FOK_UNIT1 TO Z_FOK_BEE" ]) {
+        char *message = NULL;
+        XCTAssertEqual(sqlite3_exec(database, [sql UTF8String], NULL, NULL, &message), SQLITE_OK, @"%@: %s", sql, message);
+        sqlite3_free(message);
+    }
+    sqlite3_close(database);
+    NSArray *before = [self storedColumn:@"ZUNIT1" ofEntity:@"Bee"];
+    XCTAssertEqualObjects(before, @[ @"no column ZUNIT1" ], @"%@", before);
+
+    [self assertSiblingColumnsReadBackWithModel:siblingColumnsModel() label:@"upgraded"];
+    XCTAssertEqualObjects([self storedColumn:@"ZNOTE1" ofEntity:@"Bee"], (@[ @"10", @"20" ]));
+    XCTAssertEqualObjects([self storedColumn:@"ZNOTE" ofEntity:@"Bee"], (@[ @"-", @"-" ]));
+    XCTAssertEqualObjects([self storedColumn:@"ZUNIT" ofEntity:@"Ant"], (@[ @"1", @"1" ]));
+    [self assertStoredOrder:[self storedColumn:@"Z_FOK_UNIT1" ofEntity:@"Bee"] label:@"upgraded Bee Z_FOK_UNIT1"];
+
+    /* And it goes on as one made so: written, and read back again. */
+    ctx = [self contextWithModel:siblingColumnsModel() options:nil];
+    NSArray *bees = [self fetchEntityNamed:@"Bee" inContext:ctx predicate:nil
+                           sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"base" ascending:YES] ]];
+    [bees[0] setValue:@30 forKey:@"note"];
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"%@", error);
+    XCTAssertEqualObjects([self storedColumn:@"ZNOTE1" ofEntity:@"Bee"], (@[ @"30", @"20" ]));
+}
+#endif
+
+/* A context that merged another context's save deleting objects saves as
+   Apple's does: the rows are gone already, so it writes nothing for them
+   - no conflict over rows it cannot find - but reports them deleted, and
+   lets them go. */
+- (void)testAContextThatMergedADeletionSaves
+{
+    NSEntityDescription *owner = fleetEntity(@"Owner"), *part = fleetEntity(@"Part"), *bit = fleetEntity(@"Bit");
+    NSRelationshipDescription *parts = fleetRelationship(@"parts", YES), *partOwner = fleetRelationship(@"owner", NO);
+    NSRelationshipDescription *bits = fleetRelationship(@"bits", YES), *bitPart = fleetRelationship(@"part", NO);
+    [parts setDeleteRule:NSCascadeDeleteRule];
+    [bits setDeleteRule:NSCascadeDeleteRule];
+    fleetInverses(parts, part, partOwner, owner);
+    fleetInverses(bits, bit, bitPart, part);
+    [owner setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), parts ]];
+    [part setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), partOwner, bits ]];
+    [bit setProperties:@[ fleetAttribute(@"name", NSStringAttributeType), bitPart ]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ owner, part, bit ]];
+
+    NSManagedObjectContext *saving = [self contextWithModel:model options:nil];
+    NSManagedObject *o = fleetObject(saving, @"Owner", @{ @"name" : @"o" });
+    NSManagedObject *p = fleetObject(saving, @"Part", @{ @"name" : @"p", @"owner" : o });
+    NSManagedObject *b = fleetObject(saving, @"Bit", @{ @"name" : @"b", @"part" : p });
+    NSError *error = nil;
+    XCTAssertTrue([saving save:&error], @"%@", error);
+
+    NSManagedObjectContext *merging = [[NSManagedObjectContext alloc] init];
+    [merging setPersistentStoreCoordinator:[saving persistentStoreCoordinator]];
+    NSManagedObject *mergingOwner = [merging existingObjectWithID:[o objectID] error:NULL];
+    NSManagedObject *mergingPart = [merging existingObjectWithID:[p objectID] error:NULL];
+    XCTAssertNotNil([merging existingObjectWithID:[b objectID] error:NULL]);
+
+    id observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSManagedObjectContextDidSaveNotification
+                                                                    object:saving queue:nil usingBlock:^(NSNotification *note) {
+        [merging mergeChangesFromContextDidSaveNotification:note];
+    }];
+    [saving deleteObject:p];
+    XCTAssertTrue([saving save:&error], @"%@", error);
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+
+    [merging processPendingChanges];
+    XCTAssertEqual([[merging deletedObjects] count], (NSUInteger)2);
+    XCTAssertEqual([[merging updatedObjects] count], (NSUInteger)0);
+    XCTAssertEqual([[mergingOwner valueForKey:@"parts"] count], (NSUInteger)0);
+
+    __block NSDictionary *saved = nil;
+    observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSManagedObjectContextDidSaveNotification
+                                                                 object:merging queue:nil usingBlock:^(NSNotification *note) {
+        saved = [note userInfo];
+    }];
+    XCTAssertTrue([merging save:&error], @"%@", error);
+    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+    XCTAssertEqual([saved[NSDeletedObjectsKey] count], (NSUInteger)2);
+    XCTAssertEqual([saved[NSUpdatedObjectsKey] count], (NSUInteger)0);
+    XCTAssertFalse([merging hasChanges]);
+    XCTAssertNil([mergingPart managedObjectContext]);
+
+    /* And it goes on saving its own changes. */
+    [mergingOwner setValue:@"renamed" forKey:@"name"];
+    XCTAssertTrue([merging save:&error], @"%@", error);
+    NSManagedObjectContext *reader = [[NSManagedObjectContext alloc] init];
+    [reader setPersistentStoreCoordinator:[saving persistentStoreCoordinator]];
+    NSArray *owners = [self fetchEntityNamed:@"Owner" inContext:reader predicate:nil sortDescriptors:nil];
+    XCTAssertEqualObjects([owners valueForKey:@"name"], @[ @"renamed" ]);
+    XCTAssertEqual([[self fetchEntityNamed:@"Part" inContext:reader predicate:nil sortDescriptors:nil] count], (NSUInteger)0);
 }
 
 @end

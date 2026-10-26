@@ -604,6 +604,220 @@ static NSDictionary *CDSQLMigratedPictures(void)
     [self assertPicturesReadBackIn:outOf];
 }
 
+/* -- permanent IDs ------------------------------------------------------ */
+
+static long long CDSQLPrimaryKeyOf(NSManagedObject *object)
+{
+    return [[[[[object objectID] URIRepresentation] lastPathComponent] substringFromIndex:1] longLongValue];
+}
+
+- (long long)maxKeyOf:(NSString *)entityName inContext:(NSManagedObjectContext *)context
+{
+    id<CDSQLStoreCatalogue> store = (id)[[[context persistentStoreCoordinator] persistentStores] firstObject];
+    id<CDSQLCatalogueRows> rows = [store execute:@"SELECT \"Z_MAX\" FROM \"Z_PRIMARYKEY\" WHERE \"Z_NAME\" = $1"
+                                      parameters:@[ entityName ] error:NULL];
+    return ([rows rowCount] > 0) ? [[rows stringAtRow:0 column:0] longLongValue] : -1;
+}
+
+/* Persons, managers (a subentity of Person) and companies, in turn. */
+- (NSArray *)insertKeyed:(int)count inContext:(NSManagedObjectContext *)context
+{
+    NSMutableArray *objects = [NSMutableArray array];
+    for (int i = 0; i < count; i++)
+        [objects addObject:[NSEntityDescription insertNewObjectForEntityForName:(i % 3 == 0) ? @"Person" : (i % 3 == 1) ? @"Manager" : @"Company"
+                                                         inManagedObjectContext:context]];
+    return objects;
+}
+
+/* The keys of objects whose root is root (Person for a manager). */
+static NSSet *CDSQLKeysOfRoot(NSArray *objects, NSString *root)
+{
+    NSMutableSet *keys = [NSMutableSet set];
+    for (NSManagedObject *object in objects) {
+        NSEntityDescription *entity = [object entity];
+        while ([entity superentity] != nil)
+            entity = [entity superentity];
+        if ([[entity name] isEqualToString:root])
+            [keys addObject:@(CDSQLPrimaryKeyOf(object))];
+    }
+    return keys;
+}
+
+static NSSet *CDSQLKeysFrom(long long first, long long last)
+{
+    NSMutableSet *keys = [NSMutableSet set];
+    for (long long key = first; key <= last; key++)
+        [keys addObject:@(key)];
+    return keys;
+}
+
+/* New objects' keys come a block to each root entity: an entity and its
+   subentities draw from one key space, the keys are distinct and leave
+   no gap, Z_MAX is the highest handed out, and another context's save
+   reuses none. */
+- (void)testPermanentIDsComeInABlockForEachRootEntity
+{
+    if (![self databaseAvailable]) return;
+
+    long long people = [self maxKeyOf:@"Person" inContext:self.context];
+    long long companies = [self maxKeyOf:@"Company" inContext:self.context];
+    NSArray *objects = [self insertKeyed:90 inContext:self.context];
+    NSError *error = nil;
+    XCTAssertTrue([self.context obtainPermanentIDsForObjects:objects error:&error], @"%@", error);
+    XCTAssertEqualObjects(CDSQLKeysOfRoot(objects, @"Person"), CDSQLKeysFrom(people + 1, people + 60), @"Person and Manager share a key space");
+    XCTAssertEqualObjects(CDSQLKeysOfRoot(objects, @"Company"), CDSQLKeysFrom(companies + 1, companies + 30));
+    XCTAssertEqual([self maxKeyOf:@"Person" inContext:self.context], people + 60);
+    XCTAssertEqual([self maxKeyOf:@"Company" inContext:self.context], companies + 30);
+    for (NSManagedObject *object in objects)
+        if ([[[object entity] name] isEqualToString:@"Person"] || [[[object entity] name] isEqualToString:@"Manager"])
+            [object setValue:@"someone" forKey:@"name"];
+    if (![self save]) return;
+
+    NSManagedObjectContext *later = [self newContext];
+    NSArray *more = [self insertKeyed:9 inContext:later];
+    for (NSManagedObject *object in more)
+        if (![[[object entity] name] isEqualToString:@"Company"])
+            [object setValue:@"someone" forKey:@"name"];
+    XCTAssertTrue([later save:&error], @"%@", error);
+    XCTAssertEqualObjects(CDSQLKeysOfRoot(more, @"Person"), CDSQLKeysFrom(people + 61, people + 66));
+    XCTAssertEqualObjects(CDSQLKeysOfRoot(more, @"Company"), CDSQLKeysFrom(companies + 31, companies + 33));
+}
+
+/* New rows go to the server many to a statement: 250 people - two full
+   statements and a shorter one - each with its own values, a to-one, a
+   value kept externally and a nil, read back as they were written. */
+- (void)testManyNewRowsAreWrittenAsTheyWere
+{
+    if (![self databaseAvailable]) return;
+
+    CDSQLMemoryExternalDataStore *memory = [[CDSQLMemoryExternalDataStore alloc] init];
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    options[@"CDExternalDataStoreOption"] = memory;
+    self.storeOptions = options;
+    self.context = [self newContext];
+
+    NSManagedObject *company = [NSEntityDescription insertNewObjectForEntityForName:@"Company" inManagedObjectContext:self.context];
+    [company setValue:@"Bletchley" forKey:@"name"];
+    for (int i = 0; i < 250; i++) {
+        NSManagedObject *person = [self insertPersonNamed:[NSString stringWithFormat:@"P%03d", i] age:i];
+        if (i % 2 == 0)
+            [person setValue:company forKey:@"employer"];
+        if (i % 50 == 7)
+            [person setValue:CDSQLFilled(150000, (char)('a' + i % 26)) forKey:@"portrait"];
+        if (i % 3 != 0)
+            [person setValue:@(i + 0.5) forKey:@"score"];
+    }
+    if (![self save]) return;
+    XCTAssertEqual([memory.kept count], (NSUInteger)5);
+
+    NSManagedObjectContext *fresh = [self newContext];
+    NSArray *people = [self fetchPeopleWithPredicate:nil sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ] context:fresh];
+    XCTAssertEqual([people count], (NSUInteger)250);
+    for (int i = 0; i < (int)[people count]; i++) {
+        NSManagedObject *person = people[i];
+        XCTAssertEqualObjects([person valueForKey:@"name"], ([NSString stringWithFormat:@"P%03d", i]));
+        XCTAssertEqualObjects([person valueForKey:@"age"], @(i));
+        XCTAssertEqualObjects([[person valueForKey:@"employer"] valueForKey:@"name"], (i % 2 == 0) ? @"Bletchley" : nil, @"P%03d", i);
+        XCTAssertEqualObjects([person valueForKey:@"portrait"], (i % 50 == 7) ? CDSQLFilled(150000, (char)('a' + i % 26)) : nil, @"P%03d", i);
+        XCTAssertEqualObjects([person valueForKey:@"score"], (i % 3 != 0) ? @(i + 0.5) : nil, @"P%03d", i);
+    }
+}
+
+/* Rows changed many to a statement, and deleted many to a statement: 250
+   people changed - their values, their employer, a value kept externally,
+   some to nil - read back as changed; then friends made, and 200 of them
+   deleted, the join rows and external values they had going with them. */
+- (void)testManyRowsAreChangedAndDeletedAsTheyWere
+{
+    if (![self databaseAvailable]) return;
+
+    CDSQLMemoryExternalDataStore *memory = [[CDSQLMemoryExternalDataStore alloc] init];
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    options[@"CDExternalDataStoreOption"] = memory;
+    self.storeOptions = options;
+    self.context = [self newContext];
+
+    NSManagedObject *company = [NSEntityDescription insertNewObjectForEntityForName:@"Company" inManagedObjectContext:self.context];
+    [company setValue:@"Bletchley" forKey:@"name"];
+    NSMutableArray *people = [NSMutableArray array];
+    for (int i = 0; i < 250; i++) {
+        NSManagedObject *person = [self insertPersonNamed:[NSString stringWithFormat:@"P%03d", i] age:i];
+        [person setValue:company forKey:@"employer"];
+        [person setValue:@(i + 0.5) forKey:@"score"];
+        if (i % 50 == 2)
+            [person setValue:CDSQLFilled(150000, 'x') forKey:@"portrait"];
+        [people addObject:person];
+    }
+    if (![self save]) return;
+    XCTAssertEqual([memory.kept count], (NSUInteger)5);
+
+    for (int i = 0; i < 250; i++) {
+        NSManagedObject *person = people[i];
+        [person setValue:@(i * 2) forKey:@"age"];
+        if (i % 2 == 1)
+            [person setValue:nil forKey:@"employer"];
+        if (i % 3 == 0)
+            [person setValue:nil forKey:@"score"];
+        if (i % 50 == 7)
+            [person setValue:CDSQLFilled(150000, 'y') forKey:@"portrait"];
+        if (i % 50 == 2)
+            [person setValue:nil forKey:@"portrait"];
+    }
+    if (![self save]) return;
+    XCTAssertEqual([memory.kept count], (NSUInteger)5, @"the five let go of, five others kept");
+
+    NSManagedObjectContext *fresh = [self newContext];
+    NSArray *read = [self fetchPeopleWithPredicate:nil sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ] context:fresh];
+    XCTAssertEqual([read count], (NSUInteger)250);
+    for (int i = 0; i < (int)[read count]; i++) {
+        NSManagedObject *person = read[i];
+        XCTAssertEqualObjects([person valueForKey:@"age"], @(i * 2), @"P%03d", i);
+        XCTAssertEqualObjects([[person valueForKey:@"employer"] valueForKey:@"name"], (i % 2 == 0) ? @"Bletchley" : nil, @"P%03d", i);
+        XCTAssertEqualObjects([person valueForKey:@"score"], (i % 3 == 0) ? nil : @(i + 0.5), @"P%03d", i);
+        XCTAssertEqualObjects([person valueForKey:@"portrait"], (i % 50 == 7) ? CDSQLFilled(150000, 'y') : nil, @"P%03d", i);
+    }
+
+    for (int i = 0; i < 249; i++)
+        [[people[i] mutableSetValueForKey:@"friends"] addObject:people[i + 1]];
+    if (![self save]) return;
+
+    for (int i = 0; i < 250; i++)
+        if (i % 5 != 0)
+            [self.context deleteObject:people[i]];
+    if (![self save]) return;
+    XCTAssertEqual([memory.kept count], (NSUInteger)0, @"the portraits were all of people deleted");
+
+    NSManagedObjectContext *after = [self newContext];
+    NSArray *left = [self fetchPeopleWithPredicate:nil sortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ] context:after];
+    XCTAssertEqual([left count], (NSUInteger)50);
+    for (NSManagedObject *person in left) {
+        XCTAssertEqual([[person valueForKey:@"friends"] count], (NSUInteger)0, @"%@'s friend was deleted", [person valueForKey:@"name"]);
+        XCTAssertEqual([[person valueForKey:@"friendOf"] count], (NSUInteger)0, @"%@'s friend was deleted", [person valueForKey:@"name"]);
+    }
+}
+
+/* A store that cannot give every object its key gives none: no object
+   takes a permanent ID, and Person's Z_MAX is as it was.  Made to fail
+   by taking away Company's key row; FreeCoreData's alone, as it is the
+   context that asks for all the objects at once. */
+- (void)testPermanentIDsAreAllOrNothing
+{
+    if (![self databaseAvailable]) return;
+    if (NSClassFromString(@"CDBatchFaultingArray") == nil) return;
+
+    long long people = [self maxKeyOf:@"Person" inContext:self.context];
+    id<CDSQLStoreCatalogue> store = (id)[[[self.context persistentStoreCoordinator] persistentStores] firstObject];
+    [store execute:@"DELETE FROM \"Z_PRIMARYKEY\" WHERE \"Z_NAME\" = $1" parameters:@[ @"Company" ] error:NULL];
+
+    NSArray *objects = [self insertKeyed:30 inContext:self.context];
+    NSError *error = nil;
+    XCTAssertFalse([self.context obtainPermanentIDsForObjects:objects error:&error]);
+    XCTAssertNotNil(error);
+    for (NSManagedObject *object in objects)
+        XCTAssertTrue([[object objectID] isTemporaryID], @"%@ took no permanent ID", [[object entity] name]);
+    XCTAssertEqual([self maxKeyOf:@"Person" inContext:self.context], people, @"Person's keys were not taken");
+}
+
 - (void)testCountResultType
 {
     if (![self databaseAvailable]) return;
@@ -1558,7 +1772,9 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
 
     /* Cut the connection while the save is in flight.  The save either
        completes (it beat the axe) or fails - but it must not leave half of
-       the objects behind. */
+       the objects behind.  A save cut off after its COMMIT reached the
+       server, before the answer came back, reports a failure for a save
+       that happened: the client cannot know, and the whole save is there. */
     [NSThread detachNewThreadWithBlock:^{
         @autoreleasepool {
             [NSThread sleepForTimeInterval:0.002];
@@ -1575,7 +1791,7 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
     if (saved)
         XCTAssertEqual(count, (NSUInteger)20, @"a save that reported success must be all there");
     else
-        XCTAssertEqual(count, (NSUInteger)0, @"a save that failed must not have left a fragment behind");
+        XCTAssertTrue(count == 0 || count == 20, @"a save that failed must not have left a fragment behind (%lu of 20)", (unsigned long)count);
 }
 
 /* -- predicates across relationships ----------------------------------- */
@@ -3367,4 +3583,375 @@ static NSArray *CDRegexUntranslatable(void)
 
     XCTAssertNil(result);
     XCTAssertNotNil(error);
+}
+
+/* -- siblings sharing a relationship name -------------------------------- */
+
+/* Two sibling entities each declaring a to-one "unit" to Unit, with an
+   inverse of its own: their root's table holds both in one column, and
+   each keeps its own destination and inverse. */
+static NSManagedObjectModel *CDSQLSiblingsModel(BOOL ordered)
+{
+    NSEntityDescription *unit = [[NSEntityDescription alloc] init];
+    NSEntityDescription *event = [[NSEntityDescription alloc] init];
+    NSEntityDescription *metered = [[NSEntityDescription alloc] init];
+    NSEntityDescription *income = [[NSEntityDescription alloc] init];
+    [unit setName:@"Unit"];
+    [event setName:@"Event"];
+    [metered setName:@"Metered"];
+    [income setName:@"Income"];
+    for (NSEntityDescription *entity in @[ unit, event, metered, income ])
+        [entity setManagedObjectClassName:@"NSManagedObject"];
+
+    NSMutableArray *relationships = [NSMutableArray array];
+    for (NSString *name in @[ @"unit", @"meteredEvents", @"unit", @"incomes" ]) {
+        NSRelationshipDescription *relationship = [[NSRelationshipDescription alloc] init];
+        BOOL toMany = ![name isEqualToString:@"unit"];
+        [relationship setName:name];
+        [relationship setMinCount:0];
+        [relationship setMaxCount:toMany ? 0 : 1];
+        [relationship setOptional:YES];
+        [relationship setOrdered:toMany && ordered];
+        [relationships addObject:relationship];
+    }
+    NSRelationshipDescription *meteredUnit = relationships[0], *meteredEvents = relationships[1];
+    NSRelationshipDescription *incomeUnit = relationships[2], *incomes = relationships[3];
+    [meteredUnit setDestinationEntity:unit];
+    [meteredEvents setDestinationEntity:metered];
+    [meteredUnit setInverseRelationship:meteredEvents];
+    [meteredEvents setInverseRelationship:meteredUnit];
+    [incomeUnit setDestinationEntity:unit];
+    [incomes setDestinationEntity:income];
+    [incomeUnit setInverseRelationship:incomes];
+    [incomes setInverseRelationship:incomeUnit];
+
+    NSAttributeDescription *name = [[NSAttributeDescription alloc] init];
+    [name setName:@"name"];
+    [name setAttributeType:NSStringAttributeType];
+    [name setOptional:YES];
+    NSAttributeDescription *note = [[NSAttributeDescription alloc] init];
+    [note setName:@"note"];
+    [note setAttributeType:NSStringAttributeType];
+    [note setOptional:YES];
+
+    [unit setProperties:@[ name, meteredEvents, incomes ]];
+    [event setProperties:@[ note ]];
+    [metered setProperties:@[ meteredUnit ]];
+    [income setProperties:@[ incomeUnit ]];
+    [event setSubentities:@[ metered, income ]];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ unit, event, metered, income ]];
+    return model;
+}
+
+- (NSManagedObjectContext *)siblingsContext:(BOOL)ordered
+{
+    NSPersistentStoreCoordinator *coordinator =
+        [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:CDSQLSiblingsModel(ordered)];
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    NSError *error = nil;
+
+    options[[self schemaNameOptionKey]] = [NSString stringWithFormat:@"%@_sib", self.storeOptions[[self schemaNameOptionKey]]];
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:[self storeType] configuration:nil
+                                                        URL:self.storeURL options:options error:&error], @"%@", error);
+
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    [context setPersistentStoreCoordinator:coordinator];
+    return context;
+}
+
+- (void)destroySiblingsSchema
+{
+    NSString *schema = [NSString stringWithFormat:@"%@_sib", self.storeOptions[[self schemaNameOptionKey]]];
+
+    [[self storeClass] destroyStoreAtURL:self.storeURL options:@{ [self schemaNameOptionKey] : schema } error:NULL];
+}
+
+/* km and mi, by name. */
+- (NSArray *)siblingUnitsIn:(NSManagedObjectContext *)context predicate:(NSPredicate *)predicate
+{
+    NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Unit"];
+    [fetch setPredicate:predicate];
+    [fetch setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+    return [context executeFetchRequest:fetch error:NULL];
+}
+
+static NSArray *CDSQLSiblingNotes(id members)
+{
+    if ([members isKindOfClass:[NSOrderedSet class]])
+        return [[members array] valueForKey:@"note"];
+    return [[[members allObjects] valueForKey:@"note"] sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (void)assertSiblingUnits:(NSArray *)units metered:(NSArray *)metered incomes:(NSArray *)incomes ordered:(BOOL)ordered
+{
+    XCTAssertEqual([units count], (NSUInteger)2);
+    if ([units count] != 2)
+        return;
+    for (NSUInteger i = 0; i < 2; i++) {
+        XCTAssertEqualObjects(CDSQLSiblingNotes([units[i] valueForKey:@"meteredEvents"]), metered[i], @"%@ metered%@", [units[i] valueForKey:@"name"], ordered ? @", ordered" : @"");
+        XCTAssertEqualObjects(CDSQLSiblingNotes([units[i] valueForKey:@"incomes"]), incomes[i], @"%@ incomes%@", [units[i] valueForKey:@"name"], ordered ? @", ordered" : @"");
+    }
+}
+
+- (void)assertSiblingsKeepTheirRelationshipsOfOneName:(BOOL)ordered
+{
+    [self destroySiblingsSchema];
+
+    NSManagedObjectContext *context = [self siblingsContext:ordered];
+    NSManagedObject *km = [NSEntityDescription insertNewObjectForEntityForName:@"Unit" inManagedObjectContext:context];
+    NSManagedObject *mi = [NSEntityDescription insertNewObjectForEntityForName:@"Unit" inManagedObjectContext:context];
+    [km setValue:@"km" forKey:@"name"];
+    [mi setValue:@"mi" forKey:@"name"];
+    NSArray *made = @[ @[ @"Metered", @"a", km ], @[ @"Income", @"b", km ], @[ @"Income", @"c", mi ], @[ @"Metered", @"d", mi ] ];
+    for (NSArray *spec in made) {
+        NSManagedObject *event = [NSEntityDescription insertNewObjectForEntityForName:spec[0] inManagedObjectContext:context];
+        [event setValue:spec[1] forKey:@"note"];
+        [event setValue:spec[2] forKey:@"unit"];
+    }
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+
+    context = [self siblingsContext:ordered];
+    NSArray *units = [self siblingUnitsIn:context predicate:nil];
+    [self assertSiblingUnits:units metered:@[ @[ @"a" ], @[ @"d" ] ] incomes:@[ @[ @"b" ], @[ @"c" ] ] ordered:ordered];
+    if ([units count] != 2)
+        return;
+
+    /* b moves to mi: only b leaves km.  a leaves km's metered events. */
+    NSManagedObject *b = [[[units[0] valueForKey:@"incomes"] objectEnumerator] nextObject];
+    [b setValue:units[1] forKey:@"unit"];
+    NSManagedObject *a = [[[units[0] valueForKey:@"meteredEvents"] objectEnumerator] nextObject];
+    [a setValue:nil forKey:@"unit"];
+    XCTAssertTrue([context save:&error], @"%@", error);
+
+    context = [self siblingsContext:ordered];
+    units = [self siblingUnitsIn:context predicate:nil];
+    NSArray *miIncomes = ordered ? @[ @"c", @"b" ] : @[ @"b", @"c" ];
+    [self assertSiblingUnits:units metered:@[ @[], @[ @"d" ] ] incomes:@[ @[], miIncomes ] ordered:ordered];
+
+    NSFetchRequest *events = [NSFetchRequest fetchRequestWithEntityName:@"Event"];
+    [events setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"note" ascending:YES] ]];
+    NSArray *all = [context executeFetchRequest:events error:&error];
+    XCTAssertEqualObjects([all valueForKeyPath:@"unit.name"], (@[ [NSNull null], @"mi", @"mi", @"mi" ]));
+
+    /* Predicates through each sibling's inverse find only its own rows. */
+    XCTAssertEqualObjects([[self siblingUnitsIn:context predicate:[NSPredicate predicateWithFormat:@"ANY incomes.note == 'b'"]] valueForKey:@"name"], @[ @"mi" ]);
+    XCTAssertEqualObjects([[self siblingUnitsIn:context predicate:[NSPredicate predicateWithFormat:@"ANY meteredEvents.note == 'b'"]] valueForKey:@"name"], @[]);
+    XCTAssertEqualObjects([[self siblingUnitsIn:context predicate:[NSPredicate predicateWithFormat:@"meteredEvents.@count == 1 AND incomes.@count == 2"]] valueForKey:@"name"], @[ @"mi" ]);
+
+    [self destroySiblingsSchema];
+}
+
+- (void)testSiblingsKeepTheirRelationshipsOfOneName
+{
+    [self assertSiblingsKeepTheirRelationshipsOfOneName:NO];
+    [self assertSiblingsKeepTheirRelationshipsOfOneName:YES];
+}
+
+/* -- siblings' properties of one name: columns of their own -------------- */
+
+/* Three siblings each declaring a to-one "unit" and an attribute "note"
+   - a string in Ant and Cat, a number in Bee - declared out of name order;
+   Ant's and Bee's units have ordered inverses. */
+static NSManagedObjectModel *CDSQLSiblingColumnsModel(void)
+{
+    NSEntityDescription *unit = [[NSEntityDescription alloc] init];
+    NSEntityDescription *root = [[NSEntityDescription alloc] init];
+    NSEntityDescription *cat = [[NSEntityDescription alloc] init];
+    NSEntityDescription *ant = [[NSEntityDescription alloc] init];
+    NSEntityDescription *bee = [[NSEntityDescription alloc] init];
+    NSMutableArray *inverses = [NSMutableArray array];
+
+    [unit setName:@"Unit"];
+    [root setName:@"Root"];
+    [cat setName:@"Cat"];
+    [ant setName:@"Ant"];
+    [bee setName:@"Bee"];
+    for (NSEntityDescription *entity in @[ unit, root, cat, ant, bee ])
+        [entity setManagedObjectClassName:@"NSManagedObject"];
+
+    for (NSEntityDescription *sibling in @[ cat, ant, bee ]) {
+        NSRelationshipDescription *toUnit = [[NSRelationshipDescription alloc] init];
+        NSRelationshipDescription *members = [[NSRelationshipDescription alloc] init];
+        NSAttributeDescription *note = [[NSAttributeDescription alloc] init];
+
+        [toUnit setName:@"unit"];
+        [toUnit setMinCount:0];
+        [toUnit setMaxCount:1];
+        [toUnit setOptional:YES];
+        [toUnit setDestinationEntity:unit];
+        [members setName:[[sibling name] lowercaseString]];
+        [members setMinCount:0];
+        [members setMaxCount:0];
+        [members setOptional:YES];
+        [members setOrdered:sibling != cat];
+        [members setDestinationEntity:sibling];
+        [toUnit setInverseRelationship:members];
+        [members setInverseRelationship:toUnit];
+        [inverses addObject:members];
+        [note setName:@"note"];
+        [note setAttributeType:sibling == bee ? NSInteger64AttributeType : NSStringAttributeType];
+        [note setOptional:YES];
+        [sibling setProperties:@[ toUnit, note ]];
+    }
+
+    NSAttributeDescription *base = [[NSAttributeDescription alloc] init];
+    [base setName:@"base"];
+    [base setAttributeType:NSStringAttributeType];
+    [base setOptional:YES];
+    [root setProperties:@[ base ]];
+    [root setSubentities:@[ cat, ant, bee ]];
+    [unit setProperties:inverses];
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ unit, root, cat, ant, bee ]];
+    return model;
+}
+
+- (NSManagedObjectContext *)siblingColumnsContext
+{
+    NSPersistentStoreCoordinator *coordinator =
+        [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:CDSQLSiblingColumnsModel()];
+    NSMutableDictionary *options = [self.storeOptions mutableCopy];
+    NSError *error = nil;
+
+    options[[self schemaNameOptionKey]] = [NSString stringWithFormat:@"%@_col", self.storeOptions[[self schemaNameOptionKey]]];
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:[self storeType] configuration:nil
+                                                        URL:self.storeURL options:options error:&error], @"%@", error);
+
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    [context setPersistentStoreCoordinator:coordinator];
+    return context;
+}
+
+- (void)destroySiblingColumnsSchema
+{
+    NSString *schema = [NSString stringWithFormat:@"%@_col", self.storeOptions[[self schemaNameOptionKey]]];
+
+    [[self storeClass] destroyStoreAtURL:self.storeURL options:@{ [self schemaNameOptionKey] : schema } error:NULL];
+}
+
+- (void)fillSiblingColumns
+{
+    NSManagedObjectContext *context = [self siblingColumnsContext];
+    NSManagedObject *unit = [NSEntityDescription insertNewObjectForEntityForName:@"Unit" inManagedObjectContext:context];
+
+    for (NSString *name in @[ @"Cat", @"Ant", @"Bee" ])
+        for (NSString *suffix in @[ @"1", @"2" ]) {
+            NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:name inManagedObjectContext:context];
+            [object setValue:[name stringByAppendingString:suffix] forKey:@"base"];
+            [object setValue:[name isEqualToString:@"Bee"] ? (id)@([suffix intValue] * 10) : [name stringByAppendingString:suffix] forKey:@"note"];
+            [object setValue:unit forKey:@"unit"];
+        }
+    NSError *error = nil;
+    XCTAssertTrue([context save:&error], @"%@", error);
+}
+
+/* A column's values in a sibling's rows, by base: "-" for NULL, or the
+   error when there is no such column. */
+- (NSArray *)siblingColumn:(NSString *)column ofEntity:(NSString *)entityName inContext:(NSManagedObjectContext *)context
+{
+    id<CDSQLStoreCatalogue> store = (id)[[[context persistentStoreCoordinator] persistentStores] firstObject];
+    NSError *error = nil;
+    NSString *sql = [NSString stringWithFormat:@"SELECT \"%@\" FROM \"ZROOT\" WHERE \"Z_ENT\" = (SELECT \"Z_ENT\" FROM \"Z_PRIMARYKEY\" WHERE \"Z_NAME\" = $1) ORDER BY \"ZBASE\"", column];
+    id<CDSQLCatalogueRows> rows = [store execute:sql parameters:@[ entityName ] error:&error];
+    NSMutableArray *values = [NSMutableArray array];
+
+    if (rows == nil)
+        return @[ @"no column" ];
+    for (NSUInteger row = 0; row < [rows rowCount]; row++)
+        [values addObject:[rows isNullAtRow:row column:0] ? @"-" : [rows stringAtRow:row column:0]];
+    return values;
+}
+
+- (void)assertSiblingColumnsInContext:(NSManagedObjectContext *)context label:(NSString *)label
+{
+    NSArray *expected = @[ @[ @"Ant", @"ZUNIT", @"ZNOTE", @"Z_FOK_UNIT" ],
+                           @[ @"Bee", @"ZUNIT1", @"ZNOTE1", @"Z_FOK_UNIT1" ],
+                           @[ @"Cat", @"ZUNIT2", @"ZNOTE2", @"" ] ];
+
+    for (NSArray *row in expected) {
+        for (NSString *column in @[ @"ZUNIT", @"ZUNIT1", @"ZUNIT2" ]) {
+            NSArray *values = [self siblingColumn:column ofEntity:row[0] inContext:context];
+            XCTAssertEqual([values count], (NSUInteger)2, @"%@: %@ %@: %@", label, row[0], column, values);
+            XCTAssertEqual([values containsObject:@"-"], ![column isEqualToString:row[1]], @"%@: %@ %@: %@", label, row[0], column, values);
+        }
+        NSArray *notes = [row[0] isEqualToString:@"Bee"] ? @[ @"10", @"20" ]
+                         : @[ [row[0] stringByAppendingString:@"1"], [row[0] stringByAppendingString:@"2"] ];
+        XCTAssertEqualObjects([self siblingColumn:row[2] ofEntity:row[0] inContext:context], notes, @"%@: %@ %@", label, row[0], row[2]);
+        if ([row[3] length] > 0) {
+            NSArray *order = [self siblingColumn:row[3] ofEntity:row[0] inContext:context];
+            XCTAssertEqual([order count], (NSUInteger)2, @"%@: %@ %@: %@", label, row[0], row[3], order);
+            if ([order count] == 2)
+                XCTAssertLessThan([order[0] longLongValue], [order[1] longLongValue], @"%@: %@ %@: %@", label, row[0], row[3], order);
+        }
+    }
+
+    NSFetchRequest *units = [NSFetchRequest fetchRequestWithEntityName:@"Unit"];
+    NSArray *found = [context executeFetchRequest:units error:NULL];
+    XCTAssertEqual([found count], (NSUInteger)1, @"%@", label);
+    if ([found count] != 1)
+        return;
+    XCTAssertEqualObjects([[[found[0] valueForKey:@"ant"] array] valueForKey:@"note"], (@[ @"Ant1", @"Ant2" ]), @"%@", label);
+    XCTAssertEqualObjects([[[found[0] valueForKey:@"bee"] array] valueForKey:@"note"], (@[ @10, @20 ]), @"%@", label);
+    XCTAssertEqualObjects([[[[found[0] valueForKey:@"cat"] allObjects] valueForKey:@"note"] sortedArrayUsingSelector:@selector(compare:)],
+                          (@[ @"Cat1", @"Cat2" ]), @"%@", label);
+
+    NSFetchRequest *bees = [NSFetchRequest fetchRequestWithEntityName:@"Bee"];
+    [bees setPredicate:[NSPredicate predicateWithFormat:@"note > 15"]];
+    XCTAssertEqualObjects([[context executeFetchRequest:bees error:NULL] valueForKey:@"base"], @[ @"Bee2" ], @"%@", label);
+}
+
+/* As Apple's store names them: the first sibling by name takes ZUNIT and
+   ZNOTE, each later one the next suffix; an ordered to-many's order sits
+   beside its foreign key, named after it. */
+- (void)testSiblingsPropertiesOfOneNameHaveColumnsOfTheirOwn
+{
+    [self destroySiblingColumnsSchema];
+    [self fillSiblingColumns];
+    [self assertSiblingColumnsInContext:[self siblingColumnsContext] label:@"made"];
+    [self destroySiblingColumnsSchema];
+}
+
+/* A store made before siblings' properties had columns of their own - one
+   ZUNIT and one ZNOTE for all of them, an ordered to-many's order in
+   Z_FOK_<to-many> - gets them when it is opened, each with its own
+   entities' values. */
+- (void)testAStoreWithSiblingsSharingAColumnIsGivenTheirOwn
+{
+    [self destroySiblingColumnsSchema];
+    [self fillSiblingColumns];
+
+    NSManagedObjectContext *context = [self siblingColumnsContext];
+    id<CDSQLStoreCatalogue> store = (id)[[[context persistentStoreCoordinator] persistentStores] firstObject];
+    for (NSString *sql in @[ @"UPDATE \"ZROOT\" SET \"ZUNIT\" = COALESCE(\"ZUNIT\", \"ZUNIT1\", \"ZUNIT2\"), \"ZNOTE\" = COALESCE(\"ZNOTE\", \"ZNOTE2\")",
+                             @"UPDATE \"ZROOT\" SET \"ZNOTE\" = CAST(\"ZNOTE1\" AS CHAR(20)) WHERE \"ZNOTE1\" IS NOT NULL",
+                             @"ALTER TABLE \"ZROOT\" DROP COLUMN \"ZUNIT1\"", @"ALTER TABLE \"ZROOT\" DROP COLUMN \"ZUNIT2\"",
+                             @"ALTER TABLE \"ZROOT\" DROP COLUMN \"ZNOTE1\"", @"ALTER TABLE \"ZROOT\" DROP COLUMN \"ZNOTE2\"",
+                             @"ALTER TABLE \"ZROOT\" RENAME COLUMN \"Z_FOK_UNIT\" TO \"Z_FOK_ANT\"",
+                             @"ALTER TABLE \"ZROOT\" RENAME COLUMN \"Z_FOK_UNIT1\" TO \"Z_FOK_BEE\"" ]) {
+        NSError *error = nil;
+        XCTAssertNotNil([store execute:sql parameters:nil error:&error], @"%@: %@", sql, error);
+    }
+    XCTAssertEqualObjects([self siblingColumn:@"ZUNIT1" ofEntity:@"Bee" inContext:context], @[ @"no column" ]);
+    context = nil;
+    store = nil;
+
+    context = [self siblingColumnsContext];
+    [self assertSiblingColumnsInContext:context label:@"upgraded"];
+    XCTAssertEqualObjects([self siblingColumn:@"ZNOTE" ofEntity:@"Bee" inContext:context], (@[ @"-", @"-" ]));
+
+    /* And it goes on as one made so. */
+    NSFetchRequest *bees = [NSFetchRequest fetchRequestWithEntityName:@"Bee"];
+    [bees setSortDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"base" ascending:YES] ]];
+    NSArray *found = [context executeFetchRequest:bees error:NULL];
+    if ([found count] == 2) {
+        [found[0] setValue:@30 forKey:@"note"];
+        NSError *error = nil;
+        XCTAssertTrue([context save:&error], @"%@", error);
+        XCTAssertEqualObjects([self siblingColumn:@"ZNOTE1" ofEntity:@"Bee" inContext:context], (@[ @"30", @"20" ]));
+    }
+    [self destroySiblingColumnsSchema];
 }

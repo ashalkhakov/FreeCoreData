@@ -250,6 +250,163 @@ static NSManagedObjectModel *XMLStoreTestModel(void)
                           [store identifier]);
 }
 
+#ifndef __APPLE__
+/* Before NSStoreTypeKey and NSStoreUUIDKey took Apple's values, this store
+   wrote the type and the UUID into the file's metadata under the
+   constants' names ("NSStoreTypeKey", "NSStoreUUIDKey"). Such a file still
+   opens with its type and UUID, keeps its own metadata, and those stale
+   copies are neither answered nor written back. */
+- (void)testReadsMetadataWrittenUnderTheOldKeyNames
+{
+    NSManagedObjectContext *ctx1 = [self contextWithModel:XMLStoreTestModel()];
+    NSPersistentStoreCoordinator *psc1 = [ctx1 persistentStoreCoordinator];
+    NSPersistentStore *store1 = [[psc1 persistentStores] objectAtIndex:0];
+    NSString *uuid = [store1 identifier];
+    NSMutableDictionary *custom = [[psc1 metadataForPersistentStore:store1] mutableCopy];
+    [custom setObject:@"kept" forKey:@"Custom"];
+    [psc1 setMetadata:custom forPersistentStore:store1];
+    [[NSEntityDescription insertNewObjectForEntityForName:@"Employee"
+                                   inManagedObjectContext:ctx1]
+        setValue:@"Alice" forKey:@"name"];
+    NSError *error = nil;
+    XCTAssertTrue([ctx1 save:&error], @"save failed: %@", error);
+
+    /* Rewrite the file's metadata as the store used to write it. */
+    NSXMLDocument *doc = [[NSXMLDocument alloc]
+        initWithContentsOfURL:self.storeURL options:0 error:&error];
+    NSXMLElement *element = [[[[[doc rootElement]
+        elementsForName:@"databaseInfo"] lastObject]
+        elementsForName:@"metadata"] lastObject];
+    NSMutableDictionary *old = [[NSPropertyListSerialization
+        propertyListWithData:[[element stringValue] dataUsingEncoding:NSUTF8StringEncoding]
+                     options:NSPropertyListMutableContainers format:NULL error:&error] mutableCopy];
+    XCTAssertEqualObjects([old objectForKey:@"Custom"], @"kept");
+    [old removeObjectForKey:NSStoreTypeKey];
+    [old removeObjectForKey:NSStoreUUIDKey];
+    [old setObject:@"NSXMLStoreType" forKey:@"NSStoreTypeKey"];
+    [old setObject:uuid forKey:@"NSStoreUUIDKey"];
+    NSData *plist = [NSPropertyListSerialization dataWithPropertyList:old
+        format:NSPropertyListXMLFormat_v1_0 options:0 error:&error];
+    [element setStringValue:[[NSString alloc] initWithData:plist
+                                                  encoding:NSUTF8StringEncoding]];
+    XCTAssertTrue([[doc XMLData] writeToURL:self.storeURL atomically:YES]);
+
+    NSDictionary *read = [NSPersistentStoreCoordinator
+        metadataForPersistentStoreOfType:NSXMLStoreType
+                                     URL:self.storeURL
+                                   error:&error];
+    XCTAssertEqualObjects([read objectForKey:NSStoreTypeKey], NSXMLStoreType);
+    XCTAssertEqualObjects([read objectForKey:NSStoreUUIDKey], uuid);
+    XCTAssertNil([read objectForKey:@"NSStoreTypeKey"]);
+    XCTAssertNil([read objectForKey:@"NSStoreUUIDKey"]);
+
+    NSManagedObjectContext *ctx2 = [self contextWithModel:XMLStoreTestModel()];
+    NSPersistentStoreCoordinator *psc2 = [ctx2 persistentStoreCoordinator];
+    NSPersistentStore *store2 = [[psc2 persistentStores] objectAtIndex:0];
+    NSDictionary *metadata = [psc2 metadataForPersistentStore:store2];
+    XCTAssertEqualObjects([store2 identifier], uuid);
+    XCTAssertEqualObjects([store2 type], NSXMLStoreType);
+    XCTAssertEqualObjects([metadata objectForKey:NSStoreTypeKey], NSXMLStoreType);
+    XCTAssertEqualObjects([metadata objectForKey:NSStoreUUIDKey], uuid);
+    XCTAssertEqualObjects([metadata objectForKey:@"Custom"], @"kept");
+    XCTAssertNil([metadata objectForKey:@"NSStoreTypeKey"]);
+    XCTAssertNil([metadata objectForKey:@"NSStoreUUIDKey"]);
+    XCTAssertEqual([[self fetchEntityNamed:@"Employee" inContext:ctx2] count],
+                   (NSUInteger)1);
+
+    [[NSEntityDescription insertNewObjectForEntityForName:@"Employee"
+                                   inManagedObjectContext:ctx2]
+        setValue:@"Alice" forKey:@"name"];
+    XCTAssertTrue([ctx2 save:&error], @"save failed: %@", error);
+    NSString *written = [NSString stringWithContentsOfURL:self.storeURL
+                                                 encoding:NSUTF8StringEncoding
+                                                    error:&error];
+    XCTAssertFalse([written containsString:@"NSStoreTypeKey"]);
+    XCTAssertFalse([written containsString:@"NSStoreUUIDKey"]);
+}
+
+/* Saves one employee, then takes the file's <UUID> element away, keeping
+   in its metadata - when uuid is given - the copy an older store wrote
+   under the old key name. */
+- (void)writeStoreWithoutItsUUIDElementKeeping:(NSString *)uuid
+{
+    NSManagedObjectContext *ctx = [self contextWithModel:XMLStoreTestModel()];
+    [[NSEntityDescription insertNewObjectForEntityForName:@"Employee"
+                                   inManagedObjectContext:ctx]
+        setValue:@"Alice" forKey:@"name"];
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+
+    NSXMLDocument *doc = [[NSXMLDocument alloc]
+        initWithContentsOfURL:self.storeURL options:0 error:&error];
+    NSXMLElement *info = [[[doc rootElement] elementsForName:@"databaseInfo"] lastObject];
+    NSXMLElement *uuidElement = [[info elementsForName:@"UUID"] lastObject];
+    [info removeChildAtIndex:[uuidElement index]];
+
+    NSXMLElement *element = [[info elementsForName:@"metadata"] lastObject];
+    NSMutableDictionary *old = [[NSPropertyListSerialization
+        propertyListWithData:[[element stringValue] dataUsingEncoding:NSUTF8StringEncoding]
+                     options:NSPropertyListMutableContainers format:NULL error:&error] mutableCopy];
+    [old removeObjectForKey:NSStoreUUIDKey];
+    if (uuid != nil)
+        [old setObject:uuid forKey:@"NSStoreUUIDKey"];
+    NSData *plist = [NSPropertyListSerialization dataWithPropertyList:old
+        format:NSPropertyListXMLFormat_v1_0 options:0 error:&error];
+    [element setStringValue:[[NSString alloc] initWithData:plist encoding:NSUTF8StringEncoding]];
+    XCTAssertTrue([[doc XMLData] writeToURL:self.storeURL atomically:YES]);
+}
+
+/* A file with no <UUID> element of its own takes the UUID an older store
+   kept in its metadata under the old key name - as the metadata read
+   without opening it does too - and has the element when saved. */
+- (void)testAFileWithNoUUIDElementTakesTheOneUnderTheOldKeyName
+{
+    NSString *uuid = @"5B2E0C51-0B5A-4F3B-9E0E-6C1D2A3B4C5D";
+    [self writeStoreWithoutItsUUIDElementKeeping:uuid];
+
+    NSError *error = nil;
+    NSDictionary *read = [NSPersistentStoreCoordinator
+        metadataForPersistentStoreOfType:NSXMLStoreType URL:self.storeURL error:&error];
+    XCTAssertEqualObjects([read objectForKey:NSStoreUUIDKey], uuid);
+
+    NSManagedObjectContext *ctx = [self contextWithModel:XMLStoreTestModel()];
+    NSPersistentStore *store = [[[ctx persistentStoreCoordinator] persistentStores] firstObject];
+    XCTAssertEqualObjects([store identifier], uuid);
+    XCTAssertEqualObjects([[[ctx persistentStoreCoordinator] metadataForPersistentStore:store] objectForKey:NSStoreUUIDKey], uuid);
+    XCTAssertEqual([[self fetchEntityNamed:@"Employee" inContext:ctx] count], (NSUInteger)1);
+
+    [[NSEntityDescription insertNewObjectForEntityForName:@"Employee"
+                                   inManagedObjectContext:ctx]
+        setValue:@"Bob" forKey:@"name"];
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+    NSString *written = [NSString stringWithContentsOfURL:self.storeURL encoding:NSUTF8StringEncoding error:&error];
+    NSString *element = [NSString stringWithFormat:@"<UUID>%@</UUID>", uuid];
+    XCTAssertTrue([written containsString:element], @"%@", written);
+}
+
+/* And one with no UUID anywhere opens - with one of its own, kept. */
+- (void)testAFileWithNoUUIDAtAllOpensWithOneOfItsOwn
+{
+    [self writeStoreWithoutItsUUIDElementKeeping:nil];
+
+    NSManagedObjectContext *ctx = [self contextWithModel:XMLStoreTestModel()];
+    NSPersistentStore *store = [[[ctx persistentStoreCoordinator] persistentStores] firstObject];
+    XCTAssertNotNil(store);
+    NSString *uuid = [store identifier];
+    XCTAssertGreaterThan([uuid length], (NSUInteger)0);
+    XCTAssertEqual([[self fetchEntityNamed:@"Employee" inContext:ctx] count], (NSUInteger)1);
+
+    [[NSEntityDescription insertNewObjectForEntityForName:@"Employee"
+                                   inManagedObjectContext:ctx]
+        setValue:@"Bob" forKey:@"name"];
+    NSError *error = nil;
+    XCTAssertTrue([ctx save:&error], @"save failed: %@", error);
+    NSDictionary *read = [NSPersistentStoreCoordinator
+        metadataForPersistentStoreOfType:NSXMLStoreType URL:self.storeURL error:&error];
+    XCTAssertEqualObjects([read objectForKey:NSStoreUUIDKey], uuid);
+}
+#endif
+
 /* -- Apple interoperability -------------------------------------------- */
 
 /* The on-disk format written by this store must match the format Apple's
