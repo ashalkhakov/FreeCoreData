@@ -46,7 +46,7 @@ COMMON_BUILD_DIR = $(CURDIR)/../../Common/$(GNUSTEP_OBJ_DIR_NAME)
 
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(BACKEND_BUILD_DIR) -L$(COMMON_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
 
-CDPostgreSQLStoreTests_OBJC_LIBS += -lCDPostgreSQLStore -lCDSQLStore -lCoreData -lXCTest -lpq
+CDPostgreSQLStoreTests_OBJC_LIBS += -lCDPostgreSQLStore -lCDSQLStore -lCoreData -lXCTest -lpq -ldispatch
 
 XCTEST ?= xctest
 
