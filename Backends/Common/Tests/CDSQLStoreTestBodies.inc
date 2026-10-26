@@ -1775,16 +1775,22 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
        the objects behind.  A save cut off after its COMMIT reached the
        server, before the answer came back, reports a failure for a save
        that happened: the client cannot know, and the whole save is there. */
+    dispatch_semaphore_t axed = dispatch_semaphore_create(0);
     [NSThread detachNewThreadWithBlock:^{
         @autoreleasepool {
             [NSThread sleepForTimeInterval:0.002];
             [self terminateOtherConnections];
+            dispatch_semaphore_signal(axed);
         }
     }];
 
     NSError *error = nil;
     BOOL saved = [context save:&error];
 
+    /* The axe fallen before the store is opened again: a save that beat it
+       (a slower machine's) would otherwise have it cut the new connection,
+       the one the result is read on. */
+    dispatch_semaphore_wait(axed, DISPATCH_TIME_FOREVER);
     NSManagedObjectContext *reopened = [self newContext];
     NSUInteger count = [[self fetchPeopleWithPredicate:nil sortDescriptors:nil context:reopened] count];
 
