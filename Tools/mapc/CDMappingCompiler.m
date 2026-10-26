@@ -347,10 +347,15 @@ static id counterpartIn(NSDictionary *sourceByName,id destination){
    NSMutableArray *candidates=[NSMutableArray arrayWithObject:recorded];
    NSString       *directory=[mappingPath stringByDeletingLastPathComponent];
 
-   while([directory length]>0 && ![directory isEqualToString:@"/"]){
+   /* Up to a root, which is its own parent: "/", or "C:/" on Windows. */
+   while([directory length]>0){
+    NSString *parent=[directory stringByDeletingLastPathComponent];
+
+    if([parent isEqualToString:directory] || [directory isEqualToString:@"/"])
+     break;
     [candidates addObject:[directory stringByAppendingPathComponent:recorded]];
     [candidates addObject:[directory stringByAppendingPathComponent:[recorded lastPathComponent]]];
-    directory=[directory stringByDeletingLastPathComponent];
+    directory=parent;
    }
 
    for(NSString *candidate in candidates){
