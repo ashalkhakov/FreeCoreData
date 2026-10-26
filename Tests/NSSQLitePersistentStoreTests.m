@@ -158,6 +158,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 @interface NSSQLitePersistentStoreTests : XCTestCase
 
 @property (nonatomic, strong) NSURL *storeURL;
+/* Every coordinator -contextWithModel:options: made, for its store to be
+   closed before the files go (on Windows an open file is not deleted). */
+@property (nonatomic, strong) NSMutableArray *coordinators;
 
 @end
 
@@ -174,6 +177,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (void)removeStoreFilesAtURL:(NSURL *)url
 {
     NSFileManager *fileManager = [NSFileManager defaultManager];
+
+    for (NSPersistentStoreCoordinator *psc in self.coordinators)
+        for (NSPersistentStore *store in [psc persistentStores])
+            [psc removePersistentStore:store error:NULL];
+    [self.coordinators removeAllObjects];
 
     [fileManager removeItemAtURL:url error:NULL];
     /* Apple's SQLite store may leave WAL/SHM journal files behind. */
@@ -203,6 +211,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                                                        options:options
                                                          error:&error];
     XCTAssertNotNil(store, @"failed to add SQLite store: %@", error);
+    if (self.coordinators == nil)
+        self.coordinators = [NSMutableArray array];
+    [self.coordinators addObject:psc];
 
     NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
     [ctx setPersistentStoreCoordinator:psc];

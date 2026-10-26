@@ -759,6 +759,14 @@ static int copyDatabase(sqlite3 *from,sqlite3 *to){
    nor replaced, and a migration does both. */
 -(void)willRemoveFromPersistentStoreCoordinator:(NSPersistentStoreCoordinator *)coordinator {
    if(_database!=NULL){
+    /* Its statements first: a connection with statements still prepared
+       on it does not close (SQLITE_BUSY), and its file stays open.  Each
+       finalized here, not left to the row layouts' -dealloc, which comes
+       only when nothing else (an autorelease pool) holds them. */
+    for(CDSQLiteRowLayout *layout in [_rowLayouts objectEnumerator])
+     [layout finalizeStatements];
+    [_rowLayouts release];
+    _rowLayouts=nil;
     sqlite3_close(DATABASE);
     _database=NULL;
    }
