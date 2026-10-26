@@ -116,14 +116,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         if ([root length])
             [roots addObject:root];
     }
-    /* The bundle's own executable; on Windows with .exe, which gnustep-base's
-       -executablePath leaves off there. */
+    /* The bundle's own executable, as the platform names it (with .exe on
+       Windows). */
     for (NSString *root in roots) {
         NSString *wrapper = [root stringByAppendingPathComponent:[app stringByAppendingPathExtension:@"app"]];
         NSString *path = [[NSBundle bundleWithPath:wrapper] executablePath];
-        for (NSString *candidate in path ? @[ path, [path stringByAppendingPathExtension:@"exe"] ] : @[])
-            if ([files isExecutableFileAtPath:candidate])
-                return candidate;
+        if (path != nil && [files isExecutableFileAtPath:path])
+            return path;
     }
     return nil;
 }
