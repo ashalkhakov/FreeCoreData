@@ -16,6 +16,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 @interface NSManagedObjectContext (private)
 - (NSAtomicStoreCacheNode *)_cacheNodeForObjectID:(NSManagedObjectID *)objectID;
 - (void)_registerObject:(NSManagedObject *)object;
+// Membership of the context's own sets, which -insertedObjects and its kin
+// give a copy of: an object's -isInserted, -isUpdated and -isDeleted.
+- (BOOL)_hasInsertedObject:(NSManagedObject *)object;
+- (BOOL)_hasUpdatedObject:(NSManagedObject *)object;
+- (BOOL)_hasDeletedObject:(NSManagedObject *)object;
 
 /* Undo support.  Managed objects report every mutation here from
    -willChangeValueForKey: BEFORE the change applies, so the context can

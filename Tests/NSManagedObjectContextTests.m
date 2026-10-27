@@ -56,6 +56,51 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqual([[self.ctx registeredObjects] count], (NSUInteger)0);
 }
 
+/* The context's sets come as snapshots, as Apple's do: what enumerates one
+   may change the context meanwhile (a will-save observer that deletes what
+   was inserted), and the snapshot is as it was. */
+- (void)testItsSetsAreSnapshotsAChangeMeanwhileLeavesAlone
+{
+    NSEntityDescription *note = [[NSEntityDescription alloc] init];
+    [note setName:@"Note"];
+    NSAttributeDescription *title = [[NSAttributeDescription alloc] init];
+    [title setName:@"title"];
+    [title setAttributeType:NSStringAttributeType];
+    [title setOptional:YES];
+    [note setProperties:@[ title ]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ note ]];
+    NSPersistentStoreCoordinator *psc = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    [psc addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:NULL];
+    NSManagedObjectContext *ctx = [[NSManagedObjectContext alloc] init];
+    [ctx setPersistentStoreCoordinator:psc];
+
+    for (int i = 0; i < 3; i++)
+        [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:ctx];
+    NSSet *inserted = [ctx insertedObjects];
+    XCTAssertNoThrow({
+        for (NSManagedObject *object in inserted) {
+            [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:ctx];
+            [ctx deleteObject:object];
+            [ctx processPendingChanges];
+        }
+    }, @"enumerating the inserted objects while inserting, deleting and processing");
+    XCTAssertEqual([inserted count], (NSUInteger)3, @"the snapshot as it was");
+    XCTAssertEqual([[ctx insertedObjects] count], (NSUInteger)3, @"the context's now: the three inserted meanwhile");
+    for (NSManagedObject *object in inserted) XCTAssertFalse([object isInserted]);
+
+    NSSet *deleted = nil;
+    NSManagedObject *gone = [[ctx insertedObjects] anyObject];
+    [ctx save:NULL];
+    [ctx deleteObject:gone];
+    deleted = [ctx deletedObjects];
+    XCTAssertTrue([gone isDeleted] && ![gone isInserted]);
+    XCTAssertNoThrow({
+        for (NSManagedObject *object in deleted)
+            [NSEntityDescription insertNewObjectForEntityForName:@"Note" inManagedObjectContext:ctx];
+    }, @"enumerating the deleted objects while inserting");
+}
+
 - (void)testSaveWithNoChanges
 {
     NSError *err = nil;

@@ -508,20 +508,35 @@ static char CDContextQueueSpecificKey;
    _mergePolicy=value;
 }
 
+/* Each a snapshot, as Apple's are: a caller may change the context while it
+   enumerates one (a will-save observer that inserts or deletes), which the
+   context's own sets do not allow. */
 -(NSSet *)registeredObjects {
-  return _registeredObjects;
+  return [[_registeredObjects copy] autorelease];
 }
 
 -(NSSet *)insertedObjects {
-    return _insertedObjects;
+    return [[_insertedObjects copy] autorelease];
 }
 
 -(NSSet *)updatedObjects {
-   return _updatedObjects;
+   return [[_updatedObjects copy] autorelease];
 }
 
 -(NSSet *)deletedObjects {
-   return _deletedObjects;
+   return [[_deletedObjects copy] autorelease];
+}
+
+-(BOOL)_hasInsertedObject:(NSManagedObject *)object {
+   return [_insertedObjects containsObject:object];
+}
+
+-(BOOL)_hasUpdatedObject:(NSManagedObject *)object {
+   return [_updatedObjects containsObject:object];
+}
+
+-(BOOL)_hasDeletedObject:(NSManagedObject *)object {
+   return [_deletedObjects containsObject:object];
 }
 
 -(BOOL)hasChanges {

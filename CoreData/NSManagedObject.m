@@ -312,16 +312,15 @@ static id CDValueReplacingObjectIDs(id value,NSMapTable *replacements){
 }
 
 -(BOOL)isInserted {
-   return [[_context insertedObjects] containsObject:self];
+   return [_context _hasInsertedObject:self];
 }
 
 -(BOOL)isUpdated {
-   return [[_context updatedObjects] containsObject:self] &&
-          ![[_context insertedObjects] containsObject:self];
+   return [_context _hasUpdatedObject:self] && ![_context _hasInsertedObject:self];
 }
 
 -(BOOL)isDeleted {
-   return [[_context deletedObjects] containsObject:self];
+   return [_context _hasDeletedObject:self];
 }
 
 -(BOOL)hasChanges {
