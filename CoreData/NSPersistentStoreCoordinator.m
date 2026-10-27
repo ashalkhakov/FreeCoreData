@@ -8,6 +8,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #import <CoreData/NSPersistentStoreCoordinator.h>
 #import "NSXMLPersistentStore.h"
+#import "CDRowCache.h"
 #import <CoreData/NSManagedObjectModel.h>
 #import <CoreData/NSManagedObject.h>
 #import <CoreData/NSIncrementalStore.h>
@@ -96,6 +97,7 @@ static NSMutableDictionary *_storeTypes=nil;
    _lock=[[NSRecursiveLock alloc] init];
    _model=[model retain];
    _stores=[[NSMutableArray alloc] init];
+   _rowCache=[[CDRowCache alloc] init];
 
    /* The model is in use from here on: freeze its entities and make
       sure every entity's generated property accessors exist - however
@@ -111,6 +113,7 @@ static NSMutableDictionary *_storeTypes=nil;
    [_lock release];
    [_model release];
    [_stores release];
+   [_rowCache release];
    [super dealloc];
 }
 
@@ -343,8 +346,13 @@ static NSMutableDictionary *_storeTypes=nil;
    [[NSNotificationCenter defaultCenter] postNotificationName:NSPersistentStoreCoordinatorStoresDidChangeNotification object:self userInfo:userInfo];
    
    [_stores removeObjectIdenticalTo:store];
+   [_rowCache forgetRowsOfStore:store];
    
    return YES;
+}
+
+-(CDRowCache *)_rowCache {
+   return _rowCache;
 }
 
 /* How many objects a migration holds at once: it works through a store a

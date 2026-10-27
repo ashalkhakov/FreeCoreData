@@ -6,6 +6,7 @@ CoreData_OBJC_FILES = \
 	CoreData/CoreDataErrors.m \
 	CoreData/CDObjectConstants.m \
 	CoreData/CDBatchFaultingArray.m \
+	CoreData/CDRowCache.m \
 	CoreData/CDExternalDataStore.m \
 	CoreData/NSManagedObjectModel.m \
 	CoreData/NSEntityDescription.m \

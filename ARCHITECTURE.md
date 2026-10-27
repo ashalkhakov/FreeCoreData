@@ -260,6 +260,23 @@ relationships, which surface to callers as `NSOrderedSet`s
 an object back into a fault (NO) or re-reads under the current edits
 (YES).
 
+### The row cache
+
+As Apple's, a coordinator keeps the rows its incremental stores answered
+(`CDRowCache`): a row stays while some root context of the coordinator
+holds its object (has its permanent ID mapped) and is let go when none
+does. A fault takes its row from there when the row is no older than the
+context's `stalenessInterval` allows - any age at the default of -1,
+never at 0 - and asks the store otherwise, keeping what it read. A
+fetch's rows refresh the cache (an object already realized keeps its
+values); a save forgets the rows it wrote, so its read-back keeps the
+new ones; a merge forgets the rows of the objects it was told changed or
+were deleted. Another coordinator's writes - another process's - are
+seen once the row is let go, is older than the staleness interval, or is
+fetched again. Conflict detection and persisted snapshots read the store
+directly, and a store's versioned writes stay the guard against a stale
+row.
+
 ## The SQLite store
 
 `NSSQLitePersistentStore` is an incremental store over a schema

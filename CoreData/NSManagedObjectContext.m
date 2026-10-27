@@ -36,6 +36,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <CoreData/NSAtomicStoreCacheNode.h>
 #import <Foundation/NSExpression.h>
 #import "NSPersistentStoreCoordinator-Private.h"
+#import "CDRowCache.h"
 #import "CDObjectConstants-Private.h"
 #import "CDBatchFaultingArray.h"
 #import <Foundation/NSUndoManager.h>
@@ -180,6 +181,9 @@ static char CDContextQueueSpecificKey;
    /* Apple's default: a deletion's rules are applied as the event that
       made it ends, not at the save. */
    _propagatesDeletesAtEndOfEvent = YES;
+   /* Apple's default: a row the coordinator keeps fills a fault however
+      old it is (-1); 0 always asks the store. */
+   _stalenessInterval = -1;
    _confinedToMainThread=[NSThread isMainThread];
    _concurrencyType=NSConfinementConcurrencyType;
    _workQueue=NULL;
@@ -382,6 +386,7 @@ static char CDContextQueueSpecificKey;
    [_parentMergeObserver release];
    [_parentContext release];
 
+   [self _unmapAll];   /* lets the coordinator's row cache go of its rows */
    [_storeCoordinator release];
    [_undoManager release];
    NSFreeMapTable(_undoEventOldValues);
@@ -456,7 +461,7 @@ static char CDContextQueueSpecificKey;
       [_pendingUpdatedObjects removeObject:check];
       [_pendingDeletedObjects removeObject:check];
       [_pendingRefreshedObjects removeObject:check];
-      NSMapRemove(_objectIdToObject,objectID);
+      [self _unmapID:objectID];
      }
     }
    }
@@ -592,7 +597,7 @@ static char CDContextQueueSpecificKey;
    [_deletionsToPropagate removeAllObjects];
    [_mergedDeletions removeAllObjects];
    [self _discardPendingChangeNotifications];
-   NSResetMapTable(_objectIdToObject);
+   [self _unmapAll];
 
    /* As Apple's does, at once and whether or not there was anything: the
       IDs of every object the context had, which it has now forgotten (an
@@ -618,7 +623,7 @@ static char CDContextQueueSpecificKey;
 
    for(NSManagedObject *inserted in [[_insertedObjects copy] autorelease]){
     [_registeredObjects removeObject:inserted];
-    NSMapRemove(_objectIdToObject,[inserted objectID]);
+    [self _unmapID:[inserted objectID]];
    }
 
    [_insertedObjects removeAllObjects];
@@ -650,9 +655,41 @@ static char CDContextQueueSpecificKey;
    return NSMapGet(_objectIdToObject,objectID);
 }
 
+/* The object of objectID, mapped, and the coordinator's row cache told
+   that this context holds it - a root context's, with a permanent ID:
+   a child's rows come from its parent, and a temporary ID has none. */
+-(BOOL)_holdsRowsOfObjectID:(NSManagedObjectID *)objectID {
+   return _parentContext==nil && _storeCoordinator!=nil && ![objectID isTemporaryID];
+}
+
+-(void)_mapObject:(NSManagedObject *)object forID:(NSManagedObjectID *)objectID {
+   if(NSMapGet(_objectIdToObject,objectID)==nil && [self _holdsRowsOfObjectID:objectID])
+    [[_storeCoordinator _rowCache] holdObjectID:objectID];
+   NSMapInsert(_objectIdToObject,objectID,object);
+}
+
+-(void)_unmapID:(NSManagedObjectID *)objectID {
+   if(NSMapGet(_objectIdToObject,objectID)==nil)
+    return;
+   [objectID retain];   /* the map may hold the last reference */
+   NSMapRemove(_objectIdToObject,objectID);
+   if([self _holdsRowsOfObjectID:objectID])
+    [[_storeCoordinator _rowCache] releaseObjectID:objectID];
+   [objectID release];
+}
+
+-(void)_unmapAll {
+   if(_objectIdToObject==NULL)
+    return;
+   for(NSManagedObjectID *objectID in NSAllMapTableKeys(_objectIdToObject))
+    if([self _holdsRowsOfObjectID:objectID])
+     [[_storeCoordinator _rowCache] releaseObjectID:objectID];
+   NSResetMapTable(_objectIdToObject);
+}
+
 -(void)_registerObject:(NSManagedObject *)object {
    [_registeredObjects addObject:object];
-   NSMapInsert(_objectIdToObject,[object objectID],object);
+   [self _mapObject:object forID:[object objectID]];
 
    /* Not observed: the object tells this context of its changes itself
       (-_object:didChangeValueForKey:). */
@@ -664,7 +701,7 @@ static char CDContextQueueSpecificKey;
 
    if(result==nil){
     result=[[NSManagedObject alloc] initWithObjectID:objectID managedObjectContext:self];
-    NSMapInsert(_objectIdToObject,objectID,result);
+    [self _mapObject:result forID:objectID];
     [result release];
     [self _registerObject:result];
    }
@@ -1136,23 +1173,31 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
    if(![store respondsToSelector:@selector(_rowsForObjectIDs:)] || ![store respondsToSelector:@selector(_writeGeneration)])
     return;
 
-   NSMutableArray *unread=[NSMutableArray array];
+   /* Every fetched object's row, as Apple's fetch reads them: a fault
+      holds its row for its first read, and the coordinator's row cache
+      takes each - an object already realized keeps its values, but a
+      context filling a fault for it later reads the row as fetched. */
+   NSMutableArray *read=[NSMutableArray array];
 
    for(NSManagedObject *object in objects)
-    if([object isFault] && [[object objectID] persistentStore]==store)
-     [unread addObject:[object objectID]];
+    if([[object objectID] persistentStore]==store && ![[object objectID] isTemporaryID])
+     [read addObject:[object objectID]];
 
-   if([unread count]==0)
+   if([read count]==0)
     return;
 
    id<CDRowPrefetchingStore> reader=(id<CDRowPrefetchingStore>)store;
    unsigned long long        generation=[reader _writeGeneration];
-   NSDictionary             *rows=[reader _rowsForObjectIDs:unread];
+   NSDictionary             *rows=[reader _rowsForObjectIDs:read];
+   CDRowCache               *rowCache=[_storeCoordinator _rowCache];
 
    for(NSManagedObject *object in objects){
     NSIncrementalStoreNode *row=[rows objectForKey:[object objectID]];
 
-    if(row!=nil)
+    if(row==nil)
+     continue;
+    [rowCache setRow:row forObjectID:[object objectID]];
+    if([object isFault])
      [object _holdPrefetchedRow:row generation:generation];
    }
 }
@@ -1848,13 +1893,13 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
 -(void)assignObject:object toPersistentStore:(NSPersistentStore *)store {
    [object retain];
 
-   NSMapRemove(_objectIdToObject,[object objectID]);
+   [self _unmapID:[object objectID]];
 
    [[object objectID] setStoreIdentifier:[store identifier]];
 
    [[object objectID] setPersistentStore:store];
 
-   NSMapInsert(_objectIdToObject,[object objectID],object);
+   [self _mapObject:object forID:[object objectID]];
    [object release];
 }
 
@@ -1944,7 +1989,7 @@ static id CDAggregateValue(NSString *function,NSString *keyPath,NSArray *snapsho
     [[object retain] autorelease];   /* the sets below may hold the last reference */
 
     [_registeredObjects removeObject:object];
-    NSMapRemove(_objectIdToObject,[object objectID]);
+    [self _unmapID:[object objectID]];
 
     [_insertedObjects removeObject:object];
     [_updatedObjects removeObject:object];
@@ -2207,7 +2252,7 @@ static id CDUndoRestoredValue(id value){
       [object _setManagedObjectContext:self];   /* the save let it go */
       [[object objectID] setStoreIdentifier:[store identifier]];
       [[object objectID] setPersistentStore:store];
-      NSMapInsert(_objectIdToObject,[object objectID],object);
+      [self _mapObject:object forID:[object objectID]];
       [_insertedObjects addObject:object];
       [_updatedObjects addObject:object];
       [self _noteObjectInsertedForUndo:object];
@@ -2276,7 +2321,7 @@ static id CDUndoRestoredValue(id value){
      [_pendingInsertedObjects removeObject:object];
      [_pendingUpdatedObjects removeObject:object];
      [_pendingDeletedObjects removeObject:object];
-     NSMapRemove(_objectIdToObject,[object objectID]);
+     [self _unmapID:[object objectID]];
     }
    }
 
@@ -2400,10 +2445,10 @@ static id CDUndoRestoredValue(id value){
     NSManagedObjectID *checkID=[check objectID];
     NSManagedObjectID *permanentID=[given objectAtIndex:i+1];
 
-    NSMapRemove(_objectIdToObject,checkID);
+    [self _unmapID:checkID];
     NSMapInsert(replacements,checkID,permanentID);
     [check _setObjectID:permanentID];
-    NSMapInsert(_objectIdToObject,permanentID,check);
+    [self _mapObject:check forID:permanentID];
    }
 
    if(NSCountMapTable(replacements)>0){
@@ -3150,7 +3195,7 @@ static NSDictionary *CDSnapshotOfNode(NSIncrementalStoreNode *node,NSEntityDescr
       re-realize would ask the store, which does not have this data
       until the root saves). */
    for(NSManagedObject *deleted in _deletedObjects){
-    NSMapRemove(_objectIdToObject,[deleted objectID]);
+    [self _unmapID:[deleted objectID]];
     [_insertedObjects removeObject:deleted];
     [_updatedObjects removeObject:deleted];
    }
@@ -3249,7 +3294,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
    [_insertedObjects setSet:inserted];
    [_updatedObjects setSet:updated];
    for(NSManagedObject *deleted in _deletedObjects)
-    NSMapInsert(_objectIdToObject,[deleted objectID],deleted);
+    [self _mapObject:deleted forID:[deleted objectID]];
 }
 
 -(BOOL)_coordinatorLocked_save:(NSError **)errorp {
@@ -3350,7 +3395,7 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
 
     [affectedStores addObject:store];
     
-    NSMapRemove(_objectIdToObject,[deleted objectID]);
+    [self _unmapID:[deleted objectID]];
 
     [_insertedObjects removeObject:deleted];
     [_updatedObjects removeObject:deleted];
@@ -3462,6 +3507,12 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
        or merged; a lazy re-read would instead make them accidentally
        see such changes.  Transient property values, which the store
        round trip knows nothing about, are carried across. */
+    /* The rows written are read back below, and a deleted one is gone:
+       the coordinator's row cache is told not to answer for them. */
+    for(NSManagedObject *object in saved)
+     [[_storeCoordinator _rowCache] forgetRowForObjectID:[object objectID]];
+    for(NSManagedObject *object in notifyDeleted)
+     [[_storeCoordinator _rowCache] forgetRowForObjectID:[object objectID]];
     [self _resetCommittedValuesOfSavedObjects:saved];
 
     for(NSManagedObject *object in saved)
@@ -3526,12 +3577,17 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
       for(NSManagedObjectID *objectID in [changeNotificationData objectForKey:NSUpdatedObjectsKey]){
        NSManagedObject *local=[context objectRegisteredForID:objectID];
 
+       /* Changed in the store: the row the coordinator keeps is not
+          the row any more. */
+       [[[context persistentStoreCoordinator] _rowCache] forgetRowForObjectID:objectID];
        if(local!=nil)
         [context refreshObject:local mergeChanges:YES];
       }
 
       for(NSManagedObjectID *objectID in [changeNotificationData objectForKey:NSDeletedObjectsKey]){
        NSManagedObject *local=[context objectRegisteredForID:objectID];
+
+       [[[context persistentStoreCoordinator] _rowCache] forgetRowForObjectID:objectID];
 
        if(local!=nil){
         [local _discardChangedValues];
@@ -3576,12 +3632,19 @@ static BOOL CDStoreServesObjectID(NSPersistentStore *store,NSManagedObjectID *ob
    for(NSManagedObjectID *objectID in updatedIDs){
     NSManagedObject *local=[self objectRegisteredForID:objectID];
 
+    /* Changed in the store: the row the coordinator keeps is not the row
+       any more. */
+    if(_parentContext==nil)
+     [[_storeCoordinator _rowCache] forgetRowForObjectID:objectID];
     if(local!=nil)
      [self refreshObject:local mergeChanges:YES];
    }
 
    for(NSManagedObjectID *objectID in deletedIDs){
     NSManagedObject *local=[self objectRegisteredForID:objectID];
+
+    if(_parentContext==nil)
+     [[_storeCoordinator _rowCache] forgetRowForObjectID:objectID];
 
     if(local!=nil){
      /* Apple keeps the local instance registered and materialized (its
