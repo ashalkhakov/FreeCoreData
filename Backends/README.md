@@ -102,6 +102,21 @@ given one later and read what it wrote before.  The protocol is declared in
 the store's source, as the history additions are, so it still builds against
 Apple's CoreData, where nothing gives it one.
 
+## Rows kept between requests
+
+As Apple's coordinator does, FreeCoreData's keeps the rows a store answered
+while some context holds their objects, so that a fault in another context
+need not go to the server.  A server's contexts, one for each request, are
+let go of before the next request comes, and the rows with them.  A store
+added with `CDRowCacheRetainedRowsOption`, a FreeCoreData addition, keeps
+that many of them besides, the least recently used forgotten first, for the
+coordinator's next contexts to fill their faults from.  Another process's
+writes are not seen in a row kept so: give the store
+`CDRowCacheRetentionIntervalOption`, the seconds after which a row is read
+again, or merge what the other processes saved
+(`mergeChangesFromRemoteContextSave:intoContexts:`).  A context whose
+`stalenessInterval` is 0 always reads the server.
+
 ## What the backends share
 
 `Common/` holds the half of a SQL backend that does not depend on which

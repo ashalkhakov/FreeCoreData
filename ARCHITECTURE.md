@@ -280,6 +280,16 @@ fetched again. Conflict detection and persisted snapshots read the store
 directly, and a store's versioned writes stay the guard against a stale
 row.
 
+Beyond Apple's, a store added with `CDRowCacheRetainedRowsOption` (a
+count) has the coordinator keep that many of its rows no context holds any
+longer too, in the order they were let go of: a context holding the object
+again takes its row back out, and the one let go of longest ago is
+forgotten first. With `CDRowCacheRetentionIntervalOption` (seconds), a
+row read longer ago than that is not taken back. Saves and merges forget
+these rows as they forget the rows held. This is for a server, whose
+contexts - one for each request - are let go of before the next request
+needs the same rows.
+
 ## The SQLite store
 
 `NSSQLitePersistentStore` is an incremental store over a schema

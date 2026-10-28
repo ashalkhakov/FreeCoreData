@@ -386,6 +386,49 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqualObjects([both valueForKey:@"age"], (@[ @37, @45 ]));
 }
 
+#if !defined(__APPLE__)
+/* The age of the person objectID names, read as a request on a server
+   would: in a context of its own, let go of after. */
+- (NSNumber *)ageOf:(NSManagedObjectID *)objectID inCoordinator:(NSPersistentStoreCoordinator *)coordinator
+{
+    NSNumber *age = nil;
+    @autoreleasepool {
+        NSManagedObjectContext *request = [[NSManagedObjectContext alloc] init];
+        [request setPersistentStoreCoordinator:coordinator];
+        NSManagedObjectID *local = [coordinator managedObjectIDForURIRepresentation:[objectID URIRepresentation]];
+        age = [[request objectWithID:local] valueForKey:@"age"];
+    }
+    return age;
+}
+
+/* Not Apple's: with CDRowCacheRetainedRowsOption, the contexts a server
+   makes and lets go of, one for each request, fill their faults from the
+   rows its coordinator kept from the requests before - not seeing another
+   process's write until the row outlives CDRowCacheRetentionIntervalOption. */
+- (void)testRequestsFillTheirFaultsFromTheRowsKeptForNoContext
+{
+    if (![self databaseAvailable]) return;
+
+    NSManagedObject *ada = [self insertPersonNamed:@"Ada" age:36];
+    if (![self save]) return;
+
+    NSDictionary *options = self.storeOptions;
+    NSMutableDictionary *retaining = [options mutableCopy];
+    [retaining setObject:@100 forKey:CDRowCacheRetainedRowsOption];
+    [retaining setObject:@0.5 forKey:CDRowCacheRetentionIntervalOption];
+    self.storeOptions = retaining;
+    NSPersistentStoreCoordinator *server = [[self newContext] persistentStoreCoordinator];
+    self.storeOptions = options;
+
+    XCTAssertEqualObjects([self ageOf:[ada objectID] inCoordinator:server], @36);
+    [ada setValue:@37 forKey:@"age"];
+    if (![self save]) return;
+    XCTAssertEqualObjects([self ageOf:[ada objectID] inCoordinator:server], @36, @"the row kept from the request before");
+    [NSThread sleepForTimeInterval:0.75];
+    XCTAssertEqualObjects([self ageOf:[ada objectID] inCoordinator:server], @37, @"past the retention interval: the server's");
+}
+#endif
+
 /* -- external binary data ---------------------------------------------- */
 
 static NSData *CDSQLFilled(NSUInteger length, char fill)

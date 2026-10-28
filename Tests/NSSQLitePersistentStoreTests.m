@@ -2917,17 +2917,29 @@ static NSManagedObjectModel *rowCacheModel(void)
 /* A saved item, and its coordinator; no context holds it. */
 - (NSManagedObjectID *)savedItemNamed:(NSString *)name coordinator:(NSPersistentStoreCoordinator **)coordinatorp
 {
-    NSManagedObjectID *objectID = nil;
+    return [[self savedItemsNamed:@[ name ] options:nil coordinator:coordinatorp] firstObject];
+}
+
+/* Items saved in one context of a new coordinator, its store added with
+   options, and the coordinator; no context holds them. */
+- (NSArray *)savedItemsNamed:(NSArray *)names options:(NSDictionary *)options coordinator:(NSPersistentStoreCoordinator **)coordinatorp
+{
+    NSMutableArray *objectIDs = [NSMutableArray array];
     @autoreleasepool {
-        NSManagedObjectContext *context = [self contextWithModel:rowCacheModel() options:nil];
-        NSManagedObject *item = [NSEntityDescription insertNewObjectForEntityForName:@"Item" inManagedObjectContext:context];
-        [item setValue:name forKey:@"name"];
+        NSManagedObjectContext *context = [self contextWithModel:rowCacheModel() options:options];
+        NSMutableArray *items = [NSMutableArray array];
+        for (NSString *name in names) {
+            NSManagedObject *item = [NSEntityDescription insertNewObjectForEntityForName:@"Item" inManagedObjectContext:context];
+            [item setValue:name forKey:@"name"];
+            [items addObject:item];
+        }
         NSError *error = nil;
         XCTAssertTrue([context save:&error], @"%@", error);
-        objectID = [item objectID];
+        for (NSManagedObject *item in items)
+            [objectIDs addObject:[item objectID]];
         *coordinatorp = [context persistentStoreCoordinator];
     }
-    return objectID;
+    return objectIDs;
 }
 
 /* As Apple's coordinator: a row it read is kept while some context holds
@@ -3014,5 +3026,74 @@ static NSManagedObjectModel *rowCacheModel(void)
     [holder refreshObject:held mergeChanges:NO];
     XCTAssertEqualObjects([held valueForKey:@"name"], @"v2", @"staleness 0: the store's");
 }
+
+#if !defined(__APPLE__)
+/* Not Apple's: a store added with CDRowCacheRetainedRowsOption has the
+   coordinator keep rows no context holds any longer too - up to that
+   many, the least recently let go of forgotten first. */
+- (void)testAStoreAskedToKeepsRowsNoContextHolds
+{
+    NSPersistentStoreCoordinator *coordinator = nil;
+    NSArray *objectIDs = [self savedItemsNamed:@[ @"a1", @"b1", @"c1" ]
+                                       options:@{ CDRowCacheRetainedRowsOption : @2 }
+                                   coordinator:&coordinator];
+
+    for (NSManagedObjectID *objectID in objectIDs)
+        [self nameOfItem:objectID inCoordinator:coordinator staleness:-1];
+    for (NSManagedObjectID *objectID in objectIDs)
+        [self renameItem:objectID to:@"2"];
+    XCTAssertEqualObjects([self nameOfItem:objectIDs[1] inCoordinator:coordinator staleness:-1], @"b1", @"kept");
+    XCTAssertEqualObjects([self nameOfItem:objectIDs[2] inCoordinator:coordinator staleness:-1], @"c1", @"kept");
+    XCTAssertEqualObjects([self nameOfItem:objectIDs[0] inCoordinator:coordinator staleness:-1], @"2", @"the first let go of, beyond two kept");
+    XCTAssertEqualObjects([self nameOfItem:objectIDs[2] inCoordinator:coordinator staleness:0], @"2", @"staleness 0 reads the store");
+    XCTAssertEqualObjects([self nameOfItem:objectIDs[2] inCoordinator:coordinator staleness:-1], @"2", @"and keeps what it read");
+}
+
+/* A row kept for no context is not used once older than the store's
+   CDRowCacheRetentionIntervalOption. */
+- (void)testARowKeptForNoContextIsNotUsedPastTheRetentionInterval
+{
+    NSPersistentStoreCoordinator *coordinator = nil;
+    NSManagedObjectID *objectID = [[self savedItemsNamed:@[ @"v1" ]
+                                                 options:@{ CDRowCacheRetainedRowsOption : @10,
+                                                            CDRowCacheRetentionIntervalOption : @0.25 }
+                                             coordinator:&coordinator] firstObject];
+
+    [self renameItem:objectID to:@"v2"];
+    XCTAssertEqualObjects([self nameOfItem:objectID inCoordinator:coordinator staleness:-1], @"v1", @"kept");
+    [NSThread sleepForTimeInterval:0.5];
+    XCTAssertEqualObjects([self nameOfItem:objectID inCoordinator:coordinator staleness:-1], @"v2", @"past the interval: the store's");
+}
+
+/* The coordinator's own saves and merges reach the rows it keeps for no
+   context, as they reach the rows held. */
+- (void)testTheRowsKeptForNoContextFollowTheCoordinatorsSaves
+{
+    NSPersistentStoreCoordinator *coordinator = nil;
+    NSArray *objectIDs = [self savedItemsNamed:@[ @"a1", @"b1" ]
+                                       options:@{ CDRowCacheRetainedRowsOption : @10 }
+                                   coordinator:&coordinator];
+
+    @autoreleasepool {
+        NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+        [context setPersistentStoreCoordinator:coordinator];
+        [[context objectWithID:objectIDs[0]] setValue:@"a2" forKey:@"name"];
+        [context deleteObject:[context objectWithID:objectIDs[1]]];
+        NSError *error = nil;
+        XCTAssertTrue([context save:&error], @"%@", error);
+    }
+    XCTAssertEqualObjects([self nameOfItem:objectIDs[0] inCoordinator:coordinator staleness:-1], @"a2", @"the row saved");
+
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    [context setPersistentStoreCoordinator:coordinator];
+    NSError *error = nil;
+    XCTAssertNil([context existingObjectWithID:objectIDs[1] error:&error], @"the row deleted is forgotten");
+
+    [self renameItem:objectIDs[0] to:@"a3"];
+    [NSManagedObjectContext mergeChangesFromRemoteContextSave:@{ NSUpdatedObjectsKey : @[ objectIDs[0] ] }
+                                                 intoContexts:@[ context ]];
+    XCTAssertEqualObjects([self nameOfItem:objectIDs[0] inCoordinator:coordinator staleness:-1], @"a3", @"the row merged is forgotten");
+}
+#endif
 
 @end
