@@ -22,11 +22,21 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    filling a fault takes the row from here when it is no older than the
    context's stalenessInterval allows (a negative interval: any age; 0:
    none), and asks the store otherwise; a fetch's rows and a save's
-   rows read back refresh it.  Safe from any thread. */
+   rows read back refresh it.  Safe from any thread.
+
+   Beyond Apple's: a store added with CDRowCacheRetainedRowsOption has
+   the rows no context holds any longer kept too (-retainRowsOfStore:...),
+   up to that many, the least recently let go of forgotten first, and none
+   read longer ago than its CDRowCacheRetentionIntervalOption. */
 @interface CDRowCache : NSObject {
    NSLock              *_lock;
-   NSMutableDictionary *_entries;   /* object ID -> CDRowCacheEntry */
+   NSMutableDictionary *_entries;     /* object ID -> CDRowCacheEntry */
+   NSMapTable          *_retentions;  /* store -> CDRowCacheRetention */
 }
+
+/* Keeps, of store's rows no context holds, the limit last let go of,
+   while read no longer than interval ago (no limit if not positive). */
+- (void)retainRowsOfStore:(NSPersistentStore *)store limit:(NSUInteger)limit interval:(NSTimeInterval)interval;
 
 /* A context holds, or lets go of, the object of a permanent ID. */
 - (void)holdObjectID:(NSManagedObjectID *)objectID;

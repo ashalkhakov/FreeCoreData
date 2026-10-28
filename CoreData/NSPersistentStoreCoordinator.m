@@ -42,6 +42,8 @@ NSString * const NSStoreModelVersionIdentifiersKey=@"NSStoreModelVersionIdentifi
 NSString * const NSXMLStoreType=@"XML";
 NSString * const NSSQLiteStoreType=@"SQLite";
 NSString * const NSSQLiteManualVacuumOption=@"NSSQLiteManualVacuumOption";
+NSString * const CDRowCacheRetainedRowsOption=@"CDRowCacheRetainedRowsOption";
+NSString * const CDRowCacheRetentionIntervalOption=@"CDRowCacheRetentionIntervalOption";
 NSString * const NSInMemoryStoreType=@"InMemory";
 NSString * const NSMigratePersistentStoresAutomaticallyOption=@"NSMigratePersistentStoresAutomaticallyOption";
 NSString * const NSReadOnlyPersistentStoreOption=@"NSReadOnlyPersistentStoreOption";
@@ -308,6 +310,11 @@ static NSMutableDictionary *_storeTypes=nil;
 
     if(uuid!=nil)
      [store setIdentifier:uuid];
+
+    NSInteger retainedRows=[[options objectForKey:CDRowCacheRetainedRowsOption] integerValue];
+
+    if(retainedRows>0)
+     [_rowCache retainRowsOfStore:store limit:retainedRows interval:[[options objectForKey:CDRowCacheRetentionIntervalOption] doubleValue]];
 
     [_stores addObject:store];
     [store didAddToPersistentStoreCoordinator:self];
