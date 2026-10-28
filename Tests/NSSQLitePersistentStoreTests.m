@@ -2874,4 +2874,145 @@ static NSManagedObjectModel *siblingColumnsModel(void)
     XCTAssertEqual([[self fetchEntityNamed:@"Part" inContext:reader predicate:nil sortDescriptors:nil] count], (NSUInteger)0);
 }
 
+/* -- the coordinator's row cache ------------------------------------------- */
+
+static NSManagedObjectModel *rowCacheModel(void)
+{
+    NSEntityDescription *item = fleetEntity(@"Item");
+    [item setProperties:@[ fleetAttribute(@"name", NSStringAttributeType) ]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ item ]];
+    return model;
+}
+
+/* The name of the item, read in a new context of coordinator with the
+   staleness interval given, the context let go of after. */
+- (NSString *)nameOfItem:(NSManagedObjectID *)objectID
+           inCoordinator:(NSPersistentStoreCoordinator *)coordinator
+               staleness:(NSTimeInterval)staleness
+{
+    NSString *name = nil;
+    @autoreleasepool {
+        NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+        [context setPersistentStoreCoordinator:coordinator];
+        [context setStalenessInterval:staleness];
+        name = [[[context objectWithID:objectID] valueForKey:@"name"] copy];
+    }
+    return name;
+}
+
+/* The item renamed by another coordinator - another process. */
+- (void)renameItem:(NSManagedObjectID *)objectID to:(NSString *)name
+{
+    @autoreleasepool {
+        NSManagedObjectContext *other = [self contextWithModel:rowCacheModel() options:nil];
+        NSManagedObjectID *otherID = [[other persistentStoreCoordinator]
+            managedObjectIDForURIRepresentation:[objectID URIRepresentation]];
+        NSError *error = nil;
+        [[other existingObjectWithID:otherID error:&error] setValue:name forKey:@"name"];
+        XCTAssertTrue([other save:&error], @"%@", error);
+    }
+}
+
+/* A saved item, and its coordinator; no context holds it. */
+- (NSManagedObjectID *)savedItemNamed:(NSString *)name coordinator:(NSPersistentStoreCoordinator **)coordinatorp
+{
+    NSManagedObjectID *objectID = nil;
+    @autoreleasepool {
+        NSManagedObjectContext *context = [self contextWithModel:rowCacheModel() options:nil];
+        NSManagedObject *item = [NSEntityDescription insertNewObjectForEntityForName:@"Item" inManagedObjectContext:context];
+        [item setValue:name forKey:@"name"];
+        NSError *error = nil;
+        XCTAssertTrue([context save:&error], @"%@", error);
+        objectID = [item objectID];
+        *coordinatorp = [context persistentStoreCoordinator];
+    }
+    return objectID;
+}
+
+/* As Apple's coordinator: a row it read is kept while some context holds
+   its object, and fills a fault in any of its contexts - unchanged by
+   another coordinator's write - unless the context's stalenessInterval
+   is 0, which reads the store and keeps what it read.  Once no context
+   holds the object, the row is let go and read again. */
+- (void)testTheCoordinatorKeepsTheRowsItsContextsHold
+{
+    NSPersistentStoreCoordinator *coordinator = nil;
+    NSManagedObjectID *objectID = [self savedItemNamed:@"v1" coordinator:&coordinator];
+
+    NSManagedObjectContext *holder = [[NSManagedObjectContext alloc] init];
+    [holder setPersistentStoreCoordinator:coordinator];
+    NSManagedObject *held = [holder objectWithID:objectID];
+    XCTAssertEqualObjects([held valueForKey:@"name"], @"v1");
+
+    [self renameItem:objectID to:@"v2"];
+    XCTAssertEqualObjects([self nameOfItem:objectID inCoordinator:coordinator staleness:-1], @"v1", @"the row kept");
+    XCTAssertEqualObjects([self nameOfItem:objectID inCoordinator:coordinator staleness:0], @"v2", @"staleness 0 reads the store");
+    XCTAssertEqualObjects([self nameOfItem:objectID inCoordinator:coordinator staleness:-1], @"v2", @"and keeps what it read");
+
+    held = nil;
+    holder = nil;
+    [self renameItem:objectID to:@"v3"];
+    XCTAssertEqualObjects([self nameOfItem:objectID inCoordinator:coordinator staleness:-1], @"v3", @"let go once no context holds it");
+}
+
+/* A row older than a context's positive stalenessInterval is read again. */
+- (void)testARowOlderThanTheStalenessIntervalIsReadAgain
+{
+    NSPersistentStoreCoordinator *coordinator = nil;
+    NSManagedObjectID *objectID = [self savedItemNamed:@"v1" coordinator:&coordinator];
+
+    NSManagedObjectContext *holder = [[NSManagedObjectContext alloc] init];
+    [holder setPersistentStoreCoordinator:coordinator];
+    XCTAssertEqualObjects([[holder objectWithID:objectID] valueForKey:@"name"], @"v1");
+
+    [self renameItem:objectID to:@"v2"];
+    XCTAssertEqualObjects([self nameOfItem:objectID inCoordinator:coordinator staleness:60], @"v1");
+    [NSThread sleepForTimeInterval:0.5];
+    XCTAssertEqualObjects([self nameOfItem:objectID inCoordinator:coordinator staleness:0.25], @"v2");
+    XCTAssertEqualObjects([self nameOfItem:objectID inCoordinator:coordinator staleness:60], @"v2", @"kept as read again");
+}
+
+/* A fetch reads its objects' rows, and the coordinator keeps them: an
+   object the fetching context had already read keeps its values, but
+   another context filling a fault reads the row as fetched. */
+- (void)testAFetchRefreshesTheRowsKept
+{
+    NSPersistentStoreCoordinator *coordinator = nil;
+    NSManagedObjectID *objectID = [self savedItemNamed:@"v1" coordinator:&coordinator];
+
+    NSManagedObjectContext *holder = [[NSManagedObjectContext alloc] init];
+    [holder setPersistentStoreCoordinator:coordinator];
+    NSManagedObject *held = [holder objectWithID:objectID];
+    XCTAssertEqualObjects([held valueForKey:@"name"], @"v1");
+
+    [self renameItem:objectID to:@"v2"];
+    NSArray *fetched = [holder executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Item"] error:NULL];
+    XCTAssertEqual([fetched firstObject], held);
+    XCTAssertEqualObjects([held valueForKey:@"name"], @"v1", @"the fetching context's object keeps its values");
+    XCTAssertEqualObjects([self nameOfItem:objectID inCoordinator:coordinator staleness:-1], @"v2", @"the row kept is the fetched one");
+}
+
+/* Refreshing an object fills its fault again as any fault is filled: from
+   the row kept, if the context's stalenessInterval allows. */
+- (void)testARefreshedObjectIsFilledFromTheRowKept
+{
+    NSPersistentStoreCoordinator *coordinator = nil;
+    NSManagedObjectID *objectID = [self savedItemNamed:@"v1" coordinator:&coordinator];
+
+    NSManagedObjectContext *holder = [[NSManagedObjectContext alloc] init];
+    [holder setPersistentStoreCoordinator:coordinator];
+    NSManagedObject *held = [holder objectWithID:objectID];
+    XCTAssertEqualObjects([held valueForKey:@"name"], @"v1");
+
+    XCTAssertEqual([holder stalenessInterval], (NSTimeInterval)-1, @"Apple's default");
+    [self renameItem:objectID to:@"v2"];
+    [holder refreshObject:held mergeChanges:NO];
+    XCTAssertEqualObjects([held valueForKey:@"name"], @"v1", @"staleness -1: the row kept");
+
+    [holder setStalenessInterval:0];
+    [holder refreshObject:held mergeChanges:NO];
+    XCTAssertEqualObjects([held valueForKey:@"name"], @"v2", @"staleness 0: the store's");
+}
+
 @end

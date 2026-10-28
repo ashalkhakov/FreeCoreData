@@ -11,6 +11,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import "NSManagedObject-Private.h"
 #import "NSManagedObjectContext-Private.h"
 #import "NSEntityDescription-Private.h"
+#import "NSPersistentStoreCoordinator-Private.h"
+#import "CDRowCache.h"
 #import <CoreData/NSAttributeDescription.h>
 #import <CoreData/NSRelationshipDescription.h>
 #import <CoreData/CoreDataErrors.h>
@@ -471,18 +473,27 @@ static id CDPublicValue(NSManagedObjectContext *context,NSPropertyDescription *p
    NSError                *nodeError=nil;
    NSIncrementalStoreNode *node;
 
+   NSPersistentStoreCoordinator *coordinator=[_context persistentStoreCoordinator];
+   CDRowCache                   *rowCache=[coordinator _rowCache];
+
    /* Store round trips are serialized through the coordinator's
       recursive lock (contexts on different queues share the stores). */
-   [[_context persistentStoreCoordinator] lock];
-   /* The row its fetch read, unless the store has written since. */
+   [coordinator lock];
+   /* The row its fetch read, unless the store has written since; else,
+      as Apple's, the row the coordinator keeps, if the context's
+      stalenessInterval allows its age; else the store's, kept. */
    if(_prefetchedRow!=nil && [store respondsToSelector:@selector(_writeGeneration)] &&
-      [(id<CDRowPrefetchingStore>)store _writeGeneration]==_prefetchedGeneration)
+      [(id<CDRowPrefetchingStore>)store _writeGeneration]==_prefetchedGeneration){
     node=[_prefetchedRow retain];
-   else
+    [rowCache setRow:node forObjectID:[self objectID]];
+   }
+   else if((node=[[rowCache rowForObjectID:[self objectID] staleness:[_context stalenessInterval]] retain])==nil){
     node=[store newValuesForObjectWithID:[self objectID] withContext:_context error:&nodeError];
+    [rowCache setRow:node forObjectID:[self objectID]];
+   }
    [_prefetchedRow release];
    _prefetchedRow=nil;
-   [[_context persistentStoreCoordinator] unlock];
+   [coordinator unlock];
    /* The version these values are, for the optimistic lock of the next
       save. */
    if(node!=nil)

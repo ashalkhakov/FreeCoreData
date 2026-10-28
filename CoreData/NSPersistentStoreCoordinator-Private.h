@@ -13,8 +13,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @class NSManagedObjectID;
 
+@class CDRowCache;
+
 @interface NSPersistentStoreCoordinator (private)
 - (NSPersistentStore *)_persistentStoreWithIdentifier:(NSString *)identifier;
 - (NSPersistentStore *)_persistentStoreForObjectID:(NSManagedObjectID *)objectID;
 - (NSPersistentStore *)_persistentStoreForObject:(NSManagedObject *)object;
+/* The coordinator's row cache (CDRowCache.h). */
+- (CDRowCache *)_rowCache;
 @end
