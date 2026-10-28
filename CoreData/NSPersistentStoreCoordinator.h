@@ -28,8 +28,9 @@ COREDATA_EXPORT NSString *const NSIgnorePersistentStoreVersioningOption;
 /* A SQLite store added with this set to YES rebuilds its file (VACUUM),
    giving back the space of deleted rows.  Other stores ignore it. */
 COREDATA_EXPORT NSString *const NSSQLiteManualVacuumOption;
-/* Not Apple's.  The coordinator keeps the rows of its incremental stores
-   while some context holds their objects, as Apple's does.  A store added
+/* Not Apple's.  The coordinator keeps the rows of the framework's own
+   stores (SQLite, PostgreSQL, MySQL) while some context holds their
+   objects, as Apple's does its SQLite store's.  Such a store added
    with CDRowCacheRetainedRowsOption, an NSNumber, has that many of the
    rows no context holds any longer kept as well, the least recently let
    go of forgotten first - so that contexts made and let go of one after
