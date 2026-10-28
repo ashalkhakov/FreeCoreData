@@ -262,8 +262,11 @@ an object back into a fault (NO) or re-reads under the current edits
 
 ### The row cache
 
-As Apple's, a coordinator keeps the rows its incremental stores answered
-(`CDRowCache`): a row stays while some root context of the coordinator
+As Apple's does for its SQLite store, a coordinator keeps the rows the
+framework's own stores answered - SQLite, PostgreSQL, MySQL, the stores
+that read rows ahead for a fetch - (`CDRowCache`); any other incremental
+store is asked for every fault and refresh, as Apple's coordinator asks
+it. A row stays while some root context of the coordinator
 holds its object (has its permanent ID mapped) and is let go when none
 does. A fault takes its row from there when the row is no older than the
 context's `stalenessInterval` allows - any age at the default of -1,

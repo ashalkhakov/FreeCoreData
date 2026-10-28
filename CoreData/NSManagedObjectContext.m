@@ -657,9 +657,17 @@ static char CDContextQueueSpecificKey;
 
 /* The object of objectID, mapped, and the coordinator's row cache told
    that this context holds it - a root context's, with a permanent ID:
-   a child's rows come from its parent, and a temporary ID has none. */
+   a child's rows come from its parent, and a temporary ID has none.
+   Only the rows of the framework's own stores (CDRowPrefetchingStores,
+   whose fetches refresh the cache) are kept: as Apple's coordinator does
+   for its SQLite store alone, asking any other incremental store for
+   every fault and every refresh. */
 -(BOOL)_holdsRowsOfObjectID:(NSManagedObjectID *)objectID {
-   return _parentContext==nil && _storeCoordinator!=nil && ![objectID isTemporaryID];
+   NSPersistentStore *store=[objectID persistentStore];
+
+   return _parentContext==nil && _storeCoordinator!=nil && ![objectID isTemporaryID] &&
+          [store respondsToSelector:@selector(_rowsForObjectIDs:)] &&
+          [store respondsToSelector:@selector(_writeGeneration)];
 }
 
 -(void)_mapObject:(NSManagedObject *)object forID:(NSManagedObjectID *)objectID {

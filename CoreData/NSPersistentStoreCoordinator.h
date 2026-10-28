@@ -57,7 +57,7 @@ COREDATA_EXPORT NSString *const NSPersistentHistoryTokenKey;
     NSRecursiveLock *_lock;
     NSManagedObjectModel *_model;
     NSMutableArray *_stores;
-    /* The rows its incremental stores answered, while some context holds
+    /* The rows its own stores answered, while some context holds
        their objects (CDRowCache.h). */
     id _rowCache;
 }

@@ -917,4 +917,29 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     XCTAssertEqual([self.ctx objectWithID:again], ann, @"one object for the row");
 }
 
+/* Apple's coordinator keeps rows for its own SQLite store only: an
+   incremental store of one's own is asked for its row by every fault and
+   every refresh, whichever context holds the object and whatever the
+   stalenessInterval (-1, as for any context). */
+- (void)testAnIncrementalStoreIsAskedForEveryFaultAndRefresh
+{
+    [self seedRow:@{ @"name" : @"v1", @"age" : @1 } forReference:@"r1"];
+    NSManagedObject *one = [[self.ctx executeFetchRequest:[self personFetchRequest] error:NULL] firstObject];
+    XCTAssertEqualObjects([one valueForKey:@"name"], @"v1");
+    XCTAssertEqual([self.ctx stalenessInterval], (NSTimeInterval)-1);
+
+    [self seedRow:@{ @"name" : @"v2", @"age" : @1 } forReference:@"r1"];
+    NSManagedObjectContext *other = [[NSManagedObjectContext alloc] init];
+    [other setPersistentStoreCoordinator:self.psc];
+    NSManagedObject *two = [other objectWithID:[one objectID]];
+    XCTAssertEqualObjects([two valueForKey:@"name"], @"v2", @"another context, while one holds the object");
+
+    [self.ctx refreshObject:one mergeChanges:NO];
+    XCTAssertEqualObjects([one valueForKey:@"name"], @"v2", @"refreshed");
+
+    [self seedRow:@{ @"name" : @"v3", @"age" : @1 } forReference:@"r1"];
+    [self.ctx refreshObject:one mergeChanges:YES];
+    XCTAssertEqualObjects([one valueForKey:@"name"], @"v3", @"refreshed, merging");
+}
+
 @end

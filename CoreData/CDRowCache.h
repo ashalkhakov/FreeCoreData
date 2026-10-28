@@ -14,8 +14,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @class NSIncrementalStoreNode, NSManagedObjectID, NSPersistentStore;
 
-/* A coordinator's row cache, as Apple's coordinator keeps one: the rows
-   its incremental stores answered, by object ID, each with the time it
+/* A coordinator's row cache, as Apple's coordinator keeps one for its
+   SQLite store: the rows the framework's own stores (CDRowPrefetchingStores)
+   answered, by object ID, each with the time it
    was read.  A row is kept while some context of the coordinator holds
    its object (has it registered) and let go when none does.  A context
    filling a fault takes the row from here when it is no older than the
