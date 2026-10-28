@@ -14,6 +14,16 @@ into by linking it.
 The two SQL backends keep the same schema and behave the same way; `MySQL`'s
 README lists only where its dialect differs.
 
+A release carries each in an archive of its own, beside the framework's
+(`freecoredata-postgresql-<version>-<platform>.tar.xz`, and `mysql`'s, with
+`CDSQLStore` in each; `.github/release/parts.conf`), so that an app built on
+FreeCoreData carries a backend and its client library only when it asks for
+it, in its `.github/pins.env`:
+
+```sh
+FREECOREDATA_PARTS="postgresql mysql"
+```
+
 ## How a backend plugs in
 
 Each backend is an `NSIncrementalStore` subclass that registers itself with
