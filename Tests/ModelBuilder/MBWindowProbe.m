@@ -183,7 +183,7 @@ int main(void)
     selectAttributeRow(wc, 0);
     [wc.attributeTypePopup selectItemWithTitle:@"Date"];
     [wc inspectorChanged:wc.attributeTypePopup];   /* the popup's action */
-    NSEntityDescription *thing = doc.model.entitiesByName[@"Thing"];
+    NSEntityDescription *thing = doc.modelEditor.model.entitiesByName[@"Thing"];
     NSAttributeDescription *aString = thing.attributesByName[@"aString"];
     CHECK(aString.attributeType == NSDateAttributeType, "model type changed to Date");
     CHECK(selectedDetailTab(wc) == 4, "detail page switched to Date");
@@ -248,7 +248,7 @@ int main(void)
     [wc.attributeTypePopup selectItemWithTitle:@"Boolean"];
     [wc inspectorChanged:wc.attributeTypePopup];
     CHECK(dBool.attributeType == NSBooleanAttributeType, "flip back to Boolean");
-    NSString *xml = [CDModelSerializer contentsXMLForModel:doc.model
+    NSString *xml = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model
                                              entityLayouts:nil error:&error];
     CHECK(xml != nil &&
           [xml rangeOfString:@"valueTransformerName"].location == NSNotFound,
@@ -301,7 +301,7 @@ int main(void)
           "Inverse popup selects the current inverse");
 
     NSRelationshipDescription *others = thing.relationshipsByName[@"others"];
-    NSEntityDescription *other = doc.model.entitiesByName[@"Other"];
+    NSEntityDescription *other = doc.modelEditor.model.entitiesByName[@"Other"];
     [wc tableView:wc.relationshipTable setObjectValue:@0   /* (none) */
         forTableColumn:invColumn row:0];
     CHECK(others.inverseRelationship == nil, "center Inverse edit unwires");
@@ -374,7 +374,7 @@ int main(void)
     [wc.fetchDistinctCheckbox setState:NSOnState];
     [wc.fetchSubentitiesCheckbox setState:NSOffState];
     [wc inspectorChanged:wc.fetchResultTypePopup];
-    NSFetchRequest *template = [doc.model fetchRequestTemplateForName:templateName];
+    NSFetchRequest *template = [doc.modelEditor.model fetchRequestTemplateForName:templateName];
     CHECK(template != nil, "template stored under its name");
     CHECK([template resultType] == NSDictionaryResultType,
           "result-type popup applied (Dictionaries)");
@@ -407,7 +407,7 @@ int main(void)
               isEqualToString:@"class"], "popup writes the compiler metadata");
     CHECK([wc.codegenPopup indexOfSelectedItem] == 1,
           "refill maps the metadata back to the item");
-    xml = [CDModelSerializer contentsXMLForModel:doc.model
+    xml = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model
                                    entityLayouts:nil error:&error];
     CHECK(xml != nil &&
           [xml rangeOfString:@"codeGenerationType=\"class\""].location != NSNotFound,
@@ -504,10 +504,10 @@ int main(void)
     CHECK([NSApp sendAction:wc.modelIdentifierField.action
                          to:wc.modelIdentifierField.target
                        from:wc.modelIdentifierField], "the field's action is wired");
-    CHECK([doc.model.versionIdentifiers isEqual:[NSSet setWithObject:@"probe-2"]],
+    CHECK([doc.modelEditor.model.versionIdentifiers isEqual:[NSSet setWithObject:@"probe-2"]],
           "the field's action sets the model's version identifier");
     [doc.undoManager undo];
-    CHECK(doc.model.versionIdentifiers.count == 0, "one undo takes it back");
+    CHECK(doc.modelEditor.model.versionIdentifiers.count == 0, "one undo takes it back");
     [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)defaultRow]
                byExtendingSelection:NO];
     CHECK([wc.modelIdentifierField.stringValue isEqualToString:@""], "the field shows the model's value again");
@@ -538,7 +538,7 @@ int main(void)
           "and the inspector its name");
     CHECK([wc.fetchIndexElementTable numberOfRows] == 1, "one element listed");
 
-    NSEntityDescription *indexedThing = doc.model.entitiesByName[@"Thing"];
+    NSEntityDescription *indexedThing = doc.modelEditor.model.entitiesByName[@"Thing"];
     [wc.fetchIndexElementSegmentedControl setSelectedSegment:0];
     [wc fetchIndexElementSegmentClicked:wc.fetchIndexElementSegmentedControl];
     NSFetchIndexDescription *edited = [[indexedThing indexes] firstObject];
@@ -552,7 +552,7 @@ int main(void)
     [doc.undoManager undo];
     CHECK([[[[indexedThing indexes] firstObject] elements].lastObject isAscending], "and undo ascending again");
     /* An earlier scenario retyped bInt; an R-tree wants a small number. */
-    [MBAttributeEditor editorForAttributeNamed:@"bInt" entity:indexedThing document:doc].typeName = @"Integer 32";
+    [MBAttributeEditor editorForAttributeNamed:@"bInt" entity:indexedThing modelEditor:doc.modelEditor].typeName = @"Integer 32";
     [wc tableView:wc.fetchIndexElementTable setObjectValue:@1 forTableColumn:elementTypeColumn row:1];
     CHECK([[[[indexedThing indexes] firstObject] elements].lastObject collationType] == NSFetchIndexElementTypeRTree,
           "Type makes the Integer 32 an R-tree element");
@@ -567,15 +567,15 @@ int main(void)
               && [[[wc.sourceList itemAtRow:wc.sourceList.selectedRow] valueForKey:@"name"] isEqualToString:@"byStringAndCount"],
           "renaming it renames it in the list, still selected");
 
-    [doc beginEdit:@"Remove"];
-    [[MBEntityEditor editorForEntityNamed:@"Thing" document:doc] removeAttributeNamed:@"bInt"];
-    [doc endEdit];
+    [doc.modelEditor beginEdit:@"Remove"];
+    [[MBEntityEditor editorForEntityNamed:@"Thing" modelEditor:doc.modelEditor] removeAttributeNamed:@"bInt"];
+    [doc.modelEditor endEdit];
     CHECK([[[[indexedThing indexes] firstObject] elements] count] == 1, "removing bInt takes it out of the index");
     [doc.undoManager undo];
     CHECK([[[[indexedThing indexes] firstObject] elements] count] == 2 && indexedThing.attributesByName[@"bInt"],
           "and undo puts both back");
 
-    NSString *written = [CDModelSerializer contentsXMLForModel:doc.model entityLayouts:nil error:&error];
+    NSString *written = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model entityLayouts:nil error:&error];
     CHECK([written rangeOfString:@"<fetchIndex name=\"byStringAndCount\" partialIndexPredicate=\"aString != nil\">"].location != NSNotFound
               && [written rangeOfString:@"property=\"bInt\" type=\"RTree\""].location != NSNotFound,
           "and it is written as Xcode writes it");
@@ -586,11 +586,11 @@ int main(void)
     [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)[wc.sourceList rowForItem:otherItem]]
                byExtendingSelection:NO];
     [wc addFetchIndex:nil];
-    CHECK([[doc.model.entitiesByName[@"Other"] indexes] count] == 1
+    CHECK([[doc.modelEditor.model.entitiesByName[@"Other"] indexes] count] == 1
               && [[[wc.sourceList itemAtRow:wc.sourceList.selectedRow] valueForKey:@"name"] isEqualToString:@"index"],
           "Add Fetch Index makes one on Other, selected");
     [wc removeSourceItem:nil];
-    CHECK([[doc.model.entitiesByName[@"Other"] indexes] count] == 0, "and − removes it");
+    CHECK([[doc.modelEditor.model.entitiesByName[@"Other"] indexes] count] == 0, "and − removes it");
 
     SCENARIO("Allows External Storage is offered for Binary Data alone");
     /* GIVEN Other's String attribute tag is selected
@@ -605,19 +605,19 @@ int main(void)
     CHECK(otherRow >= 0, "Other is listed");
     [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)otherRow] byExtendingSelection:NO];
     selectAttributeRow(wc, 0);
-    NSAttributeDescription *tag = [[doc.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
+    NSAttributeDescription *tag = [[doc.modelEditor.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
     CHECK([wc.attributeNameField.stringValue isEqualToString:@"tag"], "tag is in the inspector");
     CHECK(!wc.externalStorageCheckbox.isEnabled, "not offered for a String");
     [wc.attributeTypePopup selectItemWithTitle:@"Binary"];
     [wc inspectorChanged:wc.attributeTypePopup];
-    tag = [[doc.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
+    tag = [[doc.modelEditor.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
     CHECK(tag.attributeType == NSBinaryDataAttributeType, "tag is Binary Data");
     CHECK(wc.externalStorageCheckbox.isEnabled && wc.externalStorageCheckbox.state == NSOffState,
           "offered for Binary Data, unticked");
     [wc.externalStorageCheckbox setState:NSOnState];
     [wc inspectorChanged:wc.externalStorageCheckbox];
     CHECK(tag.allowsExternalBinaryDataStorage, "ticking it reaches the model");
-    written = [CDModelSerializer contentsXMLForModel:doc.model entityLayouts:nil error:&error];
+    written = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model entityLayouts:nil error:&error];
     CHECK([written rangeOfString:@"name=\"tag\" optional=\"YES\" attributeType=\"Binary\" allowsExternalBinaryDataStorage=\"YES\""].location != NSNotFound,
           "and it is written as Xcode writes it");
     [doc.undoManager undo];
@@ -627,7 +627,7 @@ int main(void)
     [wc inspectorChanged:wc.externalStorageCheckbox];
     [wc.attributeTypePopup selectItemWithTitle:@"String"];
     [wc inspectorChanged:wc.attributeTypePopup];
-    tag = [[doc.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
+    tag = [[doc.modelEditor.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
     CHECK(tag.attributeType == NSStringAttributeType && !tag.allowsExternalBinaryDataStorage &&
           !wc.externalStorageCheckbox.isEnabled,
           "a String again, the option goes with the type");

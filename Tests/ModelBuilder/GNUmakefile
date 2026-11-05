@@ -14,6 +14,8 @@ TOOL_NAME = MBDocumentSmoke MBWindowProbe MBMappingSmoke MBMappingWindowProbe
 
 MB_SOURCES = \
 	../../ModelBuilder/MBDocument.m \
+	../../ModelBuilder/MBModelEditor.m \
+	../../ModelBuilder/MBModelCommands.m \
 	../../ModelBuilder/MBMappingDocument.m \
 	../../ModelBuilder/MBMappingWindowController.m \
 	../../ModelBuilder/MBNewMappingController.m \

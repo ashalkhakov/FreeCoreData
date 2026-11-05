@@ -3,7 +3,7 @@
    Copyright (c) 2026 the GNUstep CoreData port contributors.
    Released under the MIT license. */
 #import "MBEditors.h"
-#import "MBDocument.h"
+#import "MBModelEditor.h"
 #import "CDModelCompiler.h"
 
 static NSString *MBUniquePropertyName(NSString *base, NSEntityDescription *entity)
@@ -21,7 +21,7 @@ static NSString *MBUniquePropertyName(NSString *base, NSEntityDescription *entit
 
 @interface MBEditor () {
  @protected
-  MBDocument *_document;
+  MBModelEditor *_modelEditor;
   NSError *_lastError;
 }
 - (void)noteEdited;
@@ -37,12 +37,12 @@ static BOOL MBValuesEqual(id a, id b)
 
 @implementation MBEditor
 
-- (MBDocument *)document { return _document; }
+- (MBModelEditor *)modelEditor { return _modelEditor; }
 - (NSError *)lastError { return _lastError; }
 
 - (void)noteEdited
 {
-  [_document noteModelChanged];
+  [_modelEditor noteModelChanged];
 }
 
 /* The description object this editor edits: what an undo is recorded
@@ -56,31 +56,31 @@ static BOOL MBValuesEqual(id a, id b)
 {
   id now = [self valueForKey:key];
   if (MBValuesEqual(old, now)) return;
-  [_document registerInverseValue:old forKey:key ofSubject:[self undoSubject]];
+  [_modelEditor registerInverseValue:old forKey:key ofSubject:[self undoSubject]];
   [self noteEdited];
 }
 
-+ (MBEditor *)editorForSubject:(id)subject document:(MBDocument *)document
++ (MBEditor *)editorForSubject:(id)subject modelEditor:(MBModelEditor *)modelEditor
 {
-  /* The document's model, whichever object it is now: graph surgery
+  /* The editor's model, whichever object it is now: graph surgery
      replaces it. */
   if ([subject isKindOfClass:[NSManagedObjectModel class]])
-    return [MBModelEditor editorForDocument:document];
+    return [MBVersionEditor editorForModelEditor:modelEditor];
   if ([subject isKindOfClass:[NSEntityDescription class]])
-    return [MBEntityEditor editorForEntityNamed:[subject name] document:document];
+    return [MBEntityEditor editorForEntityNamed:[subject name] modelEditor:modelEditor];
   if ([subject isKindOfClass:[NSAttributeDescription class]])
     return [MBAttributeEditor editorForAttributeNamed:[subject name]
                                                entity:[subject entity]
-                                             document:document];
+                                             modelEditor:modelEditor];
   if ([subject isKindOfClass:[NSRelationshipDescription class]])
     return [MBRelationshipEditor editorForRelationshipNamed:[subject name]
                                                      entity:[subject entity]
-                                                   document:document];
+                                                   modelEditor:modelEditor];
   if ([subject isKindOfClass:[NSFetchRequest class]]) {
-    NSDictionary *templates = [document.model fetchRequestTemplatesByName];
+    NSDictionary *templates = [modelEditor.model fetchRequestTemplatesByName];
     for (NSString *name in templates)
       if (templates[name] == subject)
-        return [MBFetchEditor editorForFetchRequestNamed:name document:document];
+        return [MBFetchEditor editorForFetchRequestNamed:name modelEditor:modelEditor];
   }
   return nil;
 }
@@ -95,23 +95,23 @@ static BOOL MBValuesEqual(id a, id b)
 
 /* ---------------------------------------------------------------- */
 
-@implementation MBModelEditor
+@implementation MBVersionEditor
 
-+ (instancetype)editorForDocument:(MBDocument *)document
++ (instancetype)editorForModelEditor:(MBModelEditor *)modelEditor
 {
-  if (!document.model) return nil;
-  MBModelEditor *editor = [[self alloc] init];
-  editor->_document = document;
+  if (!modelEditor.model) return nil;
+  MBVersionEditor *editor = [[self alloc] init];
+  editor->_modelEditor = modelEditor;
   return editor;
 }
 
-- (id)undoSubject { return _document.model; }
+- (id)undoSubject { return _modelEditor.model; }
 
 /* One identifier per version, as an .xcdatamodel holds one; with several
    (set in code), the first by name, as the serializer writes. */
 - (NSString *)versionIdentifier
 {
-  NSArray *identifiers = [[_document.model.versionIdentifiers allObjects]
+  NSArray *identifiers = [[_modelEditor.model.versionIdentifiers allObjects]
       sortedArrayUsingSelector:@selector(compare:)];
   id first = identifiers.firstObject;
   return [first isKindOfClass:[NSString class]] ? first : ([first description] ?: @"");
@@ -122,7 +122,7 @@ static BOOL MBValuesEqual(id a, id b)
   NSString *wanted = [versionIdentifier stringByTrimmingCharactersInSet:
       [NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
   id old = self.versionIdentifier;
-  _document.model.versionIdentifiers = wanted.length ? [NSSet setWithObject:wanted] : [NSSet set];
+  _modelEditor.model.versionIdentifiers = wanted.length ? [NSSet setWithObject:wanted] : [NSSet set];
   [self didChange:@"versionIdentifier" from:old];
 }
 
@@ -134,18 +134,18 @@ static BOOL MBValuesEqual(id a, id b)
   NSString *_name;
 }
 
-+ (instancetype)editorForEntityNamed:(NSString *)name document:(MBDocument *)document
++ (instancetype)editorForEntityNamed:(NSString *)name modelEditor:(MBModelEditor *)modelEditor
 {
-  if (!document.model.entitiesByName[name]) return nil;
+  if (!modelEditor.model.entitiesByName[name]) return nil;
   MBEntityEditor *editor = [[self alloc] init];
-  editor->_document = document;
+  editor->_modelEditor = modelEditor;
   editor->_name = [name copy];
   return editor;
 }
 
 - (NSEntityDescription *)entity
 {
-  return _document.model.entitiesByName[_name];
+  return _modelEditor.model.entitiesByName[_name];
 }
 
 - (id)undoSubject { return self.entity; }
@@ -154,7 +154,7 @@ static BOOL MBValuesEqual(id a, id b)
 
 - (void)setName:(NSString *)name
 {
-  if ([_document renameEntityNamed:_name to:name])
+  if ([_modelEditor renameEntityNamed:_name to:name])
     _name = [name copy];
 }
 
@@ -178,7 +178,7 @@ static BOOL MBValuesEqual(id a, id b)
 
 - (NSString *)parentName { return self.entity.superentity.name ?: @""; }
 
-/* Reparenting is graph surgery: the document recompiles through momc,
+/* Reparenting is graph surgery: the model editor recompiles through momc,
    which REPLACES the model - this editor stays valid because it
    resolves by name. */
 - (void)setParentName:(NSString *)parentName
@@ -186,7 +186,7 @@ static BOOL MBValuesEqual(id a, id b)
   NSString *wanted = parentName ?: @"";
   if ([wanted isEqualToString:self.parentName]) return;
   NSError *error = nil;
-  if (![_document setParentOfEntityNamed:_name to:wanted error:&error])
+  if (![_modelEditor setParentOfEntityNamed:_name to:wanted error:&error])
     _lastError = error;
 }
 
@@ -377,7 +377,7 @@ static BOOL MBValuesEqual(id a, id b)
   attribute.name = name;
   attribute.attributeType = NSStringAttributeType;
   attribute.optional = YES;
-  [_document insertProperty:attribute intoEntity:entity atIndex:[CDModelCompiler declaredPropertiesOfEntity:entity].count];
+  [_modelEditor insertProperty:attribute intoEntity:entity atIndex:[CDModelCompiler declaredPropertiesOfEntity:entity].count];
   return name;
 }
 
@@ -386,10 +386,10 @@ static BOOL MBValuesEqual(id a, id b)
   NSEntityDescription *entity = self.entity;
   NSAttributeDescription *attribute = entity.attributesByName[name];
   if (!attribute) return;
-  [_document beginEdit:nil];
+  [_modelEditor beginEdit:nil];
   [self removeFromFetchIndexesPropertyNamed:name];
-  [_document removeProperty:attribute];
-  [_document endEdit];
+  [_modelEditor removeProperty:attribute];
+  [_modelEditor endEdit];
 }
 
 - (NSString *)addRelationship
@@ -403,10 +403,10 @@ static BOOL MBValuesEqual(id a, id b)
   relationship.maxCount = 1;
   relationship.deleteRule = NSNullifyDeleteRule;
   NSEntityDescription *destination = entity;
-  for (NSEntityDescription *other in [_document sortedEntities])
+  for (NSEntityDescription *other in [_modelEditor sortedEntities])
     if (other != entity) { destination = other; break; }
   relationship.destinationEntity = destination;
-  [_document insertProperty:relationship intoEntity:entity atIndex:[CDModelCompiler declaredPropertiesOfEntity:entity].count];
+  [_modelEditor insertProperty:relationship intoEntity:entity atIndex:[CDModelCompiler declaredPropertiesOfEntity:entity].count];
   return name;
 }
 
@@ -415,10 +415,10 @@ static BOOL MBValuesEqual(id a, id b)
   NSEntityDescription *entity = self.entity;
   NSRelationshipDescription *relationship = entity.relationshipsByName[name];
   if (!relationship) return;
-  [_document beginEdit:nil];
+  [_modelEditor beginEdit:nil];
   [self removeFromFetchIndexesPropertyNamed:name];
-  [_document removeProperty:relationship];   /* unwires the inverse's pointer back */
-  [_document endEdit];
+  [_modelEditor removeProperty:relationship];   /* unwires the inverse's pointer back */
+  [_modelEditor endEdit];
 }
 
 @end
@@ -432,11 +432,11 @@ static BOOL MBValuesEqual(id a, id b)
 
 + (instancetype)editorForAttributeNamed:(NSString *)name
                                  entity:(NSEntityDescription *)entity
-                               document:(MBDocument *)document
+                               modelEditor:(MBModelEditor *)modelEditor
 {
   if (!entity.attributesByName[name]) return nil;
   MBAttributeEditor *editor = [[self alloc] init];
-  editor->_document = document;
+  editor->_modelEditor = modelEditor;
   editor->_entity = entity;
   editor->_name = [name copy];
   return editor;
@@ -472,7 +472,7 @@ static BOOL MBValuesEqual(id a, id b)
   NSAttributeDescription *attribute = self.attribute;
   if (type < 0 || (NSAttributeType)type == attribute.attributeType) return;
   id oldType = self.typeName, oldDefault = self.defaultValueObject;
-  [_document beginEdit:nil];   /* two inverses, one step */
+  [_modelEditor beginEdit:nil];   /* two inverses, one step */
   attribute.attributeType = (NSAttributeType)type;
   attribute.defaultValue = nil;   /* the old default belongs to the old type */
   /* Transformer fields are left alone: Apple CoreData throws on nil,
@@ -481,7 +481,7 @@ static BOOL MBValuesEqual(id a, id b)
      is back before the default it belongs to. */
   [self didChange:@"defaultValueObject" from:oldDefault];
   [self didChange:@"typeName" from:oldType];
-  [_document endEdit];
+  [_modelEditor endEdit];
 }
 
 - (BOOL)isOptional { return self.attribute.isOptional; }
@@ -729,7 +729,7 @@ static BOOL MBValuesEqual(id a, id b)
     plain.allowsExternalBinaryDataStorage = attribute.allowsExternalBinaryDataStorage;
     plain.defaultValue = attribute.defaultValue;
     plain.userInfo = attribute.userInfo;
-    [_document replaceProperty:attribute withProperty:plain];   /* undo puts this one back */
+    [_modelEditor replaceProperty:attribute withProperty:plain];   /* undo puts this one back */
     return;
   }
   NSError *error = nil;
@@ -754,7 +754,7 @@ static BOOL MBValuesEqual(id a, id b)
   replacement.allowsExternalBinaryDataStorage = attribute.allowsExternalBinaryDataStorage;
   replacement.userInfo = attribute.userInfo;
   replacement.derivationExpression = expression;
-  [_document replaceProperty:attribute withProperty:replacement];
+  [_modelEditor replaceProperty:attribute withProperty:replacement];
 }
 
 @end
@@ -768,11 +768,11 @@ static BOOL MBValuesEqual(id a, id b)
 
 + (instancetype)editorForRelationshipNamed:(NSString *)name
                                     entity:(NSEntityDescription *)entity
-                                  document:(MBDocument *)document
+                                  modelEditor:(MBModelEditor *)modelEditor
 {
   if (!entity.relationshipsByName[name]) return nil;
   MBRelationshipEditor *editor = [[self alloc] init];
-  editor->_document = document;
+  editor->_modelEditor = modelEditor;
   editor->_entity = entity;
   editor->_name = [name copy];
   return editor;
@@ -803,10 +803,10 @@ static BOOL MBValuesEqual(id a, id b)
 {
   NSRelationshipDescription *relationship = self.relationship;
   NSEntityDescription *destination = name.length
-      ? _document.model.entitiesByName[name] : nil;
+      ? _modelEditor.model.entitiesByName[name] : nil;
   if (destination == relationship.destinationEntity) return;
   id oldDestination = self.destinationName, oldInverse = self.inverseName;
-  [_document beginEdit:nil];   /* two inverses, one step */
+  [_modelEditor beginEdit:nil];   /* two inverses, one step */
   NSRelationshipDescription *previousInverse = relationship.inverseRelationship;
   if (previousInverse.inverseRelationship == relationship)
     previousInverse.inverseRelationship = nil;
@@ -816,7 +816,7 @@ static BOOL MBValuesEqual(id a, id b)
      inverse on it again. */
   [self didChange:@"inverseName" from:oldInverse];
   [self didChange:@"destinationName" from:oldDestination];
-  [_document endEdit];
+  [_modelEditor endEdit];
 }
 
 - (NSString *)inverseName { return self.relationship.inverseRelationship.name ?: @""; }
@@ -851,7 +851,7 @@ static BOOL MBValuesEqual(id a, id b)
   if (toMany == relationship.isToMany) return;
   id oldToMany = [self valueForKey:@"toMany"];
   id oldMin = self.storedMinCount, oldMax = self.storedMaxCount, oldOrdered = self.storedOrdered;
-  [_document beginEdit:nil];   /* several inverses, one step */
+  [_modelEditor beginEdit:nil];   /* several inverses, one step */
   if (toMany) {
     relationship.maxCount = 0;
   } else {
@@ -865,7 +865,7 @@ static BOOL MBValuesEqual(id a, id b)
   [self didChange:@"storedMaxCount" from:oldMax];
   [self didChange:@"storedOrdered" from:oldOrdered];
   [self didChange:@"toMany" from:oldToMany];
-  [_document endEdit];
+  [_modelEditor endEdit];
 }
 
 /* The counts and ordering as stored, whatever the relationship's shape:
@@ -999,18 +999,18 @@ static BOOL MBValuesEqual(id a, id b)
   NSString *_name;
 }
 
-+ (instancetype)editorForFetchRequestNamed:(NSString *)name document:(MBDocument *)document
++ (instancetype)editorForFetchRequestNamed:(NSString *)name modelEditor:(MBModelEditor *)modelEditor
 {
-  if (![document.model fetchRequestTemplateForName:name]) return nil;
+  if (![modelEditor.model fetchRequestTemplateForName:name]) return nil;
   MBFetchEditor *editor = [[self alloc] init];
-  editor->_document = document;
+  editor->_modelEditor = modelEditor;
   editor->_name = [name copy];
   return editor;
 }
 
 - (NSFetchRequest *)request
 {
-  return [_document.model fetchRequestTemplateForName:_name];
+  return [_modelEditor.model fetchRequestTemplateForName:_name];
 }
 
 - (id)undoSubject { return self.request; }
@@ -1019,7 +1019,7 @@ static BOOL MBValuesEqual(id a, id b)
 
 - (void)setName:(NSString *)name
 {
-  if ([_document renameFetchRequestNamed:_name to:name])
+  if ([_modelEditor renameFetchRequestNamed:_name to:name])
     _name = [name copy];
 }
 
@@ -1028,7 +1028,7 @@ static BOOL MBValuesEqual(id a, id b)
 - (void)setEntityName:(NSString *)name
 {
   NSEntityDescription *entity = name.length
-      ? _document.model.entitiesByName[name] : nil;
+      ? _modelEditor.model.entitiesByName[name] : nil;
   if (!entity || entity == self.request.entity) return;
   id old = self.entityName;
   self.request.entity = entity;

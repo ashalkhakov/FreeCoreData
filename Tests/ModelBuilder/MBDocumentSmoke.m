@@ -8,6 +8,7 @@
 #import <AppKit/AppKit.h>
 #import <CoreData/CoreData.h>
 #import "MBDocument.h"
+#import "MBModelCommands.h"
 #import "MBEditors.h"
 #import "CDModelCompiler.h"
 #import "CDModelSerializer.h"
@@ -60,12 +61,12 @@ int main(void)
        WHEN the document reads it
        THEN the model, version list and (empty) configurations load */
     CHECK(ok, "open .xcdatamodeld");
-    CHECK(doc.model.entities.count == 2, "two entities");
+    CHECK(doc.modelEditor.model.entities.count == 2, "two entities");
     CHECK([doc versionNames].count == 1, "one version");
-    CHECK([doc configurationNames].count == 0, "no configurations");
+    CHECK([doc.modelEditor configurationNames].count == 0, "no configurations");
 
     /* entity editing */
-    NSEntityDescription *person = doc.model.entitiesByName[@"Person"];
+    NSEntityDescription *person = doc.modelEditor.model.entitiesByName[@"Person"];
     CHECK(person != nil, "Person present");
     CHECK([[person attributesByName][@"age"] defaultValue] != nil, "age default read");
 
@@ -80,7 +81,7 @@ int main(void)
     NSRelationshipDescription *pets = [person relationshipsByName][@"pets"];
     [pets setVersionHashModifier:@"r2"];
     [person setUniquenessConstraints:@[ @[ @"name" ] ]];
-    NSString *xml = [CDModelSerializer contentsXMLForModel:doc.model
+    NSString *xml = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model
                                              entityLayouts:nil
                                                      error:&error];
     CHECK(xml != nil, "serialize edited model");
@@ -140,8 +141,8 @@ int main(void)
     /* clamped to NO: Apple does not support YES with dictionary results */
     [adults setIncludesPendingChanges:YES];
     [adults setReturnsDistinctResults:YES];
-    [doc.model setFetchRequestTemplate:adults forName:@"Adults"];
-    xml = [CDModelSerializer contentsXMLForModel:doc.model
+    [doc.modelEditor.model setFetchRequestTemplate:adults forName:@"Adults"];
+    xml = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model
                                    entityLayouts:nil
                                            error:&error];
     CHECK(xml != nil, "serialize model with the new features");
@@ -216,7 +217,7 @@ int main(void)
     SCENARIO("Validation runs momc's checks in-process");
     /* validation */
     NSArray *warnings = nil;
-    CHECK([doc validateModel:&error warnings:&warnings], "validateModel");
+    CHECK([MBModelCommands validateModelOf:doc.modelEditor warnings:&warnings error:&error], "validateModel");
 
     SCENARIO("Model versions: add, make current, switch");
     /* GIVEN the single-version document
@@ -238,25 +239,25 @@ int main(void)
     /* All four run through CDModelMutator, so momc renormalizes each
        change. */
     /* configurations */
-    NSString *configuration = [doc addConfiguration];
+    NSString *configuration = [doc.modelEditor addConfiguration];
     CHECK(configuration != nil, "addConfiguration");
-    CHECK([doc setEntityNamed:@"Person" inConfiguration:configuration member:YES error:&error],
+    CHECK([doc.modelEditor setEntityNamed:@"Person" inConfiguration:configuration member:YES error:&error],
           "configuration membership add");
-    CHECK([[doc.model entitiesForConfiguration:configuration] count] == 1,
+    CHECK([[doc.modelEditor.model entitiesForConfiguration:configuration] count] == 1,
           "membership visible");
-    CHECK([doc renameConfiguration:configuration to:@"Lite" error:&error],
+    CHECK([doc.modelEditor renameConfiguration:configuration to:@"Lite" error:&error],
           "renameConfiguration");
-    CHECK([doc removeConfigurationNamed:@"Lite" error:&error], "removeConfiguration");
+    CHECK([doc.modelEditor removeConfigurationNamed:@"Lite" error:&error], "removeConfiguration");
 
     SCENARIO("Reparenting an entity is graph surgery");
     /* GIVEN Pet and Person
        WHEN Pet is reparented under Person via the document API
        THEN the recompiled model shows the subentity wiring */
     /* structural surgery */
-    BOOL mutated = [doc setParentOfEntityNamed:@"Pet" to:@"Person" error:&error];
+    BOOL mutated = [doc.modelEditor setParentOfEntityNamed:@"Pet" to:@"Person" error:&error];
     CHECK(mutated, "reparent via document API (CDModelMutator)");
-    CHECK([doc.model.entitiesByName[@"Pet"] superentity] ==
-          doc.model.entitiesByName[@"Person"], "Pet reparented under Person");
+    CHECK([doc.modelEditor.model.entitiesByName[@"Pet"] superentity] ==
+          doc.modelEditor.model.entitiesByName[@"Person"], "Pet reparented under Person");
 
     SCENARIO("Saving and reopening preserves everything");
     /* save + reopen */
@@ -275,9 +276,9 @@ int main(void)
                      error:&error];
     CHECK(ok, "reopen saved package");
     CHECK([doc2 versionNames].count == 2, "versions survive save");
-    CHECK([doc2.model.entitiesByName[@"Pet"] superentity] != nil,
+    CHECK([doc2.modelEditor.model.entitiesByName[@"Pet"] superentity] != nil,
           "reparenting survives save");
-    CHECK([[[doc2.model.entitiesByName[@"Person"] attributesByName][@"name"]
+    CHECK([[[doc2.modelEditor.model.entitiesByName[@"Person"] attributesByName][@"name"]
               versionHashModifier] isEqualToString:@"v2"],
           "hash modifier survives save");
 
@@ -285,7 +286,7 @@ int main(void)
     /* compile to momd (document must be saved: fileURL set by write) */
     [doc2 setFileURL:[NSURL fileURLWithPath:savePath]];
     NSString *momdPath = nil;
-    CHECK([doc2 compileToMomd:&error momdPath:&momdPath], "compileToMomd");
+    CHECK([MBModelCommands compileModelAtPath:doc2.fileURL.path momdPath:&momdPath error:&error], "compileToMomd");
     CHECK(momdPath != nil &&
           [[NSFileManager defaultManager] fileExistsAtPath:momdPath],
           "momd exists");
@@ -307,11 +308,11 @@ int main(void)
           "open a fresh copy");
     NSUndoManager *um = u.undoManager;
     CHECK(!um.canUndo && !u.isDocumentEdited, "nothing to undo after opening");
-    NSEntityDescription *person = u.model.entitiesByName[@"Person"];
-    NSEntityDescription *pet = u.model.entitiesByName[@"Pet"];
+    NSEntityDescription *person = u.modelEditor.model.entitiesByName[@"Person"];
+    NSEntityDescription *pet = u.modelEditor.model.entitiesByName[@"Pet"];
     NSAttributeDescription *age = person.attributesByName[@"age"];
     MBAttributeEditor *ae = [MBAttributeEditor editorForAttributeNamed:@"age"
-                                                                entity:person document:u];
+                                                                entity:person modelEditor:u.modelEditor];
 
     ae.name = @"years";
     CHECK(person.attributesByName[@"years"] == age && um.canUndo && u.isDocumentEdited,
@@ -325,7 +326,7 @@ int main(void)
     [um undo];
 
     id sevenDefault = age.defaultValue;
-    ae = [MBAttributeEditor editorForAttributeNamed:@"age" entity:person document:u];
+    ae = [MBAttributeEditor editorForAttributeNamed:@"age" entity:person modelEditor:u.modelEditor];
     ae.typeName = @"String";
     CHECK(age.attributeType == NSStringAttributeType && age.defaultValue == nil,
           "a type change drops the default");
@@ -333,17 +334,17 @@ int main(void)
     CHECK(age.attributeType == NSInteger32AttributeType && [age.defaultValue isEqual:sevenDefault],
           "undo restores the type and its default");
 
-    [u beginEdit:@"Edit Attribute"];
+    [u.modelEditor beginEdit:@"Edit Attribute"];
     ae.optional = NO;
     ae.transient = YES;
     ae.hashModifier = @"v2";
-    [u endEdit];
+    [u.modelEditor endEdit];
     CHECK([[um undoActionName] isEqualToString:@"Edit Attribute"], "the edit carries its name");
     [um undo];
     CHECK(age.isOptional && !age.isTransient && age.versionHashModifier == nil,
           "several fields in one edit undo as one step");
 
-    MBEntityEditor *ee = [MBEntityEditor editorForEntityNamed:@"Person" document:u];
+    MBEntityEditor *ee = [MBEntityEditor editorForEntityNamed:@"Person" modelEditor:u.modelEditor];
     NSString *added = [ee addAttribute];
     CHECK(person.attributesByName[added] != nil, "attribute added");
     [um undo];
@@ -365,7 +366,7 @@ int main(void)
           "undo puts the same relationship back where it was, wired both ways");
 
     MBRelationshipEditor *re = [MBRelationshipEditor editorForRelationshipNamed:@"pets"
-                                                                         entity:person document:u];
+                                                                         entity:person modelEditor:u.modelEditor];
     re.destinationName = @"Person";
     CHECK(pets.destinationEntity == person && pets.inverseRelationship == nil,
           "retargeting drops the inverse");
@@ -378,39 +379,39 @@ int main(void)
     [um undo];
     CHECK(pets.isToMany && pets.maxCount == 0, "undo makes it to-many again, counts as they were");
 
-    NSManagedObjectModel *modelBefore = u.model;
-    CHECK([u removeEntityNamed:@"Pet" error:NULL] && !u.model.entitiesByName[@"Pet"],
+    NSManagedObjectModel *modelBefore = u.modelEditor.model;
+    CHECK([u.modelEditor removeEntityNamed:@"Pet" error:NULL] && !u.modelEditor.model.entitiesByName[@"Pet"],
           "entity deleted");
     [um undo];
-    CHECK(u.model == modelBefore && u.model.entitiesByName[@"Pet"] == pet,
+    CHECK(u.modelEditor.model == modelBefore && u.modelEditor.model.entitiesByName[@"Pet"] == pet,
           "undo of a deletion puts the same model back");
     [um redo];
-    CHECK(!u.model.entitiesByName[@"Pet"], "redo deletes it again");
+    CHECK(!u.modelEditor.model.entitiesByName[@"Pet"], "redo deletes it again");
     [um undo];
 
-    NSString *newEntity = [u addEntity];
-    CHECK(u.model.entitiesByName[newEntity] != nil, "entity added");
+    NSString *newEntity = [u.modelEditor addEntity];
+    CHECK(u.modelEditor.model.entitiesByName[newEntity] != nil, "entity added");
     [um undo];
-    CHECK(u.model.entitiesByName[newEntity] == nil, "undo removes the added entity");
-    [u renameEntityNamed:@"Pet" to:@"Animal"];
+    CHECK(u.modelEditor.model.entitiesByName[newEntity] == nil, "undo removes the added entity");
+    [u.modelEditor renameEntityNamed:@"Pet" to:@"Animal"];
     [um undo];
-    CHECK(u.model.entitiesByName[@"Pet"] == pet && !u.model.entitiesByName[@"Animal"],
+    CHECK(u.modelEditor.model.entitiesByName[@"Pet"] == pet && !u.modelEditor.model.entitiesByName[@"Animal"],
           "undo renames the entity back");
 
-    NSString *fetch = [u addFetchRequestForEntityNamed:@"Person"];
-    NSFetchRequest *request = [u.model fetchRequestTemplateForName:fetch];
-    [u renameFetchRequestNamed:fetch to:@"Everyone"];
+    NSString *fetch = [u.modelEditor addFetchRequestForEntityNamed:@"Person"];
+    NSFetchRequest *request = [u.modelEditor.model fetchRequestTemplateForName:fetch];
+    [u.modelEditor renameFetchRequestNamed:fetch to:@"Everyone"];
     [um undo];
-    CHECK([u.model fetchRequestTemplateForName:fetch] == request &&
-              ![u.model fetchRequestTemplateForName:@"Everyone"],
+    CHECK([u.modelEditor.model fetchRequestTemplateForName:fetch] == request &&
+              ![u.modelEditor.model fetchRequestTemplateForName:@"Everyone"],
           "undo renames the fetch request back");
     [um undo];
-    CHECK(![u.model fetchRequestTemplateForName:fetch], "undo removes the added fetch request");
+    CHECK(![u.modelEditor.model fetchRequestTemplateForName:fetch], "undo removes the added fetch request");
 
-    NSString *configuration = [u addConfiguration];
-    CHECK([[u configurationNames] containsObject:configuration], "configuration added");
+    NSString *configuration = [u.modelEditor addConfiguration];
+    CHECK([[u.modelEditor configurationNames] containsObject:configuration], "configuration added");
     [um undo];
-    CHECK(![[u configurationNames] containsObject:configuration], "undo removes the configuration");
+    CHECK(![[u.modelEditor configurationNames] containsObject:configuration], "undo removes the configuration");
 
     NSString *editedVersion = u.editedVersionName;
     NSString *version = [u addModelVersion];
@@ -425,14 +426,14 @@ int main(void)
 
     MBDocument *quiet = [[MBDocument alloc] init];
     [quiet readFromURL:[NSURL fileURLWithPath:path] ofType:@"xcdatamodeld" error:NULL];
-    NSEntityDescription *quietPerson = quiet.model.entitiesByName[@"Person"];
+    NSEntityDescription *quietPerson = quiet.modelEditor.model.entitiesByName[@"Person"];
     MBAttributeEditor *qe = [MBAttributeEditor editorForAttributeNamed:@"name"
-                                                                entity:quietPerson document:quiet];
-    [quiet beginEdit:@"Edit Attribute"];
+                                                                entity:quietPerson modelEditor:quiet.modelEditor];
+    [quiet.modelEditor beginEdit:@"Edit Attribute"];
     qe.optional = qe.isOptional;
     qe.name = @"name";
     qe.typeName = qe.typeName;
-    [quiet endEdit];
+    [quiet.modelEditor endEdit];
     CHECK(!quiet.undoManager.canUndo && !quiet.isDocumentEdited,
           "an edit that changes nothing leaves nothing to undo");
 
@@ -447,19 +448,19 @@ int main(void)
             userDefinedModelVersionIdentifier, which momc compiles back */
     MBDocument *v = [[MBDocument alloc] init];
     [v readFromURL:[NSURL fileURLWithPath:writeSamplePackage()] ofType:@"xcdatamodeld" error:NULL];
-    MBModelEditor *me = [MBModelEditor editorForDocument:v];
-    CHECK([me.versionIdentifier isEqualToString:@""] && v.model.versionIdentifiers.count == 0,
+    MBVersionEditor *me = [MBVersionEditor editorForModelEditor:v.modelEditor];
+    CHECK([me.versionIdentifier isEqualToString:@""] && v.modelEditor.model.versionIdentifiers.count == 0,
           "a blank Identifier is no version identifier");
-    [v beginEdit:@"Edit Model Identifier"];
+    [v.modelEditor beginEdit:@"Edit Model Identifier"];
     me.versionIdentifier = @" odata:0123456789abcdef ";
-    [v endEdit];
-    CHECK([v.model.versionIdentifiers isEqual:[NSSet setWithObject:@"odata:0123456789abcdef"]],
+    [v.modelEditor endEdit];
+    CHECK([v.modelEditor.model.versionIdentifiers isEqual:[NSSet setWithObject:@"odata:0123456789abcdef"]],
           "the Identifier, trimmed, is the model's version identifier");
     CHECK(v.isDocumentEdited, "setting it edits the document");
     [v.undoManager undo];
-    CHECK(v.model.versionIdentifiers.count == 0, "undo takes it back");
+    CHECK(v.modelEditor.model.versionIdentifiers.count == 0, "undo takes it back");
     [v.undoManager redo];
-    CHECK([[MBModelEditor editorForDocument:v].versionIdentifier isEqualToString:@"odata:0123456789abcdef"],
+    CHECK([[MBVersionEditor editorForModelEditor:v.modelEditor].versionIdentifier isEqualToString:@"odata:0123456789abcdef"],
           "redo restores it");
 
     NSString *identifiedPath = [NSTemporaryDirectory()
@@ -474,11 +475,11 @@ int main(void)
           "saved as userDefinedModelVersionIdentifier");
     MBDocument *reopened = [[MBDocument alloc] init];
     [reopened readFromURL:[NSURL fileURLWithPath:identifiedPath] ofType:@"xcdatamodeld" error:NULL];
-    CHECK([reopened.model.versionIdentifiers isEqual:[NSSet setWithObject:@"odata:0123456789abcdef"]],
+    CHECK([reopened.modelEditor.model.versionIdentifiers isEqual:[NSSet setWithObject:@"odata:0123456789abcdef"]],
           "reopened, the model has it again");
     [reopened setFileURL:[NSURL fileURLWithPath:identifiedPath]];
     NSString *identifiedMomd = nil;
-    CHECK([reopened compileToMomd:&error momdPath:&identifiedMomd], "compile to momd");
+    CHECK([MBModelCommands compileModelAtPath:reopened.fileURL.path momdPath:&identifiedMomd error:&error], "compile to momd");
     NSManagedObjectModel *compiled = identifiedMomd
         ? [[NSManagedObjectModel alloc] initWithContentsOfURL:[NSURL fileURLWithPath:identifiedMomd]] : nil;
     CHECK([compiled.versionIdentifiers isEqual:[NSSet setWithObject:@"odata:0123456789abcdef"]],

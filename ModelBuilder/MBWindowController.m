@@ -3,7 +3,7 @@
    live NSManagedObjectModel.  Editing semantics: the tables and
    inspector mutate NSEntityDescription / NSAttributeDescription /
    NSRelationshipDescription directly; structural surgery (delete
-   entity, reparent, configuration changes) goes through MBDocument's
+   entity, reparent, configuration changes) goes through MBModelEditor's
    XML mutation path so momc renormalizes the graph.
    Copyright (c) 2026 the GNUstep CoreData port contributors.
    Released under the MIT license. */
@@ -11,7 +11,7 @@
 #import "MBDocument.h"
 #import "CDModelCompiler.h"
 #import "CDModelSerializer.h"
-#import "CDCodeGenerator.h"
+#import "MBModelCommands.h"
 #import "MBEditors.h"
 #import "JUInspectorView.h"
 #import "JUInspectorViewContainer.h"
@@ -167,9 +167,14 @@ static const CGFloat MBInspectorMinimum = 260.0;
   return (MBDocument *)self.document;
 }
 
+- (MBModelEditor *)modelEditor
+{
+  return self.modelDocument.modelEditor;
+}
+
 - (NSManagedObjectModel *)model
 {
-  return self.modelDocument.model;
+  return self.modelEditor.model;
 }
 
 #pragma mark - Nib assembly
@@ -401,12 +406,12 @@ static const CGFloat MBInspectorMinimum = 260.0;
     _configurationsGroup = [MBSourceItem itemWithKind:MBSourceGroupConfigurations name:@"CONFIGURATIONS"];
   }
   NSMutableArray *entities = [NSMutableArray array];
-  for (NSEntityDescription *entity in [self.modelDocument sortedEntities])
+  for (NSEntityDescription *entity in [self.modelEditor sortedEntities])
     [entities addObject:[MBSourceItem itemWithKind:MBSourceEntity name:entity.name]];
   _entityItems = entities;
 
   NSMutableDictionary *indexItems = [NSMutableDictionary dictionary];
-  for (NSEntityDescription *entity in [self.modelDocument sortedEntities]) {
+  for (NSEntityDescription *entity in [self.modelEditor sortedEntities]) {
     NSMutableArray *items = [NSMutableArray array];
     for (NSFetchIndexDescription *index in [entity indexes]) {
       MBSourceItem *item = [MBSourceItem itemWithKind:MBSourceFetchIndex name:index.name];
@@ -424,7 +429,7 @@ static const CGFloat MBInspectorMinimum = 260.0;
   _fetchItems = fetches;
 
   NSMutableArray *configurations = [NSMutableArray array];
-  NSArray *declared = [self.modelDocument configurationNames];
+  NSArray *declared = [self.modelEditor configurationNames];
   /* Every model has the Default configuration -- all its entities, which
      is what a store added with no configuration name holds -- whether it
      declares others or not.  Xcode lists it first; so do we, unless the
@@ -525,9 +530,9 @@ static const CGFloat MBInspectorMinimum = 260.0;
     }
     [rows addObject:copy];
   }
-  [self.modelDocument beginEdit:action];
+  [self.modelEditor beginEdit:action];
   editor.fetchIndexRows = rows;
-  [self.modelDocument endEdit];
+  [self.modelEditor endEdit];
   if (editor.lastError)
     [self presentModelError:editor.lastError title:@"Cannot change the fetch index"];
   [self reloadEverything];
@@ -581,7 +586,7 @@ static const CGFloat MBInspectorMinimum = 260.0;
 - (MBEntityEditor *)entityEditor
 {
   NSString *name = [self selectedEntity].name;
-  return name ? [MBEntityEditor editorForEntityNamed:name document:self.modelDocument] : nil;
+  return name ? [MBEntityEditor editorForEntityNamed:name modelEditor:self.modelEditor] : nil;
 }
 
 - (MBAttributeEditor *)attributeEditor
@@ -589,7 +594,7 @@ static const CGFloat MBInspectorMinimum = 260.0;
   NSEntityDescription *entity = [self selectedEntity];
   NSString *name = [self selectedAttribute].name;
   return (entity && name)
-      ? [MBAttributeEditor editorForAttributeNamed:name entity:entity document:self.modelDocument]
+      ? [MBAttributeEditor editorForAttributeNamed:name entity:entity modelEditor:self.modelEditor]
       : nil;
 }
 
@@ -598,14 +603,14 @@ static const CGFloat MBInspectorMinimum = 260.0;
   NSEntityDescription *entity = [self selectedEntity];
   NSString *name = [self selectedRelationship].name;
   return (entity && name)
-      ? [MBRelationshipEditor editorForRelationshipNamed:name entity:entity document:self.modelDocument]
+      ? [MBRelationshipEditor editorForRelationshipNamed:name entity:entity modelEditor:self.modelEditor]
       : nil;
 }
 
 - (MBFetchEditor *)fetchRequestEditor
 {
   NSString *name = [self selectedTemplateName];
-  return name ? [MBFetchEditor editorForFetchRequestNamed:name document:self.modelDocument] : nil;
+  return name ? [MBFetchEditor editorForFetchRequestNamed:name modelEditor:self.modelEditor] : nil;
 }
 
 #pragma mark - Row caches / reload
@@ -731,7 +736,7 @@ static const CGFloat MBInspectorMinimum = 260.0;
   [self.parentPopup removeAllItems];
   [self.parentPopup addItemWithTitle:@"(none)"];
   NSEntityDescription *current = [self selectedEntity];
-  for (NSEntityDescription *entity in [self.modelDocument sortedEntities]) {
+  for (NSEntityDescription *entity in [self.modelEditor sortedEntities]) {
     if (entity == current) continue;
     [self.parentPopup addItemWithTitle:entity.name ?: @""];
   }
@@ -742,7 +747,7 @@ static const CGFloat MBInspectorMinimum = 260.0;
   [popup removeAllItems];
   if (includeNone)
     [popup addItemWithTitle:@"(none)"];
-  for (NSEntityDescription *entity in [self.modelDocument sortedEntities])
+  for (NSEntityDescription *entity in [self.modelEditor sortedEntities])
     [popup addItemWithTitle:entity.name ?: @""];
 }
 
@@ -827,7 +832,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   MBAttributeEditor *editor = [MBAttributeEditor
       editorForAttributeNamed:attr.name
                        entity:[self selectedEntity]
-                     document:self.modelDocument];
+                     modelEditor:self.modelEditor];
   BOOL derived = editor.isDerived;
   self.derivedCheckbox.state = derived ? NSOnState : NSOffState;
   self.derivedCheckbox.toolTip = derived
@@ -1041,7 +1046,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
   _updating = YES;
   /* The Identity page describes the model version, whatever is selected:
      the tab bar can show it at any time. */
-  self.modelIdentifierField.stringValue = [MBModelEditor editorForDocument:self.modelDocument].versionIdentifier ?: @"";
+  self.modelIdentifierField.stringValue = [MBVersionEditor editorForModelEditor:self.modelEditor].versionIdentifier ?: @"";
   switch (_kind) {
     case MBInspectEntity:
       [self selectInspectorPage:MBInspectorPageDataModel kindPage:MBKindPageEntity];
@@ -1140,21 +1145,21 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
   switch (selected.kind) {
     case MBSourceEntity: {
       NSError *error = nil;
-      if (![self.modelDocument removeEntityNamed:selected.name error:&error])
+      if (![self.modelEditor removeEntityNamed:selected.name error:&error])
         [self presentModelError:error title:@"Cannot delete entity"];
       [self reloadEverything];
       break;
     }
     case MBSourceFetch:
-      [self.modelDocument removeFetchRequestNamed:selected.name];
+      [self.modelEditor removeFetchRequestNamed:selected.name];
       [self reloadEverything];
       break;
     case MBSourceFetchIndex: {
       NSString *entityName = selected.entityName;
-      [self.modelDocument beginEdit:@"Remove Fetch Index"];
-      [[MBEntityEditor editorForEntityNamed:entityName document:self.modelDocument]
+      [self.modelEditor beginEdit:@"Remove Fetch Index"];
+      [[MBEntityEditor editorForEntityNamed:entityName modelEditor:self.modelEditor]
           removeFetchIndexNamed:selected.name];
-      [self.modelDocument endEdit];
+      [self.modelEditor endEdit];
       [self reloadEverything];
       [self selectSourceKind:MBSourceEntity name:entityName];
       break;
@@ -1162,7 +1167,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
     case MBSourceConfiguration: {
       if (selected.implicitDefault) break;   /* not in the file to remove */
       NSError *error = nil;
-      if (![self.modelDocument removeConfigurationNamed:selected.name error:&error])
+      if (![self.modelEditor removeConfigurationNamed:selected.name error:&error])
         [self presentModelError:error title:@"Cannot remove configuration"];
       [self reloadEverything];
       break;
@@ -1174,7 +1179,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
 - (IBAction)addEntity:(id)sender
 {
   (void)sender;
-  NSString *name = [self.modelDocument addEntity];
+  NSString *name = [self.modelEditor addEntity];
   [self reloadEverything];
   [self selectSourceKind:MBSourceEntity name:name];
 }
@@ -1182,7 +1187,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
 - (IBAction)addFetchRequest:(id)sender
 {
   (void)sender;
-  NSString *name = [self.modelDocument
+  NSString *name = [self.modelEditor
       addFetchRequestForEntityNamed:[self selectedEntity].name];
   if (!name) return;
   [self reloadEverything];
@@ -1192,7 +1197,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
 - (IBAction)addConfiguration:(id)sender
 {
   (void)sender;
-  NSString *name = [self.modelDocument addConfiguration];
+  NSString *name = [self.modelEditor addConfiguration];
   if (!name) return;
   [self reloadEverything];
   [self selectSourceKind:MBSourceConfiguration name:name];
@@ -1204,9 +1209,9 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
   (void)sender;
   NSString *entityName = [self selectedEntity].name;
   if (!entityName) return;
-  [self.modelDocument beginEdit:@"Add Fetch Index"];
-  NSString *name = [[MBEntityEditor editorForEntityNamed:entityName document:self.modelDocument] addFetchIndex];
-  [self.modelDocument endEdit];
+  [self.modelEditor beginEdit:@"Add Fetch Index"];
+  NSString *name = [[MBEntityEditor editorForEntityNamed:entityName modelEditor:self.modelEditor] addFetchIndex];
+  [self.modelEditor endEdit];
   [self reloadEverything];
   [self selectFetchIndexNamed:name ofEntityNamed:entityName];
 }
@@ -1263,7 +1268,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
   NSEntityDescription *entity = [self selectedEntity];
   if (!entity.name.length) return;
   NSError *error = nil;
-  if (![self.modelDocument removeEntityNamed:entity.name error:&error])
+  if (![self.modelEditor removeEntityNamed:entity.name error:&error])
     [self presentModelError:error title:@"Cannot delete entity"];
   [self reloadEverything];
 }
@@ -1357,7 +1362,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
     [self setCurrentUserInfo:info.count ? info : nil];
   }
   [self reloadUserInfoTables];
-  [self.modelDocument noteModelChanged];
+  [self.modelEditor noteModelChanged];
 }
 
 - (IBAction)constraintsSegmentClicked:(id)sender
@@ -1661,28 +1666,27 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
   if (_updating) return;
   /* An apply sets every field of the page; the ones that changed are one
      undo step. */
-  MBDocument *document = self.modelDocument;
   if (sender == self.modelIdentifierField) {
-    [document beginEdit:@"Edit Model Identifier"];
-    [MBModelEditor editorForDocument:document].versionIdentifier = self.modelIdentifierField.stringValue;
-    [document endEdit];
+    [self.modelEditor beginEdit:@"Edit Model Identifier"];
+    [MBVersionEditor editorForModelEditor:self.modelEditor].versionIdentifier = self.modelIdentifierField.stringValue;
+    [self.modelEditor endEdit];
     return;
   }
   switch (_kind) {
     case MBInspectEntity:
-      [document beginEdit:@"Edit Entity"]; [self applyEntityInspector]; break;
+      [self.modelEditor beginEdit:@"Edit Entity"]; [self applyEntityInspector]; break;
     case MBInspectAttribute:
-      [document beginEdit:@"Edit Attribute"]; [self applyAttributeInspector]; break;
+      [self.modelEditor beginEdit:@"Edit Attribute"]; [self applyAttributeInspector]; break;
     case MBInspectRelationship:
-      [document beginEdit:@"Edit Relationship"]; [self applyRelationshipInspector]; break;
+      [self.modelEditor beginEdit:@"Edit Relationship"]; [self applyRelationshipInspector]; break;
     case MBInspectFetch:
-      [document beginEdit:@"Edit Fetch Request"]; [self applyFetchInspector:sender]; break;
+      [self.modelEditor beginEdit:@"Edit Fetch Request"]; [self applyFetchInspector:sender]; break;
     case MBInspectFetchIndex:
       [self applyFetchIndexInspector:sender];
       return;
     default: return;
   }
-  [document endEdit];
+  [self.modelEditor endEdit];
 }
 
 - (void)applyFetchIndexInspector:(id)sender
@@ -1758,7 +1762,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
   (void)sender;
   NSError *error = nil;
   NSArray *warnings = nil;
-  BOOL ok = [self.modelDocument validateModel:&error warnings:&warnings];
+  BOOL ok = [MBModelCommands validateModelOf:self.modelEditor warnings:&warnings error:&error];
 
   NSAlert *alert = [[NSAlert alloc] init];
   if (!ok) {
@@ -1781,7 +1785,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
   NSError *error = nil;
   NSString *momdPath = nil;
   NSAlert *alert = [[NSAlert alloc] init];
-  if ([self.modelDocument compileToMomd:&error momdPath:&momdPath]) {
+  if ([MBModelCommands compileModelAtPath:self.modelDocument.fileURL.path momdPath:&momdPath error:&error]) {
     alert.messageText = @"Model compiled";
     alert.informativeText = [NSString stringWithFormat:@"Wrote %@", momdPath];
   } else {
@@ -1798,16 +1802,8 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
 - (IBAction)createManagedObjectSubclass:(id)sender
 {
   (void)sender;
-  NSArray *entities = nil;
-  NSEntityDescription *selected = [self selectedEntity];
-  if (selected != nil && selected.managedObjectClassName.length &&
-      ![selected.managedObjectClassName isEqualToString:@"NSManagedObject"]) {
-    entities = @[ selected ];
-  } else {
-    entities = [CDCodeGenerator generatableEntitiesInModel:self.model onlyMarked:YES];
-    if (!entities.count)
-      entities = [CDCodeGenerator generatableEntitiesInModel:self.model onlyMarked:NO];
-  }
+  NSArray *entities = [MBModelCommands entitiesToGenerateInModel:self.model
+                                                         selected:[self selectedEntity]];
   if (!entities.count) {
     NSAlert *alert = [[NSAlert alloc] init];
     alert.messageText = @"Nothing to generate";
@@ -1831,7 +1827,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
   if ([panel runModal] != NSModalResponseOK) return;
 
   NSError *error = nil;
-  NSArray *written = [CDCodeGenerator writeSourcesForEntities:entities
+  NSArray *written = [MBModelCommands writeClassesForEntities:entities
                                                   toDirectory:panel.URL.path
                                                         error:&error];
   if (!written) {
@@ -1932,9 +1928,9 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
 
 - (void)outlineView:(NSOutlineView *)outline setObjectValue:(id)value forTableColumn:(NSTableColumn *)column byItem:(id)item
 {
-  [self.modelDocument beginEdit:@"Rename"];
+  [self.modelEditor beginEdit:@"Rename"];
   [self applySourceListValue:value forTableColumn:column item:item outline:outline];
-  [self.modelDocument endEdit];
+  [self.modelEditor endEdit];
 }
 
 - (void)applySourceListValue:(id)value forTableColumn:(NSTableColumn *)column item:(id)item outline:(NSOutlineView *)outline
@@ -1949,13 +1945,13 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
   if (!text.length) return;
   MBSourceItem *source = item;
   if (source.kind == MBSourceEntity) {
-    [self.modelDocument renameEntityNamed:source.name to:text];
+    [self.modelEditor renameEntityNamed:source.name to:text];
   } else if (source.kind == MBSourceFetch) {
-    [self.modelDocument renameFetchRequestNamed:source.name to:text];
+    [self.modelEditor renameFetchRequestNamed:source.name to:text];
   } else if (source.kind == MBSourceConfiguration) {
-    [self.modelDocument renameConfiguration:source.name to:text error:NULL];
+    [self.modelEditor renameConfiguration:source.name to:text error:NULL];
   } else if (source.kind == MBSourceFetchIndex) {
-    MBEntityEditor *editor = [MBEntityEditor editorForEntityNamed:source.entityName document:self.modelDocument];
+    MBEntityEditor *editor = [MBEntityEditor editorForEntityNamed:source.entityName modelEditor:self.modelEditor];
     NSArray *rows = editor.fetchIndexRows;
     if ([[rows valueForKey:@"name"] containsObject:text]) return;   /* names are unique within an entity */
     NSMutableArray *renamed = [NSMutableArray array];
@@ -1970,7 +1966,7 @@ static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
     [self selectFetchIndexNamed:text ofEntityNamed:entityName];
     return;
   }
-  [self.modelDocument noteModelChanged];
+  [self.modelEditor noteModelChanged];
   [self reloadEverything];
 }
 
@@ -2174,9 +2170,9 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
 
 - (void)tableView:(NSTableView *)table setObjectValue:(id)value forTableColumn:(NSTableColumn *)column row:(NSInteger)row
 {
-  [self.modelDocument beginEdit:@"Edit"];
+  [self.modelEditor beginEdit:@"Edit"];
   [self applyTableValue:value table:table forTableColumn:column row:row];
-  [self.modelDocument endEdit];
+  [self.modelEditor endEdit];
 }
 
 - (void)applyTableValue:(id)value table:(NSTableView *)table forTableColumn:(NSTableColumn *)column row:(NSInteger)row
@@ -2206,7 +2202,7 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
     }
     [self setCurrentUserInfo:info];
     [self reloadUserInfoTables];
-    [self.modelDocument noteModelChanged];
+    [self.modelEditor noteModelChanged];
     return;
   }
   if (table == self.fetchIndexElementTable) {
@@ -2247,7 +2243,7 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
     MBAttributeEditor *editor = [MBAttributeEditor
         editorForAttributeNamed:_attributeNames[(NSUInteger)row]
                          entity:entity
-                       document:self.modelDocument];
+                       modelEditor:self.modelEditor];
     if ([ident isEqualToString:@"name"]) editor.name = [value description];
     else if ([ident isEqualToString:@"type"]) editor.typeName = [value description];
     [self reloadPropertyTable:self.attributeTable selecting:editor.name];
@@ -2258,7 +2254,7 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
     MBRelationshipEditor *editor = [MBRelationshipEditor
         editorForRelationshipNamed:_relationshipNames[(NSUInteger)row]
                             entity:entity
-                          document:self.modelDocument];
+                          modelEditor:self.modelEditor];
     if ([ident isEqualToString:@"name"]) editor.name = [value description];
     else if ([ident isEqualToString:@"destination"]) editor.destinationName = [value description];
     else if ([ident isEqualToString:@"inverse"]) editor.inverseName = [value description];
@@ -2271,7 +2267,7 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
     NSString *configuration = [self selectedConfigurationName];
     if (!configuration) return;
     NSError *error = nil;
-    if (![self.modelDocument setEntityNamed:_memberEntityNames[(NSUInteger)row]
+    if (![self.modelEditor setEntityNamed:_memberEntityNames[(NSUInteger)row]
                             inConfiguration:configuration
                                      member:[value boolValue]
                                       error:&error])

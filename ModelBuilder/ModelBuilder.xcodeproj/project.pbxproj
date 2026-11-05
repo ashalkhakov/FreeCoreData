@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		C56C63D7DD180F525431F0CC /* Sparkle.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8B4902744F7495FB86D46E57 /* Sparkle.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CE39E2D33042F6F60075866A /* MBEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D23042F6F60075866A /* MBEditors.m */; };
+		010BA716EFA065E9F2664A06 /* MBModelCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = 35E90E99B5DA48AEC7107A2E /* MBModelCommands.m */; };
+		D696CE22DA7821B775C4B9AB /* MBModelEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = 78955B4FB4DEEBCFB2657443 /* MBModelEditor.m */; };
 		CE39E2D63042FBC30075866A /* CDModelMutator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D53042FBC30075866A /* CDModelMutator.m */; };
 		CE39E2DE304326510075866A /* CDCodeGenerator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2DD304326510075866A /* CDCodeGenerator.m */; };
 		CE39E3253043344B0075866A /* MBStepperTextField.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E3243043344B0075866A /* MBStepperTextField.m */; };
@@ -55,6 +57,10 @@
 /* Begin PBXFileReference section */
 		8B4902744F7495FB86D46E57 /* Sparkle.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Sparkle.xcframework; path = ../.deps/Sparkle.xcframework; sourceTree = SOURCE_ROOT; };
 		CE39E2D13042F6F60075866A /* MBEditors.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBEditors.h; sourceTree = "<group>"; };
+		35E90E99B5DA48AEC7107A2E /* MBModelCommands.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBModelCommands.m; sourceTree = "<group>"; };
+		546E900E655B94E676A9EF44 /* MBModelCommands.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBModelCommands.h; sourceTree = "<group>"; };
+		78955B4FB4DEEBCFB2657443 /* MBModelEditor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBModelEditor.m; sourceTree = "<group>"; };
+		CF81619F725071B7EF945FA4 /* MBModelEditor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBModelEditor.h; sourceTree = "<group>"; };
 		CE39E2D23042F6F60075866A /* MBEditors.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBEditors.m; sourceTree = "<group>"; };
 		CE39E2D43042FBC30075866A /* CDModelMutator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelMutator.h; path = ../Tools/momc/CDModelMutator.h; sourceTree = SOURCE_ROOT; };
 		CE39E2D53042FBC30075866A /* CDModelMutator.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelMutator.m; path = ../Tools/momc/CDModelMutator.m; sourceTree = SOURCE_ROOT; };
@@ -149,6 +155,10 @@
 				CE39E2DD304326510075866A /* CDCodeGenerator.m */,
 				CE39E2D13042F6F60075866A /* MBEditors.h */,
 				CE39E2D23042F6F60075866A /* MBEditors.m */,
+				35E90E99B5DA48AEC7107A2E /* MBModelCommands.m */,
+				546E900E655B94E676A9EF44 /* MBModelCommands.h */,
+				78955B4FB4DEEBCFB2657443 /* MBModelEditor.m */,
+				CF81619F725071B7EF945FA4 /* MBModelEditor.h */,
 				MB0000000000000000000006 /* MBDocument.h */,
 				MB0000000000000000000003 /* MBDocument.m */,
 				CE80DED1303EB3BF0028CAFF /* MBDocumentWindow.xib */,
@@ -284,6 +294,8 @@
 				MB0000000000000000000104 /* MBWindowController.m in Sources */,
 				CE39E2DE304326510075866A /* CDCodeGenerator.m in Sources */,
 				CE39E2D33042F6F60075866A /* MBEditors.m in Sources */,
+				010BA716EFA065E9F2664A06 /* MBModelCommands.m in Sources */,
+				D696CE22DA7821B775C4B9AB /* MBModelEditor.m in Sources */,
 				CE39E2D63042FBC30075866A /* CDModelMutator.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

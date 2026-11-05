@@ -1,9 +1,9 @@
 /* Editing view-models for the ModelBuilder inspector — one per
-   selection kind.  Each wraps (description object + MBDocument) and
+   selection kind.  Each wraps (description object + MBModelEditor) and
    exposes plain KVC properties whose setters hide the editing
    specifics: validated renames that refuse duplicates, type changes
    that drop the stale default, two-sided inverse wiring, reparenting
-   through the document's XML path, derived-attribute flips that
+   through the model editor's XML path, derived-attribute flips that
    replace the description object.  The window controller copies
    control values in and out; nothing here touches a view, so the
    properties are bindable in principle.
@@ -21,24 +21,24 @@
 #import <AppKit/AppKit.h>
 #import <CoreData/CoreData.h>
 
-@class MBDocument;
+@class MBModelEditor;
 
 @interface MBEditor : NSObject
-@property (nonatomic, strong, readonly) MBDocument *document;
+@property (nonatomic, strong, readonly) MBModelEditor *modelEditor;
 @property (nonatomic, strong, readonly) NSError *lastError;
 /* The editor for a description object (an entity, attribute,
-   relationship or fetch request of the document's model), as it is now.
+   relationship or fetch request of the model editor's model), as it is now.
    Undo replays an edit on it: its setters record the redo. */
-+ (MBEditor *)editorForSubject:(id)subject document:(MBDocument *)document;
++ (MBEditor *)editorForSubject:(id)subject modelEditor:(MBModelEditor *)modelEditor;
 @end
 
 /* ---------------------------------------------------------------- */
 
 /* The model version itself - what Xcode's File inspector shows for a
    selected .xcdatamodel under "Core Data Model". */
-@interface MBModelEditor : MBEditor
+@interface MBVersionEditor : MBEditor
 
-+ (instancetype)editorForDocument:(MBDocument *)document;
++ (instancetype)editorForModelEditor:(MBModelEditor *)modelEditor;
 
 /* The version's Identifier (userDefinedModelVersionIdentifier): the
    model's one version identifier; empty -> none. */
@@ -50,7 +50,7 @@
 
 @interface MBEntityEditor : MBEditor
 
-+ (instancetype)editorForEntityNamed:(NSString *)name document:(MBDocument *)document;
++ (instancetype)editorForEntityNamed:(NSString *)name modelEditor:(MBModelEditor *)modelEditor;
 
 @property (nonatomic, strong, readonly) NSEntityDescription *entity;
 @property (nonatomic, copy) NSString *name;          /* validated rename */
@@ -98,7 +98,7 @@
 
 + (instancetype)editorForAttributeNamed:(NSString *)name
                                  entity:(NSEntityDescription *)entity
-                               document:(MBDocument *)document;
+                               modelEditor:(MBModelEditor *)modelEditor;
 
 @property (nonatomic, strong, readonly) NSAttributeDescription *attribute;
 @property (nonatomic, copy) NSString *name;          /* validated rename */
@@ -156,7 +156,7 @@
 
 + (instancetype)editorForRelationshipNamed:(NSString *)name
                                     entity:(NSEntityDescription *)entity
-                                  document:(MBDocument *)document;
+                                  modelEditor:(MBModelEditor *)modelEditor;
 
 @property (nonatomic, strong, readonly) NSRelationshipDescription *relationship;
 @property (nonatomic, copy) NSString *name;            /* validated rename */
@@ -179,7 +179,7 @@
 
 @interface MBFetchEditor : MBEditor
 
-+ (instancetype)editorForFetchRequestNamed:(NSString *)name document:(MBDocument *)document;
++ (instancetype)editorForFetchRequestNamed:(NSString *)name modelEditor:(MBModelEditor *)modelEditor;
 
 @property (nonatomic, strong, readonly) NSFetchRequest *request;
 @property (nonatomic, copy) NSString *name;            /* re-keys the template map */
