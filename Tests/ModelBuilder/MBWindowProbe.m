@@ -16,6 +16,9 @@
 #import <CoreData/CoreData.h>
 #import "MBDocument.h"
 #import "MBWindowController.h"
+#import "MBInspectorViewController.h"
+#import "MBDetailViewController.h"
+#import "MBSourceListViewController.h"
 #import "MBEditors.h"
 #import "CDModelCompiler.h"
 #import "CDModelSerializer.h"
@@ -64,13 +67,13 @@ static NSString *writeSamplePackage(void)
 
 static NSInteger selectedDetailTab(MBWindowController *wc)
 {
-  return [wc.attributeDetailTabView indexOfTabViewItem:
-             [wc.attributeDetailTabView selectedTabViewItem]];
+  return [wc.inspectorController.attributeDetailTabView indexOfTabViewItem:
+             [wc.inspectorController.attributeDetailTabView selectedTabViewItem]];
 }
 
 static void selectAttributeRow(MBWindowController *wc, NSUInteger row)
 {
-  [wc.attributeTable selectRowIndexes:[NSIndexSet indexSetWithIndex:row]
+  [wc.detailController.attributeTable selectRowIndexes:[NSIndexSet indexSetWithIndex:row]
                  byExtendingSelection:NO];
 }
 
@@ -96,12 +99,12 @@ int main(void)
     MBWindowController *wc = doc.windowControllers.firstObject;
     NSWindow *window = [wc window];   /* forces loadWindow + windowDidLoad */
     CHECK(window != nil, "window loads from nib");
-    CHECK(wc.sourceList != nil, "sourceList outlet");
-    CHECK(wc.attributeTable != nil, "attributeTable outlet");
-    CHECK(wc.attributeTypePopup != nil, "attributeTypePopup outlet");
-    CHECK(wc.attributeDetailTabView != nil, "attributeDetailTabView outlet");
-    CHECK([wc.attributeDetailTabView numberOfTabViewItems] == 9, "9 detail pages");
-    CHECK([wc.attributeTypePopup numberOfItems] ==
+    CHECK(wc.sourceListController.sourceList != nil, "sourceList outlet");
+    CHECK(wc.detailController.attributeTable != nil, "attributeTable outlet");
+    CHECK(wc.inspectorController.attributeTypePopup != nil, "attributeTypePopup outlet");
+    CHECK(wc.inspectorController.attributeDetailTabView != nil, "attributeDetailTabView outlet");
+    CHECK([wc.inspectorController.attributeDetailTabView numberOfTabViewItems] == 9, "9 detail pages");
+    CHECK([wc.inspectorController.attributeTypePopup numberOfItems] ==
           (NSInteger)[[CDModelCompiler attributeTypeNames] count],
           "type popup populated");
     SCENARIO("The xib's delete-rule items match momc's vocabulary");
@@ -109,23 +112,23 @@ int main(void)
             Builder while momc defines the accepted spellings
        THEN the two sets are identical, so an IB edit or a compiler
             rename fails loudly here instead of silently */
-    CHECK([[NSSet setWithArray:[wc.deleteRulePopup itemTitles]] isEqualToSet:
+    CHECK([[NSSet setWithArray:[wc.inspectorController.deleteRulePopup itemTitles]] isEqualToSet:
            [NSSet setWithArray:[CDModelCompiler deleteRuleNames]]],
           "xib delete-rule items match compiler spellings");
 
     /* Entities sort Other < Thing; make sure Thing is the selection. */
-    for (NSInteger i = 0; i < [wc.sourceList numberOfRows]; i++) {
-      id item = [wc.sourceList itemAtRow:i];
+    for (NSInteger i = 0; i < [wc.sourceListController.sourceList numberOfRows]; i++) {
+      id item = [wc.sourceListController.sourceList itemAtRow:i];
       if ([item respondsToSelector:@selector(name)] &&
           [[item performSelector:@selector(name)] isEqualToString:@"Thing"]) {
-        [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)i]
+        [wc.sourceListController.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)i]
                    byExtendingSelection:NO];
         break;
       }
     }
 
     /* Rows are sorted: aString(0) bInt(1) cDate(2) dBool(3). */
-    CHECK([wc.attributeTable numberOfRows] == 4, "4 attribute rows");
+    CHECK([wc.detailController.attributeTable numberOfRows] == 4, "4 attribute rows");
 
     SCENARIO("Date pickers load their fields and date from the nib");
     /* GIVEN the Date attribute page's three NSDatePickers, each set in
@@ -136,8 +139,8 @@ int main(void)
        THEN each picker has its date-and-time fields and today's date,
             not an empty field and a date in 2001 -- which is what a xib
             date picker got before the loader decoded them */
-    for (NSDatePicker *picker in @[ wc.dateDefaultPicker, wc.dateMinPicker,
-                                    wc.dateMaxPicker ]) {
+    for (NSDatePicker *picker in @[ wc.inspectorController.dateDefaultPicker, wc.inspectorController.dateMinPicker,
+                                    wc.inspectorController.dateMaxPicker ]) {
       CHECK(picker.datePickerElements ==
                 (NSYearMonthDayDatePickerElementFlag |
                  NSHourMinuteSecondDatePickerElementFlag),
@@ -156,21 +159,21 @@ int main(void)
             shows the stored default value */
     selectAttributeRow(wc, 0);
     CHECK(selectedDetailTab(wc) == 2, "String attribute shows String page");
-    CHECK([[wc.attributeTypePopup titleOfSelectedItem] isEqualToString:@"String"],
+    CHECK([[wc.inspectorController.attributeTypePopup titleOfSelectedItem] isEqualToString:@"String"],
           "type popup shows String");
-    CHECK(wc.stringDefaultCheckbox.state == NSOnState, "string default checked");
-    CHECK([wc.stringDefaultField.stringValue isEqualToString:@"hi"], "string default filled");
+    CHECK(wc.inspectorController.stringDefaultCheckbox.state == NSOnState, "string default checked");
+    CHECK([wc.inspectorController.stringDefaultField.stringValue isEqualToString:@"hi"], "string default filled");
 
     selectAttributeRow(wc, 1);
     CHECK(selectedDetailTab(wc) == 1, "Integer attribute shows number page");
-    CHECK([wc.numberDefaultField.stringValue isEqualToString:@"7"], "number default filled");
+    CHECK([wc.inspectorController.numberDefaultField.stringValue isEqualToString:@"7"], "number default filled");
 
     selectAttributeRow(wc, 2);
     CHECK(selectedDetailTab(wc) == 4, "Date attribute shows Date page");
 
     selectAttributeRow(wc, 3);
     CHECK(selectedDetailTab(wc) == 3, "Boolean attribute shows Boolean page");
-    CHECK([[wc.boolDefaultPopup titleOfSelectedItem] isEqualToString:@"YES"],
+    CHECK([[wc.inspectorController.boolDefaultPopup titleOfSelectedItem] isEqualToString:@"YES"],
           "bool default YES");
 
     SCENARIO("Changing an attribute's type from the inspector popup");
@@ -181,25 +184,25 @@ int main(void)
             dropped, and the detail page switches each time */
     /* Now change the TYPE through the popup, as a user would. */
     selectAttributeRow(wc, 0);
-    [wc.attributeTypePopup selectItemWithTitle:@"Date"];
-    [wc inspectorChanged:wc.attributeTypePopup];   /* the popup's action */
+    [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"Date"];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];   /* the popup's action */
     NSEntityDescription *thing = doc.modelEditor.model.entitiesByName[@"Thing"];
     NSAttributeDescription *aString = thing.attributesByName[@"aString"];
     CHECK(aString.attributeType == NSDateAttributeType, "model type changed to Date");
     CHECK(selectedDetailTab(wc) == 4, "detail page switched to Date");
     CHECK(aString.defaultValue == nil, "old default dropped on type change");
 
-    [wc.attributeTypePopup selectItemWithTitle:@"UUID"];
-    [wc inspectorChanged:wc.attributeTypePopup];
+    [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"UUID"];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];
     CHECK(aString.attributeType == NSUUIDAttributeType, "model type changed to UUID");
     CHECK(selectedDetailTab(wc) == 6, "detail page switched to UUID");
 
     /* And back through a real popup action dispatch, to prove the
        target/action wiring itself. */
-    [wc.attributeTypePopup selectItemWithTitle:@"Boolean"];
-    ok = [NSApp sendAction:wc.attributeTypePopup.action
-                        to:wc.attributeTypePopup.target
-                      from:wc.attributeTypePopup];
+    [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"Boolean"];
+    ok = [NSApp sendAction:wc.inspectorController.attributeTypePopup.action
+                        to:wc.inspectorController.attributeTypePopup.target
+                      from:wc.inspectorController.attributeTypePopup];
     CHECK(ok, "popup action dispatches");
     CHECK(aString.attributeType == NSBooleanAttributeType, "action path changes type");
     CHECK(selectedDetailTab(wc) == 3, "action path switches page");
@@ -212,21 +215,21 @@ int main(void)
             its IB-assigned name and stacking order, and is expanded */
     /* Nib-decoded JUInspectorView sections must be adopted by their
        containers (vendored awakeFromNib support). */
-    CHECK(wc.attributesInspector.superview == wc.entityInspectorContainer,
+    CHECK(wc.detailController.attributesInspector.superview == wc.detailController.entityInspectorContainer,
           "attributes section is a container subview");
-    CHECK(wc.attributesInspector.header != nil, "section header exists");
-    CHECK([wc.attributesInspector.name isEqualToString:@"Attribute Inspector"],
+    CHECK(wc.detailController.attributesInspector.header != nil, "section header exists");
+    CHECK([wc.detailController.attributesInspector.name isEqualToString:@"Attribute Inspector"],
           "section name from IB runtime attribute");
-    CHECK(wc.attributesInspector.container == wc.entityInspectorContainer,
+    CHECK(wc.detailController.attributesInspector.container == wc.detailController.entityInspectorContainer,
           "section adopted by container");
-    CHECK(wc.attributesInspector.expanded && wc.relationshipsInspector.expanded,
+    CHECK(wc.detailController.attributesInspector.expanded && wc.detailController.relationshipsInspector.expanded,
           "sections expanded after adoption");
-    CHECK(wc.attributesInspector.index < wc.relationshipsInspector.index ||
-          (wc.attributesInspector.index == 0 && wc.relationshipsInspector.index == 1),
+    CHECK(wc.detailController.attributesInspector.index < wc.detailController.relationshipsInspector.index ||
+          (wc.detailController.attributesInspector.index == 0 && wc.detailController.relationshipsInspector.index == 1),
           "section order from IB index attribute");
-    CHECK(wc.fetchRequestInspector.container == wc.fetchRequestInspectorContainer,
+    CHECK(wc.detailController.fetchRequestInspector.container == wc.detailController.fetchRequestInspectorContainer,
           "fetch section adopted");
-    CHECK(wc.entitiesInspector.container == wc.configurationInspectorContainer,
+    CHECK(wc.detailController.entitiesInspector.container == wc.detailController.configurationInspectorContainer,
           "entities section adopted");
 
     SCENARIO("A type flip through Transformable leaves no transformer residue");
@@ -238,15 +241,15 @@ int main(void)
        fields must survive without nil-sets (Apple throws on those) and
        must not leak into the serialized XML for the new type. */
     selectAttributeRow(wc, 3);   /* dBool */
-    [wc.attributeTypePopup selectItemWithTitle:@"Transformable"];
-    [wc inspectorChanged:wc.attributeTypePopup];
-    wc.transformerField.stringValue = @"NSSecureUnarchiveFromData";
-    [wc inspectorChanged:wc.transformerField];
+    [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"Transformable"];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];
+    wc.inspectorController.transformerField.stringValue = @"NSSecureUnarchiveFromData";
+    [wc.inspectorController inspectorChanged:wc.inspectorController.transformerField];
     NSAttributeDescription *dBool = thing.attributesByName[@"dBool"];
     CHECK([[dBool valueTransformerName] isEqualToString:@"NSSecureUnarchiveFromData"],
           "transformer set while Transformable");
-    [wc.attributeTypePopup selectItemWithTitle:@"Boolean"];
-    [wc inspectorChanged:wc.attributeTypePopup];
+    [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"Boolean"];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];
     CHECK(dBool.attributeType == NSBooleanAttributeType, "flip back to Boolean");
     NSString *xml = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model
                                              entityLayouts:nil error:&error];
@@ -266,10 +269,10 @@ int main(void)
             value selected, and each edit is applied with its side
             effects (default dropped, stale inverse unwired, both sides
             rewired) */
-    NSTableColumn *typeColumn = [wc.attributeTable tableColumnWithIdentifier:@"type"];
+    NSTableColumn *typeColumn = [wc.detailController.attributeTable tableColumnWithIdentifier:@"type"];
     NSPopUpButtonCell *typeCell = (NSPopUpButtonCell *)typeColumn.dataCell;
     CHECK([typeCell isKindOfClass:[NSPopUpButtonCell class]], "Type column is a popup cell");
-    [wc tableView:wc.attributeTable willDisplayCell:typeCell forTableColumn:typeColumn row:1];
+    [wc.detailController tableView:wc.detailController.attributeTable willDisplayCell:typeCell forTableColumn:typeColumn row:1];
     NSArray *typeNames = [CDModelCompiler attributeTypeNames];
     CHECK([typeCell numberOfItems] == (NSInteger)typeNames.count, "Type popup populated");
 
@@ -277,24 +280,24 @@ int main(void)
     CHECK([[typeCell titleOfSelectedItem] isEqualToString:
               [CDModelCompiler nameForAttributeType:bInt.attributeType]],
           "Type popup selects the attribute's type");
-    [wc tableView:wc.attributeTable setObjectValue:@([typeNames indexOfObject:@"String"])
+    [wc.detailController tableView:wc.detailController.attributeTable setObjectValue:@([typeNames indexOfObject:@"String"])
         forTableColumn:typeColumn row:1];
     CHECK(bInt.attributeType == NSStringAttributeType, "center Type edit changes type");
     selectAttributeRow(wc, 1);
     CHECK(selectedDetailTab(wc) == 2, "center Type edit reflected in inspector");
 
     /* Relationships of Thing: rows sorted -> others(0). */
-    CHECK([wc.relationshipTable numberOfRows] == 1, "1 relationship row");
-    NSTableColumn *destColumn = [wc.relationshipTable tableColumnWithIdentifier:@"destination"];
+    CHECK([wc.detailController.relationshipTable numberOfRows] == 1, "1 relationship row");
+    NSTableColumn *destColumn = [wc.detailController.relationshipTable tableColumnWithIdentifier:@"destination"];
     NSPopUpButtonCell *destCell = (NSPopUpButtonCell *)destColumn.dataCell;
     CHECK([destCell isKindOfClass:[NSPopUpButtonCell class]], "Destination column is a popup cell");
-    [wc tableView:wc.relationshipTable willDisplayCell:destCell
+    [wc.detailController tableView:wc.detailController.relationshipTable willDisplayCell:destCell
         forTableColumn:destColumn row:0];
     CHECK([destCell numberOfItems] == 2, "Destination popup lists both entities");
-    NSTableColumn *invColumn = [wc.relationshipTable tableColumnWithIdentifier:@"inverse"];
+    NSTableColumn *invColumn = [wc.detailController.relationshipTable tableColumnWithIdentifier:@"inverse"];
     NSPopUpButtonCell *invCell = (NSPopUpButtonCell *)invColumn.dataCell;
     CHECK([invCell isKindOfClass:[NSPopUpButtonCell class]], "Inverse column is a popup cell");
-    [wc tableView:wc.relationshipTable willDisplayCell:invCell
+    [wc.detailController tableView:wc.detailController.relationshipTable willDisplayCell:invCell
         forTableColumn:invColumn row:0];
     CHECK([invCell numberOfItems] == 3, "Inverse popup lists (none)+destination rels");
     CHECK([[invCell titleOfSelectedItem] isEqualToString:@"thing"],
@@ -302,16 +305,16 @@ int main(void)
 
     NSRelationshipDescription *others = thing.relationshipsByName[@"others"];
     NSEntityDescription *other = doc.modelEditor.model.entitiesByName[@"Other"];
-    [wc tableView:wc.relationshipTable setObjectValue:@0   /* (none) */
+    [wc.detailController tableView:wc.detailController.relationshipTable setObjectValue:@0   /* (none) */
         forTableColumn:invColumn row:0];
     CHECK(others.inverseRelationship == nil, "center Inverse edit unwires");
     CHECK([other.relationshipsByName[@"thing"] inverseRelationship] == nil,
           "old inverse unwired both ways");
-    [wc tableView:wc.relationshipTable setObjectValue:@"thing"
+    [wc.detailController tableView:wc.detailController.relationshipTable setObjectValue:@"thing"
         forTableColumn:invColumn row:0];
     CHECK(others.inverseRelationship == other.relationshipsByName[@"thing"],
           "center Inverse edit rewires");
-    [wc tableView:wc.relationshipTable setObjectValue:@"Thing"
+    [wc.detailController tableView:wc.detailController.relationshipTable setObjectValue:@"Thing"
         forTableColumn:destColumn row:0];
     CHECK(others.destinationEntity == thing, "center Destination edit retargets");
     CHECK(others.inverseRelationship == nil, "stale inverse dropped on retarget");
@@ -323,57 +326,57 @@ int main(void)
        WHEN the inspector controls for them are used as a user would
        THEN they are enabled, prefill from the model, and each edit
             reaches the description objects */
-    CHECK(wc.attributeRenamingField.isEnabled && wc.entityRenamingField.isEnabled &&
-          wc.relationshipRenamingField.isEnabled, "renaming fields enabled");
-    CHECK(wc.fetchResultTypePopup.isEnabled && wc.fetchBatchField.isEnabled &&
-          wc.fetchDistinctCheckbox.isEnabled, "fetch feature controls enabled");
-    CHECK(wc.numberMinField.isEnabled && wc.stringRegexField.isEnabled &&
-          wc.dateMinPicker.isEnabled, "validation controls enabled");
-    CHECK(wc.dateScalarCheckbox.isEnabled, "scalar checkboxes enabled");
+    CHECK(wc.inspectorController.attributeRenamingField.isEnabled && wc.inspectorController.entityRenamingField.isEnabled &&
+          wc.inspectorController.relationshipRenamingField.isEnabled, "renaming fields enabled");
+    CHECK(wc.inspectorController.fetchResultTypePopup.isEnabled && wc.inspectorController.fetchBatchField.isEnabled &&
+          wc.inspectorController.fetchDistinctCheckbox.isEnabled, "fetch feature controls enabled");
+    CHECK(wc.inspectorController.numberMinField.isEnabled && wc.inspectorController.stringRegexField.isEnabled &&
+          wc.inspectorController.dateMinPicker.isEnabled, "validation controls enabled");
+    CHECK(wc.inspectorController.dateScalarCheckbox.isEnabled, "scalar checkboxes enabled");
 
     /* cDate (row 2) kept its Date type through the earlier scenarios. */
     selectAttributeRow(wc, 2);
     NSAttributeDescription *cDate = thing.attributesByName[@"cDate"];
-    CHECK([wc.attributeRenamingField.stringValue isEqualToString:@"cDate"],
+    CHECK([wc.inspectorController.attributeRenamingField.stringValue isEqualToString:@"cDate"],
           "renaming field shows the name while defaulted");
-    wc.attributeRenamingField.stringValue = @"createdAt";
-    [wc inspectorChanged:wc.attributeRenamingField];
+    wc.inspectorController.attributeRenamingField.stringValue = @"createdAt";
+    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeRenamingField];
     CHECK([[cDate renamingIdentifier] isEqualToString:@"createdAt"],
           "renaming edit reaches the model");
-    [wc.dateScalarCheckbox setState:NSOnState];
-    [wc inspectorChanged:wc.dateScalarCheckbox];
+    [wc.inspectorController.dateScalarCheckbox setState:NSOnState];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.dateScalarCheckbox];
     CHECK([CDModelCompiler attributeUsesScalarValueType:cDate],
           "scalar checkbox sets the codegen flag");
-    [wc.dateMinCheckbox setState:NSOnState];
-    wc.dateMinPicker.dateValue = [NSDate dateWithTimeIntervalSinceReferenceDate:100];
-    [wc inspectorChanged:wc.dateMinCheckbox];
+    [wc.inspectorController.dateMinCheckbox setState:NSOnState];
+    wc.inspectorController.dateMinPicker.dateValue = [NSDate dateWithTimeIntervalSinceReferenceDate:100];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.dateMinCheckbox];
     NSDictionary *dateInfo = [CDModelCompiler validationInfoForAttribute:cDate];
     CHECK([dateInfo[@"minDate"] timeIntervalSinceReferenceDate] == 100,
           "date lower bound applied as a validation predicate");
 
     /* bInt became a String attribute in the combo-column scenario. */
     selectAttributeRow(wc, 1);
-    wc.stringMinField.stringValue = @"2";
-    wc.stringMaxField.stringValue = @"10";
-    wc.stringRegexField.stringValue = @"[a-z]+";
-    [wc inspectorChanged:wc.stringMaxField];
+    wc.inspectorController.stringMinField.stringValue = @"2";
+    wc.inspectorController.stringMaxField.stringValue = @"10";
+    wc.inspectorController.stringRegexField.stringValue = @"[a-z]+";
+    [wc.inspectorController inspectorChanged:wc.inspectorController.stringMaxField];
     NSDictionary *strInfo = [CDModelCompiler validationInfoForAttribute:bInt];
     CHECK([strInfo[@"minLength"] isEqualToString:@"2"] &&
           [strInfo[@"maxLength"] isEqualToString:@"10"] &&
           [strInfo[@"regex"] isEqualToString:@"[a-z]+"],
           "string length bounds and regex applied");
 
-    [wc addFetchRequest:nil];   /* adds for Thing, selects it */
-    NSString *templateName = wc.fetchNameField.stringValue;
+    [wc.sourceListController addFetchRequest:nil];   /* adds for Thing, selects it */
+    NSString *templateName = wc.inspectorController.fetchNameField.stringValue;
     CHECK(templateName.length > 0, "fetch request added and selected");
-    CHECK(wc.fetchSubentitiesCheckbox.state == NSOnState &&
-          wc.fetchDistinctCheckbox.state == NSOffState,
+    CHECK(wc.inspectorController.fetchSubentitiesCheckbox.state == NSOnState &&
+          wc.inspectorController.fetchDistinctCheckbox.state == NSOffState,
           "checkboxes prefill with the runtime defaults");
-    [wc.fetchResultTypePopup selectItemAtIndex:2];   /* Dictionaries */
-    wc.fetchBatchField.stringValue = @"25";
-    [wc.fetchDistinctCheckbox setState:NSOnState];
-    [wc.fetchSubentitiesCheckbox setState:NSOffState];
-    [wc inspectorChanged:wc.fetchResultTypePopup];
+    [wc.inspectorController.fetchResultTypePopup selectItemAtIndex:2];   /* Dictionaries */
+    wc.inspectorController.fetchBatchField.stringValue = @"25";
+    [wc.inspectorController.fetchDistinctCheckbox setState:NSOnState];
+    [wc.inspectorController.fetchSubentitiesCheckbox setState:NSOffState];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.fetchResultTypePopup];
     NSFetchRequest *template = [doc.modelEditor.model fetchRequestTemplateForName:templateName];
     CHECK(template != nil, "template stored under its name");
     CHECK([template resultType] == NSDictionaryResultType,
@@ -387,25 +390,25 @@ int main(void)
        WHEN an entity's Codegen popup is switched to Class Definition
        THEN the compiler metadata and the serialized XML both carry it,
             and the refill maps it back to the same popup item */
-    CHECK(([[NSSet setWithArray:[wc.codegenPopup itemTitles]] isEqualToSet:
+    CHECK(([[NSSet setWithArray:[wc.inspectorController.codegenPopup itemTitles]] isEqualToSet:
             [NSSet setWithArray:@[ @"Manual/None", @"Class Definition",
                                    @"Category/Extension" ]]]),
           "xib codegen items match the known modes");
-    for (NSInteger i = 0; i < [wc.sourceList numberOfRows]; i++) {
-      id item = [wc.sourceList itemAtRow:i];
+    for (NSInteger i = 0; i < [wc.sourceListController.sourceList numberOfRows]; i++) {
+      id item = [wc.sourceListController.sourceList itemAtRow:i];
       if ([item respondsToSelector:@selector(name)] &&
           [[item performSelector:@selector(name)] isEqualToString:@"Thing"]) {
-        [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)i]
+        [wc.sourceListController.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)i]
                    byExtendingSelection:NO];
         break;
       }
     }
-    CHECK(wc.codegenPopup.isEnabled, "codegen popup enabled");
-    [wc.codegenPopup selectItemAtIndex:1];   /* Class Definition */
-    [wc inspectorChanged:wc.codegenPopup];
+    CHECK(wc.inspectorController.codegenPopup.isEnabled, "codegen popup enabled");
+    [wc.inspectorController.codegenPopup selectItemAtIndex:1];   /* Class Definition */
+    [wc.inspectorController inspectorChanged:wc.inspectorController.codegenPopup];
     CHECK([[CDModelCompiler entityCodeGenerationType:thing]
               isEqualToString:@"class"], "popup writes the compiler metadata");
-    CHECK([wc.codegenPopup indexOfSelectedItem] == 1,
+    CHECK([wc.inspectorController.codegenPopup indexOfSelectedItem] == 1,
           "refill maps the metadata back to the item");
     xml = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model
                                    entityLayouts:nil error:&error];
@@ -422,37 +425,37 @@ int main(void)
             own action (inspectorChanged:), the stepper returns to
             rest, and it mirrors the field's enabled state */
     int owned = 0;
-    for (MBStepperTextField *field in @[ wc.numberDefaultField, wc.numberMinField,
-                                         wc.numberMaxField, wc.stringMinField,
-                                         wc.stringMaxField, wc.minCountField,
-                                         wc.maxCountField, wc.fetchLimitField,
-                                         wc.fetchBatchField ]) {
+    for (MBStepperTextField *field in @[ wc.inspectorController.numberDefaultField, wc.inspectorController.numberMinField,
+                                         wc.inspectorController.numberMaxField, wc.inspectorController.stringMinField,
+                                         wc.inspectorController.stringMaxField, wc.inspectorController.minCountField,
+                                         wc.inspectorController.maxCountField, wc.inspectorController.fetchLimitField,
+                                         wc.inspectorController.fetchBatchField ]) {
       if ([field isKindOfClass:[MBStepperTextField class]] &&
           field.stepper != nil && field.stepper.target == field &&
           field.stepper.superview == field.superview) owned++;
     }
     CHECK(owned == 9, "all 9 fields are MBStepperTextFields with a live stepper");
-    CHECK(wc.numberMinField.allowsNegative && !wc.stringMinField.allowsNegative,
+    CHECK(wc.inspectorController.numberMinField.allowsNegative && !wc.inspectorController.stringMinField.allowsNegative,
           "number bounds signed, lengths clamped at zero");
 
     selectAttributeRow(wc, 1);   /* bInt (String type), minLength "2" */
-    CHECK([wc.stringMinField.stringValue isEqualToString:@"2"],
+    CHECK([wc.inspectorController.stringMinField.stringValue isEqualToString:@"2"],
           "string min length prefilled");
-    NSStepper *minStepper = wc.stringMinField.stepper;
+    NSStepper *minStepper = wc.inspectorController.stringMinField.stepper;
     minStepper.doubleValue = 1;   /* an up-click leaves +1 behind */
     [minStepper sendAction:minStepper.action to:minStepper.target];
-    CHECK([wc.stringMinField.stringValue isEqualToString:@"3"],
+    CHECK([wc.inspectorController.stringMinField.stringValue isEqualToString:@"3"],
           "up-click increments the field");
     CHECK([[CDModelCompiler validationInfoForAttribute:bInt][@"minLength"]
               isEqualToString:@"3"], "stepped value applied to the model");
     CHECK(minStepper.doubleValue == 0, "stepper back at rest");
     minStepper.doubleValue = -1;  /* a down-click */
     [minStepper sendAction:minStepper.action to:minStepper.target];
-    CHECK([wc.stringMinField.stringValue isEqualToString:@"2"],
+    CHECK([wc.inspectorController.stringMinField.stringValue isEqualToString:@"2"],
           "down-click decrements the field");
-    wc.minCountField.enabled = NO;
-    CHECK(!wc.minCountField.stepper.isEnabled, "stepper follows field enablement");
-    wc.minCountField.enabled = YES;
+    wc.inspectorController.minCountField.enabled = NO;
+    CHECK(!wc.inspectorController.minCountField.stepper.isEnabled, "stepper follows field enablement");
+    wc.inspectorController.minCountField.enabled = YES;
 
     SCENARIO("Configurations list the implicit Default and inspect their entities");
     /* GIVEN a model that declares no configuration (Thing, ZOther)
@@ -462,32 +465,32 @@ int main(void)
        AND WHEN an entity row on its page is selected
        THEN the inspector shows that entity */
     NSInteger defaultRow = -1;
-    for (NSInteger r = 0; r < wc.sourceList.numberOfRows; r++) {
-      id item = [wc.sourceList itemAtRow:r];
+    for (NSInteger r = 0; r < wc.sourceListController.sourceList.numberOfRows; r++) {
+      id item = [wc.sourceListController.sourceList itemAtRow:r];
       if ([[item valueForKey:@"implicitDefault"] boolValue]) { defaultRow = r; break; }
     }
     CHECK(defaultRow >= 0, "Default configuration listed");
-    [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)defaultRow]
+    [wc.sourceListController.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)defaultRow]
                byExtendingSelection:NO];
-    NSTableColumn *memberColumn = [wc.memberTable tableColumnWithIdentifier:@"member"];
-    CHECK([wc.memberTable numberOfRows] == 2, "Default lists every entity");
+    NSTableColumn *memberColumn = [wc.detailController.memberTable tableColumnWithIdentifier:@"member"];
+    CHECK([wc.detailController.memberTable numberOfRows] == 2, "Default lists every entity");
     BOOL allMembers = YES;
-    for (NSInteger r = 0; r < [wc.memberTable numberOfRows]; r++)
-      allMembers &= [[wc tableView:wc.memberTable objectValueForTableColumn:memberColumn
+    for (NSInteger r = 0; r < [wc.detailController.memberTable numberOfRows]; r++)
+      allMembers &= [[wc.detailController tableView:wc.detailController.memberTable objectValueForTableColumn:memberColumn
                                row:r] boolValue];
     CHECK(allMembers, "every entity is a member of Default");
     NSCell *memberCell = [memberColumn dataCellForRow:0];
-    [wc tableView:wc.memberTable willDisplayCell:memberCell forTableColumn:memberColumn row:0];
+    [wc.detailController tableView:wc.detailController.memberTable willDisplayCell:memberCell forTableColumn:memberColumn row:0];
     CHECK(![memberCell isEnabled], "Default membership is not editable");
-    CHECK(![wc outlineView:wc.sourceList shouldEditTableColumn:nil
-                      item:[wc.sourceList itemAtRow:defaultRow]],
+    CHECK(![wc.sourceListController outlineView:wc.sourceListController.sourceList shouldEditTableColumn:nil
+                      item:[wc.sourceListController.sourceList itemAtRow:defaultRow]],
           "Default cannot be renamed");
-    NSString *rowEntity = [wc tableView:wc.memberTable
-              objectValueForTableColumn:[wc.memberTable tableColumnWithIdentifier:@"entity"]
+    NSString *rowEntity = [wc.detailController tableView:wc.detailController.memberTable
+              objectValueForTableColumn:[wc.detailController.memberTable tableColumnWithIdentifier:@"entity"]
                                     row:0];
-    [wc.memberTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0]
+    [wc.detailController.memberTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0]
                 byExtendingSelection:NO];
-    CHECK(rowEntity.length && [wc.entityNameField.stringValue isEqualToString:rowEntity],
+    CHECK(rowEntity.length && [wc.inspectorController.entityNameField.stringValue isEqualToString:rowEntity],
           "selecting an entity row inspects that entity");
 
     SCENARIO("The Identity page edits the model version's Identifier");
@@ -496,21 +499,21 @@ int main(void)
             action, as ending editing does
        THEN the model's version identifier is what was typed, as one
             undo step, and the field shows what the model holds */
-    CHECK(wc.modelIdentifierField != nil, "modelIdentifierField outlet");
-    CHECK([wc.modelIdentifierField.stringValue isEqualToString:@""], "a blank Identifier shows blank");
-    [wc.modelIdentifierField setStringValue:@"probe-2"];
+    CHECK(wc.inspectorController.modelIdentifierField != nil, "modelIdentifierField outlet");
+    CHECK([wc.inspectorController.modelIdentifierField.stringValue isEqualToString:@""], "a blank Identifier shows blank");
+    [wc.inspectorController.modelIdentifierField setStringValue:@"probe-2"];
     /* Through the xib's wiring, not a direct call: the connection is what
        is under test. */
-    CHECK([NSApp sendAction:wc.modelIdentifierField.action
-                         to:wc.modelIdentifierField.target
-                       from:wc.modelIdentifierField], "the field's action is wired");
+    CHECK([NSApp sendAction:wc.inspectorController.modelIdentifierField.action
+                         to:wc.inspectorController.modelIdentifierField.target
+                       from:wc.inspectorController.modelIdentifierField], "the field's action is wired");
     CHECK([doc.modelEditor.model.versionIdentifiers isEqual:[NSSet setWithObject:@"probe-2"]],
           "the field's action sets the model's version identifier");
     [doc.undoManager undo];
     CHECK(doc.modelEditor.model.versionIdentifiers.count == 0, "one undo takes it back");
-    [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)defaultRow]
+    [wc.sourceListController.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)defaultRow]
                byExtendingSelection:NO];
-    CHECK([wc.modelIdentifierField.stringValue isEqualToString:@""], "the field shows the model's value again");
+    CHECK([wc.inspectorController.modelIdentifierField.stringValue isEqualToString:@""], "the field shows the model's value again");
 
     SCENARIO("Fetch indexes are listed under their entity and edited there");
     /* GIVEN Thing with the fetch index byString on aString
@@ -520,51 +523,51 @@ int main(void)
            narrowed, each as one undo step, and removing the attribute
            an element names takes it out of the index */
     id thingItem = nil;
-    for (NSInteger r = 0; r < wc.sourceList.numberOfRows; r++)
-      if ([[[wc.sourceList itemAtRow:r] valueForKey:@"name"] isEqual:@"Thing"]) thingItem = [wc.sourceList itemAtRow:r];
-    CHECK(thingItem && [wc outlineView:wc.sourceList isItemExpandable:thingItem]
-              && [wc outlineView:wc.sourceList numberOfChildrenOfItem:thingItem] == 1,
+    for (NSInteger r = 0; r < wc.sourceListController.sourceList.numberOfRows; r++)
+      if ([[[wc.sourceListController.sourceList itemAtRow:r] valueForKey:@"name"] isEqual:@"Thing"]) thingItem = [wc.sourceListController.sourceList itemAtRow:r];
+    CHECK(thingItem && [wc.sourceListController outlineView:wc.sourceListController.sourceList isItemExpandable:thingItem]
+              && [wc.sourceListController outlineView:wc.sourceListController.sourceList numberOfChildrenOfItem:thingItem] == 1,
           "Thing opens to its one fetch index");
-    CHECK(wc.fetchIndexElementTable && wc.fetchIndexNameField && wc.fetchIndexPredicateField
-              && wc.fetchIndexElementSegmentedControl && wc.fetchIndexElementsInspector,
+    CHECK(wc.detailController.fetchIndexElementTable && wc.inspectorController.fetchIndexNameField && wc.inspectorController.fetchIndexPredicateField
+              && wc.detailController.fetchIndexElementSegmentedControl && wc.detailController.fetchIndexElementsInspector,
           "the fetch index outlets are connected");
-    [wc.sourceList expandItem:thingItem];
-    id indexItem = [wc outlineView:wc.sourceList child:0 ofItem:thingItem];
-    [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)[wc.sourceList rowForItem:indexItem]]
+    [wc.sourceListController.sourceList expandItem:thingItem];
+    id indexItem = [wc.sourceListController outlineView:wc.sourceListController.sourceList child:0 ofItem:thingItem];
+    [wc.sourceListController.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)[wc.sourceListController.sourceList rowForItem:indexItem]]
                byExtendingSelection:NO];
-    CHECK([[[wc.centerTabView selectedTabViewItem] label] isEqualToString:@"Fetch Index"], "the center shows the index");
-    CHECK([[[wc.inspectorKindTabView selectedTabViewItem] label] isEqualToString:@"Fetch Index Inspector"]
-              && [wc.fetchIndexNameField.stringValue isEqualToString:@"byString"],
+    CHECK([[[wc.detailController.centerTabView selectedTabViewItem] label] isEqualToString:@"Fetch Index"], "the center shows the index");
+    CHECK([[[wc.inspectorController.inspectorKindTabView selectedTabViewItem] label] isEqualToString:@"Fetch Index Inspector"]
+              && [wc.inspectorController.fetchIndexNameField.stringValue isEqualToString:@"byString"],
           "and the inspector its name");
-    CHECK([wc.fetchIndexElementTable numberOfRows] == 1, "one element listed");
+    CHECK([wc.detailController.fetchIndexElementTable numberOfRows] == 1, "one element listed");
 
     NSEntityDescription *indexedThing = doc.modelEditor.model.entitiesByName[@"Thing"];
-    [wc.fetchIndexElementSegmentedControl setSelectedSegment:0];
-    [wc fetchIndexElementSegmentClicked:wc.fetchIndexElementSegmentedControl];
+    [wc.detailController.fetchIndexElementSegmentedControl setSelectedSegment:0];
+    [wc.detailController fetchIndexElementSegmentClicked:wc.detailController.fetchIndexElementSegmentedControl];
     NSFetchIndexDescription *edited = [[indexedThing indexes] firstObject];
-    CHECK([wc.fetchIndexElementTable numberOfRows] == 2 && [[[edited.elements lastObject] propertyName] isEqualToString:@"bInt"],
+    CHECK([wc.detailController.fetchIndexElementTable numberOfRows] == 2 && [[[edited.elements lastObject] propertyName] isEqualToString:@"bInt"],
           "+ adds the next property, bInt");
 
-    NSTableColumn *elementOrderColumn = [wc.fetchIndexElementTable tableColumnWithIdentifier:@"order"];
-    NSTableColumn *elementTypeColumn = [wc.fetchIndexElementTable tableColumnWithIdentifier:@"type"];
-    [wc tableView:wc.fetchIndexElementTable setObjectValue:@1 forTableColumn:elementOrderColumn row:1];
+    NSTableColumn *elementOrderColumn = [wc.detailController.fetchIndexElementTable tableColumnWithIdentifier:@"order"];
+    NSTableColumn *elementTypeColumn = [wc.detailController.fetchIndexElementTable tableColumnWithIdentifier:@"type"];
+    [wc.detailController tableView:wc.detailController.fetchIndexElementTable setObjectValue:@1 forTableColumn:elementOrderColumn row:1];
     CHECK(![[[[indexedThing indexes] firstObject] elements].lastObject isAscending], "Order makes it descending");
     [doc.undoManager undo];
     CHECK([[[[indexedThing indexes] firstObject] elements].lastObject isAscending], "and undo ascending again");
     /* An earlier scenario retyped bInt; an R-tree wants a small number. */
     [MBAttributeEditor editorForAttributeNamed:@"bInt" entity:indexedThing modelEditor:doc.modelEditor].typeName = @"Integer 32";
-    [wc tableView:wc.fetchIndexElementTable setObjectValue:@1 forTableColumn:elementTypeColumn row:1];
+    [wc.detailController tableView:wc.detailController.fetchIndexElementTable setObjectValue:@1 forTableColumn:elementTypeColumn row:1];
     CHECK([[[[indexedThing indexes] firstObject] elements].lastObject collationType] == NSFetchIndexElementTypeRTree,
           "Type makes the Integer 32 an R-tree element");
 
-    [wc.fetchIndexPredicateField setStringValue:@"aString != nil"];
-    [wc inspectorChanged:wc.fetchIndexPredicateField];
+    [wc.inspectorController.fetchIndexPredicateField setStringValue:@"aString != nil"];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.fetchIndexPredicateField];
     CHECK([[[[[indexedThing indexes] firstObject] partialIndexPredicate] predicateFormat] isEqualToString:@"aString != nil"],
           "the partial predicate is set, and reads back as written");
-    [wc.fetchIndexNameField setStringValue:@"byStringAndCount"];
-    [wc inspectorChanged:wc.fetchIndexNameField];
+    [wc.inspectorController.fetchIndexNameField setStringValue:@"byStringAndCount"];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.fetchIndexNameField];
     CHECK([[[[indexedThing indexes] firstObject] name] isEqualToString:@"byStringAndCount"]
-              && [[[wc.sourceList itemAtRow:wc.sourceList.selectedRow] valueForKey:@"name"] isEqualToString:@"byStringAndCount"],
+              && [[[wc.sourceListController.sourceList itemAtRow:wc.sourceListController.sourceList.selectedRow] valueForKey:@"name"] isEqualToString:@"byStringAndCount"],
           "renaming it renames it in the list, still selected");
 
     [doc.modelEditor beginEdit:@"Remove"];
@@ -581,15 +584,15 @@ int main(void)
           "and it is written as Xcode writes it");
 
     id otherItem = nil;
-    for (NSInteger r = 0; r < wc.sourceList.numberOfRows; r++)
-      if ([[[wc.sourceList itemAtRow:r] valueForKey:@"name"] isEqual:@"Other"]) otherItem = [wc.sourceList itemAtRow:r];
-    [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)[wc.sourceList rowForItem:otherItem]]
+    for (NSInteger r = 0; r < wc.sourceListController.sourceList.numberOfRows; r++)
+      if ([[[wc.sourceListController.sourceList itemAtRow:r] valueForKey:@"name"] isEqual:@"Other"]) otherItem = [wc.sourceListController.sourceList itemAtRow:r];
+    [wc.sourceListController.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)[wc.sourceListController.sourceList rowForItem:otherItem]]
                byExtendingSelection:NO];
-    [wc addFetchIndex:nil];
+    [wc.sourceListController addFetchIndex:nil];
     CHECK([[doc.modelEditor.model.entitiesByName[@"Other"] indexes] count] == 1
-              && [[[wc.sourceList itemAtRow:wc.sourceList.selectedRow] valueForKey:@"name"] isEqualToString:@"index"],
+              && [[[wc.sourceListController.sourceList itemAtRow:wc.sourceListController.sourceList.selectedRow] valueForKey:@"name"] isEqualToString:@"index"],
           "Add Fetch Index makes one on Other, selected");
-    [wc removeSourceItem:nil];
+    [wc.sourceListController removeSourceItem:nil];
     CHECK([[doc.modelEditor.model.entitiesByName[@"Other"] indexes] count] == 0, "and − removes it");
 
     SCENARIO("Allows External Storage is offered for Binary Data alone");
@@ -600,22 +603,22 @@ int main(void)
             the model as one undo step, it is written as Xcode writes it,
             and it goes when the type does */
     NSInteger otherRow = -1;
-    for (NSInteger r = 0; r < wc.sourceList.numberOfRows; r++)
-      if ([[[wc.sourceList itemAtRow:r] valueForKey:@"name"] isEqual:@"Other"]) otherRow = r;
+    for (NSInteger r = 0; r < wc.sourceListController.sourceList.numberOfRows; r++)
+      if ([[[wc.sourceListController.sourceList itemAtRow:r] valueForKey:@"name"] isEqual:@"Other"]) otherRow = r;
     CHECK(otherRow >= 0, "Other is listed");
-    [wc.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)otherRow] byExtendingSelection:NO];
+    [wc.sourceListController.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)otherRow] byExtendingSelection:NO];
     selectAttributeRow(wc, 0);
     NSAttributeDescription *tag = [[doc.modelEditor.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
-    CHECK([wc.attributeNameField.stringValue isEqualToString:@"tag"], "tag is in the inspector");
-    CHECK(!wc.externalStorageCheckbox.isEnabled, "not offered for a String");
-    [wc.attributeTypePopup selectItemWithTitle:@"Binary"];
-    [wc inspectorChanged:wc.attributeTypePopup];
+    CHECK([wc.inspectorController.attributeNameField.stringValue isEqualToString:@"tag"], "tag is in the inspector");
+    CHECK(!wc.inspectorController.externalStorageCheckbox.isEnabled, "not offered for a String");
+    [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"Binary"];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];
     tag = [[doc.modelEditor.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
     CHECK(tag.attributeType == NSBinaryDataAttributeType, "tag is Binary Data");
-    CHECK(wc.externalStorageCheckbox.isEnabled && wc.externalStorageCheckbox.state == NSOffState,
+    CHECK(wc.inspectorController.externalStorageCheckbox.isEnabled && wc.inspectorController.externalStorageCheckbox.state == NSOffState,
           "offered for Binary Data, unticked");
-    [wc.externalStorageCheckbox setState:NSOnState];
-    [wc inspectorChanged:wc.externalStorageCheckbox];
+    [wc.inspectorController.externalStorageCheckbox setState:NSOnState];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.externalStorageCheckbox];
     CHECK(tag.allowsExternalBinaryDataStorage, "ticking it reaches the model");
     written = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model entityLayouts:nil error:&error];
     CHECK([written rangeOfString:@"name=\"tag\" optional=\"YES\" attributeType=\"Binary\" allowsExternalBinaryDataStorage=\"YES\""].location != NSNotFound,
@@ -623,13 +626,13 @@ int main(void)
     [doc.undoManager undo];
     CHECK(!tag.allowsExternalBinaryDataStorage && tag.attributeType == NSBinaryDataAttributeType,
           "one undo takes the option back, not the type");
-    [wc.externalStorageCheckbox setState:NSOnState];
-    [wc inspectorChanged:wc.externalStorageCheckbox];
-    [wc.attributeTypePopup selectItemWithTitle:@"String"];
-    [wc inspectorChanged:wc.attributeTypePopup];
+    [wc.inspectorController.externalStorageCheckbox setState:NSOnState];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.externalStorageCheckbox];
+    [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"String"];
+    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];
     tag = [[doc.modelEditor.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
     CHECK(tag.attributeType == NSStringAttributeType && !tag.allowsExternalBinaryDataStorage &&
-          !wc.externalStorageCheckbox.isEnabled,
+          !wc.inspectorController.externalStorageCheckbox.isEnabled,
           "a String again, the option goes with the type");
 
     printf("---\n%d passed, %d failed\n", passed, failed);

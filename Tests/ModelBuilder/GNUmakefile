@@ -21,6 +21,10 @@ MB_SOURCES = \
 	../../ModelBuilder/MBNewMappingController.m \
 	../../ModelBuilder/MBEditors.m \
 	../../ModelBuilder/MBWindowController.m \
+	../../ModelBuilder/MBWindowSupport.m \
+	../../ModelBuilder/MBSourceListViewController.m \
+	../../ModelBuilder/MBDetailViewController.m \
+	../../ModelBuilder/MBInspectorViewController.m \
 	../../Tools/momc/CDModelCompiler.m \
 	../../Tools/momc/CDModelSerializer.m \
 	../../Tools/momc/CDModelMutator.m \
@@ -66,7 +70,7 @@ after-all::
 	@wrap="$(GNUSTEP_OBJ_DIR)/MBWindowProbe.app"; \
 	mkdir -p "$$wrap/Resources"; \
 	cp -f "$(GNUSTEP_OBJ_DIR)/MBWindowProbe" "$$wrap/"; \
-	cp -f ../../ModelBuilder/MBDocumentWindow.xib "$$wrap/Resources/"; \
+	cp -f ../../ModelBuilder/MBDocumentWindow.xib ../../ModelBuilder/MBSourceList.xib ../../ModelBuilder/MBDetail.xib ../../ModelBuilder/MBInspector.xib "$$wrap/Resources/"; \
 	wrap="$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe.app"; \
 	mkdir -p "$$wrap/Resources"; \
 	cp -f "$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe" "$$wrap/"; \

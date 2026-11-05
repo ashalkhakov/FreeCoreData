@@ -17,6 +17,38 @@
 
 /* Posted (object: the model editor) after every change to the model. */
 extern NSString *const MBModelEditorDidChangeNotification;
+/* Posted (object: the model editor) when the selection changes. */
+extern NSString *const MBModelEditorSelectionDidChangeNotification;
+
+typedef NS_ENUM(NSInteger, MBSelectionKind) {
+  MBSelectionNone = 0,
+  MBSelectionEntity,
+  MBSelectionAttribute,
+  MBSelectionRelationship,
+  MBSelectionFetchRequest,
+  MBSelectionConfiguration,
+  MBSelectionFetchIndex
+};
+
+/* What is selected, by name, so that it outlives the model being
+   rebuilt (removal, reparenting and configurations recompile it): an
+   entity; an attribute, relationship or fetch index of an entity; a fetch
+   request; a configuration (the implicit Default is "Default": a model
+   that declares a configuration of that name has no implicit one), and
+   perhaps an entity picked on its page. */
+@interface MBSelection : NSObject <NSCopying>
+@property (nonatomic, readonly) MBSelectionKind kind;
+@property (nonatomic, copy, readonly) NSString *entityName;
+@property (nonatomic, copy, readonly) NSString *name;
+@property (nonatomic, copy, readonly) NSString *configurationName;
++ (instancetype)selectionOfKind:(MBSelectionKind)kind
+                     entityName:(NSString *)entityName
+                           name:(NSString *)name
+              configurationName:(NSString *)configurationName;
++ (instancetype)entityNamed:(NSString *)name;
++ (instancetype)fetchRequestNamed:(NSString *)name;
++ (instancetype)configurationNamed:(NSString *)name;
+@end
 
 @interface MBModelEditor : NSObject
 
@@ -42,11 +74,28 @@ extern NSString *const MBModelEditorDidChangeNotification;
 - (NSString *)contentsXML:(NSError **)error;
 - (BOOL)readContentsXML:(NSString *)xml error:(NSError **)error;
 
+/* What the window's parts show.  A rename keeps it (it follows the
+   name); setting it posts MBModelEditorSelectionDidChangeNotification. */
+@property (nonatomic, copy) MBSelection *selection;
+
+/* The selection's objects, as the model has them now (nil where it names
+   nothing that is there). */
+- (NSEntityDescription *)selectedEntity;
+- (NSPropertyDescription *)selectedProperty;
+- (NSFetchRequest *)selectedFetchRequest;
+
 - (NSArray *)sortedEntities;       /* the model's entities, by name */
 - (NSArray *)configurationNames;   /* sorted */
 
 /* Says the model changed (MBModelEditorDidChangeNotification). */
 - (void)noteModelChanged;
+
+/* A property or a fetch index of an entity renamed, by its editor: the
+   selection follows it. */
+- (void)noteRenameOfKind:(MBSelectionKind)kind
+                 inEntity:(NSString *)entityName
+                     from:(NSString *)oldName
+                       to:(NSString *)newName;
 
 /* Undo.  An edit is everything between -beginEdit: and the matching
    -endEdit (they nest; the outermost pair is one undo step, named by the

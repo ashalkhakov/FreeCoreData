@@ -8,6 +8,69 @@
 #import "MBEditors.h"
 
 NSString *const MBModelEditorDidChangeNotification = @"MBModelEditorDidChangeNotification";
+NSString *const MBModelEditorSelectionDidChangeNotification = @"MBModelEditorSelectionDidChangeNotification";
+
+@implementation MBSelection
+
++ (instancetype)selectionOfKind:(MBSelectionKind)kind
+                     entityName:(NSString *)entityName
+                           name:(NSString *)name
+              configurationName:(NSString *)configurationName
+{
+  MBSelection *selection = [[self alloc] init];
+  selection->_kind = kind;
+  selection->_entityName = [entityName copy];
+  selection->_name = [name copy];
+  selection->_configurationName = [configurationName copy];
+  return selection;
+}
+
++ (instancetype)entityNamed:(NSString *)name
+{
+  return [self selectionOfKind:MBSelectionEntity entityName:name name:nil configurationName:nil];
+}
+
++ (instancetype)fetchRequestNamed:(NSString *)name
+{
+  return [self selectionOfKind:MBSelectionFetchRequest entityName:nil name:name configurationName:nil];
+}
+
++ (instancetype)configurationNamed:(NSString *)name
+{
+  return [self selectionOfKind:MBSelectionConfiguration entityName:nil name:nil configurationName:name];
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+  (void)zone;
+  return self;   /* immutable */
+}
+
+static BOOL MBSameString(NSString *a, NSString *b)
+{
+  return a == b || [a isEqualToString:b];
+}
+
+- (BOOL)isEqual:(id)other
+{
+  if (![other isKindOfClass:[MBSelection class]]) return NO;
+  MBSelection *o = other;
+  return o->_kind == _kind && MBSameString(o->_entityName, _entityName) &&
+         MBSameString(o->_name, _name) && MBSameString(o->_configurationName, _configurationName);
+}
+
+- (NSUInteger)hash
+{
+  return (NSUInteger)_kind ^ _entityName.hash ^ _name.hash;
+}
+
+- (NSString *)description
+{
+  return [NSString stringWithFormat:@"<MBSelection %ld %@ %@ %@>", (long)_kind,
+          _entityName, _name, _configurationName];
+}
+
+@end
 
 @implementation MBModelEditor {
   NSManagedObjectModel *_model;
@@ -49,6 +112,63 @@ NSString *const MBModelEditorDidChangeNotification = @"MBModelEditorDidChangeNot
   if (!self) return nil;
   if (![self readContentsXML:xml error:error]) return nil;
   return self;
+}
+
+#pragma mark - The selection
+
+- (void)setSelection:(MBSelection *)selection
+{
+  if (selection == _selection || [selection isEqual:_selection]) return;
+  _selection = [selection copy];
+  [[NSNotificationCenter defaultCenter]
+      postNotificationName:MBModelEditorSelectionDidChangeNotification object:self];
+}
+
+- (NSEntityDescription *)selectedEntity
+{
+  NSString *name = _selection.entityName;
+  return name ? _model.entitiesByName[name] : nil;
+}
+
+- (NSPropertyDescription *)selectedProperty
+{
+  NSEntityDescription *entity = [self selectedEntity];
+  if (!_selection.name) return nil;
+  if (_selection.kind == MBSelectionAttribute) return entity.attributesByName[_selection.name];
+  if (_selection.kind == MBSelectionRelationship) return entity.relationshipsByName[_selection.name];
+  return nil;
+}
+
+- (NSFetchRequest *)selectedFetchRequest
+{
+  if (_selection.kind != MBSelectionFetchRequest || !_selection.name) return nil;
+  return [_model fetchRequestTemplateForName:_selection.name];
+}
+
+/* The selection, with the name it had replaced by the new one. */
+- (void)renameInSelection:(BOOL)entity
+            configuration:(BOOL)configuration
+                     kind:(MBSelectionKind)kind
+                     from:(NSString *)oldName
+                       to:(NSString *)newName
+{
+  MBSelection *s = _selection;
+  if (!s) return;
+  NSString *entityName = s.entityName, *name = s.name, *configurationName = s.configurationName;
+  if (entity && MBSameString(entityName, oldName)) entityName = newName;
+  if (configuration && MBSameString(configurationName, oldName)) configurationName = newName;
+  if (kind != MBSelectionNone && s.kind == kind && MBSameString(name, oldName)) name = newName;
+  self.selection = [MBSelection selectionOfKind:s.kind entityName:entityName name:name
+                              configurationName:configurationName];
+}
+
+- (void)noteRenameOfKind:(MBSelectionKind)kind
+                 inEntity:(NSString *)entityName
+                     from:(NSString *)oldName
+                       to:(NSString *)newName
+{
+  if (!MBSameString(_selection.entityName, entityName)) return;
+  [self renameInSelection:NO configuration:NO kind:kind from:oldName to:newName];
 }
 
 - (void)noteModelChanged
@@ -374,6 +494,7 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
     [self.entityLayouts removeObjectForKey:name];
   }
   entity.name = newName;
+  [self renameInSelection:YES configuration:NO kind:MBSelectionNone from:name to:newName];
   [[self inverse] renameEntityNamed:newName to:name];
   [self noteModelChanged];
   [self endEdit];
@@ -439,6 +560,7 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
   [self setFetchRequest:nil forName:name];
   [self setFetchRequest:request forName:newName];
   [self endEdit];
+  [self renameInSelection:NO configuration:NO kind:MBSelectionFetchRequest from:name to:newName];
   return YES;
 }
 
@@ -476,12 +598,25 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
 {
   if (!newName.length || [name isEqualToString:newName]) return YES;
   if ([[self configurationNames] containsObject:newName]) return YES;
-  [self setUndoActionName:@"Rename Configuration"];
-  return [self adoptMutation:[CDModelMutator model:self.model
-                                     entityLayouts:self.entityLayouts
-                        renamingConfigurationNamed:name
-                                                to:newName
-                                             error:error]];
+  [self beginEdit:@"Rename Configuration"];
+  BOOL renamed = [self adoptMutation:[CDModelMutator model:self.model
+                                             entityLayouts:self.entityLayouts
+                                renamingConfigurationNamed:name
+                                                        to:newName
+                                                     error:error]];
+  if (renamed) [self moveSelectedConfigurationFrom:name to:newName];
+  [self endEdit];
+  return renamed;
+}
+
+/* The selection follows a renamed configuration, and back on undo (the
+   mutation's own inverse puts the model back, not the name). */
+- (void)moveSelectedConfigurationFrom:(NSString *)name to:(NSString *)newName
+{
+  [self beginEdit:nil];
+  [[self inverse] moveSelectedConfigurationFrom:newName to:name];
+  [self renameInSelection:NO configuration:YES kind:MBSelectionNone from:name to:newName];
+  [self endEdit];
 }
 
 - (BOOL)setEntityNamed:(NSString *)entityName

@@ -458,6 +458,7 @@ static BOOL MBValuesEqual(id a, id b)
   NSString *old = _name;
   self.attribute.name = name;
   _name = [name copy];
+  [_modelEditor noteRenameOfKind:MBSelectionAttribute inEntity:_entity.name from:old to:name];
   [self didChange:@"name" from:old];
 }
 
@@ -794,6 +795,7 @@ static BOOL MBValuesEqual(id a, id b)
   NSString *old = _name;
   self.relationship.name = name;
   _name = [name copy];
+  [_modelEditor noteRenameOfKind:MBSelectionRelationship inEntity:_entity.name from:old to:name];
   [self didChange:@"name" from:old];
 }
 

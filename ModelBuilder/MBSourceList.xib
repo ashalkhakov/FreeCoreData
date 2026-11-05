@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24127" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+    <dependencies>
+        <deployment identifier="macosx" />
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24127" />
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0" />
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="MBSourceListViewController">
+            <connections>
+                <outlet property="view" destination="GG5-Pl-XrN" id="GG5-vw-XrN" />
+                <outlet property="sourceList" destination="eBm-TQ-4ZQ" id="QO7-Gc-cHD" />
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder" />
+        <customObject id="-3" userLabel="Application" customClass="NSObject" />
+        <!-- The source list: entities, fetch requests, configurations (MBSourceListViewController) -->
+        <customView id="GG5-Pl-XrN">
+            <rect key="frame" x="0.0" y="0.0" width="201" height="599" />
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
+            <subviews>
+                <scrollView fixedFrame="YES" horizontalLineScroll="24" horizontalPageScroll="10" verticalLineScroll="24" verticalPageScroll="10" usesPredominantAxisScrolling="NO" translatesAutoresizingMaskIntoConstraints="NO" id="pj1-sT-ZDI">
+                    <rect key="frame" x="0.0" y="0.0" width="201" height="599" />
+                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
+                    <clipView key="contentView" id="QgR-I7-8Qe">
+                        <rect key="frame" x="1" y="1" width="184" height="582" />
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
+                        <subviews>
+                            <outlineView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" rowHeight="24" headerView="Dta-sf-F6W" indentationPerLevel="13" outlineTableColumn="xOH-mm-fMr" id="eBm-TQ-4ZQ">
+                                <rect key="frame" x="0.0" y="0.0" width="184" height="554" />
+                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
+                                <size key="intercellSpacing" width="17" height="0.0" />
+                                <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog" />
+                                <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog" />
+                                <tableColumns>
+                                    <tableColumn identifier="sourceIcon" width="16" minWidth="16" maxWidth="16" id="mbI-c0-col">
+                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border">
+                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog" />
+                                            <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace" />
+                                        </tableHeaderCell>
+                                        <imageCell key="dataCell" refusesFirstResponder="YES" alignment="left" imageScaling="proportionallyDown" id="mbI-c0-img" />
+                                        <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" />
+                                    </tableColumn>
+                                    <tableColumn identifier="item" width="168" minWidth="40" maxWidth="1000" id="xOH-mm-fMr">
+                                        <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border">
+                                            <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog" />
+                                            <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog" />
+                                        </tableHeaderCell>
+                                        <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" title="Text Cell" id="Vcn-ci-PEm">
+                                            <font key="font" metaFont="system" />
+                                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog" />
+                                            <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog" />
+                                        </textFieldCell>
+                                        <tableColumnResizingMask key="resizingMask" resizeWithTable="YES" userResizable="YES" />
+                                    </tableColumn>
+                                </tableColumns>
+                                <connections>
+                                    <outlet property="dataSource" destination="-2" id="XXq-Bs-sDM" />
+                                    <outlet property="delegate" destination="-2" id="nQU-zu-d4K" />
+                                </connections>
+                            </outlineView>
+                        </subviews>
+                    </clipView>
+                    <scroller key="horizontalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="YES" id="ZTK-m6-Gw0">
+                        <rect key="frame" x="1" y="583" width="184" height="15" />
+                        <autoresizingMask key="autoresizingMask" />
+                    </scroller>
+                    <scroller key="verticalScroller" wantsLayer="YES" verticalHuggingPriority="750" horizontal="NO" id="ijP-eP-xOC">
+                        <rect key="frame" x="185" y="29" width="15" height="554" />
+                        <autoresizingMask key="autoresizingMask" />
+                    </scroller>
+                    <tableHeaderView key="headerView" wantsLayer="YES" id="Dta-sf-F6W">
+                        <rect key="frame" x="0.0" y="0.0" width="232" height="28" />
+                        <autoresizingMask key="autoresizingMask" />
+                    </tableHeaderView>
+                </scrollView>
+            </subviews>
+        </customView>
+    </objects>
+    <resources>
+        <image name="NSAddTemplate" width="18" height="16" />
+        <image name="NSRemoveTemplate" width="18" height="4" />
+    </resources>
+</document>
