@@ -9,6 +9,8 @@
         <customObject id="-2" userLabel="File's Owner" customClass="MBWindowController">
             <connections>
                 <outlet property="abstractCheckbox" destination="IpI-ud-nrs" id="C3J-27X-DCG"/>
+                <outlet property="textPromptView" destination="TxP-Vw-001" id="TxP-Ou-001"/>
+                <outlet property="textPromptField" destination="TxP-Fd-001" id="TxP-Ou-002"/>
                 <outlet property="attributeDetailTabView" destination="Kqg-tT-dqx" id="VNP-kNa-1He"/>
                 <outlet property="attributeHashModifierField" destination="sX3-2u-Tyc" id="dcm-4pM-bXD"/>
                 <outlet property="attributeNameField" destination="rlY-75-Cgy" id="uCL-1mH-oOs"/>
@@ -1297,6 +1299,9 @@
                                                                                                                                 <connections>
                                                                                                                                     <action selector="inspectorChanged:" target="-2" id="l2f-QK-ADr"/>
                                                                                                                                 </connections>
+                                                                                                                                <userDefinedRuntimeAttributes>
+                                                                                                                                    <userDefinedRuntimeAttribute type="boolean" keyPath="allowsNegative" value="YES"/>
+                                                                                                                                </userDefinedRuntimeAttributes>
                                                                                                                             </textField>
                                                                                                                             <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="TCz-y0-KQk">
                                                                                                                                 <rect key="frame" x="84" y="100" width="106" height="16"/>
@@ -1334,6 +1339,9 @@
                                                                                                                                 <connections>
                                                                                                                                     <action selector="inspectorChanged:" target="-2" id="3ua-Ht-SIe"/>
                                                                                                                                 </connections>
+                                                                                                                                <userDefinedRuntimeAttributes>
+                                                                                                                                    <userDefinedRuntimeAttribute type="boolean" keyPath="allowsNegative" value="YES"/>
+                                                                                                                                </userDefinedRuntimeAttributes>
                                                                                                                             </textField>
                                                                                                                             <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="blU-zc-5mc">
                                                                                                                                 <rect key="frame" x="179" y="67" width="75" height="19"/>
@@ -1347,6 +1355,9 @@
                                                                                                                                 <connections>
                                                                                                                                     <action selector="inspectorChanged:" target="-2" id="7aG-H1-p2z"/>
                                                                                                                                 </connections>
+                                                                                                                                <userDefinedRuntimeAttributes>
+                                                                                                                                    <userDefinedRuntimeAttribute type="boolean" keyPath="allowsNegative" value="YES"/>
+                                                                                                                                </userDefinedRuntimeAttributes>
                                                                                                                             </textField>
                                                                                                                             <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Ov4-DY-Vvg">
                                                                                                                                 <rect key="frame" x="85" y="50" width="89" height="14"/>
@@ -2942,6 +2953,9 @@
                                                             </popUpMenus>
                                                         </predicateEditorRowTemplate>
                                                     </rowTemplates>
+                                                    <connections>
+                                                        <action selector="inspectorChanged:" target="-2" id="Pe1-Ac-Tn1"/>
+                                                    </connections>
                                                 </predicateEditor>
                                             </subviews>
                                         </clipView>
@@ -3135,6 +3149,24 @@
                         <action selector="fetchIndexElementSegmentClicked:" target="-2" id="F23-fx-act"/>
                     </connections>
                 </segmentedControl>
+            </subviews>
+        </customView>
+        <!-- The text prompt's accessory view: an NSAlert shows it, with the
+             prompt's title and message (MBWindowController's
+             -runTextPromptWithTitle:message:initialValue:). -->
+        <customView translatesAutoresizingMaskIntoConstraints="NO" id="TxP-Vw-001" userLabel="Text Prompt">
+            <rect key="frame" x="0.0" y="0.0" width="300" height="24"/>
+            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+            <subviews>
+                <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="TxP-Fd-001">
+                    <rect key="frame" x="0.0" y="0.0" width="300" height="24"/>
+                    <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                    <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" drawsBackground="YES" id="TxP-Fc-001">
+                        <font key="font" metaFont="system"/>
+                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                    </textFieldCell>
+                </textField>
             </subviews>
         </customView>
     </objects>

@@ -29,7 +29,6 @@ typedef NS_ENUM(NSInteger, MBSourceKind) {
   MBSourceFetchIndex        /* under its entity */
 };
 
-/* One row of the source list. */
 /* The inspector's document view.  Flipped, so its pages hang from the top
    and it grows downwards: taller than the inspector and it scrolls from
    the top, shorter and the space is left below it.  (NSTabView cannot be
@@ -41,49 +40,7 @@ typedef NS_ENUM(NSInteger, MBSourceKind) {
 - (BOOL)isFlipped { return YES; }
 @end
 
-/* The field editor's undo manager.  Typing is recorded here, never in the
-   document's (which groups explicitly, and refuses AppKit's ungrouped
-   typing registrations -- taking the keystroke with it).  Once a field's
-   edit is committed its typing is cleared, and with nothing of its own
-   this manager passes Ctrl+Z on to the document's.  It is the only one the
-   field editor ever sees: GNUstep's text view clears ALL actions of its
-   undo manager when it resigns, which on the document's would wipe the
-   whole history. */
-@interface MBTypingUndoManager : NSUndoManager
-@property (nonatomic, weak) NSUndoManager *fallback;
-@end
-
-@implementation MBTypingUndoManager
-- (BOOL)canUndo { return [super canUndo] || [self.fallback canUndo]; }
-- (BOOL)canRedo { return [super canRedo] || [self.fallback canRedo]; }
-- (void)undo
-{
-  if ([super canUndo]) [super undo];
-  else [self.fallback undo];
-}
-- (void)redo
-{
-  if ([super canRedo]) [super redo];
-  else [self.fallback redo];
-}
-- (NSString *)undoMenuItemTitle
-{
-  return [super canUndo] ? [super undoMenuItemTitle] : [self.fallback undoMenuItemTitle];
-}
-- (NSString *)redoMenuItemTitle
-{
-  return [super canRedo] ? [super redoMenuItemTitle] : [self.fallback redoMenuItemTitle];
-}
-- (NSString *)undoActionName
-{
-  return [super canUndo] ? [super undoActionName] : [self.fallback undoActionName];
-}
-- (NSString *)redoActionName
-{
-  return [super canRedo] ? [super redoActionName] : [self.fallback redoActionName];
-}
-@end
-
+/* One row of the source list. */
 @interface MBSourceItem : NSObject
 @property (nonatomic, assign) MBSourceKind kind;
 @property (nonatomic, copy) NSString *name;
@@ -166,102 +123,6 @@ NSImage *MBFirstImageNamed(NSArray *names)
   return nil;
 }
 
-/* Segment images named in the xib (NSAddTemplate, NSRemoveTemplate) are
-   Apple system images.  Where the name resolves to nothing, GSXib5 hands
-   the segment the bare name string instead of nil, and the first draw
-   sends it -size.  Swap any such segment to a text label. */
-void MBRepairSegmentImages(NSView *view)
-{
-  if ([view isKindOfClass:[NSSegmentedControl class]]) {
-    NSSegmentedControl *control = (NSSegmentedControl *)view;
-    for (NSInteger i = 0; i < control.segmentCount; i++) {
-      id image = [control imageForSegment:i];
-      if (image == nil || [image isKindOfClass:[NSImage class]]) continue;
-      NSString *name = [image description];
-      NSString *label = name;
-      if ([name rangeOfString:@"Add"].location != NSNotFound) label = @"+";
-      else if ([name rangeOfString:@"Remove"].location != NSNotFound) label = @"−";
-      [control setImage:nil forSegment:i];
-      [control setLabel:label forSegment:i];
-    }
-  }
-  for (NSView *subview in view.subviews)
-    MBRepairSegmentImages(subview);
-  /* A tab view's subviews hold only the selected page. */
-  if ([view isKindOfClass:[NSTabView class]])
-    for (NSTabViewItem *item in [(NSTabView *)view tabViewItems])
-      if (item.view.superview == nil)
-        MBRepairSegmentImages(item.view);
-}
-
-/* Typing undo for every editable text cell -- fields and table columns,
-   on every tab page.  The field editor takes the setting from the cell it
-   edits; Cocoa's text cells default to on, GNUstep's to off (and a xib
-   does not say), so Ctrl+Z while typing did nothing there. */
-void MBEnableTypingUndoIn(NSView *view)
-{
-  if ([view isKindOfClass:[NSTextField class]]) {
-    [[(NSTextField *)view cell] setAllowsUndo:YES];
-    return;
-  }
-  if ([view isKindOfClass:[NSTableView class]]) {
-    for (NSTableColumn *column in [(NSTableView *)view tableColumns])
-      if ([column.dataCell isKindOfClass:[NSTextFieldCell class]])
-        [(NSCell *)column.dataCell setAllowsUndo:YES];
-  }
-  for (NSView *subview in view.subviews)
-    MBEnableTypingUndoIn(subview);
-  if ([view isKindOfClass:[NSTabView class]])
-    for (NSTabViewItem *item in [(NSTabView *)view tabViewItems])
-      if (item.view.superview == nil)
-        MBEnableTypingUndoIn(item.view);
-}
-
-/* Ported from RDL Designer: lays a split view's panes out by the rule its
-   delegate's -splitView:shouldAdjustSizeOfSubview: gives.  See
-   -splitView:resizeSubviewsWithOldSize: below for why GNUstep needs it. */
-void MBDistributeSplitSubviews(NSSplitView *splitView, id<NSSplitViewDelegate> delegate)
-{
-  NSArray *subviews = splitView.subviews;
-  NSUInteger count = subviews.count;
-  if (count == 0) return;
-  BOOL vertical = splitView.isVertical;
-  NSRect bounds = splitView.bounds;
-  CGFloat divider = splitView.dividerThickness;
-  CGFloat total = (vertical ? NSWidth(bounds) : NSHeight(bounds)) - divider * (CGFloat)(count - 1);
-  CGFloat spans[count];
-  BOOL adjust[count];
-  CGFloat oldAdjustable = 0, fixed = 0;
-  NSUInteger adjustableCount = 0;
-  for (NSUInteger i = 0; i < count; i++) {
-    NSRect frame = [subviews[i] frame];
-    spans[i] = vertical ? NSWidth(frame) : NSHeight(frame);
-    adjust[i] = ![splitView isSubviewCollapsed:subviews[i]] &&
-                [delegate splitView:splitView shouldAdjustSizeOfSubview:subviews[i]];
-    if (adjust[i]) { oldAdjustable += spans[i]; adjustableCount++; }
-    else fixed += spans[i];
-  }
-  if (adjustableCount == 0) {
-    /* nothing may give: let the last pane take the difference */
-    adjust[count - 1] = YES;
-    oldAdjustable = spans[count - 1];
-    fixed -= spans[count - 1];
-    adjustableCount = 1;
-  }
-  CGFloat forAdjustable = MAX(0, total - fixed);
-  CGFloat running = 0;
-  for (NSUInteger i = 0; i < count; i++) {
-    CGFloat span = spans[i];
-    if (adjust[i])
-      span = oldAdjustable > 0.5 ? forAdjustable * (spans[i] / oldAdjustable)
-                                 : forAdjustable / (CGFloat)adjustableCount;
-    NSRect rect = vertical ? NSMakeRect(running, 0, span, NSHeight(bounds))
-                           : NSMakeRect(0, running, NSWidth(bounds), span);
-    [subviews[i] setFrame:[splitView centerScanRect:rect]];
-    running += span + divider;
-  }
-}
-
 /* The first split view among a view's immediate subviews. */
 NSSplitView *MBFirstSplitViewIn(NSView *view)
 {
@@ -286,7 +147,6 @@ static const CGFloat MBInspectorMinimum = 260.0;
      holds the three side panes at their size. */
   NSSplitView *_outerSplit, *_barSplit, *_sourceSplit;
 
-  MBTypingUndoManager *_typingUndoManager;   /* for the field editor (see Undo) */
   NSDictionary *_replaySelection;      /* selection across an undo or redo */
 
   MBSourceItem *_entitiesGroup, *_fetchesGroup, *_configurationsGroup;
@@ -318,11 +178,6 @@ static const CGFloat MBInspectorMinimum = 260.0;
 {
   [super windowDidLoad];
 
-  MBRepairSegmentImages(self.window.contentView);
-  MBEnableTypingUndoIn(self.window.contentView);
-  NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
-  [center addObserver:self selector:@selector(fieldDidEndEditing:)
-                 name:NSControlTextDidEndEditingNotification object:nil];
   /* The window asks its delegate for an undo manager (see Undo). */
   if (!self.window.delegate) self.window.delegate = (id<NSWindowDelegate>)self;
 
@@ -337,25 +192,6 @@ static const CGFloat MBInspectorMinimum = 260.0;
   self.window.minSize = NSMakeSize(MBSidePaneMinimum + MBCenterPaneMinimum +
                                        MBInspectorMinimum + 2.0,
                                    480.0);
-
-  /* The section names and stacking indexes are IB runtime attributes
-     on the JUInspectorViews.  GNUstep's GSXib5 does not (yet) apply
-     runtime attributes to nested subviews, so backfill them when they
-     did not arrive; on macOS these are no-ops. */
-  if (!self.attributesInspector.name.length)
-    self.attributesInspector.name = @"Attribute Inspector";
-  if (!self.relationshipsInspector.name.length)
-    self.relationshipsInspector.name = @"Relationships Inspector";
-  if (!self.fetchRequestInspector.name.length)
-    self.fetchRequestInspector.name = @"FetchRequest";
-  if (!self.entitiesInspector.name.length)
-    self.entitiesInspector.name = @"Entities";
-  if (!self.fetchIndexElementsInspector.name.length)
-    self.fetchIndexElementsInspector.name = @"Fetch Index Elements";
-  if (self.relationshipsInspector.index == self.attributesInspector.index) {
-    self.relationshipsInspector.index = 1;
-    [self.entityInspectorContainer arrangeViews];
-  }
 
   /* --- Inspector chrome: DMTabBar over the inspector tab view. --- */
   /* Xcode's own icons on macOS; elsewhere drawn letter badges, as the
@@ -400,14 +236,6 @@ static const CGFloat MBInspectorMinimum = 260.0;
   MBDisableControlsOfClass(self.inspectorTabView, [NSComboBox class],
       @"Modules are an Xcode/Swift concept; not used by FreeCoreData.");
 
-  /* The number page's bounds may be negative (numeric attributes);
-     set in code because GNUstep's xib loader does not apply IB
-     runtime attributes to nested subviews.  Every other stepper
-     field (counts, lengths, limits) keeps the clamp at zero. */
-  self.numberDefaultField.allowsNegative = YES;
-  self.numberMinField.allowsNegative = YES;
-  self.numberMaxField.allowsNegative = YES;
-
   /* Right-click menu on the source list, so a first fetch request or
      configuration can be added even when the "+" segment's context is
      the entity group. */
@@ -431,20 +259,6 @@ static const CGFloat MBInspectorMinimum = 260.0;
                   keyEquivalent:@""];
   subclassItem.target = self;
   self.sourceList.menu = addMenu;
-
-  /* Default to the textual predicate editor off-Apple: GNUstep's
-     NSPredicateEditor is a stub.  Its action is wired here rather than
-     in the xib for the same reason: GNUstep's NSRuleEditor is backed by
-     a plain NSCell, whose -setTarget: raises, and a raise while the xib
-     loader establishes connections abandons the load before any object
-     is sent -awakeFromNib. */
-#if defined(__APPLE__)
-  self.fetchPredicateEditor.target = self;
-  self.fetchPredicateEditor.action = @selector(inspectorChanged:);
-#else
-  [self.predicateTabView selectTabViewItemAtIndex:MBPredicatePageSource];
-  [self.predicateSourceSegmentedControl setSelectedSegment:MBPredicatePageSource];
-#endif
 
   [self populateFromDocument];
 }
@@ -483,30 +297,14 @@ static const CGFloat MBInspectorMinimum = 260.0;
 
 #pragma mark - Undo
 
-/* Typing in a field has its own undo manager, never the document's: the
-   field editor registers typing without opening a group of its own, which
-   the document's (grouping explicitly) refuses -- and the refusal takes
-   the keystroke with it.  A committed field arrives as one edit. */
+/* The document's undo manager is the window's.  Typing in a field is
+   undone on the field's own (its cell's, as AppKit has it), never the
+   document's, which groups explicitly: a committed field arrives as one
+   edit. */
 - (NSUndoManager *)windowWillReturnUndoManager:(NSWindow *)window
 {
-  NSUndoManager *document = [(NSDocument *)self.document undoManager];
-  NSResponder *responder = window.firstResponder;
-  if ([responder isKindOfClass:[NSText class]] && [(NSText *)responder isFieldEditor]) {
-    if (!_typingUndoManager) _typingUndoManager = [[MBTypingUndoManager alloc] init];
-    _typingUndoManager.fallback = document;
-    return _typingUndoManager;
-  }
-  return document;
-}
-
-/* Typing undo lasts until the field's edit is committed, as on Cocoa:
-   after Return (or leaving the field) Ctrl+Z is the document's again,
-   though the field editor keeps the focus on GNUstep -- its typing would
-   otherwise undo text the model no longer agrees with. */
-- (void)fieldDidEndEditing:(NSNotification *)notification
-{
-  if ([notification.object window] != self.window) return;
-  [_typingUndoManager removeAllActions];
+  (void)window;
+  return [(NSDocument *)self.document undoManager];
 }
 
 /* An undo or redo changes the model under the window: note what is
@@ -1168,31 +966,74 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
 
   NSString *format = fetch.predicate ? [fetch.predicate predicateFormat] : @"";
   self.predicateSourceView.stringValue = format;
-#if defined(__APPLE__)
+  [self showPredicateInEditor:fetch];
+}
+
+/* The editor's rows: All, Any or None, and a row for each of the fetch's
+   entity's attributes that has operators (a binary or transformable one has
+   none).  It shows the predicate when it can show all of it, reading the
+   same predicate back; otherwise the predicate is edited as source, and the
+   editor's segment is off. */
+static BOOL MBAttributeTypeHasOperators(NSAttributeType type)
+{
+  switch (type) {
+    case NSInteger16AttributeType: case NSInteger32AttributeType:
+    case NSInteger64AttributeType: case NSDecimalAttributeType:
+    case NSDoubleAttributeType: case NSFloatAttributeType:
+    case NSStringAttributeType: case NSBooleanAttributeType:
+    case NSDateAttributeType:
+      return YES;
+    default:
+      return NO;
+  }
+}
+
+- (void)showPredicateInEditor:(NSFetchRequest *)fetch
+{
+  NSPredicateEditor *predicateEditor = self.fetchPredicateEditor;
+  NSPredicate *predicate = fetch.predicate;
+  BOOL shown = NO;
   @try {
-    NSMutableArray *templates = [NSMutableArray array];
-    [templates addObject:[[NSPredicateEditorRowTemplate alloc]
-        initWithCompoundTypes:@[ @(NSAndPredicateType), @(NSOrPredicateType),
-                                 @(NSNotPredicateType) ]]];
-    if (fetch.entity) {
-      NSMutableArray *keyPaths = [NSMutableArray array];
-      for (NSString *name in [[fetch.entity.attributesByName allKeys]
-               sortedArrayUsingSelector:@selector(compare:)])
-        [keyPaths addObject:name];
-      if (keyPaths.count)
-        [templates addObjectsFromArray:[NSPredicateEditorRowTemplate
-            templatesWithAttributeKeyPaths:keyPaths
-                       inEntityDescription:fetch.entity]];
+    NSMutableArray *templates = [NSMutableArray arrayWithObject:
+        [[NSPredicateEditorRowTemplate alloc]
+            initWithCompoundTypes:@[ @(NSAndPredicateType), @(NSOrPredicateType),
+                                     @(NSNotPredicateType) ]]];
+    NSMutableArray *keyPaths = [NSMutableArray array];
+    for (NSString *name in [[fetch.entity.attributesByName allKeys]
+             sortedArrayUsingSelector:@selector(compare:)]) {
+      NSAttributeDescription *attribute = fetch.entity.attributesByName[name];
+      if (MBAttributeTypeHasOperators(attribute.attributeType)) [keyPaths addObject:name];
     }
-    if (templates.count > 1)
-      self.fetchPredicateEditor.rowTemplates = templates;
-    self.fetchPredicateEditor.objectValue = fetch.predicate;
+    if (keyPaths.count)
+      [templates addObjectsFromArray:[NSPredicateEditorRowTemplate
+          templatesWithAttributeKeyPaths:keyPaths inEntityDescription:fetch.entity]];
+    predicateEditor.rowTemplates = templates;
+    if (!predicate) {
+      /* All, with no rows under it yet */
+      predicateEditor.objectValue = nil;
+      [predicateEditor insertRowAtIndex:0 withType:NSRuleEditorRowTypeCompound
+                          asSubrowOfRow:-1 animate:NO];
+    } else {
+      /* a comparison alone goes under All, so a row added beside it joins it */
+      predicateEditor.objectValue = [predicate isKindOfClass:[NSCompoundPredicate class]]
+          ? predicate : [NSCompoundPredicate andPredicateWithSubpredicates:@[ predicate ]];
+    }
+    shown = [[self editorPredicateFormat] isEqualToString:predicate ? predicate.predicateFormat : @""];
   } @catch (NSException *exception) {
-    /* a predicate the templates cannot represent: fall back to source */
+    shown = NO;
+  }
+  [self.predicateSourceSegmentedControl setEnabled:shown forSegment:MBPredicatePageEditor];
+  if (!shown) {
     [self.predicateTabView selectTabViewItemAtIndex:MBPredicatePageSource];
     [self.predicateSourceSegmentedControl setSelectedSegment:MBPredicatePageSource];
   }
-#endif
+}
+
+/* The editor's predicate as text: none for All with no rows. */
+- (NSString *)editorPredicateFormat
+{
+  NSString *format = self.fetchPredicateEditor.predicate.predicateFormat;
+  return !format || [format isEqualToString:@"TRUEPREDICATE"] ? @"" : format;
 }
 
 - (void)fillInspector
@@ -1552,67 +1393,23 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
       segment == 0 ? MBPredicatePageEditor : MBPredicatePageSource];
 }
 
-/* A small modal text prompt, built by hand because GNUstep's NSAlert
-   has no accessory-view support.  Returns nil on Cancel. */
-- (void)textPromptOK:(id)sender
-{
-  (void)sender;
-  [NSApp stopModalWithCode:NSModalResponseOK];
-}
-
-- (void)textPromptCancel:(id)sender
-{
-  (void)sender;
-  [NSApp stopModalWithCode:NSModalResponseCancel];
-}
-
+/* A prompt for a line of text: an alert, the field its accessory view
+   (MBDocumentWindow.xib's).  Returns nil on Cancel. */
 - (NSString *)runTextPromptWithTitle:(NSString *)title
                              message:(NSString *)message
                         initialValue:(NSString *)initialValue
 {
-  NSWindow *panel = [[NSWindow alloc]
-      initWithContentRect:NSMakeRect(0, 0, 380, 118)
-                styleMask:NSTitledWindowMask
-                  backing:NSBackingStoreBuffered
-                    defer:NO];
-  panel.title = title;
-  NSView *content = panel.contentView;
-
-  NSTextField *label = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 84, 348, 18)];
-  label.stringValue = message ?: @"";
-  label.bezeled = NO;
-  label.bordered = NO;
-  label.editable = NO;
-  label.selectable = NO;
-  label.drawsBackground = NO;
-  label.font = [NSFont systemFontOfSize:[NSFont smallSystemFontSize]];
-  [content addSubview:label];
-
-  NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(16, 52, 348, 24)];
-  field.stringValue = initialValue ?: @"";
-  [content addSubview:field];
-
-  NSButton *ok = [[NSButton alloc] initWithFrame:NSMakeRect(284, 12, 80, 28)];
-  ok.title = @"OK";
-  ok.bezelStyle = NSRoundedBezelStyle;
-  ok.keyEquivalent = @"\r";
-  ok.target = self;
-  ok.action = @selector(textPromptOK:);
-  [content addSubview:ok];
-
-  NSButton *cancel = [[NSButton alloc] initWithFrame:NSMakeRect(198, 12, 80, 28)];
-  cancel.title = @"Cancel";
-  cancel.bezelStyle = NSRoundedBezelStyle;
-  cancel.keyEquivalent = @"\033";
-  cancel.target = self;
-  cancel.action = @selector(textPromptCancel:);
-  [content addSubview:cancel];
-
-  [panel center];
-  [panel makeFirstResponder:field];
-  NSInteger response = [NSApp runModalForWindow:panel];
-  [panel orderOut:nil];
-  return response == NSModalResponseOK ? field.stringValue : nil;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = title;
+  alert.informativeText = message ?: @"";
+  [alert addButtonWithTitle:@"OK"];
+  [alert addButtonWithTitle:@"Cancel"];
+  self.textPromptField.stringValue = initialValue ?: @"";
+  alert.accessoryView = self.textPromptView;
+  [alert layout];
+  [alert.window setInitialFirstResponder:self.textPromptField];
+  NSModalResponse response = [alert runModal];
+  return response == NSAlertFirstButtonReturn ? self.textPromptField.stringValue : nil;
 }
 
 /* Turning "Derived" on asks for the derivation expression; turning it
@@ -1848,17 +1645,10 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
   editor.returnsDistinctResults = (self.fetchDistinctCheckbox.state == NSOnState);
 
   /* The predicate comes from whichever editor the user is on. */
-  BOOL fromEditor = NO;
-#if defined(__APPLE__)
-  fromEditor = (sender == self.fetchPredicateEditor);
-#endif
-  if (fromEditor) {
-#if defined(__APPLE__)
-    @try {
-      editor.predicate = [self.fetchPredicateEditor objectValue];
-      self.predicateSourceView.stringValue = editor.predicateFormat;
-    } @catch (NSException *exception) { /* leave the old predicate */ }
-#endif
+  if (sender == self.fetchPredicateEditor) {
+    NSString *format = [self editorPredicateFormat];
+    editor.predicate = format.length ? [NSPredicate predicateWithFormat:format] : nil;
+    self.predicateSourceView.stringValue = format;
   } else if (sender == self.predicateSourceView) {
     /* an unparseable string keeps the old predicate; the text stays
        visible for fixing */
@@ -2085,7 +1875,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
 - (NSInteger)outlineView:(NSOutlineView *)outline numberOfChildrenOfItem:(id)item
 {
   (void)outline;
-  /* The nib connects the data source -- and GNUstep reloads on that --
+  /* The nib connects the data source -- and AppKit reloads on that --
      before -rebuildSourceItems has made the groups. */
   if (item == nil) return _entitiesGroup ? 3 : 0;
   if (item == _entitiesGroup) return (NSInteger)_entityItems.count;
@@ -2609,19 +2399,5 @@ static NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
   return YES;
 }
 
-#if !defined(__APPLE__)
-/* Ported from RDL Designer.  GNUstep's -adjustSubviews always sizes the
-   last subview to whatever space is left and never asks
-   -splitView:shouldAdjustSizeOfSubview: about it, so a trailing pane (the
-   inspector, the button bar) cannot hold its size there.  Distribute by
-   hand to the rule above: the subviews that should not adjust keep their
-   span, and those that should share what is left in proportion to the
-   spans they had. */
-- (void)splitView:(NSSplitView *)splitView resizeSubviewsWithOldSize:(NSSize)oldSize
-{
-  (void)oldSize;
-  MBDistributeSplitSubviews(splitView, self);
-}
-#endif
 
 @end

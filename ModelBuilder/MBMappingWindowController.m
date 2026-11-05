@@ -67,8 +67,6 @@ static NSHashTable *MBIdentitySet(void)
   _customFetches = MBIdentitySet();
   _customRelationships = MBIdentitySet();
 
-  MBRepairSegmentImages(self.window.contentView);
-  MBEnableTypingUndoIn(self.window.contentView);
   if (!self.window.delegate) self.window.delegate = self;
 
   _outerSplit = MBFirstSplitViewIn(self.window.contentView);
@@ -81,17 +79,6 @@ static NSHashTable *MBIdentitySet(void)
   self.window.minSize = NSMakeSize(MBMappingListMinimum + MBMappingCenterMinimum +
                                        MBMappingInspectorMinimum + 2.0,
                                    480.0);
-
-  /* GNUstep's GSXib5 does not apply runtime attributes to nested
-     subviews; backfill the section names and order (no-ops on macOS). */
-  if (!self.attributesInspector.name.length)
-    self.attributesInspector.name = @"Attribute Mappings";
-  if (!self.relationshipsInspector.name.length)
-    self.relationshipsInspector.name = @"Relationship Mappings";
-  if (self.relationshipsInspector.index == self.attributesInspector.index) {
-    self.relationshipsInspector.index = 1;
-    [self.mappingInspectorContainer arrangeViews];
-  }
 
   /* Inspector chrome, as the model window has it. */
   NSImage *identityIcon = nil, *mappingIcon = nil;
@@ -708,13 +695,5 @@ static NSString *MBTrimmed(id sender)
     return MIN(proposed, NSWidth(splitView.bounds) - MBMappingCenterMinimum - splitView.dividerThickness);
   return proposed;
 }
-
-#if !defined(__APPLE__)
-- (void)splitView:(NSSplitView *)splitView resizeSubviewsWithOldSize:(NSSize)oldSize
-{
-  (void)oldSize;
-  MBDistributeSplitSubviews(splitView, self);
-}
-#endif
 
 @end

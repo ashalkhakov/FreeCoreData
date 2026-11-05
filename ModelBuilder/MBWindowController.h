@@ -160,6 +160,9 @@
 @property (nonatomic, strong) IBOutlet NSSegmentedControl *relationshipUserInfoSegmentedControl;
 @property (nonatomic, strong) IBOutlet NSTextField *relationshipHashModifierField;
 @property (nonatomic, strong) IBOutlet NSTextField *relationshipRenamingField;
+/* The text prompt's accessory view, and its field. */
+@property (nonatomic, strong) IBOutlet NSView *textPromptView;
+@property (nonatomic, strong) IBOutlet NSTextField *textPromptField;
 
 /* Source list / bottom bar */
 - (IBAction)sourceSegmentClicked:(id)sender;

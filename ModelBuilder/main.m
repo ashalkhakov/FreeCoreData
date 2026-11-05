@@ -32,12 +32,6 @@ static BOOL MBLoadNib(NSString *name, id owner)
    The menu itself lives in MainMenu.xib; only this submenu is dynamic,
    so it is the one piece attached in code. */
 @interface MBVersionMenuDelegate : NSObject <NSMenuDelegate>
-{
-  /* Being filled: GNUstep's -[NSMenu update] asks its delegate again for
-     each item changed (through -itemChanged:, as a menu in the window, a
-     Windows theme's, redraws it), without end. */
-  BOOL filling;
-}
 @end
 
 @implementation MBVersionMenuDelegate
@@ -62,8 +56,6 @@ static NSArray *MBVersionMenuItems(void)
 
 - (void)menuNeedsUpdate:(NSMenu *)menu
 {
-  if (filling)
-    return;
   NSArray *items = MBVersionMenuItems();
   /* An update that would change nothing changes nothing. */
   BOOL same = [menu numberOfItems] == (NSInteger)[items count];
@@ -75,7 +67,6 @@ static NSArray *MBVersionMenuItems(void)
   }
   if (same)
     return;
-  filling = YES;
   while ([menu numberOfItems] > 0)
     [menu removeItemAtIndex:0];
   for (NSArray *entry in items) {
@@ -89,7 +80,6 @@ static NSArray *MBVersionMenuItems(void)
                                 keyEquivalent:@""];
     item.representedObject = entry[1];   /* nil target: responder chain */
   }
-  filling = NO;
 }
 
 @end

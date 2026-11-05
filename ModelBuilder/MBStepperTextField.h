@@ -14,8 +14,7 @@
 
    Values clamp at zero unless allowsNegative is set (the number
    page's default/min/max fields, where numeric attributes may have
-   negative bounds - set in code: GNUstep's xib loader does not apply
-   IB user-defined runtime attributes to nested subviews).
+   negative bounds: a runtime attribute in the xib).
 
    Copyright (c) 2026 the GNUstep CoreData port contributors.
    Released under the MIT license. */

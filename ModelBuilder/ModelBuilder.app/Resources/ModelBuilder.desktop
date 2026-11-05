@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Categories=X-GNUstep;
+Name=ModelBuilder
+StartupWMClass=ModelBuilder
+Comment=Core Data model editor for .xcdatamodeld
+Icon=/opt/gnustep/Local/Applications/ModelBuilder.app/Resources/ModelBuilder.png
+Exec=/opt/gnustep/System/Tools/openapp ModelBuilder
+MimeType=
