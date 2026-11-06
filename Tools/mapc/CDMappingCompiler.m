@@ -120,6 +120,11 @@ static NSError *compilerError(NSString *format,...){
     return nil;
    }
 
+   return [self _sourceObjectsFromData:data named:xmlPath error:error];
+}
+
+/* The same, of the file's text; `xmlPath` names it in what is reported. */
++(NSDictionary *)_sourceObjectsFromData:(NSData *)data named:(NSString *)xmlPath error:(NSError **)error {
    NSError       *xmlError=nil;
    NSXMLDocument *document=[[NSXMLDocument alloc] initWithData:data options:0 error:&xmlError];
 
@@ -376,6 +381,11 @@ static id counterpartIn(NSDictionary *sourceByName,id destination){
 
 +(NSMappingModel *)mappingModelAtPath:(NSString *)path error:(NSError **)error {
    NSDictionary          *objects=[self _sourceObjectsAtPath:path error:error];
+
+   return [self _mappingModelOfObjects:objects atPath:path error:error];
+}
+
++(NSMappingModel *)_mappingModelOfObjects:(NSDictionary *)objects atPath:(NSString *)path error:(NSError **)error {
    CDMappingSourceObject *root=(objects!=nil)?[self _rootOf:objects]:nil;
 
    if(root==nil){
@@ -395,14 +405,27 @@ static id counterpartIn(NSDictionary *sourceByName,id destination){
     return nil;
    }
 
-   return [self mappingModelAtPath:path
-                       sourceModel:sourceModel
-                  destinationModel:destinationModel
-                             error:error];
+   return [self _mappingModelOfObjects:objects
+                                atPath:path
+                           sourceModel:sourceModel
+                      destinationModel:destinationModel
+                                 error:error];
 }
 
 +(NSDictionary *)modelsForMappingModelAtPath:(NSString *)path error:(NSError **)error {
    NSDictionary          *objects=[self _sourceObjectsAtPath:path error:error];
+
+   return [self _modelsOfObjects:objects atPath:path error:error];
+}
+
++(NSDictionary *)modelsForMappingXMLString:(NSString *)xml atPath:(NSString *)path error:(NSError **)error {
+   NSDictionary *objects=[self _sourceObjectsFromData:[xml dataUsingEncoding:NSUTF8StringEncoding]
+                                                named:path error:error];
+
+   return [self _modelsOfObjects:objects atPath:path error:error];
+}
+
++(NSDictionary *)_modelsOfObjects:(NSDictionary *)objects atPath:(NSString *)path error:(NSError **)error {
    CDMappingSourceObject *root=(objects!=nil)?[self _rootOf:objects]:nil;
 
    if(root==nil){
@@ -447,7 +470,33 @@ static id counterpartIn(NSDictionary *sourceByName,id destination){
                           sourceModel:(NSManagedObjectModel *)sourceModel
                      destinationModel:(NSManagedObjectModel *)destinationModel
                                 error:(NSError **)error {
-   NSDictionary          *objects=[self _sourceObjectsAtPath:path error:error];
+   return [self _mappingModelOfObjects:[self _sourceObjectsAtPath:path error:error]
+                                atPath:path
+                           sourceModel:sourceModel
+                      destinationModel:destinationModel
+                                 error:error];
+}
+
++(NSMappingModel *)mappingModelFromXMLString:(NSString *)xml
+                                      atPath:(NSString *)path
+                                 sourceModel:(NSManagedObjectModel *)sourceModel
+                            destinationModel:(NSManagedObjectModel *)destinationModel
+                                       error:(NSError **)error {
+   NSDictionary *objects=[self _sourceObjectsFromData:[xml dataUsingEncoding:NSUTF8StringEncoding]
+                                                named:path error:error];
+
+   return [self _mappingModelOfObjects:objects
+                                atPath:path
+                           sourceModel:sourceModel
+                      destinationModel:destinationModel
+                                 error:error];
+}
+
++(NSMappingModel *)_mappingModelOfObjects:(NSDictionary *)objects
+                                   atPath:(NSString *)path
+                              sourceModel:(NSManagedObjectModel *)sourceModel
+                         destinationModel:(NSManagedObjectModel *)destinationModel
+                                    error:(NSError **)error {
    CDMappingSourceObject *root=(objects!=nil)?[self _rootOf:objects]:nil;
 
    if(root==nil){

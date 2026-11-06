@@ -1,82 +1,40 @@
-# ModelBuilder end-to-end tests
+# ModelBuilder's tests
 
-Two headless test binaries for the ModelBuilder app, written as
-**textual use-cases**: every group of checks sits under a
-`SCENARIO(...)` with Given/When/Then prose, deliberately
-gherkin-shaped so the catalogue can be ported to a BDD runner when
-GNUstep grows one.  Until then, the binaries are the runner: they
-print one `Scenario:` header per use-case, `ok`/`FAIL` per check, and
-exit non-zero on any failure.
+One XCTest bundle, **ModelBuilderTests**, holding ModelBuilder's sources
+and XIBs. Each test opens a fresh document and checks one behaviour.
 
-## The two suites
-
-**MBDocumentSmoke** — the document layer, no window, no display.
-
-| Scenario | Covers |
+| Suite | What it covers |
 |---|---|
-| Opening a .xcdatamodeld package | read path, versions, configurations |
-| Property-level version hash modifiers round-trip | serializer/compiler extension + constraints |
-| Validation runs momc's checks in-process | `validateModel:` |
-| Model versions: add, make current, switch | the Xcode Editor-menu semantics |
-| Configurations: add, membership, rename, remove | the CDModelMutator XML path |
-| Renaming IDs, fetch features, scalar flags and validation round-trip | elementID/renamingIdentifier, fetch resultType/batch/flags, usesScalarValueType, validation predicates — serializer spellings + recompile |
-| Reparenting an entity is graph surgery | mutator + momc renormalization |
-| Saving and reopening preserves everything | write/read round trip |
-| Compile to momd produces a loadable artifact | in-process momc |
-| The model version's Identifier is edited, undone and saved | `MBModelEditor`, `userDefinedModelVersionIdentifier` through serializer, momc and compiled model |
+| `MBDocumentTests` | the model document and its `MBModelEditor`, with no window: opening a package, what round-trips through the serializer and momc, validation, versions, configurations, reparenting, save, compile, and undo of every kind of edit |
+| `MBEditorsTests` | the inspector's view models (`MBEditors`): key-value validation (names, numbers in range, patterns, predicates, parents), `-reload`, staying valid when the model is replaced, the date and string defaults' ticks, and the change notices (one per edit, the selection's after it) |
+| `MBModelWindowTests` | the model window loaded from its XIBs: the parts' outlets, the inspector's bound fields (types, defaults, renaming, scalar, validation, external storage, codegen, fetch templates, the Identifier), the stepper fields, the centre's popup columns, the implicit Default configuration, and fetch indexes |
+| `MBMappingEditorTests` | the mapping editor and its view models, with no window: the mapping Xcode made (`Tests/MappingFixture.xcmappingmodel`) read from its text, its rows (reading them changes nothing), edits, undo, validation, and the text written back |
+| `MBMappingWindowTests` | the mapping window loaded from its XIBs, driven as a user would, and the New Mapping Model panel |
 
-**MBWindowProbe** — the real window: loads `MBDocumentWindow.xib`
-through `MBWindowController` on the headless backend and drives the
-actual controls (row selection, popup changes, target/action
-dispatch, cell-based table edits).
-
-| Scenario | Covers |
-|---|---|
-| Opening a model document loads the window from the nib | nib loading, outlets, vocabulary popups |
-| Selecting attributes shows the matching per-type detail page | selection routing, inspector fill |
-| Changing an attribute's type from the inspector popup | apply path, default dropping, page switch, xib action wiring |
-| Collapsible sections are adopted from the nib | vendored JUInspectorView `awakeFromNib` support, IB runtime attributes |
-| A type flip through Transformable leaves no transformer residue | the Apple `setValueTransformerName:nil` crash class |
-| Center-pane popup columns list and apply their choices | NSPopUpButtonCell columns: Type / Destination / Inverse (index in, name applied) |
-| The xib's delete-rule items match momc's vocabulary | IB-authored items pinned against `CDModelCompiler` |
-| The Identity page edits the model version's Identifier | the xib field, its action wiring, one undo step |
-| Renaming, scalar, validation and fetch-template controls are live | inspector enablement + fill/apply for the newly round-tripped features |
-| The Codegen popup is live and round-trips codeGenerationType | codegen metadata: popup ↔ compiler carry ↔ serialized XML |
-| Date pickers load their fields and date from the nib | xib date picker decoding: elements, current date, style/mode (libs-gui#984, upstream) |
-| Stepper text fields own and drive their steppers | MBStepperTextField: self-created stepper, apply through the field's action, enablement mirroring |
-| Configurations list the implicit Default and inspect their entities | synthetic read-only Default, member-row selection drives the entity inspector |
-
-## Requirements
-
-- A gnustep-back: the headless one (`--enable-server=headless
-  --enable-graphics=headless`, no display needed), or the cairo/X11 one
-  under a virtual display (`xvfb-run -a make check`), which is how CI
-  runs it.
-- A current libs-base: the NSXML detached-attribute fix the
-  structural-surgery scenarios depend on has been merged upstream.
-- The built CoreData framework in the source tree (`make` at the repo
-  root first).
+A window test edits as a user does: it changes a control and sends the
+control's action, which is what hands a bound control's value to the
+editor it is bound to.
 
 ## Running
 
+On GNUstep, after `make` at the repository's root (the tests link the
+CoreData framework built there):
+
 ```
 . /usr/share/GNUstep/Makefiles/GNUstep.sh
-cd Tests/ModelBuilder
-make && make check
+make -C Tests/ModelBuilder
+xvfb-run -a make -C Tests/ModelBuilder check
 ```
 
-`make check` runs both binaries with the library path pinned to the
-build-tree framework, the same way `Tests/GNUmakefile` runs the XCTest
-bundle.  MBWindowProbe runs from an `.app`-shaped wrapper assembled at
-build time (`obj/MBWindowProbe.app/Resources/MBDocumentWindow.xib`) -
-GNUstep's NSBundle resolves a `Resources/` subdirectory only for
-app-wrapper paths - so a rebuilt xib is picked up by rebuilding.
+The windows need a display: the root GNUmakefile's `check` runs the
+bundle under `xvfb-run` when there is none, as CI does. `check` runs
+`xctest` with the library path pinned to the framework built in the
+tree, gives it ten minutes, and prints the end of what it wrote
+(`ModelBuilderTests.log`).
 
-Two build-artifact notes: compiling the app's sources from here makes
-gnustep-make mirror their `../../` paths into `ModelBuilder/` and
-`Tools/` directories beside `obj/` (swept by `make clean`; worth a
-`.gitignore` entry alongside `obj/`).
+On macOS, `make -f Makefile.apple check` runs the same suites in
+ModelBuilder.xcodeproj's ModelBuilderTests target.
 
-On macOS these are not needed: the same ground is covered by running
-the app and the XCTest suite; the probe exists precisely to exercise
-the GUI code paths that a display-less GNUstep CI can reach.
+Compiling the app's sources from here makes gnustep-make mirror their
+`../../` paths into `ModelBuilder/` and `Tools/` directories beside
+`obj/`; `make clean` sweeps them.

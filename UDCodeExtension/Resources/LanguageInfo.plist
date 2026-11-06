@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Core Data models and mapping models: XML (the grammar the XML mode's),
+	     by their files' names, opened in ModelBuilder's editors when the
+	     text is one (MBUExtension's -workbench:editorForDocument:), as text
+	     otherwise. A name is matched before an extension. -->
+	<key>languageModes</key>
+	<array>
+		<dict>
+			<key>identifier</key>
+			<string>coredata-model</string>
+			<key>displayName</key>
+			<string>Core Data Model</string>
+			<key>fileNames</key>
+			<array>
+				<string>contents</string>
+			</array>
+			<key>grammarOf</key>
+			<string>xml</string>
+		</dict>
+		<dict>
+			<key>identifier</key>
+			<string>coredata-mapping</string>
+			<key>displayName</key>
+			<string>Core Data Mapping Model</string>
+			<key>fileNames</key>
+			<array>
+				<string>xcmapping.xml</string>
+			</array>
+			<key>grammarOf</key>
+			<string>xml</string>
+		</dict>
+	</array>
+</dict>
+</plist>

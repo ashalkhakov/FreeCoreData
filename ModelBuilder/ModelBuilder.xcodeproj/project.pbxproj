@@ -9,15 +9,32 @@
 /* Begin PBXBuildFile section */
 		C56C63D7DD180F525431F0CC /* Sparkle.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8B4902744F7495FB86D46E57 /* Sparkle.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CE39E2D33042F6F60075866A /* MBEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D23042F6F60075866A /* MBEditors.m */; };
+		CD04334519CAD6A21273672B /* MBInspectorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = E9505760EA8828E8AED2B768 /* MBInspectorViewController.m */; };
+		68F8F68EE90C7A1F1570F156 /* MBDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = ED5DECF9F28ED6B7F34C7E9B /* MBDetailViewController.m */; };
+		29A63E98A1D642935C2F6B97 /* MBSourceListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 9A7FD41C97E8F97F0F86E030 /* MBSourceListViewController.m */; };
+		30DA8F241B7AE4F0B9A415A4 /* MBWindowSupport.m in Sources */ = {isa = PBXBuildFile; fileRef = 76FD00608B46C8FB9CA0511C /* MBWindowSupport.m */; };
+		010BA716EFA065E9F2664A06 /* MBModelCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = 35E90E99B5DA48AEC7107A2E /* MBModelCommands.m */; };
+		D696CE22DA7821B775C4B9AB /* MBModelEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = 78955B4FB4DEEBCFB2657443 /* MBModelEditor.m */; };
 		CE39E2D63042FBC30075866A /* CDModelMutator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D53042FBC30075866A /* CDModelMutator.m */; };
 		CE39E2DE304326510075866A /* CDCodeGenerator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2DD304326510075866A /* CDCodeGenerator.m */; };
 		CE39E3253043344B0075866A /* MBStepperTextField.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E3243043344B0075866A /* MBStepperTextField.m */; };
 		CE80DED2303EB3BF0028CAFF /* MBDocumentWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = CE80DED1303EB3BF0028CAFF /* MBDocumentWindow.xib */; };
+		66CDEECEDA3CE202C0A1B3F7 /* MBInspector.xib in Resources */ = {isa = PBXBuildFile; fileRef = 4D5EF579692FC7FB6A6C5648 /* MBInspector.xib */; };
+		578B78FD9BBABD7B3675998C /* MBDetail.xib in Resources */ = {isa = PBXBuildFile; fileRef = 2B6AD1E43171C9B5C3BA4C77 /* MBDetail.xib */; };
+		7D4C0542BED31CCA54ACF978 /* MBSourceList.xib in Resources */ = {isa = PBXBuildFile; fileRef = 6927F7C1E849FEDBA997D46D /* MBSourceList.xib */; };
 		MBMAP0000000000000000B000 /* MBMappingDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F001 /* MBMappingDocument.m */; };
 		MBMAP0000000000000000B001 /* MBMappingWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F003 /* MBMappingWindowController.m */; };
+		0A66C5E153614FEB405EF637 /* MBMappingInspectorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C7EA6D95F43C21139ADC1F88 /* MBMappingInspectorViewController.m */; };
+		2AE4634BAC9D8BEF61E80530 /* MBMappingDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = D3CF04A1DECBA3CABF437543 /* MBMappingDetailViewController.m */; };
+		3BA93D20783641890C8354FC /* MBMappingSourceListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 188D845F9346D402E01E3FA3 /* MBMappingSourceListViewController.m */; };
+		6BC74012FF547E9F47CB9909 /* MBMappingEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = 081870D0006090B6DECD5CC6 /* MBMappingEditors.m */; };
+		8106042AAB15FD744E43166B /* MBMappingEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = E867C4CFB2B2BE01873C4D12 /* MBMappingEditor.m */; };
 		MBMAP0000000000000000B002 /* CDMappingCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F005 /* CDMappingCompiler.m */; };
 		MBMAP0000000000000000B003 /* CDMappingSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F007 /* CDMappingSerializer.m */; };
 		MBMAP0000000000000000B004 /* MBMappingWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F008 /* MBMappingWindow.xib */; };
+		B91F225751E1B87A3BFB2646 /* MBMappingInspector.xib in Resources */ = {isa = PBXBuildFile; fileRef = 05BCDFDFCF8D10EBEF325275 /* MBMappingInspector.xib */; };
+		D9157183646C05615267F62B /* MBMappingDetail.xib in Resources */ = {isa = PBXBuildFile; fileRef = 17CE9AB1C62C5E4D707DA985 /* MBMappingDetail.xib */; };
+		165EF0406180F942F979D108 /* MBMappingSourceList.xib in Resources */ = {isa = PBXBuildFile; fileRef = B505CF52C69E9EA010770D84 /* MBMappingSourceList.xib */; };
 		MBMAP0000000000000000B005 /* MBNewMappingController.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F00B /* MBNewMappingController.m */; };
 		MBMAP0000000000000000B006 /* MBNewMappingPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F00C /* MBNewMappingPanel.xib */; };
 		CE80DEDD303EE4280028CAFF /* JUInspectorViewHeader.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEDC303EE4280028CAFF /* JUInspectorViewHeader.m */; };
@@ -36,6 +53,51 @@
 		MBUPD0000000000000000B000 /* MBAppController.m in Sources */ = {isa = PBXBuildFile; fileRef = MBUPD0000000000000000F001 /* MBAppController.m */; };
 		MBUPD0000000000000000B001 /* MBUpdater-Apple.m in Sources */ = {isa = PBXBuildFile; fileRef = MBUPD0000000000000000F003 /* MBUpdater-Apple.m */; };
 		MBUPD0000000000000000B002 /* Sparkle.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8B4902744F7495FB86D46E57 /* Sparkle.xcframework */; };
+		6ACD4FF45DC5725742F75DFB /* CDModelCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000002 /* CDModelCompiler.m */; };
+		818C636E549DFA188894BC04 /* CDModelSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000012 /* CDModelSerializer.m */; };
+		A59A01EAE2870DF2D2F8E2DE /* MBDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000003 /* MBDocument.m */; };
+		DFC43E00A02DF10F4822AD0F /* MBMappingDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F001 /* MBMappingDocument.m */; };
+		89049ACD619D68396A5E4C08 /* MBMappingWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F003 /* MBMappingWindowController.m */; };
+		84C1FEBF4F2C36F45E71BA61 /* MBMappingInspectorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C7EA6D95F43C21139ADC1F88 /* MBMappingInspectorViewController.m */; };
+		A79D0E6657FB17382C8DAC13 /* MBMappingDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = D3CF04A1DECBA3CABF437543 /* MBMappingDetailViewController.m */; };
+		01CCEF239DA42ACDBACD0853 /* MBMappingSourceListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 188D845F9346D402E01E3FA3 /* MBMappingSourceListViewController.m */; };
+		BFFBD818FAD452E33824D48A /* MBMappingEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = 081870D0006090B6DECD5CC6 /* MBMappingEditors.m */; };
+		95014FBC9D210F058F4EFF51 /* MBMappingEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = E867C4CFB2B2BE01873C4D12 /* MBMappingEditor.m */; };
+		17CE47433B9518FA4142A013 /* CDMappingCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F005 /* CDMappingCompiler.m */; };
+		0875E187AC6FD69F6B0DD0A8 /* CDMappingSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F007 /* CDMappingSerializer.m */; };
+		07CB931F7B09904C6BFB5F38 /* MBNewMappingController.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F00B /* MBNewMappingController.m */; };
+		C1B94F1C4BFA7CF0982F301C /* JUInspectorViewHeader.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEDC303EE4280028CAFF /* JUInspectorViewHeader.m */; };
+		C6752406630311F1FD8D52E8 /* DMTabBar.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEE3304161360028CAFF /* DMTabBar.m */; };
+		DD67BEABD15F06F6F007E5FB /* MBStepperTextField.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E3243043344B0075866A /* MBStepperTextField.m */; };
+		746941B9D003FAE14B5122CC /* DMTabBarItem.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEE5304161360028CAFF /* DMTabBarItem.m */; };
+		26F73768E282C437DD387745 /* JUInspectorView.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DED8303EE4280028CAFF /* JUInspectorView.m */; };
+		0F08CFB25F28668510FCE389 /* JUInspectorBaseView.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DED6303EE4280028CAFF /* JUInspectorBaseView.m */; };
+		C275AAC225BA79476ECA1B33 /* JUInspectorViewContainer.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEDA303EE4280028CAFF /* JUInspectorViewContainer.m */; };
+		9A240D3CD8AADCC20A2854D3 /* MBWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000004 /* MBWindowController.m */; };
+		E8ED73D36F8BB5F3F7F3A714 /* CDCodeGenerator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2DD304326510075866A /* CDCodeGenerator.m */; };
+		E15BE24069C4381C57005471 /* MBEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D23042F6F60075866A /* MBEditors.m */; };
+		64BBB6F999A3184FC690EA00 /* MBInspectorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = E9505760EA8828E8AED2B768 /* MBInspectorViewController.m */; };
+		B0446BB4FAD6D653529DA4ED /* MBDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = ED5DECF9F28ED6B7F34C7E9B /* MBDetailViewController.m */; };
+		D0C1758CE58D6ABB438204E0 /* MBSourceListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 9A7FD41C97E8F97F0F86E030 /* MBSourceListViewController.m */; };
+		B44863788CF9AA1175B9DB76 /* MBWindowSupport.m in Sources */ = {isa = PBXBuildFile; fileRef = 76FD00608B46C8FB9CA0511C /* MBWindowSupport.m */; };
+		A092737CB3120AF2C056C4A8 /* MBModelCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = 35E90E99B5DA48AEC7107A2E /* MBModelCommands.m */; };
+		06758EAD1D35F7C486C2647B /* MBModelEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = 78955B4FB4DEEBCFB2657443 /* MBModelEditor.m */; };
+		C946C2EF5A2D2D1CB6CF2736 /* CDModelMutator.m in Sources */ = {isa = PBXBuildFile; fileRef = CE39E2D53042FBC30075866A /* CDModelMutator.m */; };
+		BAE571CFD0CAF907DC087C06 /* MBDocumentTests.m in Sources */ = {isa = PBXBuildFile; fileRef = BF6973918371E19A14EAFEA4 /* MBDocumentTests.m */; };
+		DBD5E77551E9586F0F1FA7A3 /* MBEditorsTests.m in Sources */ = {isa = PBXBuildFile; fileRef = CA754CE95AF2FC70D239001C /* MBEditorsTests.m */; };
+		9AAC47E32D01FA5B8C1AF4AF /* MBModelWindowTests.m in Sources */ = {isa = PBXBuildFile; fileRef = E4ECEDD4A4066ABB5A3E4BD0 /* MBModelWindowTests.m */; };
+		D22E1FD111426EA787CC4D04 /* MBMappingEditorTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 16CC85F6C61744B7E25D86E6 /* MBMappingEditorTests.m */; };
+		95EBB70D146E1B5027DA320C /* MBMappingWindowTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 8A56FF79F22231B37675EFD1 /* MBMappingWindowTests.m */; };
+		D8BA5FDC301321593816CA2A /* MBDocumentWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = CE80DED1303EB3BF0028CAFF /* MBDocumentWindow.xib */; };
+		737E7E1AFA3A7B031540467C /* MBInspector.xib in Resources */ = {isa = PBXBuildFile; fileRef = 4D5EF579692FC7FB6A6C5648 /* MBInspector.xib */; };
+		1A552E381AE52EEE9FD0A33C /* MBDetail.xib in Resources */ = {isa = PBXBuildFile; fileRef = 2B6AD1E43171C9B5C3BA4C77 /* MBDetail.xib */; };
+		D8B930F365DB853863F4BA15 /* MBSourceList.xib in Resources */ = {isa = PBXBuildFile; fileRef = 6927F7C1E849FEDBA997D46D /* MBSourceList.xib */; };
+		D733EEB8CC726D8F669A3223 /* MBMappingWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F008 /* MBMappingWindow.xib */; };
+		FA796A27EBE4CF6BAE1B55EB /* MBMappingInspector.xib in Resources */ = {isa = PBXBuildFile; fileRef = 05BCDFDFCF8D10EBEF325275 /* MBMappingInspector.xib */; };
+		0C97C40465FEF13D68A7C1CE /* MBMappingDetail.xib in Resources */ = {isa = PBXBuildFile; fileRef = 17CE9AB1C62C5E4D707DA985 /* MBMappingDetail.xib */; };
+		326D4117F3E7EFC2DD80B7B5 /* MBMappingSourceList.xib in Resources */ = {isa = PBXBuildFile; fileRef = B505CF52C69E9EA010770D84 /* MBMappingSourceList.xib */; };
+		64C17A5AB7A0E4B3FE5A1DC7 /* MBNewMappingPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F00C /* MBNewMappingPanel.xib */; };
+		C1767DC70BC830D8CA4016F7 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = MB0000000000000000000011 /* Cocoa.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -55,6 +117,20 @@
 /* Begin PBXFileReference section */
 		8B4902744F7495FB86D46E57 /* Sparkle.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Sparkle.xcframework; path = ../.deps/Sparkle.xcframework; sourceTree = SOURCE_ROOT; };
 		CE39E2D13042F6F60075866A /* MBEditors.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBEditors.h; sourceTree = "<group>"; };
+		4D5EF579692FC7FB6A6C5648 /* MBInspector.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBInspector.xib; sourceTree = "<group>"; };
+		2B6AD1E43171C9B5C3BA4C77 /* MBDetail.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBDetail.xib; sourceTree = "<group>"; };
+		6927F7C1E849FEDBA997D46D /* MBSourceList.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBSourceList.xib; sourceTree = "<group>"; };
+		E9505760EA8828E8AED2B768 /* MBInspectorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBInspectorViewController.m; sourceTree = "<group>"; };
+		1932AB2C9693F6EE5BDBF92C /* MBInspectorViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBInspectorViewController.h; sourceTree = "<group>"; };
+		ED5DECF9F28ED6B7F34C7E9B /* MBDetailViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBDetailViewController.m; sourceTree = "<group>"; };
+		8A90F4B5D0F56FAD722840CF /* MBDetailViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBDetailViewController.h; sourceTree = "<group>"; };
+		9A7FD41C97E8F97F0F86E030 /* MBSourceListViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBSourceListViewController.m; sourceTree = "<group>"; };
+		A8BABAB092B01EC9FFA50885 /* MBSourceListViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBSourceListViewController.h; sourceTree = "<group>"; };
+		76FD00608B46C8FB9CA0511C /* MBWindowSupport.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBWindowSupport.m; sourceTree = "<group>"; };
+		35E90E99B5DA48AEC7107A2E /* MBModelCommands.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBModelCommands.m; sourceTree = "<group>"; };
+		546E900E655B94E676A9EF44 /* MBModelCommands.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBModelCommands.h; sourceTree = "<group>"; };
+		78955B4FB4DEEBCFB2657443 /* MBModelEditor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBModelEditor.m; sourceTree = "<group>"; };
+		CF81619F725071B7EF945FA4 /* MBModelEditor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBModelEditor.h; sourceTree = "<group>"; };
 		CE39E2D23042F6F60075866A /* MBEditors.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBEditors.m; sourceTree = "<group>"; };
 		CE39E2D43042FBC30075866A /* CDModelMutator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDModelMutator.h; path = ../Tools/momc/CDModelMutator.h; sourceTree = SOURCE_ROOT; };
 		CE39E2D53042FBC30075866A /* CDModelMutator.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDModelMutator.m; path = ../Tools/momc/CDModelMutator.m; sourceTree = SOURCE_ROOT; };
@@ -66,6 +142,19 @@
 		MBMAP0000000000000000F000 /* MBMappingDocument.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingDocument.h; sourceTree = "<group>"; };
 		MBMAP0000000000000000F001 /* MBMappingDocument.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingDocument.m; sourceTree = "<group>"; };
 		MBMAP0000000000000000F002 /* MBMappingWindowController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingWindowController.h; sourceTree = "<group>"; };
+		05BCDFDFCF8D10EBEF325275 /* MBMappingInspector.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBMappingInspector.xib; sourceTree = "<group>"; };
+		17CE9AB1C62C5E4D707DA985 /* MBMappingDetail.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBMappingDetail.xib; sourceTree = "<group>"; };
+		B505CF52C69E9EA010770D84 /* MBMappingSourceList.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBMappingSourceList.xib; sourceTree = "<group>"; };
+		DAAC96B36889B090CB6D5E7D /* MBMappingInspectorViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingInspectorViewController.h; sourceTree = "<group>"; };
+		C7EA6D95F43C21139ADC1F88 /* MBMappingInspectorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingInspectorViewController.m; sourceTree = "<group>"; };
+		FA935F6977E77A6205BE7312 /* MBMappingDetailViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingDetailViewController.h; sourceTree = "<group>"; };
+		D3CF04A1DECBA3CABF437543 /* MBMappingDetailViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingDetailViewController.m; sourceTree = "<group>"; };
+		CF729B107F365C669C375E92 /* MBMappingSourceListViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingSourceListViewController.h; sourceTree = "<group>"; };
+		188D845F9346D402E01E3FA3 /* MBMappingSourceListViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingSourceListViewController.m; sourceTree = "<group>"; };
+		6484B7AC341051F80068B3A7 /* MBMappingEditors.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingEditors.h; sourceTree = "<group>"; };
+		081870D0006090B6DECD5CC6 /* MBMappingEditors.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingEditors.m; sourceTree = "<group>"; };
+		7A73CED92FD6AF8EB11C116F /* MBMappingEditor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingEditor.h; sourceTree = "<group>"; };
+		E867C4CFB2B2BE01873C4D12 /* MBMappingEditor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingEditor.m; sourceTree = "<group>"; };
 		MBMAP0000000000000000F003 /* MBMappingWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingWindowController.m; sourceTree = "<group>"; };
 		MBMAP0000000000000000F004 /* CDMappingCompiler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDMappingCompiler.h; path = ../Tools/mapc/CDMappingCompiler.h; sourceTree = "<group>"; };
 		MBMAP0000000000000000F005 /* CDMappingCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDMappingCompiler.m; path = ../Tools/mapc/CDMappingCompiler.m; sourceTree = "<group>"; };
@@ -106,6 +195,12 @@
 		MBUPD0000000000000000F002 /* MBUpdater.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBUpdater.h; sourceTree = "<group>"; };
 		MBUPD0000000000000000F003 /* MBUpdater-Apple.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "MBUpdater-Apple.m"; sourceTree = "<group>"; };
 		MBUPD0000000000000000F004 /* MBUpdater.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBUpdater.m; sourceTree = "<group>"; };
+		BF6973918371E19A14EAFEA4 /* MBDocumentTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBDocumentTests.m; sourceTree = "<group>"; };
+		CA754CE95AF2FC70D239001C /* MBEditorsTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBEditorsTests.m; sourceTree = "<group>"; };
+		E4ECEDD4A4066ABB5A3E4BD0 /* MBModelWindowTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBModelWindowTests.m; sourceTree = "<group>"; };
+		16CC85F6C61744B7E25D86E6 /* MBMappingEditorTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingEditorTests.m; sourceTree = "<group>"; };
+		8A56FF79F22231B37675EFD1 /* MBMappingWindowTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingWindowTests.m; sourceTree = "<group>"; };
+		D3696E395AC0D30F8387E15C /* ModelBuilderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ModelBuilderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -118,12 +213,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		614A20A6F15AE6181C33A4E8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C1767DC70BC830D8CA4016F7 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		MB0000000000000000000301 = {
 			isa = PBXGroup;
 			children = (
+				99A9A0E33FB10DDD497A1483 /* ModelBuilderTests */,
 				8B4902744F7495FB86D46E57 /* Sparkle.xcframework */,
 				CE39E3233043344B0075866A /* MBStepperTextField.h */,
 				CE39E3243043344B0075866A /* MBStepperTextField.m */,
@@ -149,6 +253,20 @@
 				CE39E2DD304326510075866A /* CDCodeGenerator.m */,
 				CE39E2D13042F6F60075866A /* MBEditors.h */,
 				CE39E2D23042F6F60075866A /* MBEditors.m */,
+				4D5EF579692FC7FB6A6C5648 /* MBInspector.xib */,
+				2B6AD1E43171C9B5C3BA4C77 /* MBDetail.xib */,
+				6927F7C1E849FEDBA997D46D /* MBSourceList.xib */,
+				E9505760EA8828E8AED2B768 /* MBInspectorViewController.m */,
+				1932AB2C9693F6EE5BDBF92C /* MBInspectorViewController.h */,
+				ED5DECF9F28ED6B7F34C7E9B /* MBDetailViewController.m */,
+				8A90F4B5D0F56FAD722840CF /* MBDetailViewController.h */,
+				9A7FD41C97E8F97F0F86E030 /* MBSourceListViewController.m */,
+				A8BABAB092B01EC9FFA50885 /* MBSourceListViewController.h */,
+				76FD00608B46C8FB9CA0511C /* MBWindowSupport.m */,
+				35E90E99B5DA48AEC7107A2E /* MBModelCommands.m */,
+				546E900E655B94E676A9EF44 /* MBModelCommands.h */,
+				78955B4FB4DEEBCFB2657443 /* MBModelEditor.m */,
+				CF81619F725071B7EF945FA4 /* MBModelEditor.h */,
 				MB0000000000000000000006 /* MBDocument.h */,
 				MB0000000000000000000003 /* MBDocument.m */,
 				CE80DED1303EB3BF0028CAFF /* MBDocumentWindow.xib */,
@@ -156,6 +274,19 @@
 				MBMAP0000000000000000F001 /* MBMappingDocument.m */,
 				MBMAP0000000000000000F002 /* MBMappingWindowController.h */,
 				MBMAP0000000000000000F003 /* MBMappingWindowController.m */,
+				05BCDFDFCF8D10EBEF325275 /* MBMappingInspector.xib */,
+				17CE9AB1C62C5E4D707DA985 /* MBMappingDetail.xib */,
+				B505CF52C69E9EA010770D84 /* MBMappingSourceList.xib */,
+				DAAC96B36889B090CB6D5E7D /* MBMappingInspectorViewController.h */,
+				C7EA6D95F43C21139ADC1F88 /* MBMappingInspectorViewController.m */,
+				FA935F6977E77A6205BE7312 /* MBMappingDetailViewController.h */,
+				D3CF04A1DECBA3CABF437543 /* MBMappingDetailViewController.m */,
+				CF729B107F365C669C375E92 /* MBMappingSourceListViewController.h */,
+				188D845F9346D402E01E3FA3 /* MBMappingSourceListViewController.m */,
+				6484B7AC341051F80068B3A7 /* MBMappingEditors.h */,
+				081870D0006090B6DECD5CC6 /* MBMappingEditors.m */,
+				7A73CED92FD6AF8EB11C116F /* MBMappingEditor.h */,
+				E867C4CFB2B2BE01873C4D12 /* MBMappingEditor.m */,
 				MBMAP0000000000000000F004 /* CDMappingCompiler.h */,
 				MBMAP0000000000000000F005 /* CDMappingCompiler.m */,
 				MBMAP0000000000000000F006 /* CDMappingSerializer.h */,
@@ -191,9 +322,23 @@
 		MB0000000000000000000303 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				D3696E395AC0D30F8387E15C /* ModelBuilderTests.xctest */,
 				MB0000000000000000000021 /* ModelBuilder.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		99A9A0E33FB10DDD497A1483 /* ModelBuilderTests */ = {
+			isa = PBXGroup;
+			children = (
+				BF6973918371E19A14EAFEA4 /* MBDocumentTests.m */,
+				CA754CE95AF2FC70D239001C /* MBEditorsTests.m */,
+				E4ECEDD4A4066ABB5A3E4BD0 /* MBModelWindowTests.m */,
+				16CC85F6C61744B7E25D86E6 /* MBMappingEditorTests.m */,
+				8A56FF79F22231B37675EFD1 /* MBMappingWindowTests.m */,
+			);
+			name = ModelBuilderTests;
+			path = ../Tests/ModelBuilder;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -216,6 +361,23 @@
 			productName = ModelBuilder;
 			productReference = MB0000000000000000000021 /* ModelBuilder.app */;
 			productType = "com.apple.product-type.application";
+		};
+		50C4625B0581B8391CE057E8 /* ModelBuilderTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 14F978F14EFF662DEBF93B36 /* Build configuration list for PBXNativeTarget "ModelBuilderTests" */;
+			buildPhases = (
+				A450E3E37F4AE0ABFD8BE83F /* Sources */,
+				614A20A6F15AE6181C33A4E8 /* Frameworks */,
+				CE9D525E4B8B4B20146AE888 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ModelBuilderTests;
+			productName = ModelBuilderTests;
+			productReference = D3696E395AC0D30F8387E15C /* ModelBuilderTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -240,6 +402,7 @@
 			projectRoot = "";
 			targets = (
 				MB0000000000000000000401 /* ModelBuilder */,
+				50C4625B0581B8391CE057E8 /* ModelBuilderTests */,
 			);
 		};
 /* End PBXProject section */
@@ -251,8 +414,30 @@
 			files = (
 				MB0000000000000000000105 /* MainMenu.xib in Resources */,
 				CE80DED2303EB3BF0028CAFF /* MBDocumentWindow.xib in Resources */,
+				66CDEECEDA3CE202C0A1B3F7 /* MBInspector.xib in Resources */,
+				578B78FD9BBABD7B3675998C /* MBDetail.xib in Resources */,
+				7D4C0542BED31CCA54ACF978 /* MBSourceList.xib in Resources */,
 				MBMAP0000000000000000B004 /* MBMappingWindow.xib in Resources */,
+				B91F225751E1B87A3BFB2646 /* MBMappingInspector.xib in Resources */,
+				D9157183646C05615267F62B /* MBMappingDetail.xib in Resources */,
+				165EF0406180F942F979D108 /* MBMappingSourceList.xib in Resources */,
 				MBMAP0000000000000000B006 /* MBNewMappingPanel.xib in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CE9D525E4B8B4B20146AE888 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D8BA5FDC301321593816CA2A /* MBDocumentWindow.xib in Resources */,
+				737E7E1AFA3A7B031540467C /* MBInspector.xib in Resources */,
+				1A552E381AE52EEE9FD0A33C /* MBDetail.xib in Resources */,
+				D8B930F365DB853863F4BA15 /* MBSourceList.xib in Resources */,
+				D733EEB8CC726D8F669A3223 /* MBMappingWindow.xib in Resources */,
+				FA796A27EBE4CF6BAE1B55EB /* MBMappingInspector.xib in Resources */,
+				0C97C40465FEF13D68A7C1CE /* MBMappingDetail.xib in Resources */,
+				326D4117F3E7EFC2DD80B7B5 /* MBMappingSourceList.xib in Resources */,
+				64C17A5AB7A0E4B3FE5A1DC7 /* MBNewMappingPanel.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -271,6 +456,11 @@
 				MB0000000000000000000103 /* MBDocument.m in Sources */,
 				MBMAP0000000000000000B000 /* MBMappingDocument.m in Sources */,
 				MBMAP0000000000000000B001 /* MBMappingWindowController.m in Sources */,
+				0A66C5E153614FEB405EF637 /* MBMappingInspectorViewController.m in Sources */,
+				2AE4634BAC9D8BEF61E80530 /* MBMappingDetailViewController.m in Sources */,
+				3BA93D20783641890C8354FC /* MBMappingSourceListViewController.m in Sources */,
+				6BC74012FF547E9F47CB9909 /* MBMappingEditors.m in Sources */,
+				8106042AAB15FD744E43166B /* MBMappingEditor.m in Sources */,
 				MBMAP0000000000000000B002 /* CDMappingCompiler.m in Sources */,
 				MBMAP0000000000000000B003 /* CDMappingSerializer.m in Sources */,
 				MBMAP0000000000000000B005 /* MBNewMappingController.m in Sources */,
@@ -284,7 +474,55 @@
 				MB0000000000000000000104 /* MBWindowController.m in Sources */,
 				CE39E2DE304326510075866A /* CDCodeGenerator.m in Sources */,
 				CE39E2D33042F6F60075866A /* MBEditors.m in Sources */,
+				CD04334519CAD6A21273672B /* MBInspectorViewController.m in Sources */,
+				68F8F68EE90C7A1F1570F156 /* MBDetailViewController.m in Sources */,
+				29A63E98A1D642935C2F6B97 /* MBSourceListViewController.m in Sources */,
+				30DA8F241B7AE4F0B9A415A4 /* MBWindowSupport.m in Sources */,
+				010BA716EFA065E9F2664A06 /* MBModelCommands.m in Sources */,
+				D696CE22DA7821B775C4B9AB /* MBModelEditor.m in Sources */,
 				CE39E2D63042FBC30075866A /* CDModelMutator.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A450E3E37F4AE0ABFD8BE83F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6ACD4FF45DC5725742F75DFB /* CDModelCompiler.m in Sources */,
+				818C636E549DFA188894BC04 /* CDModelSerializer.m in Sources */,
+				A59A01EAE2870DF2D2F8E2DE /* MBDocument.m in Sources */,
+				DFC43E00A02DF10F4822AD0F /* MBMappingDocument.m in Sources */,
+				89049ACD619D68396A5E4C08 /* MBMappingWindowController.m in Sources */,
+				84C1FEBF4F2C36F45E71BA61 /* MBMappingInspectorViewController.m in Sources */,
+				A79D0E6657FB17382C8DAC13 /* MBMappingDetailViewController.m in Sources */,
+				01CCEF239DA42ACDBACD0853 /* MBMappingSourceListViewController.m in Sources */,
+				BFFBD818FAD452E33824D48A /* MBMappingEditors.m in Sources */,
+				95014FBC9D210F058F4EFF51 /* MBMappingEditor.m in Sources */,
+				17CE47433B9518FA4142A013 /* CDMappingCompiler.m in Sources */,
+				0875E187AC6FD69F6B0DD0A8 /* CDMappingSerializer.m in Sources */,
+				07CB931F7B09904C6BFB5F38 /* MBNewMappingController.m in Sources */,
+				C1B94F1C4BFA7CF0982F301C /* JUInspectorViewHeader.m in Sources */,
+				C6752406630311F1FD8D52E8 /* DMTabBar.m in Sources */,
+				DD67BEABD15F06F6F007E5FB /* MBStepperTextField.m in Sources */,
+				746941B9D003FAE14B5122CC /* DMTabBarItem.m in Sources */,
+				26F73768E282C437DD387745 /* JUInspectorView.m in Sources */,
+				0F08CFB25F28668510FCE389 /* JUInspectorBaseView.m in Sources */,
+				C275AAC225BA79476ECA1B33 /* JUInspectorViewContainer.m in Sources */,
+				9A240D3CD8AADCC20A2854D3 /* MBWindowController.m in Sources */,
+				E8ED73D36F8BB5F3F7F3A714 /* CDCodeGenerator.m in Sources */,
+				E15BE24069C4381C57005471 /* MBEditors.m in Sources */,
+				64BBB6F999A3184FC690EA00 /* MBInspectorViewController.m in Sources */,
+				B0446BB4FAD6D653529DA4ED /* MBDetailViewController.m in Sources */,
+				D0C1758CE58D6ABB438204E0 /* MBSourceListViewController.m in Sources */,
+				B44863788CF9AA1175B9DB76 /* MBWindowSupport.m in Sources */,
+				A092737CB3120AF2C056C4A8 /* MBModelCommands.m in Sources */,
+				06758EAD1D35F7C486C2647B /* MBModelEditor.m in Sources */,
+				C946C2EF5A2D2D1CB6CF2736 /* CDModelMutator.m in Sources */,
+				BAE571CFD0CAF907DC087C06 /* MBDocumentTests.m in Sources */,
+				DBD5E77551E9586F0F1FA7A3 /* MBEditorsTests.m in Sources */,
+				9AAC47E32D01FA5B8C1AF4AF /* MBModelWindowTests.m in Sources */,
+				D22E1FD111426EA787CC4D04 /* MBMappingEditorTests.m in Sources */,
+				95EBB70D146E1B5027DA320C /* MBMappingWindowTests.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -366,6 +604,28 @@
 			};
 			name = Release;
 		};
+		254B0CDD6ACEC61D0F27E116 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.ModelBuilderTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		A21F5044882CA1F6B2B961CC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.ModelBuilderTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -383,6 +643,15 @@
 			buildConfigurations = (
 				MB0000000000000000000801 /* Debug */,
 				MB0000000000000000000802 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		14F978F14EFF662DEBF93B36 /* Build configuration list for PBXNativeTarget "ModelBuilderTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				254B0CDD6ACEC61D0F27E116 /* Debug */,
+				A21F5044882CA1F6B2B961CC /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

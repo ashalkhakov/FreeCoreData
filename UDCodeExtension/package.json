@@ -1,0 +1,11 @@
+{
+  "name": "coredata",
+  "publisher": "ashalkhakov",
+  "displayName": "Core Data",
+  "description": "Core Data models (.xcdatamodeld) and mapping models (.xcmappingmodel) edited with FreeCoreData's ModelBuilder: entities, attributes, relationships, fetch requests, fetch indexes and configurations, the inspector bound to what it shows; entity and property mappings",
+  "version": "0.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/ashalkhakov/FreeCoreData",
+  "engines": { "udcode": "^0.19.3" },
+  "main": "./ModelBuilder.bundle"
+}

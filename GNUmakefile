@@ -141,28 +141,49 @@ ifneq ($(shell command -v mariadb_config 2>/dev/null)$(shell command -v mysql_co
 CD_PARTS += Backends/MySQL
 endif
 CD_PARTS += ModelBuilder CDLauncher Examples/EmployeeDirectory Examples/Staffbook Examples/Bulletin
+# UDCode's Core Data extension (UDCodeExtension, docs/UDCODE.md), where
+# UDCode's SDK is installed (.github/pins.env's UDCODEKIT_VERSION). It is
+# not installed: Scripts/udcx.sh packages it.
+UDCODE_SDK = $(wildcard $(GNUSTEP_LOCAL_HEADERS)/UDCodeKit/UDExtension.h $(GNUSTEP_SYSTEM_HEADERS)/UDCodeKit/UDExtension.h)
 
 after-all::
 	@for part in $(CD_PARTS); do $(MAKE) -C $$part || exit 1; done
+	$(if $(UDCODE_SDK),$(MAKE) -C UDCodeExtension)
 
 after-install::
 	@for part in $(CD_PARTS); do $(MAKE) -C $$part install || exit 1; done
 
 after-clean::
 	@for part in $(CD_PARTS) Tests Tests/ModelBuilder; do $(MAKE) -C $$part clean || exit 1; done
+	-$(MAKE) -C UDCodeExtension clean
+	-$(MAKE) -C UDCodeExtension/Tests clean
 
 # make check: the framework's tests; Model Builder's, driving its windows
-# (under Xvfb when there is no display; one job at a time: its four tools
-# share sources, and parallel jobs race to make their object directories); and the SQL stores against the
+# (under Xvfb when there is no display; one job at a time, as its sources
+# are built in object directories of their own); the UDCode extension's,
+# where it is built; and the SQL stores against the
 # servers they are given, each alone and both in one process. A server is
 # given by its URL (POSTGRES_URL, MYSQL_URL, MARIADB_URL: a database a test
 # may create tables in); without one its suites are skipped, but not in CI,
 # where a missing server is a failure.
 XVFB = $(if $(DISPLAY),,$(shell command -v xvfb-run >/dev/null 2>&1 && echo xvfb-run -a))
+# The window tests' suites. On Windows the daemons they start (GNUstep's gpbs
+# and gdnc) outlive them and keep a CI step that runs make check from
+# ending: those that were not running before are stopped after.
+WINDOW_TESTS = $(MAKE) -j1 -C Tests/ModelBuilder && $(XVFB) $(MAKE) -j1 -C Tests/ModelBuilder check \
+	$(if $(UDCODE_SDK),&& $(MAKE) -j1 -C UDCodeExtension/Tests && $(XVFB) $(MAKE) -j1 -C UDCodeExtension/Tests run-tests)
+ifeq ($(OS),Windows_NT)
+DAEMON_PIDS = tasklist //NH //FO CSV | grep -iE '^"(gpbs|gdnc)\.exe"' | cut -d, -f2 | tr -d '"'
+WINDOW_CHECK = before=$$($(DAEMON_PIDS)); $(WINDOW_TESTS); status=$$?; \
+	for pid in $$($(DAEMON_PIDS)); do \
+	  echo "$$before" | grep -qx "$$pid" || { echo "check: stopping daemon $$pid, the window tests'"; taskkill //PID $$pid //F >/dev/null; }; \
+	done; exit $$status
+else
+WINDOW_CHECK = $(WINDOW_TESTS)
+endif
 check::
 	$(MAKE) -C Tests run-tests
-	$(MAKE) -j1 -C Tests/ModelBuilder
-	$(XVFB) $(MAKE) -j1 -C Tests/ModelBuilder check
+	@$(WINDOW_CHECK)
 	@for server in POSTGRES_URL MYSQL_URL MARIADB_URL; do \
 	  if [ -z "$$(printenv $$server)" ]; then \
 	    if [ -n "$$CI" ]; then echo "check: $$server is not set; the SQL stores need it in CI"; exit 1; fi; \

@@ -1,0 +1,621 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		BDE1206FAD11286710D6909E /* MBUExtension.m in Sources */ = {isa = PBXBuildFile; fileRef = 78A5A00370BA59E19B3B2D30 /* MBUExtension.m */; };
+		894434946ED795D25D8D6F06 /* MBUEditorView.m in Sources */ = {isa = PBXBuildFile; fileRef = 224D15DAD1F73648018BE1E0 /* MBUEditorView.m */; };
+		CC6CBF6B73184B6CB0A50336 /* MBUModelEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 8F360D74AFF2F271E3E33659 /* MBUModelEditorViewController.m */; };
+		275F25772C96001743ECDDCD /* MBUMappingEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B29913E8A232733AF69A6C25 /* MBUMappingEditorViewController.m */; };
+		8DDCD531A2C0887AEB86497B /* MBUTextEdits.m in Sources */ = {isa = PBXBuildFile; fileRef = 4BA4CC3D62C79E9205155976 /* MBUTextEdits.m */; };
+		08E70C3A4379B5DDDFC747DF /* MBDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = 5BE01E0A596CEBDF6B8B98EB /* MBDocument.m */; };
+		98354D0AFBDE4002F564A41A /* MBModelEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = 52A3E8FF212347A386CAB361 /* MBModelEditor.m */; };
+		5AE79DD73DADB19D5546A096 /* MBModelCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = 926DD814C93F3A0C51892853 /* MBModelCommands.m */; };
+		55323687B2B3CB0D6C724A61 /* MBEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = DBA7D79FAB47D1CCFA0F336F /* MBEditors.m */; };
+		0B497A49827DCEBEBD5A933D /* MBWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = C2186B6001931A022EC25619 /* MBWindowController.m */; };
+		AC87C278BC7EAD652A6D75A7 /* MBWindowSupport.m in Sources */ = {isa = PBXBuildFile; fileRef = 398394B80BBD5ED69B175884 /* MBWindowSupport.m */; };
+		337DC654438875DBFBD02499 /* MBSourceListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B869C36CCAA79C5245AC0501 /* MBSourceListViewController.m */; };
+		33D5016FFFAC0B7EAF206219 /* MBDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DAA84DE6C8ECD63F48BA2541 /* MBDetailViewController.m */; };
+		1A0E9855F7E7350DD005DF35 /* MBInspectorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 994F3DBA06D389035D7516BA /* MBInspectorViewController.m */; };
+		CEE4EA465DDFC507B9134314 /* MBMappingDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = 5C2A98D8A1EA0946C812147C /* MBMappingDocument.m */; };
+		CA975CECE6C3099A0AFEEF1C /* MBMappingEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = 2CFE461338B940059861A5DA /* MBMappingEditor.m */; };
+		3FD379DF379E4B752E787E60 /* MBMappingEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = D6A52DC3FBBC48D77ABF6CD5 /* MBMappingEditors.m */; };
+		41A42BB81A377F0B94076AF8 /* MBMappingWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = 84998EDB7CD2AC8338409881 /* MBMappingWindowController.m */; };
+		A3AC5312A79059DA16AD1B3D /* MBMappingSourceListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1AADBECB605B92CD63CAF7B8 /* MBMappingSourceListViewController.m */; };
+		D340004B30AD56A65EC35C2F /* MBMappingDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BB17E0B19F2F801B6853498F /* MBMappingDetailViewController.m */; };
+		46C1682DA06C456F975BBEB6 /* MBMappingInspectorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B61E72291CCBDEAC6950E164 /* MBMappingInspectorViewController.m */; };
+		2D9FFDCE8C9D78AB547EA863 /* MBNewMappingController.m in Sources */ = {isa = PBXBuildFile; fileRef = 2615BFEE4FCBF9A0C2E2A779 /* MBNewMappingController.m */; };
+		744EAC5575E10E470FCD5D26 /* MBStepperTextField.m in Sources */ = {isa = PBXBuildFile; fileRef = 0DB13961B19F216323C24388 /* MBStepperTextField.m */; };
+		96B8A377DCA2742C7EE4D203 /* CDModelCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = FACB4BA2CE40171909DA2D0C /* CDModelCompiler.m */; };
+		CFC6D5A0EC041FA5D7ECE5FE /* CDModelSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = 0215BA7824ECEC7D9B09E7F4 /* CDModelSerializer.m */; };
+		C0AEB83477855C4691328355 /* CDModelMutator.m in Sources */ = {isa = PBXBuildFile; fileRef = A04F0C7482490C88622E97CE /* CDModelMutator.m */; };
+		53400FB2A492E478D0701B88 /* CDCodeGenerator.m in Sources */ = {isa = PBXBuildFile; fileRef = F8BA1E0643D430478B7A99DD /* CDCodeGenerator.m */; };
+		3F9DD3433419EA39611D7FBA /* CDMappingCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = 23D7087757CC73E5418658DF /* CDMappingCompiler.m */; };
+		1848DAA0AB5C17F2172FC6C1 /* CDMappingSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = 1CA523D623A66C33C4DC2B68 /* CDMappingSerializer.m */; };
+		54DF600C1CC17E63D2CFB7CE /* DMTabBar.m in Sources */ = {isa = PBXBuildFile; fileRef = 0E93D9003EF1AB02CFFBB273 /* DMTabBar.m */; };
+		1C06FD337519864B46A752CE /* DMTabBarItem.m in Sources */ = {isa = PBXBuildFile; fileRef = 6C01EABF50E308A847935C90 /* DMTabBarItem.m */; };
+		3543B132D34DB7F09794C705 /* JUInspectorBaseView.m in Sources */ = {isa = PBXBuildFile; fileRef = 395234E524465008FD3BC965 /* JUInspectorBaseView.m */; };
+		92DD16636ACD41CF54C4650B /* JUInspectorView.m in Sources */ = {isa = PBXBuildFile; fileRef = 54025D105359076A2FCDE5CD /* JUInspectorView.m */; };
+		4523F5370065AB7A98556BE5 /* JUInspectorViewContainer.m in Sources */ = {isa = PBXBuildFile; fileRef = E2A426BA796B1025207E9A01 /* JUInspectorViewContainer.m */; };
+		B3B6857B2258B64B00B0D1BF /* JUInspectorViewHeader.m in Sources */ = {isa = PBXBuildFile; fileRef = F1FADC05291F96E7BDB9D7C0 /* JUInspectorViewHeader.m */; };
+		FE5FFCD75B26AF9AB8E7231A /* MBUModelEditor.xib in Resources */ = {isa = PBXBuildFile; fileRef = 6D6BF17BBF63E401D3B11E1A /* MBUModelEditor.xib */; };
+		74438723781A3F3E1E683818 /* MBUMappingEditor.xib in Resources */ = {isa = PBXBuildFile; fileRef = 9397C07ECB8C43415306BFCA /* MBUMappingEditor.xib */; };
+		8879A30DDECB8A68C48FFDAC /* MBUEditorMenus.xib in Resources */ = {isa = PBXBuildFile; fileRef = 20E9F143E2622AC5DAB3EE8B /* MBUEditorMenus.xib */; };
+		ECF2F967D5301F3CE2ABC8A6 /* MBDocumentWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = 9BB25BB8973D96B394ECEF2D /* MBDocumentWindow.xib */; };
+		6FFF6B48DA05FC7ED757667D /* MBSourceList.xib in Resources */ = {isa = PBXBuildFile; fileRef = 21BD76B4F55E0AABB5307BDA /* MBSourceList.xib */; };
+		EFFEC0EA9C268714C2D0C014 /* MBDetail.xib in Resources */ = {isa = PBXBuildFile; fileRef = F857FB7E128E31DED5517464 /* MBDetail.xib */; };
+		2CBF1EFE3096A4FE736517DC /* MBInspector.xib in Resources */ = {isa = PBXBuildFile; fileRef = BE1D2F0282EFB5D50F7ADC68 /* MBInspector.xib */; };
+		9557D487C89BB98EF0AD5A83 /* MBMappingWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = F7263B7448DC522E5FABBF51 /* MBMappingWindow.xib */; };
+		A607341B5CFAA1CF70E925A7 /* MBMappingSourceList.xib in Resources */ = {isa = PBXBuildFile; fileRef = 3EE3D7684449B7860351832B /* MBMappingSourceList.xib */; };
+		26CE565EAF49346404C76C07 /* MBMappingDetail.xib in Resources */ = {isa = PBXBuildFile; fileRef = CDBDF946FFC779704A1E0F9D /* MBMappingDetail.xib */; };
+		0FA3A5811DAD7096AF8AC415 /* MBMappingInspector.xib in Resources */ = {isa = PBXBuildFile; fileRef = 2B1F9CEE3AEFE7A7AA8A8B53 /* MBMappingInspector.xib */; };
+		E383E19B801F9B7F393BDC93 /* MBNewMappingPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = 988088B49C376F56E6C36136 /* MBNewMappingPanel.xib */; };
+		AA72BEAA63EF34E0942C3811 /* LanguageInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3FCE88BDBB8F846B150B944E /* LanguageInfo.plist */; };
+		966D896E9A5EDF11EFF1D554 /* UDCodeKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2995F3046CDDA4AFF74AFB8D /* UDCodeKit.xcframework */; };
+		033797645A8F1B1AABBDAC64 /* UDPieceTable.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6DBDAFCF73A059E5CCAD7865 /* UDPieceTable.xcframework */; };
+		380784ABA241BC92A5B6002D /* LSPKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F458D2760F87A5EE62204FAC /* LSPKit.xcframework */; };
+		FBCF5C9194DD5ADBF0320B03 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0021269C818ACC68F971C68E /* Cocoa.framework */; };
+		BF2C76BBE56C747A3243FF0A /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A179CB5D66DD89EE50F4795A /* CoreData.framework */; };
+		F47ADD342F751AB046AE9408 /* MBUTests.m in Sources */ = {isa = PBXBuildFile; fileRef = D265914B862D46F1D99500DD /* MBUTests.m */; };
+		733B66B1345C0A116CCA365B /* MBUExtension.m in Sources */ = {isa = PBXBuildFile; fileRef = 78A5A00370BA59E19B3B2D30 /* MBUExtension.m */; };
+		FCCD5191DA9F1014D21E9E05 /* MBUEditorView.m in Sources */ = {isa = PBXBuildFile; fileRef = 224D15DAD1F73648018BE1E0 /* MBUEditorView.m */; };
+		08D9E9FE657EA0F5D1777501 /* MBUModelEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 8F360D74AFF2F271E3E33659 /* MBUModelEditorViewController.m */; };
+		7C5191CC3FA6DA2A995EB128 /* MBUMappingEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B29913E8A232733AF69A6C25 /* MBUMappingEditorViewController.m */; };
+		31509CADB0D9E14433854793 /* MBUTextEdits.m in Sources */ = {isa = PBXBuildFile; fileRef = 4BA4CC3D62C79E9205155976 /* MBUTextEdits.m */; };
+		CBA19D285C2AE749083FBC10 /* MBDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = 5BE01E0A596CEBDF6B8B98EB /* MBDocument.m */; };
+		39E5E454B79505BD7AA5C6AA /* MBModelEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = 52A3E8FF212347A386CAB361 /* MBModelEditor.m */; };
+		EBB245A7A64E66E8AA8E7A2F /* MBModelCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = 926DD814C93F3A0C51892853 /* MBModelCommands.m */; };
+		4289927E213EE0DA14A3C9B4 /* MBEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = DBA7D79FAB47D1CCFA0F336F /* MBEditors.m */; };
+		28EC833CB5F49B68A873F748 /* MBWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = C2186B6001931A022EC25619 /* MBWindowController.m */; };
+		12B623C960DCCEE78A2E31BD /* MBWindowSupport.m in Sources */ = {isa = PBXBuildFile; fileRef = 398394B80BBD5ED69B175884 /* MBWindowSupport.m */; };
+		041F496D7F81995A2F726519 /* MBSourceListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B869C36CCAA79C5245AC0501 /* MBSourceListViewController.m */; };
+		1BD02A2182CEC3988C1CE58B /* MBDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = DAA84DE6C8ECD63F48BA2541 /* MBDetailViewController.m */; };
+		5060EF46614B04450EE5DFDC /* MBInspectorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 994F3DBA06D389035D7516BA /* MBInspectorViewController.m */; };
+		93DDDEFAE1C63297D344FEDE /* MBMappingDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = 5C2A98D8A1EA0946C812147C /* MBMappingDocument.m */; };
+		4641E05238409E62071382CA /* MBMappingEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = 2CFE461338B940059861A5DA /* MBMappingEditor.m */; };
+		E1F8B70F38F14B26F846D657 /* MBMappingEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = D6A52DC3FBBC48D77ABF6CD5 /* MBMappingEditors.m */; };
+		821A152BE407206C7A9CCD8B /* MBMappingWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = 84998EDB7CD2AC8338409881 /* MBMappingWindowController.m */; };
+		874C5AFDD2A20EE93D1AB8FB /* MBMappingSourceListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1AADBECB605B92CD63CAF7B8 /* MBMappingSourceListViewController.m */; };
+		E3150F12CB8AD3D1A11A9E0C /* MBMappingDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BB17E0B19F2F801B6853498F /* MBMappingDetailViewController.m */; };
+		22C9B845429CDE0BCCDBE85C /* MBMappingInspectorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B61E72291CCBDEAC6950E164 /* MBMappingInspectorViewController.m */; };
+		10697238BE6D1B2263765289 /* MBNewMappingController.m in Sources */ = {isa = PBXBuildFile; fileRef = 2615BFEE4FCBF9A0C2E2A779 /* MBNewMappingController.m */; };
+		0678A87BD3382DC1E9BA6952 /* MBStepperTextField.m in Sources */ = {isa = PBXBuildFile; fileRef = 0DB13961B19F216323C24388 /* MBStepperTextField.m */; };
+		7B12EC07BBB88C4E637EAA52 /* CDModelCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = FACB4BA2CE40171909DA2D0C /* CDModelCompiler.m */; };
+		32D2ED6B1D286835882F7DB4 /* CDModelSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = 0215BA7824ECEC7D9B09E7F4 /* CDModelSerializer.m */; };
+		6E5DC7851DA0678C3D714D21 /* CDModelMutator.m in Sources */ = {isa = PBXBuildFile; fileRef = A04F0C7482490C88622E97CE /* CDModelMutator.m */; };
+		CE8BBB4A847A0DC774C36646 /* CDCodeGenerator.m in Sources */ = {isa = PBXBuildFile; fileRef = F8BA1E0643D430478B7A99DD /* CDCodeGenerator.m */; };
+		17559455CBCF0E315DBB9D19 /* CDMappingCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = 23D7087757CC73E5418658DF /* CDMappingCompiler.m */; };
+		56A1E30C77634853CF256D9F /* CDMappingSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = 1CA523D623A66C33C4DC2B68 /* CDMappingSerializer.m */; };
+		12B4EE8998D97C782A8A7E38 /* DMTabBar.m in Sources */ = {isa = PBXBuildFile; fileRef = 0E93D9003EF1AB02CFFBB273 /* DMTabBar.m */; };
+		0BF1C5C6F0EC70168B926770 /* DMTabBarItem.m in Sources */ = {isa = PBXBuildFile; fileRef = 6C01EABF50E308A847935C90 /* DMTabBarItem.m */; };
+		B6E5D6583A8ABA09B032F739 /* JUInspectorBaseView.m in Sources */ = {isa = PBXBuildFile; fileRef = 395234E524465008FD3BC965 /* JUInspectorBaseView.m */; };
+		DD07676CFF1108AF8C01767C /* JUInspectorView.m in Sources */ = {isa = PBXBuildFile; fileRef = 54025D105359076A2FCDE5CD /* JUInspectorView.m */; };
+		FE0D5E8631BDED410724A7AD /* JUInspectorViewContainer.m in Sources */ = {isa = PBXBuildFile; fileRef = E2A426BA796B1025207E9A01 /* JUInspectorViewContainer.m */; };
+		E6AA6EA6483FE3AF37D17E75 /* JUInspectorViewHeader.m in Sources */ = {isa = PBXBuildFile; fileRef = F1FADC05291F96E7BDB9D7C0 /* JUInspectorViewHeader.m */; };
+		F3FD1886041CE8FEE0BC1884 /* MBUModelEditor.xib in Resources */ = {isa = PBXBuildFile; fileRef = 6D6BF17BBF63E401D3B11E1A /* MBUModelEditor.xib */; };
+		3D4843E450DC1CA6B2E013A1 /* MBUMappingEditor.xib in Resources */ = {isa = PBXBuildFile; fileRef = 9397C07ECB8C43415306BFCA /* MBUMappingEditor.xib */; };
+		FB316568FFCB5C3822195563 /* MBUEditorMenus.xib in Resources */ = {isa = PBXBuildFile; fileRef = 20E9F143E2622AC5DAB3EE8B /* MBUEditorMenus.xib */; };
+		6D27346009F51A37E8BAE78C /* MBDocumentWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = 9BB25BB8973D96B394ECEF2D /* MBDocumentWindow.xib */; };
+		EA1D6E749FD42CF28678FD82 /* MBSourceList.xib in Resources */ = {isa = PBXBuildFile; fileRef = 21BD76B4F55E0AABB5307BDA /* MBSourceList.xib */; };
+		30AAC7A2152386EEFA5709F1 /* MBDetail.xib in Resources */ = {isa = PBXBuildFile; fileRef = F857FB7E128E31DED5517464 /* MBDetail.xib */; };
+		4EA8F78FFC70497C5327E0DA /* MBInspector.xib in Resources */ = {isa = PBXBuildFile; fileRef = BE1D2F0282EFB5D50F7ADC68 /* MBInspector.xib */; };
+		3B973C0F028C08618DC36F6A /* MBMappingWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = F7263B7448DC522E5FABBF51 /* MBMappingWindow.xib */; };
+		7860DA88F8027DD1281A53AC /* MBMappingSourceList.xib in Resources */ = {isa = PBXBuildFile; fileRef = 3EE3D7684449B7860351832B /* MBMappingSourceList.xib */; };
+		BB71F31B2D61E1951D909202 /* MBMappingDetail.xib in Resources */ = {isa = PBXBuildFile; fileRef = CDBDF946FFC779704A1E0F9D /* MBMappingDetail.xib */; };
+		3748D20213B4170B9CEC1DC4 /* MBMappingInspector.xib in Resources */ = {isa = PBXBuildFile; fileRef = 2B1F9CEE3AEFE7A7AA8A8B53 /* MBMappingInspector.xib */; };
+		B552318C5B7FC337BC8F3C40 /* MBNewMappingPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = 988088B49C376F56E6C36136 /* MBNewMappingPanel.xib */; };
+		5EC7B3C919EDEC920E194B21 /* LanguageInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3FCE88BDBB8F846B150B944E /* LanguageInfo.plist */; };
+		29E130266A895775BB7F1E24 /* UDCodeKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2995F3046CDDA4AFF74AFB8D /* UDCodeKit.xcframework */; };
+		F1F56EBA951D8075758B4CB3 /* UDPieceTable.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6DBDAFCF73A059E5CCAD7865 /* UDPieceTable.xcframework */; };
+		1CFA04392455B0127A7E553E /* LSPKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F458D2760F87A5EE62204FAC /* LSPKit.xcframework */; };
+		93199DD130422CA1D0C62648 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0021269C818ACC68F971C68E /* Cocoa.framework */; };
+		D777B5BC2F98591B6F5452B0 /* CoreData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A179CB5D66DD89EE50F4795A /* CoreData.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		78A5A00370BA59E19B3B2D30 /* MBUExtension.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBUExtension.m"; path = "MBUExtension.m"; sourceTree = "<group>"; };
+		224D15DAD1F73648018BE1E0 /* MBUEditorView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBUEditorView.m"; path = "MBUEditorView.m"; sourceTree = "<group>"; };
+		8F360D74AFF2F271E3E33659 /* MBUModelEditorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBUModelEditorViewController.m"; path = "MBUModelEditorViewController.m"; sourceTree = "<group>"; };
+		B29913E8A232733AF69A6C25 /* MBUMappingEditorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBUMappingEditorViewController.m"; path = "MBUMappingEditorViewController.m"; sourceTree = "<group>"; };
+		4BA4CC3D62C79E9205155976 /* MBUTextEdits.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBUTextEdits.m"; path = "MBUTextEdits.m"; sourceTree = "<group>"; };
+		D265914B862D46F1D99500DD /* MBUTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBUTests.m"; path = "Tests/MBUTests.m"; sourceTree = "<group>"; };
+		5BE01E0A596CEBDF6B8B98EB /* MBDocument.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBDocument.m"; path = "../ModelBuilder/MBDocument.m"; sourceTree = "<group>"; };
+		52A3E8FF212347A386CAB361 /* MBModelEditor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBModelEditor.m"; path = "../ModelBuilder/MBModelEditor.m"; sourceTree = "<group>"; };
+		926DD814C93F3A0C51892853 /* MBModelCommands.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBModelCommands.m"; path = "../ModelBuilder/MBModelCommands.m"; sourceTree = "<group>"; };
+		DBA7D79FAB47D1CCFA0F336F /* MBEditors.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBEditors.m"; path = "../ModelBuilder/MBEditors.m"; sourceTree = "<group>"; };
+		C2186B6001931A022EC25619 /* MBWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBWindowController.m"; path = "../ModelBuilder/MBWindowController.m"; sourceTree = "<group>"; };
+		398394B80BBD5ED69B175884 /* MBWindowSupport.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBWindowSupport.m"; path = "../ModelBuilder/MBWindowSupport.m"; sourceTree = "<group>"; };
+		B869C36CCAA79C5245AC0501 /* MBSourceListViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBSourceListViewController.m"; path = "../ModelBuilder/MBSourceListViewController.m"; sourceTree = "<group>"; };
+		DAA84DE6C8ECD63F48BA2541 /* MBDetailViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBDetailViewController.m"; path = "../ModelBuilder/MBDetailViewController.m"; sourceTree = "<group>"; };
+		994F3DBA06D389035D7516BA /* MBInspectorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBInspectorViewController.m"; path = "../ModelBuilder/MBInspectorViewController.m"; sourceTree = "<group>"; };
+		5C2A98D8A1EA0946C812147C /* MBMappingDocument.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBMappingDocument.m"; path = "../ModelBuilder/MBMappingDocument.m"; sourceTree = "<group>"; };
+		2CFE461338B940059861A5DA /* MBMappingEditor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBMappingEditor.m"; path = "../ModelBuilder/MBMappingEditor.m"; sourceTree = "<group>"; };
+		D6A52DC3FBBC48D77ABF6CD5 /* MBMappingEditors.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBMappingEditors.m"; path = "../ModelBuilder/MBMappingEditors.m"; sourceTree = "<group>"; };
+		84998EDB7CD2AC8338409881 /* MBMappingWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBMappingWindowController.m"; path = "../ModelBuilder/MBMappingWindowController.m"; sourceTree = "<group>"; };
+		1AADBECB605B92CD63CAF7B8 /* MBMappingSourceListViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBMappingSourceListViewController.m"; path = "../ModelBuilder/MBMappingSourceListViewController.m"; sourceTree = "<group>"; };
+		BB17E0B19F2F801B6853498F /* MBMappingDetailViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBMappingDetailViewController.m"; path = "../ModelBuilder/MBMappingDetailViewController.m"; sourceTree = "<group>"; };
+		B61E72291CCBDEAC6950E164 /* MBMappingInspectorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBMappingInspectorViewController.m"; path = "../ModelBuilder/MBMappingInspectorViewController.m"; sourceTree = "<group>"; };
+		2615BFEE4FCBF9A0C2E2A779 /* MBNewMappingController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBNewMappingController.m"; path = "../ModelBuilder/MBNewMappingController.m"; sourceTree = "<group>"; };
+		0DB13961B19F216323C24388 /* MBStepperTextField.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "MBStepperTextField.m"; path = "../ModelBuilder/MBStepperTextField.m"; sourceTree = "<group>"; };
+		FACB4BA2CE40171909DA2D0C /* CDModelCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "CDModelCompiler.m"; path = "../ModelBuilder/../Tools/momc/CDModelCompiler.m"; sourceTree = "<group>"; };
+		0215BA7824ECEC7D9B09E7F4 /* CDModelSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "CDModelSerializer.m"; path = "../ModelBuilder/../Tools/momc/CDModelSerializer.m"; sourceTree = "<group>"; };
+		A04F0C7482490C88622E97CE /* CDModelMutator.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "CDModelMutator.m"; path = "../ModelBuilder/../Tools/momc/CDModelMutator.m"; sourceTree = "<group>"; };
+		F8BA1E0643D430478B7A99DD /* CDCodeGenerator.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "CDCodeGenerator.m"; path = "../ModelBuilder/../Tools/momc/CDCodeGenerator.m"; sourceTree = "<group>"; };
+		23D7087757CC73E5418658DF /* CDMappingCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "CDMappingCompiler.m"; path = "../ModelBuilder/../Tools/mapc/CDMappingCompiler.m"; sourceTree = "<group>"; };
+		1CA523D623A66C33C4DC2B68 /* CDMappingSerializer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "CDMappingSerializer.m"; path = "../ModelBuilder/../Tools/mapc/CDMappingSerializer.m"; sourceTree = "<group>"; };
+		0E93D9003EF1AB02CFFBB273 /* DMTabBar.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "DMTabBar.m"; path = "../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.m"; sourceTree = "<group>"; };
+		6C01EABF50E308A847935C90 /* DMTabBarItem.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "DMTabBarItem.m"; path = "../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.m"; sourceTree = "<group>"; };
+		395234E524465008FD3BC965 /* JUInspectorBaseView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "JUInspectorBaseView.m"; path = "../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorBaseView.m"; sourceTree = "<group>"; };
+		54025D105359076A2FCDE5CD /* JUInspectorView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "JUInspectorView.m"; path = "../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorView.m"; sourceTree = "<group>"; };
+		E2A426BA796B1025207E9A01 /* JUInspectorViewContainer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "JUInspectorViewContainer.m"; path = "../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorViewContainer.m"; sourceTree = "<group>"; };
+		F1FADC05291F96E7BDB9D7C0 /* JUInspectorViewHeader.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "JUInspectorViewHeader.m"; path = "../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorViewHeader.m"; sourceTree = "<group>"; };
+		6D6BF17BBF63E401D3B11E1A /* MBUModelEditor.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBUModelEditor.xib"; path = "MBUModelEditor.xib"; sourceTree = "<group>"; };
+		9397C07ECB8C43415306BFCA /* MBUMappingEditor.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBUMappingEditor.xib"; path = "MBUMappingEditor.xib"; sourceTree = "<group>"; };
+		20E9F143E2622AC5DAB3EE8B /* MBUEditorMenus.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBUEditorMenus.xib"; path = "MBUEditorMenus.xib"; sourceTree = "<group>"; };
+		9BB25BB8973D96B394ECEF2D /* MBDocumentWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBDocumentWindow.xib"; path = "../ModelBuilder/MBDocumentWindow.xib"; sourceTree = "<group>"; };
+		21BD76B4F55E0AABB5307BDA /* MBSourceList.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBSourceList.xib"; path = "../ModelBuilder/MBSourceList.xib"; sourceTree = "<group>"; };
+		F857FB7E128E31DED5517464 /* MBDetail.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBDetail.xib"; path = "../ModelBuilder/MBDetail.xib"; sourceTree = "<group>"; };
+		BE1D2F0282EFB5D50F7ADC68 /* MBInspector.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBInspector.xib"; path = "../ModelBuilder/MBInspector.xib"; sourceTree = "<group>"; };
+		F7263B7448DC522E5FABBF51 /* MBMappingWindow.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBMappingWindow.xib"; path = "../ModelBuilder/MBMappingWindow.xib"; sourceTree = "<group>"; };
+		3EE3D7684449B7860351832B /* MBMappingSourceList.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBMappingSourceList.xib"; path = "../ModelBuilder/MBMappingSourceList.xib"; sourceTree = "<group>"; };
+		CDBDF946FFC779704A1E0F9D /* MBMappingDetail.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBMappingDetail.xib"; path = "../ModelBuilder/MBMappingDetail.xib"; sourceTree = "<group>"; };
+		2B1F9CEE3AEFE7A7AA8A8B53 /* MBMappingInspector.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBMappingInspector.xib"; path = "../ModelBuilder/MBMappingInspector.xib"; sourceTree = "<group>"; };
+		988088B49C376F56E6C36136 /* MBNewMappingPanel.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = "MBNewMappingPanel.xib"; path = "../ModelBuilder/MBNewMappingPanel.xib"; sourceTree = "<group>"; };
+		3FCE88BDBB8F846B150B944E /* LanguageInfo.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "LanguageInfo.plist"; path = "Resources/LanguageInfo.plist"; sourceTree = "<group>"; };
+		AB8BFEE081FB99EE75205DEF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "Info.plist"; path = "Resources/Info.plist"; sourceTree = "<group>"; };
+		2995F3046CDDA4AFF74AFB8D /* UDCodeKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "UDCodeKit.xcframework"; path = "../.deps/UDCodeKit.xcframework"; sourceTree = "<group>"; };
+		6DBDAFCF73A059E5CCAD7865 /* UDPieceTable.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "UDPieceTable.xcframework"; path = "../.deps/UDPieceTable.xcframework"; sourceTree = "<group>"; };
+		F458D2760F87A5EE62204FAC /* LSPKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "LSPKit.xcframework"; path = "../.deps/LSPKit.xcframework"; sourceTree = "<group>"; };
+		0021269C818ACC68F971C68E /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		A179CB5D66DD89EE50F4795A /* CoreData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreData.framework; path = System/Library/Frameworks/CoreData.framework; sourceTree = SDKROOT; };
+		C7A205F037642C4BC4BB0940 /* ModelBuilder.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ModelBuilder.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
+		088380060F9C950085C08390 /* MBUTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MBUTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		9A8D959A182D732DE1E850E3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				966D896E9A5EDF11EFF1D554,
+				033797645A8F1B1AABBDAC64,
+				380784ABA241BC92A5B6002D,
+				FBCF5C9194DD5ADBF0320B03,
+				BF2C76BBE56C747A3243FF0A,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C4D5FCC2E9E145024B6FCD7F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				29E130266A895775BB7F1E24,
+				F1F56EBA951D8075758B4CB3,
+				1CFA04392455B0127A7E553E,
+				93199DD130422CA1D0C62648,
+				D777B5BC2F98591B6F5452B0,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		E2258AA71B17E0A3529C6C95 /* ModelBuilderExtension */ = {
+			isa = PBXGroup;
+			children = (
+				0011FC395C65ABE6B56E1DEA,
+				755B26223ADD3B02EFD41142,
+				C1359B2D33180A8331624301,
+				90AAC0792082F5BA49BDABBD,
+			);
+			name = "ModelBuilderExtension";
+			sourceTree = "<group>";
+		};
+		0011FC395C65ABE6B56E1DEA /* UDCodeExtension */ = {
+			isa = PBXGroup;
+			children = (
+				78A5A00370BA59E19B3B2D30,
+				224D15DAD1F73648018BE1E0,
+				8F360D74AFF2F271E3E33659,
+				B29913E8A232733AF69A6C25,
+				4BA4CC3D62C79E9205155976,
+				D265914B862D46F1D99500DD,
+				6D6BF17BBF63E401D3B11E1A,
+				9397C07ECB8C43415306BFCA,
+				20E9F143E2622AC5DAB3EE8B,
+				3FCE88BDBB8F846B150B944E,
+				AB8BFEE081FB99EE75205DEF,
+			);
+			name = "UDCodeExtension";
+			sourceTree = "<group>";
+		};
+		755B26223ADD3B02EFD41142 /* ModelBuilder */ = {
+			isa = PBXGroup;
+			children = (
+				5BE01E0A596CEBDF6B8B98EB,
+				52A3E8FF212347A386CAB361,
+				926DD814C93F3A0C51892853,
+				DBA7D79FAB47D1CCFA0F336F,
+				C2186B6001931A022EC25619,
+				398394B80BBD5ED69B175884,
+				B869C36CCAA79C5245AC0501,
+				DAA84DE6C8ECD63F48BA2541,
+				994F3DBA06D389035D7516BA,
+				5C2A98D8A1EA0946C812147C,
+				2CFE461338B940059861A5DA,
+				D6A52DC3FBBC48D77ABF6CD5,
+				84998EDB7CD2AC8338409881,
+				1AADBECB605B92CD63CAF7B8,
+				BB17E0B19F2F801B6853498F,
+				B61E72291CCBDEAC6950E164,
+				2615BFEE4FCBF9A0C2E2A779,
+				0DB13961B19F216323C24388,
+				FACB4BA2CE40171909DA2D0C,
+				0215BA7824ECEC7D9B09E7F4,
+				A04F0C7482490C88622E97CE,
+				F8BA1E0643D430478B7A99DD,
+				23D7087757CC73E5418658DF,
+				1CA523D623A66C33C4DC2B68,
+				0E93D9003EF1AB02CFFBB273,
+				6C01EABF50E308A847935C90,
+				395234E524465008FD3BC965,
+				54025D105359076A2FCDE5CD,
+				E2A426BA796B1025207E9A01,
+				F1FADC05291F96E7BDB9D7C0,
+				9BB25BB8973D96B394ECEF2D,
+				21BD76B4F55E0AABB5307BDA,
+				F857FB7E128E31DED5517464,
+				BE1D2F0282EFB5D50F7ADC68,
+				F7263B7448DC522E5FABBF51,
+				3EE3D7684449B7860351832B,
+				CDBDF946FFC779704A1E0F9D,
+				2B1F9CEE3AEFE7A7AA8A8B53,
+				988088B49C376F56E6C36136,
+			);
+			name = "ModelBuilder";
+			sourceTree = "<group>";
+		};
+		C1359B2D33180A8331624301 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2995F3046CDDA4AFF74AFB8D,
+				6DBDAFCF73A059E5CCAD7865,
+				F458D2760F87A5EE62204FAC,
+				0021269C818ACC68F971C68E,
+				A179CB5D66DD89EE50F4795A,
+			);
+			name = "Frameworks";
+			sourceTree = "<group>";
+		};
+		90AAC0792082F5BA49BDABBD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C7A205F037642C4BC4BB0940,
+				088380060F9C950085C08390,
+			);
+			name = "Products";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		34D99ED4E50FFDAC6B8FEE42 /* ModelBuilder */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 48AE7737BFE4228E65DC233A;
+			buildPhases = (
+				CE0B3783E7E63CBF47833E8D,
+				9A8D959A182D732DE1E850E3,
+				9593E7B60BA601ABD7BEDB10,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ModelBuilder;
+			productName = ModelBuilder;
+			productReference = C7A205F037642C4BC4BB0940;
+			productType = "com.apple.product-type.bundle";
+		};
+		83F5624BE8B4FBAA9E8EED7F /* MBUTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EDB0DE3E6C6283C3D1ED9E27;
+			buildPhases = (
+				E4F42C0C93754E117AF49B51,
+				C4D5FCC2E9E145024B6FCD7F,
+				FAA86672349264D94BC943E3,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MBUTests;
+			productName = MBUTests;
+			productReference = 088380060F9C950085C08390;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		98F54143AB4E86B28C3AFEE0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = B4E5941551166BB1F2A844A6;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = E2258AA71B17E0A3529C6C95;
+			productRefGroup = 90AAC0792082F5BA49BDABBD;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				34D99ED4E50FFDAC6B8FEE42,
+				83F5624BE8B4FBAA9E8EED7F,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		9593E7B60BA601ABD7BEDB10 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FE5FFCD75B26AF9AB8E7231A,
+				74438723781A3F3E1E683818,
+				8879A30DDECB8A68C48FFDAC,
+				ECF2F967D5301F3CE2ABC8A6,
+				6FFF6B48DA05FC7ED757667D,
+				EFFEC0EA9C268714C2D0C014,
+				2CBF1EFE3096A4FE736517DC,
+				9557D487C89BB98EF0AD5A83,
+				A607341B5CFAA1CF70E925A7,
+				26CE565EAF49346404C76C07,
+				0FA3A5811DAD7096AF8AC415,
+				E383E19B801F9B7F393BDC93,
+				AA72BEAA63EF34E0942C3811,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FAA86672349264D94BC943E3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F3FD1886041CE8FEE0BC1884,
+				3D4843E450DC1CA6B2E013A1,
+				FB316568FFCB5C3822195563,
+				6D27346009F51A37E8BAE78C,
+				EA1D6E749FD42CF28678FD82,
+				30AAC7A2152386EEFA5709F1,
+				4EA8F78FFC70497C5327E0DA,
+				3B973C0F028C08618DC36F6A,
+				7860DA88F8027DD1281A53AC,
+				BB71F31B2D61E1951D909202,
+				3748D20213B4170B9CEC1DC4,
+				B552318C5B7FC337BC8F3C40,
+				5EC7B3C919EDEC920E194B21,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		CE0B3783E7E63CBF47833E8D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BDE1206FAD11286710D6909E,
+				894434946ED795D25D8D6F06,
+				CC6CBF6B73184B6CB0A50336,
+				275F25772C96001743ECDDCD,
+				8DDCD531A2C0887AEB86497B,
+				08E70C3A4379B5DDDFC747DF,
+				98354D0AFBDE4002F564A41A,
+				5AE79DD73DADB19D5546A096,
+				55323687B2B3CB0D6C724A61,
+				0B497A49827DCEBEBD5A933D,
+				AC87C278BC7EAD652A6D75A7,
+				337DC654438875DBFBD02499,
+				33D5016FFFAC0B7EAF206219,
+				1A0E9855F7E7350DD005DF35,
+				CEE4EA465DDFC507B9134314,
+				CA975CECE6C3099A0AFEEF1C,
+				3FD379DF379E4B752E787E60,
+				41A42BB81A377F0B94076AF8,
+				A3AC5312A79059DA16AD1B3D,
+				D340004B30AD56A65EC35C2F,
+				46C1682DA06C456F975BBEB6,
+				2D9FFDCE8C9D78AB547EA863,
+				744EAC5575E10E470FCD5D26,
+				96B8A377DCA2742C7EE4D203,
+				CFC6D5A0EC041FA5D7ECE5FE,
+				C0AEB83477855C4691328355,
+				53400FB2A492E478D0701B88,
+				3F9DD3433419EA39611D7FBA,
+				1848DAA0AB5C17F2172FC6C1,
+				54DF600C1CC17E63D2CFB7CE,
+				1C06FD337519864B46A752CE,
+				3543B132D34DB7F09794C705,
+				92DD16636ACD41CF54C4650B,
+				4523F5370065AB7A98556BE5,
+				B3B6857B2258B64B00B0D1BF,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E4F42C0C93754E117AF49B51 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F47ADD342F751AB046AE9408,
+				733B66B1345C0A116CCA365B,
+				FCCD5191DA9F1014D21E9E05,
+				08D9E9FE657EA0F5D1777501,
+				7C5191CC3FA6DA2A995EB128,
+				31509CADB0D9E14433854793,
+				CBA19D285C2AE749083FBC10,
+				39E5E454B79505BD7AA5C6AA,
+				EBB245A7A64E66E8AA8E7A2F,
+				4289927E213EE0DA14A3C9B4,
+				28EC833CB5F49B68A873F748,
+				12B623C960DCCEE78A2E31BD,
+				041F496D7F81995A2F726519,
+				1BD02A2182CEC3988C1CE58B,
+				5060EF46614B04450EE5DFDC,
+				93DDDEFAE1C63297D344FEDE,
+				4641E05238409E62071382CA,
+				E1F8B70F38F14B26F846D657,
+				821A152BE407206C7A9CCD8B,
+				874C5AFDD2A20EE93D1AB8FB,
+				E3150F12CB8AD3D1A11A9E0C,
+				22C9B845429CDE0BCCDBE85C,
+				10697238BE6D1B2263765289,
+				0678A87BD3382DC1E9BA6952,
+				7B12EC07BBB88C4E637EAA52,
+				32D2ED6B1D286835882F7DB4,
+				6E5DC7851DA0678C3D714D21,
+				CE8BBB4A847A0DC774C36646,
+				17559455CBCF0E315DBB9D19,
+				56A1E30C77634853CF256D9F,
+				12B4EE8998D97C782A8A7E38,
+				0BF1C5C6F0EC70168B926770,
+				B6E5D6583A8ABA09B032F739,
+				DD07676CFF1108AF8C01767C,
+				FE0D5E8631BDED410724A7AD,
+				E6AA6EA6483FE3AF37D17E75,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		6FEF2FC589E3DB6B27D47126 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ONLY_ACTIVE_ARCH = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("DEBUG=1", "$(inherited)");
+			};
+			name = Debug;
+		};
+		9C24840C0BABF42A7E09750E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "-";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+			};
+			name = Release;
+		};
+		277A23C8101D162791977F11 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 0.0.0;
+				MARKETING_VERSION = 0.0.0;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				HEADER_SEARCH_PATHS = ("$(SRCROOT)", "$(SRCROOT)/../ModelBuilder", "$(SRCROOT)/../Tools/momc", "$(SRCROOT)/../Tools/mapc", "$(SRCROOT)/../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar", "$(SRCROOT)/../ModelBuilder/ThirdParty/JUInspectorView/Source");
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.coredata.udcode.modelbuilder;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				WRAPPER_EXTENSION = bundle;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@loader_path/../Frameworks");
+			};
+			name = Debug;
+		};
+		2EDC5DADCF00B0EA991E0009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 0.0.0;
+				MARKETING_VERSION = 0.0.0;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				HEADER_SEARCH_PATHS = ("$(SRCROOT)", "$(SRCROOT)/../ModelBuilder", "$(SRCROOT)/../Tools/momc", "$(SRCROOT)/../Tools/mapc", "$(SRCROOT)/../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar", "$(SRCROOT)/../ModelBuilder/ThirdParty/JUInspectorView/Source");
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.coredata.udcode.modelbuilder;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				WRAPPER_EXTENSION = bundle;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@loader_path/../Frameworks");
+			};
+			name = Release;
+		};
+		AF7EFDC96A0EC6897FFB4275 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = ("$(SRCROOT)", "$(SRCROOT)/../ModelBuilder", "$(SRCROOT)/../Tools/momc", "$(SRCROOT)/../Tools/mapc", "$(SRCROOT)/../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar", "$(SRCROOT)/../ModelBuilder/ThirdParty/JUInspectorView/Source");
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.coredata.udcode.modelbuilder.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@loader_path/../Frameworks");
+			};
+			name = Debug;
+		};
+		05B627BEA8D3186DBEC92CC1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = ("$(SRCROOT)", "$(SRCROOT)/../ModelBuilder", "$(SRCROOT)/../Tools/momc", "$(SRCROOT)/../Tools/mapc", "$(SRCROOT)/../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar", "$(SRCROOT)/../ModelBuilder/ThirdParty/JUInspectorView/Source");
+				PRODUCT_BUNDLE_IDENTIFIER = org.gnustep.coredata.udcode.modelbuilder.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@loader_path/../Frameworks");
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B4E5941551166BB1F2A844A6 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6FEF2FC589E3DB6B27D47126,
+				9C24840C0BABF42A7E09750E,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		48AE7737BFE4228E65DC233A = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				277A23C8101D162791977F11,
+				2EDC5DADCF00B0EA991E0009,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EDB0DE3E6C6283C3D1ED9E27 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AF7EFDC96A0EC6897FFB4275,
+				05B627BEA8D3186DBEC92CC1,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 98F54143AB4E86B28C3AFEE0 /* Project object */;
+}

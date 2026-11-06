@@ -461,6 +461,24 @@ static NSManagedObjectModel *compileModelData(NSData *data,NSString *contentsPat
      [entity setUserInfo:entityUserInfo];
    }
 
+   /* An entity beneath itself has an inheritance without an end: momc
+      refuses it. */
+   NSMutableDictionary *parentByName=[NSMutableDictionary dictionary];
+
+   for(NSString *parentName in subentityNames)
+    for(NSString *childName in [subentityNames objectForKey:parentName])
+     [parentByName setObject:parentName forKey:childName];
+   for(NSString *entityName in parentByName){
+    NSString  *above=[parentByName objectForKey:entityName];
+    NSUInteger steps=0;
+
+    for(;above!=nil && steps<=[parentByName count];steps++){
+     if([above isEqualToString:entityName])
+      failf(@"entity '%@' is beneath itself",entityName);
+     above=[parentByName objectForKey:above];
+    }
+   }
+
    /* Pass 4: subentity wiring. */
    for(NSString *parentName in subentityNames){
     NSEntityDescription *parent=[entitiesByName objectForKey:parentName];

@@ -190,6 +190,41 @@ static NSManagedObjectModel *RenamingTestModel(BOOL renamed)
     return mapping;
 }
 
+/* The store's UUID in a mapping model's source, from its databaseInfo. */
+static NSString *storeUUIDOf(NSString *xml)
+{
+    NSRange open = [xml rangeOfString:@"<UUID>"], close = [xml rangeOfString:@"</UUID>"];
+    if (open.location == NSNotFound || close.location == NSNotFound) return nil;
+    NSUInteger from = NSMaxRange(open);
+    return [xml substringWithRange:NSMakeRange(from, close.location - from)];
+}
+
+/* A file written over is the same store: its UUID is kept, so writing a
+   mapping again changes the text only where the mapping changed.  A new
+   file gets a UUID of its own. */
+- (void)testWritingOverAMappingModelKeepsItsStoresUUID
+{
+    NSBundle *bundle = [NSBundle bundleForClass:[self class]];
+    NSMappingModel *original = [[NSMappingModel alloc] initWithContentsOfURL:
+        [bundle URLForResource:@"MappingFixture" withExtension:@"cdm"]];
+    NSString *previous = @"<?xml version=\"1.0\" standalone=\"yes\"?>\n<database>\n"
+        @"    <databaseInfo>\n        <version>134481920</version>\n"
+        @"        <UUID>A7AD122D-B3BC-4324-9174-191FA314DAE9</UUID>\n    </databaseInfo>\n</database>\n";
+    NSError *error = nil;
+    NSString *over = [CDMappingSerializer xcmappingXMLForMappingModel:original
+                                                      sourceModelPath:@"A.xcdatamodel"
+                                                 destinationModelPath:@"B.xcdatamodel"
+                                                        overXMLString:previous
+                                                                error:&error];
+    XCTAssertEqualObjects(storeUUIDOf(over), @"A7AD122D-B3BC-4324-9174-191FA314DAE9", @"%@", error);
+    NSString *fresh = [CDMappingSerializer xcmappingXMLForMappingModel:original
+                                                       sourceModelPath:@"A.xcdatamodel"
+                                                  destinationModelPath:@"B.xcdatamodel"
+                                                                 error:&error];
+    XCTAssertEqual(storeUUIDOf(fresh).length, 36u);
+    XCTAssertNotEqualObjects(storeUUIDOf(fresh), @"A7AD122D-B3BC-4324-9174-191FA314DAE9");
+}
+
 /* Written back out as a mapping model's source and compiled again: what
    an author chose survives the trip - which entity maps to which, the
    predicate that narrows one, and the one expression written by hand -

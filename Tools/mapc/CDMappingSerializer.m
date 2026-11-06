@@ -92,8 +92,13 @@ static NSString *escaped(NSString *string){
    them.  A file written over a file that has them keeps them, so a mapping
    model made in Xcode and edited here still compiles there. */
 +(NSDictionary *)_carriedOverModelDataAtPath:(NSString *)path {
-   NSData *data=[NSData dataWithContentsOfFile:[path stringByAppendingPathComponent:@"xcmapping.xml"]];
+   return [self _carriedOverModelDataFromData:
+       [NSData dataWithContentsOfFile:[path stringByAppendingPathComponent:@"xcmapping.xml"]]];
+}
 
+static NSString * const CDCarriedUUIDKey=@"uuid";
+
++(NSDictionary *)_carriedOverModelDataFromData:(NSData *)data {
    if(data==nil)
     return nil;
 
@@ -111,6 +116,14 @@ static NSString *escaped(NSString *string){
       [carried setObject:[child stringValue]?:@"" forKey:name];
     }
    }
+
+   /* And the store's UUID: a file written again is the same store, and its
+      text changes only where the mapping does. */
+   NSString *uuid=[[[[[[document rootElement] elementsForName:@"databaseInfo"] firstObject]
+       elementsForName:@"UUID"] firstObject] stringValue];
+
+   if([uuid length]>0)
+    [carried setObject:uuid forKey:CDCarriedUUIDKey];
 
    return ([carried count]>0)?carried:nil;
 }
@@ -240,6 +253,19 @@ static NSString *escaped(NSString *string){
 +(NSString *)xcmappingXMLForMappingModel:(NSMappingModel *)model
                          sourceModelPath:(NSString *)sourceModelPath
                     destinationModelPath:(NSString *)destinationModelPath
+                           overXMLString:(NSString *)previous
+                                   error:(NSError **)error {
+   return [self xcmappingXMLForMappingModel:model
+                            sourceModelPath:sourceModelPath
+                       destinationModelPath:destinationModelPath
+                             carriedOverData:[self _carriedOverModelDataFromData:
+                                                 [previous dataUsingEncoding:NSUTF8StringEncoding]]
+                                      error:error];
+}
+
++(NSString *)xcmappingXMLForMappingModel:(NSMappingModel *)model
+                         sourceModelPath:(NSString *)sourceModelPath
+                    destinationModelPath:(NSString *)destinationModelPath
                          carriedOverData:(NSDictionary *)carried
                                    error:(NSError **)error {
    NSMutableString *xml=[NSMutableString string];
@@ -346,8 +372,9 @@ static NSString *escaped(NSString *string){
    [objects appendFormat:@"        <attribute name=\"destinationmodelpath\" type=\"string\">%@</attribute>\n",
        escaped(destinationModelPath)];
    for(NSString *name in [[carried allKeys] sortedArrayUsingSelector:@selector(compare:)])
-    [objects appendFormat:@"        <attribute name=\"%@\" type=\"binary\">%@</attribute>\n",
-        name,[carried objectForKey:name]];
+    if(![name isEqualToString:CDCarriedUUIDKey])
+     [objects appendFormat:@"        <attribute name=\"%@\" type=\"binary\">%@</attribute>\n",
+         name,[carried objectForKey:name]];
    [objects appendFormat:@"        <relationship name=\"entitymappings\" type=\"0/0\" destination=\"XDDEVENTITYMAPPING\" idrefs=\"%@\"></relationship>\n",
        [entityIdentifiers componentsJoinedByString:@" "]];
    [objects appendString:@"    </object>\n"];
@@ -356,7 +383,8 @@ static NSString *escaped(NSString *string){
    [xml appendString:@"<!DOCTYPE database SYSTEM \"file:///System/Library/DTDs/CoreData.dtd\">\n\n"];
    [xml appendString:@"<database>\n"];
    [xml appendString:@"    "];
-   [xml appendString:databaseInfoWithUUID([[NSUUID UUID] UUIDString],nextIdentifier)];
+   [xml appendString:databaseInfoWithUUID([carried objectForKey:CDCarriedUUIDKey]?:[[NSUUID UUID] UUIDString],
+                                          nextIdentifier)];
    [xml appendString:@"\n"];
    [xml appendString:objects];
    [xml appendString:@"</database>\n"];
