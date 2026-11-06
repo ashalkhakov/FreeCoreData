@@ -280,9 +280,19 @@ static NSString *const MBUTestModelXML =
 {
   NSString *path = [[self testsDirectory] stringByAppendingPathComponent:@"MappingFixture.xcmappingmodel/xcmapping.xml"];
   NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL];
-  _document = [self documentOfText:text at:[NSURL fileURLWithPath:@"/nowhere/Lost.xcmappingmodel/xcmapping.xml"]];
+  /* Somewhere with no models above it, and the working directory there
+     too: a recorded path is also tried as given. */
+  NSFileManager *files = [NSFileManager defaultManager];
+  NSString *empty = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+  NSString *lost = [empty stringByAppendingPathComponent:@"Lost.xcmappingmodel"];
+  [files createDirectoryAtPath:lost withIntermediateDirectories:YES attributes:nil error:NULL];
+  NSString *here = [files currentDirectoryPath];
+  [files changeCurrentDirectoryPath:empty];
+  _document = [self documentOfText:text at:[NSURL fileURLWithPath:[lost stringByAppendingPathComponent:@"xcmapping.xml"]]];
   MBUMappingEditorViewController *tab = [[MBUMappingEditorViewController alloc]
       initWithDocument:_document workbench:(id<UDWorkbench>)_workbench];
+  [files changeCurrentDirectoryPath:here];
+  [files removeItemAtPath:empty error:NULL];
   XCTAssertNil(tab.mappingEditor);
   XCTAssertTrue([tab.problem hasPrefix:@"This mapping model cannot be shown"], @"%@", tab.problem);
 }
