@@ -12,35 +12,17 @@ CC = clang
 OBJC = clang
 
 APP_NAME = ModelBuilder
-ModelBuilder_OBJC_FILES = main.m MBAppController.m MBUpdater.m MBDocument.m MBModelEditor.m MBModelCommands.m MBEditors.m MBWindowController.m \
-	MBWindowSupport.m MBSourceListViewController.m MBDetailViewController.m MBInspectorViewController.m \
-	MBMappingDocument.m MBMappingEditor.m MBMappingEditors.m MBMappingWindowController.m \
-	MBMappingSourceListViewController.m MBMappingDetailViewController.m MBMappingInspectorViewController.m \
-	MBNewMappingController.m \
-	../Tools/momc/CDModelCompiler.m ../Tools/momc/CDModelSerializer.m \
-	../Tools/momc/CDModelMutator.m \
-	../Tools/momc/CDCodeGenerator.m \
-	../Tools/mapc/CDMappingCompiler.m ../Tools/mapc/CDMappingSerializer.m \
-	MBStepperTextField.m \
-	ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.m \
-	ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.m \
-	ThirdParty/JUInspectorView/Source/JUInspectorBaseView.m \
-	ThirdParty/JUInspectorView/Source/JUInspectorView.m \
-	ThirdParty/JUInspectorView/Source/JUInspectorViewContainer.m \
-	ThirdParty/JUInspectorView/Source/JUInspectorViewHeader.m
-ModelBuilder_RESOURCE_FILES = MainMenu.xib MBDocumentWindow.xib MBMappingWindow.xib \
-	MBSourceList.xib MBDetail.xib MBInspector.xib \
-	MBMappingSourceList.xib MBMappingDetail.xib MBMappingInspector.xib \
-	MBNewMappingPanel.xib \
+MODELBUILDER_DIR = .
+include files.make
+ModelBuilder_OBJC_FILES = main.m MBAppController.m MBUpdater.m $(MODELBUILDER_OBJC_FILES)
+ModelBuilder_RESOURCE_FILES = MainMenu.xib $(MODELBUILDER_RESOURCE_FILES) \
 	Info-gnustep.plist \
 	ModelBuilder.png
 ModelBuilder_MAIN_MODEL_FILE = MainMenu.xib
 ModelBuilder_APPLICATION_ICON = ModelBuilder.png
 
 # Repo-root layout: headers/framework sit one directory up.
-ModelBuilder_INCLUDE_DIRS = -I.. -I../Tools/momc -I../Tools/mapc \
-	-IThirdParty/DMTabBar/DMTabBar/DMTabBar \
-	-IThirdParty/JUInspectorView/Source
+ModelBuilder_INCLUDE_DIRS = $(MODELBUILDER_INCLUDE_DIRS)
 ModelBuilder_OBJC_LIBS += -lCoreData
 ADDITIONAL_LIB_DIRS += -L$(firstword $(wildcard $(CURDIR)/../CoreData.framework/Versions/Current) $(CURDIR)/../CoreData.framework) \
 	-L$(GNUSTEP_SYSTEM_LIBRARIES)

@@ -19,37 +19,8 @@ BUNDLE_EXTENSION = .bundle
 ModelBuilderTests_NEEDS_GUI = yes
 ModelBuilderTests_PRINCIPAL_CLASS = XCTestCase
 
-MB_SOURCES = \
-	../../ModelBuilder/MBDocument.m \
-	../../ModelBuilder/MBModelEditor.m \
-	../../ModelBuilder/MBModelCommands.m \
-	../../ModelBuilder/MBMappingDocument.m \
-	../../ModelBuilder/MBMappingEditor.m \
-	../../ModelBuilder/MBMappingEditors.m \
-	../../ModelBuilder/MBMappingWindowController.m \
-	../../ModelBuilder/MBMappingSourceListViewController.m \
-	../../ModelBuilder/MBMappingDetailViewController.m \
-	../../ModelBuilder/MBMappingInspectorViewController.m \
-	../../ModelBuilder/MBNewMappingController.m \
-	../../ModelBuilder/MBEditors.m \
-	../../ModelBuilder/MBWindowController.m \
-	../../ModelBuilder/MBWindowSupport.m \
-	../../ModelBuilder/MBSourceListViewController.m \
-	../../ModelBuilder/MBDetailViewController.m \
-	../../ModelBuilder/MBInspectorViewController.m \
-	../../Tools/momc/CDModelCompiler.m \
-	../../Tools/momc/CDModelSerializer.m \
-	../../Tools/momc/CDModelMutator.m \
-	../../Tools/momc/CDCodeGenerator.m \
-	../../Tools/mapc/CDMappingCompiler.m \
-	../../Tools/mapc/CDMappingSerializer.m \
-	../../ModelBuilder/MBStepperTextField.m \
-	../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBar.m \
-	../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar/DMTabBarItem.m \
-	../../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorBaseView.m \
-	../../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorView.m \
-	../../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorViewContainer.m \
-	../../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorViewHeader.m
+MODELBUILDER_DIR = ../../ModelBuilder
+include $(MODELBUILDER_DIR)/files.make
 
 ModelBuilderTests_OBJC_FILES = \
 	MBDocumentTests.m \
@@ -57,17 +28,12 @@ ModelBuilderTests_OBJC_FILES = \
 	MBModelWindowTests.m \
 	MBMappingEditorTests.m \
 	MBMappingWindowTests.m \
-	$(MB_SOURCES)
+	$(addprefix $(MODELBUILDER_DIR)/,$(MODELBUILDER_OBJC_FILES))
 
 # The windows' and parts' XIBs: the bundle is where its classes look for them.
-ModelBuilderTests_RESOURCE_FILES = $(addprefix ../../ModelBuilder/, \
-	MBDocumentWindow.xib MBSourceList.xib MBDetail.xib MBInspector.xib \
-	MBMappingWindow.xib MBMappingSourceList.xib MBMappingDetail.xib MBMappingInspector.xib \
-	MBNewMappingPanel.xib)
+ModelBuilderTests_RESOURCE_FILES = $(addprefix $(MODELBUILDER_DIR)/,$(MODELBUILDER_RESOURCE_FILES))
 
-ADDITIONAL_INCLUDE_DIRS += -I../.. -I../../Tools/momc -I../../Tools/mapc -I../../ModelBuilder \
-	-I../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar \
-	-I../../ModelBuilder/ThirdParty/JUInspectorView/Source
+ADDITIONAL_INCLUDE_DIRS += $(MODELBUILDER_INCLUDE_DIRS)
 
 FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../../CoreData.framework/Versions/Current) $(CURDIR)/../../CoreData.framework)
 

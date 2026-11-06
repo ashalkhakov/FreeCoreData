@@ -17,6 +17,12 @@
 
 @class MBModelEditor, DMTabBar;
 
+/* The pages of the inspector tab view, in xib order. */
+typedef NS_ENUM(NSInteger, MBInspectorPage) {
+  MBInspectorPageIdentity = 0,
+  MBInspectorPageDataModel = 1,
+};
+
 @interface MBInspectorViewController : NSViewController <NSTableViewDataSource, NSTableViewDelegate>
 
 - (instancetype)init;
@@ -26,6 +32,10 @@
 /* The selection shown: a new editor for a new selection, the same one
    told to reload for the same selection (it changed). */
 - (void)showSelection;
+
+/* One page alone, without the tab bar: for a host whose pane has tabs of
+   its own (UDCode's inspector), which gives each page one. */
+- (void)showOnlyPage:(MBInspectorPage)page;
 
 /* What the pages' fields are bound to: `content.<key>` of the editor. */
 @property (nonatomic, strong) IBOutlet NSObjectController *versionController;

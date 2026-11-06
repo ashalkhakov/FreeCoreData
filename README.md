@@ -22,6 +22,7 @@ Examples/EmployeeDirectory/      - SQLite store, shown through AppKit
 Examples/Staffbook/              - NSPersistentContainer, bindings and XIBs
 Examples/Bulletin/               - Persistent history: two stacks, one store
 ModelBuilder/                    - Document-based .xcdatamodeld editor (AppKit)
+UDCodeExtension/                 - Model Builder's editors as a UDCode extension
 CDLauncher/                      - App chooser inside the Linux AppImage
 Tools/momc/                      - Xcode model compiler (.xcdatamodeld → .momd)
 Tools/mapc/                      - mapping model compiler (.xcmappingmodel → .cdm)
@@ -177,10 +178,14 @@ Tools/mapc/obj/mapc Tests/MappingFixture.xcmappingmodel /tmp/MappingFixture.cdm
 
 Both compilers are wired into `coredata-model.make`, so a project lists its
 sources (`<target>_XCDATAMODELD_FILES`, `<target>_XCMAPPINGMODEL_FILES`) and
-they are compiled into its resources as it builds. Authoring a mapping model
-still needs Xcode; ModelBuilder edits models only.
+they are compiled into its resources as it builds. ModelBuilder edits mapping
+models as well (File > New Mapping Model…).
 
 See [ModelBuilder/README.md](ModelBuilder/README.md).
+
+Model Builder's editors also come as an extension for
+[UDCode](https://github.com/ashalkhakov/UDCodeKit), for editing a project's
+models and mapping models in UDCode's window: see [docs/UDCODE.md](docs/UDCODE.md).
 
 Tagged releases (`v*`) publish ModelBuilder for both platforms: on Linux in
 FreeCoreData's AppImage (with the sample apps and the GNUstep stack inside

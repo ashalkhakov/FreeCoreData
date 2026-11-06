@@ -28,5 +28,18 @@ NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute);
 /* A part's view put in its pane, filling it. */
 void MBPlacePart(NSViewController *part, NSView *host);
 
+@class MBModelEditor;
+
+/* Editor > Validate: momc's checks on the model, and what they found, in an
+   alert. */
+void MBValidateModel(MBModelEditor *modelEditor);
+
+/* Xcode's Editor > Create NSManagedObject Subclass..., for the selected
+   entity - or, with none selected, for every entity marked Class
+   Definition / Category/Extension (falling back to every entity with a
+   custom class when none is marked): a folder asked for, the files
+   written there, and what was written in an alert. */
+void MBCreateManagedObjectSubclasses(MBModelEditor *modelEditor);
+
 /* An alert for an edit the model refused. */
 void MBPresentModelError(NSError *error, NSString *title);

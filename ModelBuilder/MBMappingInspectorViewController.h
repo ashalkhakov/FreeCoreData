@@ -35,6 +35,10 @@ typedef NS_ENUM(NSInteger, MBMappingInspectorKind) {
    told to reload for the same selection (it changed). */
 - (void)showSelection;
 
+/* One page alone, without the tab bar: for a host whose pane has tabs of
+   its own (UDCode's inspector), which gives each page one. */
+- (void)showOnlyPage:(MBMappingInspectorPage)page;
+
 /* What the pages' fields are bound to: `content.<key>` of the editor. */
 @property (nonatomic, strong) IBOutlet NSObjectController *entityMappingController;
 @property (nonatomic, strong) IBOutlet NSObjectController *attributeMappingController;

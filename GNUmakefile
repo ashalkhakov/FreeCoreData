@@ -141,19 +141,27 @@ ifneq ($(shell command -v mariadb_config 2>/dev/null)$(shell command -v mysql_co
 CD_PARTS += Backends/MySQL
 endif
 CD_PARTS += ModelBuilder CDLauncher Examples/EmployeeDirectory Examples/Staffbook Examples/Bulletin
+# UDCode's Core Data extension (UDCodeExtension, docs/UDCODE.md), where
+# UDCode's SDK is installed (.github/pins.env's UDCODEKIT_VERSION). It is
+# not installed: Scripts/udcx.sh packages it.
+UDCODE_SDK = $(wildcard $(GNUSTEP_LOCAL_HEADERS)/UDCodeKit/UDExtension.h $(GNUSTEP_SYSTEM_HEADERS)/UDCodeKit/UDExtension.h)
 
 after-all::
 	@for part in $(CD_PARTS); do $(MAKE) -C $$part || exit 1; done
+	$(if $(UDCODE_SDK),$(MAKE) -C UDCodeExtension)
 
 after-install::
 	@for part in $(CD_PARTS); do $(MAKE) -C $$part install || exit 1; done
 
 after-clean::
 	@for part in $(CD_PARTS) Tests Tests/ModelBuilder; do $(MAKE) -C $$part clean || exit 1; done
+	-$(MAKE) -C UDCodeExtension clean
+	-$(MAKE) -C UDCodeExtension/Tests clean
 
 # make check: the framework's tests; Model Builder's, driving its windows
 # (under Xvfb when there is no display; one job at a time, as its sources
-# are built in object directories of their own); and the SQL stores against the
+# are built in object directories of their own); the UDCode extension's,
+# where it is built; and the SQL stores against the
 # servers they are given, each alone and both in one process. A server is
 # given by its URL (POSTGRES_URL, MYSQL_URL, MARIADB_URL: a database a test
 # may create tables in); without one its suites are skipped, but not in CI,
@@ -163,6 +171,7 @@ check::
 	$(MAKE) -C Tests run-tests
 	$(MAKE) -j1 -C Tests/ModelBuilder
 	$(XVFB) $(MAKE) -j1 -C Tests/ModelBuilder check
+	$(if $(UDCODE_SDK),$(MAKE) -j1 -C UDCodeExtension/Tests && $(XVFB) $(MAKE) -j1 -C UDCodeExtension/Tests run-tests)
 	@for server in POSTGRES_URL MYSQL_URL MARIADB_URL; do \
 	  if [ -z "$$(printenv $$server)" ]; then \
 	    if [ -n "$$CI" ]; then echo "check: $$server is not set; the SQL stores need it in CI"; exit 1; fi; \

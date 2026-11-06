@@ -183,23 +183,7 @@ static const CGFloat MBInspectorMinimum = 260.0;
 - (IBAction)validateModel:(id)sender
 {
   (void)sender;
-  NSError *error = nil;
-  NSArray *warnings = nil;
-  BOOL ok = [MBModelCommands validateModelOf:self.modelEditor warnings:&warnings error:&error];
-
-  NSAlert *alert = [[NSAlert alloc] init];
-  if (!ok) {
-    alert.messageText = @"Model does not compile";
-    alert.informativeText = error.localizedDescription ?: @"Unknown error.";
-  } else if (warnings.count) {
-    alert.messageText = [NSString stringWithFormat:@"Model compiles with %lu warning%@",
-                         (unsigned long)warnings.count, warnings.count == 1 ? @"" : @"s"];
-    alert.informativeText = [warnings componentsJoinedByString:@"\n"];
-  } else {
-    alert.messageText = @"Model compiles cleanly";
-    alert.informativeText = @"momc found no problems.";
-  }
-  [alert runModal];
+  MBValidateModel(self.modelEditor);
 }
 
 - (IBAction)compileModel:(id)sender
@@ -218,50 +202,10 @@ static const CGFloat MBInspectorMinimum = 260.0;
   [alert runModal];
 }
 
-/* Xcode's Editor > Create NSManagedObject Subclass..., for the
-   selected entity - or, with no entity selection, for every entity
-   marked Class Definition / Category/Extension (falling back to every
-   entity with a custom class when none is marked). */
 - (IBAction)createManagedObjectSubclass:(id)sender
 {
   (void)sender;
-  NSArray *entities = [MBModelCommands entitiesToGenerateInModel:self.model
-                                                         selected:[self.modelEditor selectedEntity]];
-  if (!entities.count) {
-    NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"Nothing to generate";
-    alert.informativeText =
-        @"Give an entity a class other than NSManagedObject first (the Class field in the inspector).";
-    [alert runModal];
-    return;
-  }
-
-  NSOpenPanel *panel = [NSOpenPanel openPanel];
-  panel.canChooseFiles = NO;
-  panel.canChooseDirectories = YES;
-  panel.canCreateDirectories = YES;
-  panel.allowsMultipleSelection = NO;
-  panel.prompt = @"Generate";
-  panel.message = entities.count == 1
-      ? [NSString stringWithFormat:@"Generate class files for %@ into:",
-         [(NSEntityDescription *)entities.firstObject name]]
-      : [NSString stringWithFormat:@"Generate class files for %lu entities into:",
-         (unsigned long)entities.count];
-  if ([panel runModal] != NSModalResponseOK) return;
-
-  NSError *error = nil;
-  NSArray *written = [MBModelCommands writeClassesForEntities:entities
-                                                  toDirectory:panel.URL.path
-                                                        error:&error];
-  if (!written) {
-    MBPresentModelError(error, @"Cannot generate class files");
-    return;
-  }
-  NSAlert *alert = [[NSAlert alloc] init];
-  alert.messageText = @"Class files generated";
-  alert.informativeText = [NSString stringWithFormat:@"Wrote %lu files to %@.",
-      (unsigned long)written.count, panel.URL.path];
-  [alert runModal];
+  MBCreateManagedObjectSubclasses(self.modelEditor);
 }
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item

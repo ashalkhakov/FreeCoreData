@@ -18,8 +18,6 @@ typedef NS_ENUM(NSInteger, MBInspectKind) {
   MBInspectFetchIndex
 };
 
-/* inspectorTabView pages */
-enum { MBInspectorPageIdentity = 0, MBInspectorPageDataModel = 1 };
 /* inspectorKindTabView pages */
 enum { MBKindPageEntity = 0, MBKindPageFetch = 1, MBKindPageAttribute = 2, MBKindPageRelationship = 3, MBKindPageFetchIndex = 4 };
 
@@ -72,6 +70,7 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
 @implementation MBInspectorViewController {
   MBInspectKind _kind;
   MBSelection *_shownSelection;
+  NSInteger _onlyPage;   /* -1: the tab bar chooses */
   BOOL _showing;     /* the selection being shown: what it sets off is not shown again */
   NSArray *_userInfoKeys;
   NSMutableArray *_constraintRows; /* mirror of the entity's uniquenessConstraints */
@@ -79,7 +78,23 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
 
 - (instancetype)init
 {
-  return [super initWithNibName:@"MBInspector" bundle:[NSBundle bundleForClass:[self class]]];
+  if ((self = [super initWithNibName:@"MBInspector" bundle:[NSBundle bundleForClass:[self class]]]))
+    _onlyPage = -1;
+  return self;
+}
+
+- (void)showOnlyPage:(MBInspectorPage)page
+{
+  (void)self.view;
+  _onlyPage = page;
+  NSView *bar = self.inspectorTabBar;
+  [bar setHidden:YES];
+  /* the pages' scroll view takes the bar's room */
+  for (NSView *sibling in bar.superview.subviews)
+    if (sibling != bar) [sibling setFrame:bar.superview.bounds];
+  [self selectInspectorPage:page kindPage:-1];
+  _shownSelection = nil;
+  [self showSelection];
 }
 
 - (void)dealloc
@@ -259,6 +274,7 @@ static NSInteger MBDetailTabIndexForType(NSAttributeType type)
 
 - (void)selectInspectorPage:(NSInteger)page kindPage:(NSInteger)kindPage
 {
+  if (_onlyPage >= 0) page = _onlyPage;
   self.inspectorTabBar.selectedIndex = (NSUInteger)page;
   [self.inspectorTabView selectTabViewItemAtIndex:page];
   if (page == MBInspectorPageDataModel && kindPage >= 0)

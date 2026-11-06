@@ -20,6 +20,18 @@
   return [super initWithNibName:@"MBMappingInspector" bundle:[NSBundle bundleForClass:[self class]]];
 }
 
+- (void)showOnlyPage:(MBMappingInspectorPage)page
+{
+  (void)self.view;
+  NSView *bar = self.inspectorTabBar;
+  [bar setHidden:YES];
+  /* the pages' scroll view takes the bar's room */
+  for (NSView *sibling in bar.superview.subviews)
+    if (sibling != bar) [sibling setFrame:bar.superview.bounds];
+  self.inspectorTabBar.selectedIndex = (NSUInteger)page;
+  [self.inspectorTabView selectTabViewItemAtIndex:page];
+}
+
 - (void)dealloc
 {
   [[NSNotificationCenter defaultCenter] removeObserver:self];
