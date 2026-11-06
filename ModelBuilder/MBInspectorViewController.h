@@ -3,7 +3,11 @@
    one page of it for each kind of selection (an entity, an attribute, a
    relationship, a fetch request, a fetch index), each with its own user
    info table and versioning fields.  It shows the model editor's
-   selection, and edits it through its editors.
+   selection: each page's fields are bound in the XIB to its editor
+   controller (an NSObjectController there), whose content is the
+   selection's editor (MBEditors), and edit through it.  What is left
+   to code: which page shows, the user info and constraint tables, and
+   the Derived tick's prompt.
 
    Copyright (c) 2026 the GNUstep CoreData port contributors.
    Released under the MIT license. */
@@ -13,14 +17,23 @@
 
 @class MBModelEditor, DMTabBar;
 
-@interface MBInspectorViewController : NSViewController <NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate>
+@interface MBInspectorViewController : NSViewController <NSTableViewDataSource, NSTableViewDelegate>
 
 - (instancetype)init;
 
 @property (nonatomic, strong) MBModelEditor *modelEditor;
 
-/* What the selection is, shown again. */
-- (void)fillInspector;
+/* The selection shown: a new editor for a new selection, the same one
+   told to reload for the same selection (it changed). */
+- (void)showSelection;
+
+/* What the pages' fields are bound to: `content.<key>` of the editor. */
+@property (nonatomic, strong) IBOutlet NSObjectController *versionController;
+@property (nonatomic, strong) IBOutlet NSObjectController *entityController;
+@property (nonatomic, strong) IBOutlet NSObjectController *attributeController;
+@property (nonatomic, strong) IBOutlet NSObjectController *relationshipController;
+@property (nonatomic, strong) IBOutlet NSObjectController *fetchController;
+@property (nonatomic, strong) IBOutlet NSObjectController *fetchIndexController;
 
 @property (nonatomic, strong) IBOutlet NSButton *abstractCheckbox;
 @property (nonatomic, strong) IBOutlet NSView *textPromptView;
@@ -102,7 +115,6 @@
 @property (nonatomic, strong) IBOutlet NSTextField *fetchIndexNameField;
 @property (nonatomic, strong) IBOutlet NSTextField *fetchIndexPredicateField;
 
-- (IBAction)inspectorChanged:(id)sender;
 - (IBAction)inspectorTabSelected:(id)sender;
 - (IBAction)derivedToggled:(id)sender;
 - (IBAction)userInfoSegmentClicked:(id)sender;

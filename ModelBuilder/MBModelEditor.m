@@ -85,6 +85,8 @@ static BOOL MBSameString(NSString *a, NSString *b)
   NSString *_pendingActionName;
   NSString *_nextActionName;   /* for the next edit (-setUndoActionName:) */
   NSMutableSet *_inversesThisGroup;
+  BOOL _changedInEdit;   /* the model changed in the edit open now */
+  BOOL _selectedInEdit;  /* and the selection did */
 }
 
 @synthesize model = _model;
@@ -120,6 +122,10 @@ static BOOL MBSameString(NSString *a, NSString *b)
 {
   if (selection == _selection || [selection isEqual:_selection]) return;
   _selection = [selection copy];
+  if (_editDepth > 0) {
+    _selectedInEdit = YES;   /* told after the model's change, when the edit ends */
+    return;
+  }
   [[NSNotificationCenter defaultCenter]
       postNotificationName:MBModelEditorSelectionDidChangeNotification object:self];
 }
@@ -176,6 +182,10 @@ static BOOL MBSameString(NSString *a, NSString *b)
   /* A document's change count follows its undo manager: NSDocument counts
      a change when an undo group closes and takes it back when it is
      undone.  Every edit registers an inverse (see "Undo"). */
+  if (_editDepth > 0) {
+    _changedInEdit = YES;   /* told once, when the edit ends */
+    return;
+  }
   [[NSNotificationCenter defaultCenter]
       postNotificationName:MBModelEditorDidChangeNotification object:self];
 }
@@ -288,6 +298,15 @@ static NSMutableDictionary *layoutsFromContentsXML(NSString *xml)
   }
   _pendingActionName = nil;
   _inversesThisGroup = nil;
+  if (_changedInEdit) {
+    _changedInEdit = NO;
+    [self noteModelChanged];
+  }
+  if (_selectedInEdit) {
+    _selectedInEdit = NO;
+    [[NSNotificationCenter defaultCenter]
+        postNotificationName:MBModelEditorSelectionDidChangeNotification object:self];
+  }
 }
 
 /* The proxy to record an inverse on, opening the edit's undo group the
@@ -559,8 +578,8 @@ static NSString *MBUniqueName(NSString *base, NSArray *names)
   [self beginEdit:@"Rename Fetch Request"];
   [self setFetchRequest:nil forName:name];
   [self setFetchRequest:request forName:newName];
-  [self endEdit];
   [self renameInSelection:NO configuration:NO kind:MBSelectionFetchRequest from:name to:newName];
+  [self endEdit];
   return YES;
 }
 

@@ -15,9 +15,11 @@
 #import <AppKit/AppKit.h>
 #import <CoreData/CoreData.h>
 
-/* Posted (object: the model editor) after every change to the model. */
+/* Posted (object: the model editor) after every change to the model:
+   once for an edit's (see -beginEdit:), when it ends. */
 extern NSString *const MBModelEditorDidChangeNotification;
-/* Posted (object: the model editor) when the selection changes. */
+/* Posted (object: the model editor) when the selection changes: inside
+   an edit, when it ends, after the model's change. */
 extern NSString *const MBModelEditorSelectionDidChangeNotification;
 
 typedef NS_ENUM(NSInteger, MBSelectionKind) {
@@ -87,7 +89,8 @@ typedef NS_ENUM(NSInteger, MBSelectionKind) {
 - (NSArray *)sortedEntities;       /* the model's entities, by name */
 - (NSArray *)configurationNames;   /* sorted */
 
-/* Says the model changed (MBModelEditorDidChangeNotification). */
+/* Says the model changed (MBModelEditorDidChangeNotification), now or,
+   inside an edit, when it ends. */
 - (void)noteModelChanged;
 
 /* A property or a fetch index of an entity renamed, by its editor: the

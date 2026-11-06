@@ -21,31 +21,31 @@
         <window title="Window" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="QvC-M9-y7g">
             <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES" />
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES" />
-            <rect key="contentRect" x="196" y="240" width="1000" height="700" />
+            <rect key="contentRect" x="196" y="240" width="1200" height="700" />
             <rect key="screenRect" x="0.0" y="0.0" width="1920" height="1055" />
             <value key="minSize" type="size" width="800" height="700" />
             <view key="contentView" wantsLayer="YES" id="EiT-Mj-1SZ">
-                <rect key="frame" x="0.0" y="0.0" width="1000" height="700" />
+                <rect key="frame" x="0.0" y="0.0" width="1200" height="700" />
                 <autoresizingMask key="autoresizingMask" />
                 <subviews>
                     <splitView fixedFrame="YES" arrangesAllSubviews="NO" dividerStyle="thin" vertical="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Jm0-GD-ZqT">
-                        <rect key="frame" x="0.0" y="0.0" width="1000" height="700" />
+                        <rect key="frame" x="0.0" y="0.0" width="1200" height="700" />
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
                         <subviews>
                             <customView fixedFrame="YES" id="UqJ-9N-3gm">
-                                <rect key="frame" x="0.0" y="0.0" width="710" height="700" />
+                                <rect key="frame" x="0.0" y="0.0" width="910" height="700" />
                                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
                                 <subviews>
                                     <splitView arrangesAllSubviews="NO" dividerStyle="thin" id="Xd9-n2-zIf">
-                                        <rect key="frame" x="0.0" y="0.0" width="710" height="700" />
+                                        <rect key="frame" x="0.0" y="0.0" width="910" height="700" />
                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
                                         <subviews>
                                             <customView fixedFrame="YES" id="cAy-eq-nsN">
-                                                <rect key="frame" x="0.0" y="0.0" width="710" height="599" />
+                                                <rect key="frame" x="0.0" y="0.0" width="910" height="599" />
                                                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
                                                 <subviews>
                                                     <splitView fixedFrame="YES" arrangesAllSubviews="NO" dividerStyle="thin" vertical="YES" translatesAutoresizingMaskIntoConstraints="NO" id="E04-a3-Xvo">
-                                                        <rect key="frame" x="0.0" y="0.0" width="700" height="599" />
+                                                        <rect key="frame" x="0.0" y="0.0" width="900" height="599" />
                                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
                                                         <subviews>
                                                             <customView fixedFrame="YES" id="GG5-Pl-XrN" userLabel="sourceListHost">
@@ -53,7 +53,7 @@
                                                                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
                                                             </customView>
                                                             <customView fixedFrame="YES" id="YoP-xc-BoR" userLabel="detailHost">
-                                                                <rect key="frame" x="202" y="0.0" width="498" height="599" />
+                                                                <rect key="frame" x="202" y="0.0" width="698" height="599" />
                                                                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
                                                             </customView>
                                                         </subviews>
@@ -68,7 +68,7 @@
                                                 </subviews>
                                             </customView>
                                             <customView fixedFrame="YES" id="ja1-aF-xMv">
-                                                <rect key="frame" x="0.0" y="600" width="710" height="100" />
+                                                <rect key="frame" x="0.0" y="600" width="910" height="100" />
                                                 <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES" />
                                                 <subviews>
                                                     <segmentedControl verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="uBb-TQ-RNu">
@@ -86,7 +86,7 @@
                                                         </connections>
                                                     </segmentedControl>
                                                     <segmentedControl verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="FB7-9F-aSh">
-                                                        <rect key="frame" x="526" y="30" width="160" height="40" />
+                                                        <rect key="frame" x="726" y="30" width="160" height="40" />
                                                         <autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES" />
                                                         <segmentedCell key="cell" controlSize="large" borderStyle="border" alignment="left" style="rounded" trackingMode="momentary" id="M0z-QT-IRE">
                                                             <font key="font" metaFont="system" />
@@ -110,7 +110,7 @@
                                 </subviews>
                             </customView>
                             <customView fixedFrame="YES" id="5Tw-ek-czW" userLabel="inspectorHost">
-                                <rect key="frame" x="711" y="0.0" width="289" height="700" />
+                                <rect key="frame" x="911" y="0.0" width="289" height="700" />
                                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
                             </customView>
                         </subviews>

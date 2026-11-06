@@ -65,6 +65,13 @@ static NSString *writeSamplePackage(void)
   return root;
 }
 
+/* A control's edit given to what it is bound to, as a click or the end
+   of typing does: by sending its action. */
+static void commit(NSControl *control)
+{
+  [control sendAction:control.action to:control.target];
+}
+
 static NSInteger selectedDetailTab(MBWindowController *wc)
 {
   return [wc.inspectorController.attributeDetailTabView indexOfTabViewItem:
@@ -91,8 +98,8 @@ int main(void)
     /* GIVEN a saved .xcdatamodeld with entities Thing and ZOther
        WHEN the document opens and makes its window controller
        THEN the window loads from MBDocumentWindow.xib with every
-            outlet connected and the type popup carrying momc's
-            attribute-type vocabulary */
+            outlet connected, and an attribute's type popup carries
+            momc's attribute-type vocabulary */
     CHECK(ok, "open sample package");
 
     [doc makeWindowControllers];
@@ -104,6 +111,7 @@ int main(void)
     CHECK(wc.inspectorController.attributeTypePopup != nil, "attributeTypePopup outlet");
     CHECK(wc.inspectorController.attributeDetailTabView != nil, "attributeDetailTabView outlet");
     CHECK([wc.inspectorController.attributeDetailTabView numberOfTabViewItems] == 9, "9 detail pages");
+    selectAttributeRow(wc, 0);   /* the popup's items are the attribute editor's */
     CHECK([wc.inspectorController.attributeTypePopup numberOfItems] ==
           (NSInteger)[[CDModelCompiler attributeTypeNames] count],
           "type popup populated");
@@ -178,14 +186,13 @@ int main(void)
 
     SCENARIO("Changing an attribute's type from the inspector popup");
     /* GIVEN the String attribute aString is selected
-       WHEN the Type popup is changed to Date, then UUID, then (via a
-            real target/action dispatch) Boolean
+       WHEN the Type popup is changed to Date, then UUID, then Boolean
        THEN the model's attributeType follows, the stale default is
             dropped, and the detail page switches each time */
     /* Now change the TYPE through the popup, as a user would. */
     selectAttributeRow(wc, 0);
     [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"Date"];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];   /* the popup's action */
+    commit(wc.inspectorController.attributeTypePopup);   /* the popup's action, as a click sends it */
     NSEntityDescription *thing = doc.modelEditor.model.entitiesByName[@"Thing"];
     NSAttributeDescription *aString = thing.attributesByName[@"aString"];
     CHECK(aString.attributeType == NSDateAttributeType, "model type changed to Date");
@@ -193,19 +200,17 @@ int main(void)
     CHECK(aString.defaultValue == nil, "old default dropped on type change");
 
     [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"UUID"];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];
+    commit(wc.inspectorController.attributeTypePopup);
     CHECK(aString.attributeType == NSUUIDAttributeType, "model type changed to UUID");
     CHECK(selectedDetailTab(wc) == 6, "detail page switched to UUID");
 
-    /* And back through a real popup action dispatch, to prove the
-       target/action wiring itself. */
+    /* The binding from the xib is what is under test. */
+    CHECK([wc.inspectorController.attributeTypePopup infoForBinding:NSSelectedValueBinding] != nil,
+          "the popup is bound");
     [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"Boolean"];
-    ok = [NSApp sendAction:wc.inspectorController.attributeTypePopup.action
-                        to:wc.inspectorController.attributeTypePopup.target
-                      from:wc.inspectorController.attributeTypePopup];
-    CHECK(ok, "popup action dispatches");
-    CHECK(aString.attributeType == NSBooleanAttributeType, "action path changes type");
-    CHECK(selectedDetailTab(wc) == 3, "action path switches page");
+    commit(wc.inspectorController.attributeTypePopup);
+    CHECK(aString.attributeType == NSBooleanAttributeType, "the binding changes the type");
+    CHECK(selectedDetailTab(wc) == 3, "and switches the page");
 
     SCENARIO("Collapsible sections are adopted from the nib");
     /* GIVEN the xib places JUInspectorView sections inside their
@@ -242,14 +247,14 @@ int main(void)
        must not leak into the serialized XML for the new type. */
     selectAttributeRow(wc, 3);   /* dBool */
     [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"Transformable"];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];
+    commit(wc.inspectorController.attributeTypePopup);
     wc.inspectorController.transformerField.stringValue = @"NSSecureUnarchiveFromData";
-    [wc.inspectorController inspectorChanged:wc.inspectorController.transformerField];
+    commit(wc.inspectorController.transformerField);
     NSAttributeDescription *dBool = thing.attributesByName[@"dBool"];
     CHECK([[dBool valueTransformerName] isEqualToString:@"NSSecureUnarchiveFromData"],
           "transformer set while Transformable");
     [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"Boolean"];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];
+    commit(wc.inspectorController.attributeTypePopup);
     CHECK(dBool.attributeType == NSBooleanAttributeType, "flip back to Boolean");
     NSString *xml = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model
                                              entityLayouts:nil error:&error];
@@ -331,7 +336,7 @@ int main(void)
     CHECK(wc.inspectorController.fetchResultTypePopup.isEnabled && wc.inspectorController.fetchBatchField.isEnabled &&
           wc.inspectorController.fetchDistinctCheckbox.isEnabled, "fetch feature controls enabled");
     CHECK(wc.inspectorController.numberMinField.isEnabled && wc.inspectorController.stringRegexField.isEnabled &&
-          wc.inspectorController.dateMinPicker.isEnabled, "validation controls enabled");
+          wc.inspectorController.dateMinCheckbox.isEnabled, "validation controls enabled");
     CHECK(wc.inspectorController.dateScalarCheckbox.isEnabled, "scalar checkboxes enabled");
 
     /* cDate (row 2) kept its Date type through the earlier scenarios. */
@@ -340,16 +345,19 @@ int main(void)
     CHECK([wc.inspectorController.attributeRenamingField.stringValue isEqualToString:@"cDate"],
           "renaming field shows the name while defaulted");
     wc.inspectorController.attributeRenamingField.stringValue = @"createdAt";
-    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeRenamingField];
+    commit(wc.inspectorController.attributeRenamingField);
     CHECK([[cDate renamingIdentifier] isEqualToString:@"createdAt"],
           "renaming edit reaches the model");
     [wc.inspectorController.dateScalarCheckbox setState:NSOnState];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.dateScalarCheckbox];
+    commit(wc.inspectorController.dateScalarCheckbox);
     CHECK([CDModelCompiler attributeUsesScalarValueType:cDate],
           "scalar checkbox sets the codegen flag");
+    CHECK(!wc.inspectorController.dateMinPicker.isEnabled, "no lower bound: its picker is off");
     [wc.inspectorController.dateMinCheckbox setState:NSOnState];
+    commit(wc.inspectorController.dateMinCheckbox);
+    CHECK(wc.inspectorController.dateMinPicker.isEnabled, "ticked, the picker is on");
     wc.inspectorController.dateMinPicker.dateValue = [NSDate dateWithTimeIntervalSinceReferenceDate:100];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.dateMinCheckbox];
+    commit(wc.inspectorController.dateMinPicker);
     NSDictionary *dateInfo = [CDModelCompiler validationInfoForAttribute:cDate];
     CHECK([dateInfo[@"minDate"] timeIntervalSinceReferenceDate] == 100,
           "date lower bound applied as a validation predicate");
@@ -357,9 +365,11 @@ int main(void)
     /* bInt became a String attribute in the combo-column scenario. */
     selectAttributeRow(wc, 1);
     wc.inspectorController.stringMinField.stringValue = @"2";
+    commit(wc.inspectorController.stringMinField);
     wc.inspectorController.stringMaxField.stringValue = @"10";
+    commit(wc.inspectorController.stringMaxField);
     wc.inspectorController.stringRegexField.stringValue = @"[a-z]+";
-    [wc.inspectorController inspectorChanged:wc.inspectorController.stringMaxField];
+    commit(wc.inspectorController.stringRegexField);
     NSDictionary *strInfo = [CDModelCompiler validationInfoForAttribute:bInt];
     CHECK([strInfo[@"minLength"] isEqualToString:@"2"] &&
           [strInfo[@"maxLength"] isEqualToString:@"10"] &&
@@ -373,10 +383,13 @@ int main(void)
           wc.inspectorController.fetchDistinctCheckbox.state == NSOffState,
           "checkboxes prefill with the runtime defaults");
     [wc.inspectorController.fetchResultTypePopup selectItemAtIndex:2];   /* Dictionaries */
+    commit(wc.inspectorController.fetchResultTypePopup);
     wc.inspectorController.fetchBatchField.stringValue = @"25";
+    commit(wc.inspectorController.fetchBatchField);
     [wc.inspectorController.fetchDistinctCheckbox setState:NSOnState];
+    commit(wc.inspectorController.fetchDistinctCheckbox);
     [wc.inspectorController.fetchSubentitiesCheckbox setState:NSOffState];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.fetchResultTypePopup];
+    commit(wc.inspectorController.fetchSubentitiesCheckbox);
     NSFetchRequest *template = [doc.modelEditor.model fetchRequestTemplateForName:templateName];
     CHECK(template != nil, "template stored under its name");
     CHECK([template resultType] == NSDictionaryResultType,
@@ -405,7 +418,7 @@ int main(void)
     }
     CHECK(wc.inspectorController.codegenPopup.isEnabled, "codegen popup enabled");
     [wc.inspectorController.codegenPopup selectItemAtIndex:1];   /* Class Definition */
-    [wc.inspectorController inspectorChanged:wc.inspectorController.codegenPopup];
+    commit(wc.inspectorController.codegenPopup);
     CHECK([[CDModelCompiler entityCodeGenerationType:thing]
               isEqualToString:@"class"], "popup writes the compiler metadata");
     CHECK([wc.inspectorController.codegenPopup indexOfSelectedItem] == 1,
@@ -422,8 +435,8 @@ int main(void)
        WHEN a stepper click is simulated (value +1, action fired, as a
             real click leaves it)
        THEN the field increments, the edit applies through the field's
-            own action (inspectorChanged:), the stepper returns to
-            rest, and it mirrors the field's enabled state */
+            value binding, the stepper returns to rest, and it mirrors
+            the field's enabled state */
     int owned = 0;
     for (MBStepperTextField *field in @[ wc.inspectorController.numberDefaultField, wc.inspectorController.numberMinField,
                                          wc.inspectorController.numberMaxField, wc.inspectorController.stringMinField,
@@ -495,20 +508,19 @@ int main(void)
 
     SCENARIO("The Identity page edits the model version's Identifier");
     /* GIVEN the window over a version with no Identifier
-       WHEN the Identity page's Identifier field is set and sends its
-            action, as ending editing does
+       WHEN the Identity page's Identifier field is set and its editing
+            ends
        THEN the model's version identifier is what was typed, as one
             undo step, and the field shows what the model holds */
     CHECK(wc.inspectorController.modelIdentifierField != nil, "modelIdentifierField outlet");
     CHECK([wc.inspectorController.modelIdentifierField.stringValue isEqualToString:@""], "a blank Identifier shows blank");
     [wc.inspectorController.modelIdentifierField setStringValue:@"probe-2"];
-    /* Through the xib's wiring, not a direct call: the connection is what
+    /* Through the xib's binding, not a direct call: the binding is what
        is under test. */
-    CHECK([NSApp sendAction:wc.inspectorController.modelIdentifierField.action
-                         to:wc.inspectorController.modelIdentifierField.target
-                       from:wc.inspectorController.modelIdentifierField], "the field's action is wired");
+    CHECK([wc.inspectorController.modelIdentifierField infoForBinding:NSValueBinding] != nil, "the field is bound");
+    commit(wc.inspectorController.modelIdentifierField);
     CHECK([doc.modelEditor.model.versionIdentifiers isEqual:[NSSet setWithObject:@"probe-2"]],
-          "the field's action sets the model's version identifier");
+          "the field sets the model's version identifier");
     [doc.undoManager undo];
     CHECK(doc.modelEditor.model.versionIdentifiers.count == 0, "one undo takes it back");
     [wc.sourceListController.sourceList selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)defaultRow]
@@ -561,11 +573,11 @@ int main(void)
           "Type makes the Integer 32 an R-tree element");
 
     [wc.inspectorController.fetchIndexPredicateField setStringValue:@"aString != nil"];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.fetchIndexPredicateField];
+    commit(wc.inspectorController.fetchIndexPredicateField);
     CHECK([[[[[indexedThing indexes] firstObject] partialIndexPredicate] predicateFormat] isEqualToString:@"aString != nil"],
           "the partial predicate is set, and reads back as written");
     [wc.inspectorController.fetchIndexNameField setStringValue:@"byStringAndCount"];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.fetchIndexNameField];
+    commit(wc.inspectorController.fetchIndexNameField);
     CHECK([[[[indexedThing indexes] firstObject] name] isEqualToString:@"byStringAndCount"]
               && [[[wc.sourceListController.sourceList itemAtRow:wc.sourceListController.sourceList.selectedRow] valueForKey:@"name"] isEqualToString:@"byStringAndCount"],
           "renaming it renames it in the list, still selected");
@@ -612,13 +624,13 @@ int main(void)
     CHECK([wc.inspectorController.attributeNameField.stringValue isEqualToString:@"tag"], "tag is in the inspector");
     CHECK(!wc.inspectorController.externalStorageCheckbox.isEnabled, "not offered for a String");
     [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"Binary"];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];
+    commit(wc.inspectorController.attributeTypePopup);
     tag = [[doc.modelEditor.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
     CHECK(tag.attributeType == NSBinaryDataAttributeType, "tag is Binary Data");
     CHECK(wc.inspectorController.externalStorageCheckbox.isEnabled && wc.inspectorController.externalStorageCheckbox.state == NSOffState,
           "offered for Binary Data, unticked");
     [wc.inspectorController.externalStorageCheckbox setState:NSOnState];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.externalStorageCheckbox];
+    commit(wc.inspectorController.externalStorageCheckbox);
     CHECK(tag.allowsExternalBinaryDataStorage, "ticking it reaches the model");
     written = [CDModelSerializer contentsXMLForModel:doc.modelEditor.model entityLayouts:nil error:&error];
     CHECK([written rangeOfString:@"name=\"tag\" optional=\"YES\" attributeType=\"Binary\" allowsExternalBinaryDataStorage=\"YES\""].location != NSNotFound,
@@ -627,9 +639,9 @@ int main(void)
     CHECK(!tag.allowsExternalBinaryDataStorage && tag.attributeType == NSBinaryDataAttributeType,
           "one undo takes the option back, not the type");
     [wc.inspectorController.externalStorageCheckbox setState:NSOnState];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.externalStorageCheckbox];
+    commit(wc.inspectorController.externalStorageCheckbox);
     [wc.inspectorController.attributeTypePopup selectItemWithTitle:@"String"];
-    [wc.inspectorController inspectorChanged:wc.inspectorController.attributeTypePopup];
+    commit(wc.inspectorController.attributeTypePopup);
     tag = [[doc.modelEditor.model.entitiesByName[@"Other"] attributesByName] objectForKey:@"tag"];
     CHECK(tag.attributeType == NSStringAttributeType && !tag.allowsExternalBinaryDataStorage &&
           !wc.inspectorController.externalStorageCheckbox.isEnabled,

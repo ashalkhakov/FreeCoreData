@@ -4,9 +4,10 @@
    field's custom class to MBStepperTextField in Interface Builder and
    it creates, places and wires an NSStepper at its own right edge
    when the nib loads - no outlet, no action, no controller code.  An
-   up/down click steps the field's value by `increment` and then sends
-   the FIELD's own action to its target, so a step applies exactly
-   like typing the value and tabbing out.
+   up/down click steps the field's value by `increment` and then gives
+   it to the field's value binding (validated, when the binding asks),
+   or else sends the FIELD's own action to its target: a step applies
+   exactly like typing the value and tabbing out.
 
    The stepper mirrors the field's enabled state, and is configured as
    a delta emitter internally (it reports each click as -1/+1 and

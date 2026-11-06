@@ -5,6 +5,12 @@
 #import "MBEditors.h"
 #import "MBModelEditor.h"
 #import "CDModelCompiler.h"
+#import "CDModelMutator.h"
+#import <objc/runtime.h>
+
+NSString *const MBEditorErrorDomain = @"MBEditors";
+
+static NSString *const MBNoneTitle = @"(none)";
 
 static NSString *MBUniquePropertyName(NSString *base, NSEntityDescription *entity)
 {
@@ -27,6 +33,7 @@ static NSString *MBUniquePropertyName(NSString *base, NSEntityDescription *entit
 - (void)noteEdited;
 - (void)failWith:(NSString *)message;
 - (id)undoSubject;
+- (NSString *)editActionName;
 - (void)didChange:(NSString *)key from:(id)old;
 @end
 
@@ -35,10 +42,126 @@ static BOOL MBValuesEqual(id a, id b)
   return a == b || [a isEqual:b];
 }
 
+/* A validation's refusal: NO, and why. */
+static BOOL MBRefuse(NSError **error, NSString *format, ...) NS_FORMAT_FUNCTION(2, 3);
+static BOOL MBRefuse(NSError **error, NSString *format, ...)
+{
+  if (error) {
+    va_list args;
+    va_start(args, format);
+    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    *error = [NSError errorWithDomain:MBEditorErrorDomain code:2
+                             userInfo:@{ NSLocalizedDescriptionKey : message }];
+  }
+  return NO;
+}
+
+static NSString *MBTrimmed(id value)
+{
+  return [[value description] ?: @"" stringByTrimmingCharactersInSet:
+      [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+}
+
+/* A name an editor's object can be given: not empty, and no other's in
+   `taken` (the old name aside). */
+static BOOL MBValidateName(id *value, NSString *old, NSArray *taken, NSString *what, NSError **error)
+{
+  NSString *name = MBTrimmed(*value);
+  if (!name.length)
+    return MBRefuse(error, @"A %@ needs a name.", what);
+  if (![name isEqualToString:old] && [taken containsObject:name])
+    return MBRefuse(error, @"There is a %@ named \u201c%@\u201d already.", what, name);
+  *value = name;
+  return YES;
+}
+
+/* None, or a whole number from `least` to `most` (a formatted field's
+   NSNumber, or its text). */
+static BOOL MBValidateWholeNumber(id *value, long long least, long long most, NSString *what, NSError **error)
+{
+  id given = *value;
+  if (given == nil || ([given isKindOfClass:[NSString class]] && !MBTrimmed(given).length)) {
+    *value = nil;
+    return YES;
+  }
+  NSString *string = MBTrimmed(given);
+  NSScanner *scanner = [NSScanner scannerWithString:string];
+  long long number;
+  if (![scanner scanLongLong:&number] || !scanner.isAtEnd || number < least || number > most)
+    return MBRefuse(error, @"The %@ must be a whole number from %lld to %lld.", what, least, most);
+  *value = @(number);
+  return YES;
+}
+
+/* None, or a number. */
+static BOOL MBValidateNumber(id *value, NSString *what, NSError **error)
+{
+  id given = *value;
+  if (given == nil || [given isKindOfClass:[NSNumber class]]) return YES;
+  NSString *string = MBTrimmed(given);
+  if (!string.length) {
+    *value = nil;
+    return YES;
+  }
+  NSDecimalNumber *number = [NSDecimalNumber decimalNumberWithString:string];
+  if ([number isEqual:[NSDecimalNumber notANumber]])
+    return MBRefuse(error, @"The %@ must be a number.", what);
+  *value = number;
+  return YES;
+}
+
+/* A number's text, for the string forms the model keeps; empty for none. */
+static NSString *MBNumberString(id number)
+{
+  return number ? [number description] : @"";
+}
+
+/* Empty, or a predicate's format. */
+static BOOL MBValidatePredicate(id *value, NSError **error)
+{
+  NSString *format = MBTrimmed(*value);
+  if (format.length) {
+    @try {
+      [NSPredicate predicateWithFormat:format];
+    } @catch (NSException *exception) {
+      return MBRefuse(error, @"\u201c%@\u201d is not a predicate: %@", format, exception.reason);
+    }
+  }
+  *value = format;
+  return YES;
+}
+
 @implementation MBEditor
 
 - (MBModelEditor *)modelEditor { return _modelEditor; }
 - (NSError *)lastError { return _lastError; }
+
+- (BOOL)editsSameAs:(MBEditor *)editor
+{
+  return [editor class] == [self class] && editor->_modelEditor == _modelEditor;
+}
+
+/* Its properties, its own and its superclasses' up to MBEditor's. */
++ (NSArray *)reloadedKeys
+{
+  NSMutableArray *keys = [NSMutableArray array];
+  for (Class cls = self; cls && cls != [MBEditor class]; cls = class_getSuperclass(cls)) {
+    unsigned int count = 0;
+    objc_property_t *properties = class_copyPropertyList(cls, &count);
+    for (unsigned int i = 0; i < count; i++)
+      [keys addObject:@(property_getName(properties[i]))];
+    free(properties);
+  }
+  return keys;
+}
+
+- (void)reload
+{
+  NSArray *keys = [[self class] reloadedKeys];
+  for (NSString *key in keys) [self willChangeValueForKey:key];
+  for (NSString *key in [keys reverseObjectEnumerator]) [self didChangeValueForKey:key];
+}
 
 - (void)noteEdited
 {
@@ -49,15 +172,21 @@ static BOOL MBValuesEqual(id a, id b)
    against, since it outlives a rename. */
 - (id)undoSubject { return nil; }
 
+/* What an undo step of a change made through it is called. */
+- (NSString *)editActionName { return nil; }
+
 /* After a setter has applied (or refused) a change: if `key` now reads
-   differently from `old`, record the inverse and note the edit.  A
-   refusal or a no-op records nothing. */
+   differently from `old`, record the inverse and note the edit, in an
+   edit of its own unless one is open.  A refusal or a no-op records
+   nothing. */
 - (void)didChange:(NSString *)key from:(id)old
 {
   id now = [self valueForKey:key];
   if (MBValuesEqual(old, now)) return;
+  [_modelEditor beginEdit:[self editActionName]];
   [_modelEditor registerInverseValue:old forKey:key ofSubject:[self undoSubject]];
   [self noteEdited];
+  [_modelEditor endEdit];
 }
 
 + (MBEditor *)editorForSubject:(id)subject modelEditor:(MBModelEditor *)modelEditor
@@ -87,7 +216,7 @@ static BOOL MBValuesEqual(id a, id b)
 
 - (void)failWith:(NSString *)message
 {
-  _lastError = [NSError errorWithDomain:@"MBEditors" code:1
+  _lastError = [NSError errorWithDomain:MBEditorErrorDomain code:1
       userInfo:@{ NSLocalizedDescriptionKey : message }];
 }
 
@@ -106,6 +235,7 @@ static BOOL MBValuesEqual(id a, id b)
 }
 
 - (id)undoSubject { return _modelEditor.model; }
+- (NSString *)editActionName { return @"Edit Model Identifier"; }
 
 /* One identifier per version, as an .xcdatamodel holds one; with several
    (set in code), the first by name, as the serializer writes. */
@@ -149,13 +279,27 @@ static BOOL MBValuesEqual(id a, id b)
 }
 
 - (id)undoSubject { return self.entity; }
+- (NSString *)editActionName { return @"Edit Entity"; }
+
+- (BOOL)editsSameAs:(MBEditor *)editor
+{
+  return [super editsSameAs:editor] && [((MBEntityEditor *)editor)->_name isEqualToString:_name];
+}
 
 - (NSString *)name { return _name; }
 
+/* The new name is the editor's before the selection follows it. */
 - (void)setName:(NSString *)name
 {
-  if ([_modelEditor renameEntityNamed:_name to:name])
-    _name = [name copy];
+  NSString *old = _name;
+  _name = [name copy];
+  if (![_modelEditor renameEntityNamed:old to:name])
+    _name = old;
+}
+
+- (BOOL)validateName:(id *)value error:(NSError **)error
+{
+  return MBValidateName(value, _name, [_modelEditor.model.entitiesByName allKeys], @"entity", error);
 }
 
 - (NSString *)className { return self.entity.managedObjectClassName; }
@@ -190,6 +334,39 @@ static BOOL MBValuesEqual(id a, id b)
     _lastError = error;
 }
 
+- (NSArray *)parentTitles
+{
+  NSMutableArray *titles = [NSMutableArray arrayWithObject:MBNoneTitle];
+  for (NSEntityDescription *entity in [_modelEditor sortedEntities])
+    if (![entity.name isEqualToString:_name]) [titles addObject:entity.name ?: @""];
+  return titles;
+}
+
+- (NSString *)parentTitle
+{
+  NSString *parent = self.parentName;
+  return parent.length ? parent : MBNoneTitle;
+}
+
+- (void)setParentTitle:(NSString *)title
+{
+  self.parentName = [title isEqualToString:MBNoneTitle] ? @"" : title;
+}
+
+/* The reparenting tried on the model as it is, and kept only when it
+   works (a cycle, a property clash with the new parent's, refuse). */
+- (BOOL)validateParentTitle:(id *)value error:(NSError **)error
+{
+  NSString *parent = [*value isEqualToString:MBNoneTitle] ? @"" : (*value ?: @"");
+  if ([parent isEqualToString:self.parentName]) return YES;
+  NSError *failure = nil;
+  if (![CDModelMutator model:_modelEditor.model entityLayouts:_modelEditor.entityLayouts
+          settingParentOfEntityNamed:_name to:parent error:&failure])
+    return MBRefuse(error, @"%@ cannot have %@ as its parent: %@", _name,
+                    parent.length ? parent : @"no entity", failure.localizedDescription ?: @"");
+  return YES;
+}
+
 - (NSString *)hashModifier { return [self.entity versionHashModifier] ?: @""; }
 
 - (void)setHashModifier:(NSString *)hashModifier
@@ -222,6 +399,19 @@ static BOOL MBValuesEqual(id a, id b)
   id old = self.codegenType;
   [CDModelCompiler setEntity:self.entity codeGenerationType:value];
   [self didChange:@"codegenType" from:old];
+}
+
+- (NSInteger)codegenIndex
+{
+  NSString *codegen = self.codegenType;
+  if ([codegen isEqualToString:@"class"]) return 1;
+  if ([codegen isEqualToString:@"category"]) return 2;
+  return 0;
+}
+
+- (void)setCodegenIndex:(NSInteger)index
+{
+  self.codegenType = index == 1 ? @"class" : index == 2 ? @"category" : @"";
 }
 
 - (NSDictionary *)userInfo { return self.entity.userInfo; }
@@ -426,8 +616,9 @@ static BOOL MBValuesEqual(id a, id b)
 /* ---------------------------------------------------------------- */
 
 @implementation MBAttributeEditor {
-  NSEntityDescription *_entity;
+  NSString *_entityName;
   NSString *_name;
+  NSDate *_proposedDate;   /* what a date picker shows while it has no date */
 }
 
 + (instancetype)editorForAttributeNamed:(NSString *)name
@@ -437,30 +628,52 @@ static BOOL MBValuesEqual(id a, id b)
   if (!entity.attributesByName[name]) return nil;
   MBAttributeEditor *editor = [[self alloc] init];
   editor->_modelEditor = modelEditor;
-  editor->_entity = entity;
+  editor->_entityName = [entity.name copy];
   editor->_name = [name copy];
   return editor;
 }
 
+- (BOOL)editsSameAs:(MBEditor *)editor
+{
+  MBAttributeEditor *other = (MBAttributeEditor *)editor;
+  return [super editsSameAs:editor] && [other->_entityName isEqualToString:_entityName] &&
+      [other->_name isEqualToString:_name];
+}
+
+- (NSEntityDescription *)entity
+{
+  return _modelEditor.model.entitiesByName[_entityName];
+}
+
 - (NSAttributeDescription *)attribute
 {
-  return _entity.attributesByName[_name];
+  return self.entity.attributesByName[_name];
 }
 
 - (id)undoSubject { return self.attribute; }
+- (NSString *)editActionName { return @"Edit Attribute"; }
 
 - (NSString *)name { return _name; }
 
 - (void)setName:(NSString *)name
 {
   if (!name.length || [name isEqualToString:_name]) return;
-  if (_entity.propertiesByName[name]) return;   /* duplicate */
+  if (self.entity.propertiesByName[name]) return;   /* duplicate */
   NSString *old = _name;
   self.attribute.name = name;
   _name = [name copy];
-  [_modelEditor noteRenameOfKind:MBSelectionAttribute inEntity:_entity.name from:old to:name];
+  [_modelEditor noteRenameOfKind:MBSelectionAttribute inEntity:_entityName from:old to:name];
   [self didChange:@"name" from:old];
 }
+
+- (BOOL)validateName:(id *)value error:(NSError **)error
+{
+  return MBValidateName(value, _name, [self.entity.propertiesByName allKeys], @"property", error);
+}
+
+- (NSArray *)typeNames { return [CDModelCompiler attributeTypeNames]; }
+
+- (BOOL)isBinary { return self.attribute.attributeType == NSBinaryDataAttributeType; }
 
 - (NSString *)typeName
 {
@@ -473,14 +686,19 @@ static BOOL MBValuesEqual(id a, id b)
   NSAttributeDescription *attribute = self.attribute;
   if (type < 0 || (NSAttributeType)type == attribute.attributeType) return;
   id oldType = self.typeName, oldDefault = self.defaultValueObject;
-  [_modelEditor beginEdit:nil];   /* two inverses, one step */
+  id oldExternal = self.storedAllowsExternalBinaryDataStorage;
+  [_modelEditor beginEdit:nil];   /* several inverses, one step */
   attribute.attributeType = (NSAttributeType)type;
   attribute.defaultValue = nil;   /* the old default belongs to the old type */
+  /* Binary Data alone may be kept outside the store: the option goes
+     when the type does. */
+  if (type != NSBinaryDataAttributeType) attribute.allowsExternalBinaryDataStorage = NO;
   /* Transformer fields are left alone: Apple CoreData throws on nil,
      and the serializer ignores them for non-Transformable types. */
   /* The default's inverse first: undo runs them in reverse, so the type
      is back before the default it belongs to. */
   [self didChange:@"defaultValueObject" from:oldDefault];
+  [self didChange:@"storedAllowsExternalBinaryDataStorage" from:oldExternal];
   [self didChange:@"typeName" from:oldType];
   [_modelEditor endEdit];
 }
@@ -511,13 +729,26 @@ static BOOL MBValuesEqual(id a, id b)
 }
 - (BOOL)allowsExternalBinaryDataStorage
 {
-  return self.attribute.allowsExternalBinaryDataStorage;
+  return self.isBinary && self.attribute.allowsExternalBinaryDataStorage;
 }
 - (void)setAllowsExternalBinaryDataStorage:(BOOL)allows
 {
+  if (!self.isBinary) return;
   id old = [self valueForKey:@"allowsExternalBinaryDataStorage"];
   self.attribute.allowsExternalBinaryDataStorage = allows;
   [self didChange:@"allowsExternalBinaryDataStorage" from:old];
+}
+/* The option as stored, whatever the type: what undo restores when a
+   type change drops it. */
+- (NSNumber *)storedAllowsExternalBinaryDataStorage
+{
+  return @(self.attribute.allowsExternalBinaryDataStorage);
+}
+- (void)setStoredAllowsExternalBinaryDataStorage:(NSNumber *)value
+{
+  id old = self.storedAllowsExternalBinaryDataStorage;
+  self.attribute.allowsExternalBinaryDataStorage = value.boolValue;
+  [self didChange:@"storedAllowsExternalBinaryDataStorage" from:old];
 }
 
 /* The default value as stored, for undo: lossless where -defaultString
@@ -585,6 +816,56 @@ static BOOL MBValuesEqual(id a, id b)
   [self didChange:@"validationInfo" from:old];
 }
 
+/* The bounds as their formatted fields give and show them. */
+- (NSNumber *)validationMinNumber
+{
+  NSString *string = self.validationMin;
+  return string.length ? [NSDecimalNumber decimalNumberWithString:string] : nil;
+}
+- (void)setValidationMinNumber:(NSNumber *)number { self.validationMin = MBNumberString(number); }
+- (BOOL)validateValidationMinNumber:(id *)value error:(NSError **)error
+{
+  return MBValidateNumber(value, @"minimum", error);
+}
+- (NSNumber *)validationMaxNumber
+{
+  NSString *string = self.validationMax;
+  return string.length ? [NSDecimalNumber decimalNumberWithString:string] : nil;
+}
+- (void)setValidationMaxNumber:(NSNumber *)number { self.validationMax = MBNumberString(number); }
+- (BOOL)validateValidationMaxNumber:(id *)value error:(NSError **)error
+{
+  return MBValidateNumber(value, @"maximum", error);
+}
+- (NSNumber *)minLengthNumber
+{
+  NSString *string = self.minLengthString;
+  return string.length ? @(string.longLongValue) : nil;
+}
+- (void)setMinLengthNumber:(NSNumber *)number { self.minLengthString = MBNumberString(number); }
+- (BOOL)validateMinLengthNumber:(id *)value error:(NSError **)error
+{
+  return MBValidateWholeNumber(value, 0, LLONG_MAX, @"minimum length", error);
+}
+- (NSNumber *)maxLengthNumber
+{
+  NSString *string = self.maxLengthString;
+  return string.length ? @(string.longLongValue) : nil;
+}
+- (void)setMaxLengthNumber:(NSNumber *)number { self.maxLengthString = MBNumberString(number); }
+- (BOOL)validateMaxLengthNumber:(id *)value error:(NSError **)error
+{
+  return MBValidateWholeNumber(value, 0, LLONG_MAX, @"maximum length", error);
+}
+- (BOOL)validateRegexString:(id *)value error:(NSError **)error
+{
+  NSString *pattern = [*value description] ?: @"";
+  NSError *failure = nil;
+  if (pattern.length && ![NSRegularExpression regularExpressionWithPattern:pattern options:0 error:&failure])
+    return MBRefuse(error, @"\u201c%@\u201d is not a regular expression.", pattern);
+  return YES;
+}
+
 - (NSString *)validationMin { return [self validationInfo][@"min"] ?: @""; }
 - (void)setValidationMin:(NSString *)v { [self setValidationValue:v.length ? v : nil forKey:@"min"]; }
 - (NSString *)validationMax { return [self validationInfo][@"max"] ?: @""; }
@@ -599,6 +880,42 @@ static BOOL MBValuesEqual(id a, id b)
 - (void)setValidationMinDate:(NSDate *)date { [self setValidationValue:date forKey:@"minDate"]; }
 - (NSDate *)validationMaxDate { return [self validationInfo][@"maxDate"]; }
 - (void)setValidationMaxDate:(NSDate *)date { [self setValidationValue:date forKey:@"maxDate"]; }
+
+- (NSDate *)proposedDate
+{
+  if (!_proposedDate) _proposedDate = [NSDate date];
+  return _proposedDate;
+}
+
+/* A date ticked or not, through its `key`: unticked, the picker keeps
+   showing the date it had. */
+- (BOOL)hasDateForKey:(NSString *)key { return [self valueForKey:key] != nil; }
+- (void)setHas:(BOOL)has dateForKey:(NSString *)key
+{
+  NSDate *date = [self valueForKey:key];
+  if (has == (date != nil)) return;
+  if (!has) _proposedDate = date;
+  [self setValue:has ? [self proposedDate] : nil forKey:key];
+}
+- (NSDate *)shownDateForKey:(NSString *)key { return [self valueForKey:key] ?: [self proposedDate]; }
+- (void)setShownDate:(NSDate *)date forKey:(NSString *)key
+{
+  if ([self valueForKey:key]) [self setValue:date forKey:key];
+  else _proposedDate = date;
+}
+
+- (BOOL)hasDefaultDate { return [self hasDateForKey:@"defaultDate"]; }
+- (void)setHasDefaultDate:(BOOL)has { [self setHas:has dateForKey:@"defaultDate"]; }
+- (NSDate *)shownDefaultDate { return [self shownDateForKey:@"defaultDate"]; }
+- (void)setShownDefaultDate:(NSDate *)date { [self setShownDate:date forKey:@"defaultDate"]; }
+- (BOOL)hasValidationMinDate { return [self hasDateForKey:@"validationMinDate"]; }
+- (void)setHasValidationMinDate:(BOOL)has { [self setHas:has dateForKey:@"validationMinDate"]; }
+- (NSDate *)shownValidationMinDate { return [self shownDateForKey:@"validationMinDate"]; }
+- (void)setShownValidationMinDate:(NSDate *)date { [self setShownDate:date forKey:@"validationMinDate"]; }
+- (BOOL)hasValidationMaxDate { return [self hasDateForKey:@"validationMaxDate"]; }
+- (void)setHasValidationMaxDate:(BOOL)has { [self setHas:has dateForKey:@"validationMaxDate"]; }
+- (NSDate *)shownValidationMaxDate { return [self shownDateForKey:@"validationMaxDate"]; }
+- (void)setShownValidationMaxDate:(NSDate *)date { [self setShownDate:date forKey:@"validationMaxDate"]; }
 
 - (NSDictionary *)userInfo { return self.attribute.userInfo; }
 
@@ -626,6 +943,11 @@ static BOOL MBValuesEqual(id a, id b)
 {
   NSAttributeDescription *attribute = self.attribute;
   id old = self.defaultValueObject;
+  if (!string.length && attribute.attributeType == NSStringAttributeType && old) {
+    attribute.defaultValue = @"";
+    [self didChange:@"defaultValueObject" from:old];
+    return;
+  }
   if (!string.length) {
     attribute.defaultValue = nil;
     [self didChange:@"defaultValueObject" from:old];
@@ -652,6 +974,119 @@ static BOOL MBValuesEqual(id a, id b)
     default: return;   /* dates use defaultDate; binary/transformable have none */
   }
   [self didChange:@"defaultValueObject" from:old];
+}
+
+/* What the type takes, as -setDefaultString: reads it. */
+- (BOOL)validateDefaultString:(id *)value error:(NSError **)error
+{
+  NSAttributeType type = self.attribute.attributeType;
+  NSString *string = (type == NSStringAttributeType) ? ([*value description] ?: @"") : MBTrimmed(*value);
+  if (!string.length || type == NSStringAttributeType) {
+    *value = string;
+    return YES;
+  }
+  NSScanner *scanner = [NSScanner scannerWithString:string];
+  switch (type) {
+    case NSInteger16AttributeType:
+    case NSInteger32AttributeType:
+    case NSInteger64AttributeType: {
+      long long number;
+      long long limit = type == NSInteger16AttributeType ? INT16_MAX
+          : type == NSInteger32AttributeType ? INT32_MAX : LLONG_MAX;
+      if (![scanner scanLongLong:&number] || !scanner.isAtEnd || number > limit || number < -limit - 1)
+        return MBRefuse(error, @"A %@ default must be a whole number from %lld to %lld.",
+                        self.typeName, -limit - 1, limit);
+      break;
+    }
+    case NSDoubleAttributeType:
+    case NSFloatAttributeType: {
+      double number;
+      if (![scanner scanDouble:&number] || !scanner.isAtEnd)
+        return MBRefuse(error, @"A %@ default must be a number.", self.typeName);
+      break;
+    }
+    case NSDecimalAttributeType:
+      if ([[NSDecimalNumber decimalNumberWithString:string] isEqual:[NSDecimalNumber notANumber]])
+        return MBRefuse(error, @"A Decimal default must be a number.");
+      break;
+    case NSBooleanAttributeType:
+      if (![@[ @"YES", @"NO", @"1", @"0" ] containsObject:string])
+        return MBRefuse(error, @"A Boolean default is YES or NO.");
+      break;
+    case NSUUIDAttributeType:
+      if (![[NSUUID alloc] initWithUUIDString:string])
+        return MBRefuse(error, @"\u201c%@\u201d is not a UUID.", string);
+      break;
+    case NSURIAttributeType:
+      if (![NSURL URLWithString:string])
+        return MBRefuse(error, @"\u201c%@\u201d is not a URI.", string);
+      break;
+    default:
+      break;
+  }
+  *value = string;
+  return YES;
+}
+
+static BOOL MBIsNumberType(NSAttributeType type)
+{
+  switch (type) {
+    case NSInteger16AttributeType:
+    case NSInteger32AttributeType:
+    case NSInteger64AttributeType:
+    case NSDecimalAttributeType:
+    case NSDoubleAttributeType:
+    case NSFloatAttributeType:
+      return YES;
+    default:
+      return NO;
+  }
+}
+
+- (NSNumber *)defaultNumber
+{
+  NSAttributeDescription *attribute = self.attribute;
+  return MBIsNumberType(attribute.attributeType) ? attribute.defaultValue : nil;
+}
+
+- (void)setDefaultNumber:(NSNumber *)number
+{
+  if (!MBIsNumberType(self.attribute.attributeType)) return;
+  self.defaultString = MBNumberString(number);
+}
+
+/* A whole number in the type's range for an integer, a number else. */
+- (BOOL)validateDefaultNumber:(id *)value error:(NSError **)error
+{
+  NSAttributeType type = self.attribute.attributeType;
+  if (type == NSInteger16AttributeType || type == NSInteger32AttributeType || type == NSInteger64AttributeType) {
+    long long limit = type == NSInteger16AttributeType ? INT16_MAX
+        : type == NSInteger32AttributeType ? INT32_MAX : LLONG_MAX;
+    NSString *what = [NSString stringWithFormat:@"%@ default", self.typeName];
+    return MBValidateWholeNumber(value, -limit - 1, limit, what, error);
+  }
+  return MBValidateNumber(value, @"default", error);
+}
+
+- (BOOL)hasDefaultString { return self.attribute.defaultValue != nil; }
+
+- (void)setHasDefaultString:(BOOL)has
+{
+  if (has == self.hasDefaultString) return;
+  self.defaultValueObject = has ? @"" : nil;
+}
+
+- (NSString *)boolDefaultTitle
+{
+  NSString *string = self.defaultString;
+  return string.length ? string : @"No Value";
+}
+
+/* Only YES/NO are values; "No Value" clears. */
+- (void)setBoolDefaultTitle:(NSString *)title
+{
+  BOOL isValue = [title isEqualToString:@"YES"] || [title isEqualToString:@"NO"];
+  self.defaultString = isValue ? title : @"";
 }
 
 - (NSDate *)defaultDate
@@ -713,6 +1148,14 @@ static BOOL MBValuesEqual(id a, id b)
   }
 }
 
+- (NSString *)derivationToolTip
+{
+  return self.isDerived
+      ? [NSString stringWithFormat:@"Derivation: %@ \u2014 uncheck and re-check to edit.",
+         self.derivationString]
+      : @"Turns the attribute into a derived attribute (you will be asked for the derivation expression).";
+}
+
 /* Non-empty <-> empty flips replace the description object; the
    editor keeps resolving by name, so it survives the swap. */
 - (void)setDerivationString:(NSString *)string
@@ -763,7 +1206,7 @@ static BOOL MBValuesEqual(id a, id b)
 /* ---------------------------------------------------------------- */
 
 @implementation MBRelationshipEditor {
-  NSEntityDescription *_entity;
+  NSString *_entityName;
   NSString *_name;
 }
 
@@ -774,29 +1217,92 @@ static BOOL MBValuesEqual(id a, id b)
   if (!entity.relationshipsByName[name]) return nil;
   MBRelationshipEditor *editor = [[self alloc] init];
   editor->_modelEditor = modelEditor;
-  editor->_entity = entity;
+  editor->_entityName = [entity.name copy];
   editor->_name = [name copy];
   return editor;
 }
 
+- (BOOL)editsSameAs:(MBEditor *)editor
+{
+  MBRelationshipEditor *other = (MBRelationshipEditor *)editor;
+  return [super editsSameAs:editor] && [other->_entityName isEqualToString:_entityName] &&
+      [other->_name isEqualToString:_name];
+}
+
+- (NSEntityDescription *)entity
+{
+  return _modelEditor.model.entitiesByName[_entityName];
+}
+
 - (NSRelationshipDescription *)relationship
 {
-  return _entity.relationshipsByName[_name];
+  return self.entity.relationshipsByName[_name];
 }
 
 - (id)undoSubject { return self.relationship; }
+- (NSString *)editActionName { return @"Edit Relationship"; }
 
 - (NSString *)name { return _name; }
 
 - (void)setName:(NSString *)name
 {
   if (!name.length || [name isEqualToString:_name]) return;
-  if (_entity.propertiesByName[name]) return;   /* duplicate */
+  if (self.entity.propertiesByName[name]) return;   /* duplicate */
   NSString *old = _name;
   self.relationship.name = name;
   _name = [name copy];
-  [_modelEditor noteRenameOfKind:MBSelectionRelationship inEntity:_entity.name from:old to:name];
+  [_modelEditor noteRenameOfKind:MBSelectionRelationship inEntity:_entityName from:old to:name];
   [self didChange:@"name" from:old];
+}
+
+- (BOOL)validateName:(id *)value error:(NSError **)error
+{
+  return MBValidateName(value, _name, [self.entity.propertiesByName allKeys], @"property", error);
+}
+
+- (NSArray *)destinationTitles
+{
+  NSMutableArray *titles = [NSMutableArray arrayWithObject:MBNoneTitle];
+  for (NSEntityDescription *entity in [_modelEditor sortedEntities])
+    [titles addObject:entity.name ?: @""];
+  return titles;
+}
+
+- (NSString *)destinationTitle
+{
+  NSString *name = self.destinationName;
+  return name.length ? name : MBNoneTitle;
+}
+
+- (void)setDestinationTitle:(NSString *)title
+{
+  self.destinationName = [title isEqualToString:MBNoneTitle] ? @"" : title;
+}
+
+- (NSArray *)inverseTitles
+{
+  NSMutableArray *titles = [NSMutableArray arrayWithObject:MBNoneTitle];
+  NSDictionary *relationships = self.relationship.destinationEntity.relationshipsByName;
+  [titles addObjectsFromArray:[[relationships allKeys] sortedArrayUsingSelector:@selector(compare:)]];
+  return titles;
+}
+
+- (NSString *)inverseTitle
+{
+  NSString *name = self.inverseName;
+  return name.length ? name : MBNoneTitle;
+}
+
+- (void)setInverseTitle:(NSString *)title
+{
+  self.inverseName = [title isEqualToString:MBNoneTitle] ? @"" : title;
+}
+
+- (NSString *)typeTitle { return self.isToMany ? @"To Many" : @"To One"; }
+
+- (void)setTypeTitle:(NSString *)title
+{
+  self.toMany = [title isEqualToString:@"To Many"];
 }
 
 - (NSString *)destinationName { return self.relationship.destinationEntity.name ?: @""; }
@@ -925,6 +1431,32 @@ static BOOL MBValuesEqual(id a, id b)
   [self didChange:@"maxCount" from:old];
 }
 
+- (NSNumber *)minCountNumber
+{
+  NSInteger count = self.minCount;
+  return count ? @(count) : nil;
+}
+
+- (void)setMinCountNumber:(NSNumber *)number { self.minCount = number.integerValue; }
+
+- (BOOL)validateMinCountNumber:(id *)value error:(NSError **)error
+{
+  return MBValidateWholeNumber(value, 0, INT32_MAX, @"minimum count", error);
+}
+
+- (NSNumber *)maxCountNumber
+{
+  NSInteger count = self.maxCount;
+  return count ? @(count) : nil;
+}
+
+- (void)setMaxCountNumber:(NSNumber *)number { self.maxCount = number.integerValue; }
+
+- (BOOL)validateMaxCountNumber:(id *)value error:(NSError **)error
+{
+  return MBValidateWholeNumber(value, 0, INT32_MAX, @"maximum count", error);
+}
+
 - (NSString *)deleteRuleName
 {
   NSArray *names = [CDModelCompiler deleteRuleNames];
@@ -1016,13 +1548,33 @@ static BOOL MBValuesEqual(id a, id b)
 }
 
 - (id)undoSubject { return self.request; }
+- (NSString *)editActionName { return @"Edit Fetch Request"; }
+
+- (BOOL)editsSameAs:(MBEditor *)editor
+{
+  return [super editsSameAs:editor] && [((MBFetchEditor *)editor)->_name isEqualToString:_name];
+}
 
 - (NSString *)name { return _name; }
 
+/* The new name is the editor's before the selection follows it. */
 - (void)setName:(NSString *)name
 {
-  if ([_modelEditor renameFetchRequestNamed:_name to:name])
-    _name = [name copy];
+  NSString *old = _name;
+  _name = [name copy];
+  if (![_modelEditor renameFetchRequestNamed:old to:name])
+    _name = old;
+}
+
+- (BOOL)validateName:(id *)value error:(NSError **)error
+{
+  return MBValidateName(value, _name, [[_modelEditor.model fetchRequestTemplatesByName] allKeys],
+                        @"fetch request", error);
+}
+
+- (NSArray *)entityNames
+{
+  return [[_modelEditor sortedEntities] valueForKey:@"name"];
 }
 
 - (NSString *)entityName { return self.request.entity.name ?: @""; }
@@ -1053,6 +1605,54 @@ static BOOL MBValuesEqual(id a, id b)
   id old = [self valueForKey:@"resultType"];
   [self.request setResultType:resultType];
   [self didChange:@"resultType" from:old];
+}
+
+- (NSNumber *)fetchLimitNumber
+{
+  NSUInteger limit = self.fetchLimit;
+  return limit ? @(limit) : nil;
+}
+
+- (void)setFetchLimitNumber:(NSNumber *)number
+{
+  self.fetchLimit = (NSUInteger)MAX(0, number.integerValue);
+}
+
+- (BOOL)validateFetchLimitNumber:(id *)value error:(NSError **)error
+{
+  return MBValidateWholeNumber(value, 0, INT32_MAX, @"fetch limit", error);
+}
+
+- (NSNumber *)fetchBatchSizeNumber
+{
+  NSUInteger size = self.fetchBatchSize;
+  return size ? @(size) : nil;
+}
+
+- (void)setFetchBatchSizeNumber:(NSNumber *)number
+{
+  self.fetchBatchSize = (NSUInteger)MAX(0, number.integerValue);
+}
+
+- (BOOL)validateFetchBatchSizeNumber:(id *)value error:(NSError **)error
+{
+  return MBValidateWholeNumber(value, 0, INT32_MAX, @"batch size", error);
+}
+
+/* The pop-up's index is the resultType integer in the model XML (0/1/2). */
+- (NSInteger)resultTypeIndex
+{
+  switch (self.resultType) {
+    case NSManagedObjectIDResultType: return 1;
+    case NSDictionaryResultType:      return 2;
+    default:                          return 0;
+  }
+}
+
+- (void)setResultTypeIndex:(NSInteger)index
+{
+  self.resultType = index == 1 ? NSManagedObjectIDResultType
+      : index == 2 ? NSDictionaryResultType : NSManagedObjectResultType;
 }
 
 - (NSUInteger)fetchBatchSize { return [self.request fetchBatchSize]; }
@@ -1105,6 +1705,111 @@ MB_FETCH_FLAG(returnsDistinctResults, setReturnsDistinctResults)
   } @catch (NSException *exception) {
     [self failWith:[NSString stringWithFormat:@"Invalid predicate: %@", format]];
   }
+}
+
+- (BOOL)validatePredicateFormat:(id *)value error:(NSError **)error
+{
+  return MBValidatePredicate(value, error);
+}
+
+@end
+
+/* ---------------------------------------------------------------- */
+
+@implementation MBFetchIndexEditor {
+  NSString *_entityName;
+  NSString *_name;
+}
+
++ (instancetype)editorForFetchIndexNamed:(NSString *)name
+                                  entity:(NSEntityDescription *)entity
+                             modelEditor:(MBModelEditor *)modelEditor
+{
+  MBFetchIndexEditor *editor = [[self alloc] init];
+  editor->_modelEditor = modelEditor;
+  editor->_entityName = [entity.name copy];
+  editor->_name = [name copy];
+  return editor.row ? editor : nil;
+}
+
+- (BOOL)editsSameAs:(MBEditor *)editor
+{
+  MBFetchIndexEditor *other = (MBFetchIndexEditor *)editor;
+  return [super editsSameAs:editor] && [other->_entityName isEqualToString:_entityName] &&
+      [other->_name isEqualToString:_name];
+}
+
+- (MBEntityEditor *)entityEditor
+{
+  return [MBEntityEditor editorForEntityNamed:_entityName modelEditor:_modelEditor];
+}
+
+- (NSDictionary *)row
+{
+  for (NSDictionary *row in [self entityEditor].fetchIndexRows)
+    if ([row[@"name"] isEqualToString:_name]) return row;
+  return nil;
+}
+
+/* The index's row changed, as one undo step; a rename is the editor's,
+   and the selection's, before the change is told. */
+- (void)changeRow:(void (^)(NSMutableDictionary *row))change action:(NSString *)action
+{
+  MBEntityEditor *entityEditor = [self entityEditor];
+  NSMutableArray *rows = [NSMutableArray array];
+  NSString *old = _name, *renamed = _name;
+  for (NSDictionary *row in entityEditor.fetchIndexRows) {
+    NSMutableDictionary *copy = [row mutableCopy];
+    if ([row[@"name"] isEqualToString:old]) {
+      change(copy);
+      renamed = copy[@"name"];
+    }
+    [rows addObject:copy];
+  }
+  [_modelEditor beginEdit:action];
+  _name = [renamed copy];
+  entityEditor.fetchIndexRows = rows;
+  if (entityEditor.lastError) {
+    _lastError = entityEditor.lastError;
+    _name = old;
+  } else if (![renamed isEqualToString:old]) {
+    [_modelEditor noteRenameOfKind:MBSelectionFetchIndex inEntity:_entityName from:old to:renamed];
+  }
+  [_modelEditor endEdit];
+}
+
+- (NSString *)name { return _name; }
+
+- (void)setName:(NSString *)name
+{
+  NSString *wanted = MBTrimmed(name);
+  if (!wanted.length || [wanted isEqualToString:_name]) return;
+  if ([[[self entityEditor].fetchIndexRows valueForKey:@"name"] containsObject:wanted]) return;
+  [self changeRow:^(NSMutableDictionary *row) { row[@"name"] = wanted; } action:@"Rename Fetch Index"];
+}
+
+- (BOOL)validateName:(id *)value error:(NSError **)error
+{
+  return MBValidateName(value, _name, [[self entityEditor].fetchIndexRows valueForKey:@"name"],
+                        @"fetch index", error);
+}
+
+- (NSString *)predicateFormat { return self.row[@"predicate"] ?: @""; }
+
+- (void)setPredicateFormat:(NSString *)format
+{
+  NSString *wanted = MBTrimmed(format);
+  if ([wanted isEqualToString:self.predicateFormat]) return;
+  [self changeRow:^(NSMutableDictionary *row) {
+          if (wanted.length) row[@"predicate"] = wanted;
+          else [row removeObjectForKey:@"predicate"];
+        }
+           action:@"Edit Partial Predicate"];
+}
+
+- (BOOL)validatePredicateFormat:(id *)value error:(NSError **)error
+{
+  return MBValidatePredicate(value, error);
 }
 
 @end

@@ -73,9 +73,28 @@ static const CGFloat MBStepperGap = 3;
 
   double value = self.doubleValue + delta * _increment;
   if (!_allowsNegative && value < 0) value = 0;
-  self.stringValue = (value == rint(value) && fabs(value) < 1e15)
+  NSString *text = (value == rint(value) && fabs(value) < 1e15)
       ? [NSString stringWithFormat:@"%.0f", value]
       : [NSString stringWithFormat:@"%g", value];
+  self.stringValue = text;
+
+  /* Bound, the step is given to the bound object as an edit of the text
+     would be: validated first when the binding asks. */
+  NSDictionary *binding = [self infoForBinding:NSValueBinding];
+  if (binding) {
+    id object = binding[NSObservedObjectKey];
+    NSString *keyPath = binding[NSObservedKeyPathKey];
+    id stepped = self.objectValue;   /* what its formatter makes of the text */
+    NSError *error = nil;
+    if ([binding[NSOptionsKey][NSValidatesImmediatelyBindingOption] boolValue] &&
+        ![object validateValue:&stepped forKeyPath:keyPath error:&error]) {
+      NSBeep();
+      self.objectValue = [object valueForKeyPath:keyPath];
+      return;
+    }
+    [object setValue:stepped forKeyPath:keyPath];
+    return;
+  }
   if (self.action != NULL)
     [self sendAction:self.action to:self.target];
 }

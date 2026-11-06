@@ -88,10 +88,23 @@
                 <outlet property="uuidScalarCheckbox" destination="V5w-k6-XDh" id="NkI-n3O-IOn" />
                 <outlet property="fetchIndexNameField" destination="F35-fx-fld" id="F49-fx-own" />
                 <outlet property="fetchIndexPredicateField" destination="F40-fx-fld" id="F50-fx-own" />
+                <outlet property="versionController" destination="mb-ec-version" id="mb-ec-version-o" />
+                <outlet property="entityController" destination="mb-ec-entity" id="mb-ec-entity-o" />
+                <outlet property="attributeController" destination="mb-ec-attribute" id="mb-ec-attribute-o" />
+                <outlet property="relationshipController" destination="mb-ec-relationship" id="mb-ec-relationship-o" />
+                <outlet property="fetchController" destination="mb-ec-fetch" id="mb-ec-fetch-o" />
+                <outlet property="fetchIndexController" destination="mb-ec-index" id="mb-ec-index-o" />
             </connections>
         </customObject>
         <customObject id="-1" userLabel="First Responder" customClass="FirstResponder" />
         <customObject id="-3" userLabel="Application" customClass="NSObject" />
+        <!-- What the pages' fields are bound to: the selection's editors (MBEditors) -->
+        <objectController objectClassName="MBVersionEditor" editable="YES" id="mb-ec-version" userLabel="Version Editor" />
+        <objectController objectClassName="MBEntityEditor" editable="YES" id="mb-ec-entity" userLabel="Entity Editor" />
+        <objectController objectClassName="MBAttributeEditor" editable="YES" id="mb-ec-attribute" userLabel="Attribute Editor" />
+        <objectController objectClassName="MBRelationshipEditor" editable="YES" id="mb-ec-relationship" userLabel="Relationship Editor" />
+        <objectController objectClassName="MBFetchEditor" editable="YES" id="mb-ec-fetch" userLabel="Fetch Request Editor" />
+        <objectController objectClassName="MBFetchIndexEditor" editable="YES" id="mb-ec-index" userLabel="Fetch Index Editor" />
         <!-- The inspector: Identity and the Data Model pages (MBInspectorViewController) -->
         <customView id="5Tw-ek-czW">
             <rect key="frame" x="711" y="0.0" width="289" height="700" />
@@ -153,7 +166,7 @@
                                                                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                     </textFieldCell>
                                                                     <connections>
-                                                                        <action selector="inspectorChanged:" target="-2" id="MdI-ac-tn1" />
+                                                                        <binding destination="mb-ec-version" name="value" keyPath="content.versionIdentifier" id="mb-bd-001" />
                                                                     </connections>
                                                                 </textField>
                                                             </subviews>
@@ -207,7 +220,11 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="djK-m2-gj3" />
+                                                                                            <binding destination="mb-ec-entity" name="value" keyPath="content.name" id="mb-bd-002">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="IpI-ud-nrs">
@@ -218,7 +235,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="SRD-7v-EUd" />
+                                                                                            <binding destination="mb-ec-entity" name="value" keyPath="content.abstract" id="mb-bd-004" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="gBT-DT-uIZ">
@@ -245,7 +262,12 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="iaX-Ze-bsQ" />
+                                                                                            <binding destination="mb-ec-entity" name="contentValues" keyPath="content.parentTitles" id="mb-bd-005" />
+                                                                                            <binding destination="mb-ec-entity" name="selectedValue" keyPath="content.parentTitle" id="mb-bd-006">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                     <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="EMS-wc-cih">
@@ -285,7 +307,7 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="gbj-Fh-Oo4" />
+                                                                                            <binding destination="mb-ec-entity" name="value" keyPath="content.className" id="mb-bd-003" />
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="cxD-mr-jVg">
@@ -305,9 +327,6 @@
                                                                                             <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog" />
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </comboBoxCell>
-                                                                                        <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="8GW-pa-5DH" />
-                                                                                        </connections>
                                                                                     </comboBox>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="i0X-7B-KJf">
                                                                                         <rect key="frame" x="18" y="14" width="59" height="14" />
@@ -337,7 +356,7 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="xTu-mO-jBl" />
+                                                                                            <binding destination="mb-ec-entity" name="selectedIndex" keyPath="content.codegenIndex" id="mb-bd-009" />
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                 </subviews>
@@ -541,7 +560,7 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="6lc-7O-Hi9" />
+                                                                                            <binding destination="mb-ec-entity" name="value" keyPath="content.hashModifier" id="mb-bd-007" />
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="tQF-ph-zzN">
@@ -562,7 +581,7 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="7u4-Ud-YpS" />
+                                                                                            <binding destination="mb-ec-entity" name="value" keyPath="content.renamingIdentifier" id="mb-bd-008" />
                                                                                         </connections>
                                                                                     </textField>
                                                                                 </subviews>
@@ -606,7 +625,11 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="DOW-YX-2Kp" />
+                                                                                            <binding destination="mb-ec-fetch" name="value" keyPath="content.name" id="mb-bd-065">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="2J8-XH-nSn">
@@ -633,7 +656,8 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="FFi-B3-3n1" />
+                                                                                            <binding destination="mb-ec-fetch" name="contentValues" keyPath="content.entityNames" id="mb-bd-066" />
+                                                                                            <binding destination="mb-ec-fetch" name="selectedValue" keyPath="content.entityName" id="mb-bd-067" />
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="sIA-r2-aq5">
@@ -660,7 +684,7 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="x6E-1P-eEU" />
+                                                                                            <binding destination="mb-ec-fetch" name="selectedIndex" keyPath="content.resultTypeIndex" id="mb-bd-069" />
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Erf-CZ-at6">
@@ -684,7 +708,11 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="NnL-yG-Sau" />
+                                                                                            <binding destination="mb-ec-fetch" name="value" keyPath="content.fetchLimitNumber" id="mb-bd-068">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="GEE-Sp-8Yw">
@@ -708,7 +736,11 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="ubN-90-NcN" />
+                                                                                            <binding destination="mb-ec-fetch" name="value" keyPath="content.fetchBatchSizeNumber" id="mb-bd-070">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="aRg-iY-1wx">
@@ -729,7 +761,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="Ivz-Xx-pg9" />
+                                                                                            <binding destination="mb-ec-fetch" name="value" keyPath="content.includesPropertyValues" id="mb-bd-072" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="37n-Yc-npJ">
@@ -740,7 +772,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="Uyj-2R-63u" />
+                                                                                            <binding destination="mb-ec-fetch" name="value" keyPath="content.returnsObjectsAsFaults" id="mb-bd-073" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="Xne-HE-mVe">
@@ -751,7 +783,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="Ov5-OZ-6Up" />
+                                                                                            <binding destination="mb-ec-fetch" name="value" keyPath="content.includesPendingChanges" id="mb-bd-074" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="E7S-dW-dBB">
@@ -762,7 +794,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="fCO-fl-PTT" />
+                                                                                            <binding destination="mb-ec-fetch" name="value" keyPath="content.returnsDistinctResults" id="mb-bd-075" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="S1f-vJ-NHj">
@@ -773,7 +805,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="WlR-49-EUk" />
+                                                                                            <binding destination="mb-ec-fetch" name="value" keyPath="content.includesSubentities" id="mb-bd-071" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="QPK-W6-HuF">
@@ -826,7 +858,11 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="pEn-Fx-jTn" />
+                                                                                            <binding destination="mb-ec-attribute" name="value" keyPath="content.name" id="mb-bd-010">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="jry-FX-w8w">
@@ -853,7 +889,8 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="qQZ-PD-ikT" />
+                                                                                            <binding destination="mb-ec-attribute" name="contentValues" keyPath="content.typeNames" id="mb-bd-011" />
+                                                                                            <binding destination="mb-ec-attribute" name="selectedValue" keyPath="content.typeName" id="mb-bd-012" />
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="9kn-2r-MMM">
@@ -864,7 +901,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="CMv-XF-t84" />
+                                                                                            <binding destination="mb-ec-attribute" name="value" keyPath="content.optional" id="mb-bd-013" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="fIw-8B-IeG">
@@ -875,7 +912,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="OUv-Y0-Ozh" />
+                                                                                            <binding destination="mb-ec-attribute" name="value" keyPath="content.transient" id="mb-bd-014" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="kvE-SX-tbi">
@@ -887,6 +924,7 @@
                                                                                         </buttonCell>
                                                                                         <connections>
                                                                                             <action selector="derivedToggled:" target="-2" id="AtJ-XH-OBV" />
+                                                                                            <binding destination="mb-ec-attribute" name="toolTip" keyPath="content.derivationToolTip" id="mb-bd-018" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <tabView fixedFrame="YES" type="noTabsNoBorder" translatesAutoresizingMaskIntoConstraints="NO" id="Kqg-tT-dqx">
@@ -930,9 +968,6 @@
                                                                                                                     <string>Item 3</string>
                                                                                                                 </objectValues>
                                                                                                             </comboBoxCell>
-                                                                                                            <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="yqX-kS-r5Y" />
-                                                                                                            </connections>
                                                                                                         </comboBox>
                                                                                                         <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="if5-ff-JxV">
                                                                                                             <rect key="frame" x="88" y="119" width="178" height="19" />
@@ -942,9 +977,6 @@
                                                                                                                 <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog" />
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
-                                                                                                            <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="Zbb-Uk-aF6" />
-                                                                                                            </connections>
                                                                                                         </textField>
                                                                                                     </subviews>
                                                                                                 </view>
@@ -973,7 +1005,11 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="l2f-QK-ADr" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.defaultNumber" id="mb-bd-021">
+                                                                                                                    <dictionary key="options">
+                                                                                                                        <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                                    </dictionary>
+                                                                                                                </binding>
                                                                                                             </connections>
                                                                                                             <userDefinedRuntimeAttributes>
                                                                                                                 <userDefinedRuntimeAttribute type="boolean" keyPath="allowsNegative" value="YES" />
@@ -987,7 +1023,7 @@
                                                                                                                 <font key="font" metaFont="smallSystem" />
                                                                                                             </buttonCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="OJl-lJ-8wM" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.scalarType" id="mb-bd-022" />
                                                                                                             </connections>
                                                                                                         </button>
                                                                                                         <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="aeG-vL-dvK">
@@ -1013,7 +1049,11 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="3ua-Ht-SIe" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.validationMinNumber" id="mb-bd-023">
+                                                                                                                    <dictionary key="options">
+                                                                                                                        <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                                    </dictionary>
+                                                                                                                </binding>
                                                                                                             </connections>
                                                                                                             <userDefinedRuntimeAttributes>
                                                                                                                 <userDefinedRuntimeAttribute type="boolean" keyPath="allowsNegative" value="YES" />
@@ -1029,7 +1069,11 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="7aG-H1-p2z" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.validationMaxNumber" id="mb-bd-024">
+                                                                                                                    <dictionary key="options">
+                                                                                                                        <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                                    </dictionary>
+                                                                                                                </binding>
                                                                                                             </connections>
                                                                                                             <userDefinedRuntimeAttributes>
                                                                                                                 <userDefinedRuntimeAttribute type="boolean" keyPath="allowsNegative" value="YES" />
@@ -1069,7 +1113,7 @@
                                                                                                                 <font key="font" metaFont="smallSystem" />
                                                                                                             </buttonCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="rre-JV-j4T" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.hasDefaultString" id="mb-bd-025" />
                                                                                                             </connections>
                                                                                                         </button>
                                                                                                         <textField focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="D0X-Ow-Zb2">
@@ -1081,7 +1125,12 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="btK-nn-mRe" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.defaultString" id="mb-bd-026">
+                                                                                                                    <dictionary key="options">
+                                                                                                                        <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                                    </dictionary>
+                                                                                                                </binding>
+                                                                                                                <binding destination="mb-ec-attribute" name="enabled" keyPath="content.hasDefaultString" id="mb-bd-027" />
                                                                                                             </connections>
                                                                                                         </textField>
                                                                                                         <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="kKa-cy-BBi">
@@ -1107,7 +1156,11 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="pHo-Gn-bVP" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.minLengthNumber" id="mb-bd-028">
+                                                                                                                    <dictionary key="options">
+                                                                                                                        <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                                    </dictionary>
+                                                                                                                </binding>
                                                                                                             </connections>
                                                                                                         </textField>
                                                                                                         <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="pYd-Si-69C">
@@ -1120,7 +1173,11 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="4tG-w2-9zB" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.maxLengthNumber" id="mb-bd-029">
+                                                                                                                    <dictionary key="options">
+                                                                                                                        <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                                    </dictionary>
+                                                                                                                </binding>
                                                                                                             </connections>
                                                                                                         </textField>
                                                                                                         <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="hZd-bO-i1s">
@@ -1159,7 +1216,11 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="PXt-W7-Q1V" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.regexString" id="mb-bd-030">
+                                                                                                                    <dictionary key="options">
+                                                                                                                        <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                                    </dictionary>
+                                                                                                                </binding>
                                                                                                             </connections>
                                                                                                         </textField>
                                                                                                         <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="iIl-7f-030">
@@ -1203,7 +1264,7 @@
                                                                                                                 </menu>
                                                                                                             </popUpButtonCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="TnT-eM-6Vk" />
+                                                                                                                <binding destination="mb-ec-attribute" name="selectedValue" keyPath="content.boolDefaultTitle" id="mb-bd-031" />
                                                                                                             </connections>
                                                                                                         </popUpButton>
                                                                                                         <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="hml-qr-JTt">
@@ -1214,7 +1275,7 @@
                                                                                                                 <font key="font" metaFont="smallSystem" />
                                                                                                             </buttonCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="PaC-5Y-kGF" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.scalarType" id="mb-bd-032" />
                                                                                                             </connections>
                                                                                                         </button>
                                                                                                     </subviews>
@@ -1247,7 +1308,8 @@
                                                                                                                 <datePickerElements key="datePickerElements" year="YES" month="YES" day="YES" hour="YES" minute="YES" second="YES" />
                                                                                                             </datePickerCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="3a2-88-4fQ" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.shownDefaultDate" id="mb-bd-034" />
+                                                                                                                <binding destination="mb-ec-attribute" name="enabled" keyPath="content.hasDefaultDate" id="mb-bd-035" />
                                                                                                             </connections>
                                                                                                         </datePicker>
                                                                                                         <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="GaT-gX-eru">
@@ -1258,7 +1320,7 @@
                                                                                                                 <font key="font" metaFont="smallSystem" />
                                                                                                             </buttonCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="lDF-u7-Xrv" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.hasDefaultDate" id="mb-bd-033" />
                                                                                                             </connections>
                                                                                                         </button>
                                                                                                         <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="ca8-6I-g2K">
@@ -1269,7 +1331,7 @@
                                                                                                                 <font key="font" metaFont="smallSystem" />
                                                                                                             </buttonCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="pCj-HQ-Sga" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.scalarType" id="mb-bd-036" />
                                                                                                             </connections>
                                                                                                         </button>
                                                                                                         <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="Tlr-kB-b35">
@@ -1293,7 +1355,7 @@
                                                                                                                 <font key="font" metaFont="smallSystem" />
                                                                                                             </buttonCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="guK-QR-mfj" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.hasValidationMinDate" id="mb-bd-037" />
                                                                                                             </connections>
                                                                                                         </button>
                                                                                                         <datePicker verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="FE4-xL-wU2">
@@ -1309,7 +1371,8 @@
                                                                                                                 <datePickerElements key="datePickerElements" year="YES" month="YES" day="YES" hour="YES" minute="YES" second="YES" />
                                                                                                             </datePickerCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="b5L-gr-Gcm" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.shownValidationMinDate" id="mb-bd-038" />
+                                                                                                                <binding destination="mb-ec-attribute" name="enabled" keyPath="content.hasValidationMinDate" id="mb-bd-039" />
                                                                                                             </connections>
                                                                                                         </datePicker>
                                                                                                         <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="aqv-Sy-Opr">
@@ -1320,7 +1383,7 @@
                                                                                                                 <font key="font" metaFont="smallSystem" />
                                                                                                             </buttonCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="Bs8-Rg-TEg" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.hasValidationMaxDate" id="mb-bd-040" />
                                                                                                             </connections>
                                                                                                         </button>
                                                                                                         <datePicker verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="wqF-8w-6nW">
@@ -1336,7 +1399,8 @@
                                                                                                                 <datePickerElements key="datePickerElements" year="YES" month="YES" day="YES" hour="YES" minute="YES" second="YES" />
                                                                                                             </datePickerCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="d9h-5G-KKJ" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.shownValidationMaxDate" id="mb-bd-041" />
+                                                                                                                <binding destination="mb-ec-attribute" name="enabled" keyPath="content.hasValidationMaxDate" id="mb-bd-042" />
                                                                                                             </connections>
                                                                                                         </datePicker>
                                                                                                     </subviews>
@@ -1371,7 +1435,11 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="gsn-2S-fwo" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.defaultString" id="mb-bd-043">
+                                                                                                                    <dictionary key="options">
+                                                                                                                        <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                                    </dictionary>
+                                                                                                                </binding>
                                                                                                             </connections>
                                                                                                         </textField>
                                                                                                         <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="V5w-k6-XDh">
@@ -1382,7 +1450,7 @@
                                                                                                                 <font key="font" metaFont="smallSystem" />
                                                                                                             </buttonCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="h0F-S7-FyD" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.scalarType" id="mb-bd-044" />
                                                                                                             </connections>
                                                                                                         </button>
                                                                                                     </subviews>
@@ -1411,7 +1479,11 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="i2B-q4-hss" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.defaultString" id="mb-bd-045">
+                                                                                                                    <dictionary key="options">
+                                                                                                                        <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                                    </dictionary>
+                                                                                                                </binding>
                                                                                                             </connections>
                                                                                                         </textField>
                                                                                                     </subviews>
@@ -1440,7 +1512,7 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="XLX-vn-uH9" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.transformerName" id="mb-bd-046" />
                                                                                                             </connections>
                                                                                                         </textField>
                                                                                                         <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="ISP-vi-04N">
@@ -1461,7 +1533,7 @@
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </textFieldCell>
                                                                                                             <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="dI4-ME-kbV" />
+                                                                                                                <binding destination="mb-ec-attribute" name="value" keyPath="content.customClassName" id="mb-bd-047" />
                                                                                                             </connections>
                                                                                                         </textField>
                                                                                                         <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="7Er-gk-gmI">
@@ -1481,9 +1553,6 @@
                                                                                                                 <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog" />
                                                                                                                 <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                                             </comboBoxCell>
-                                                                                                            <connections>
-                                                                                                                <action selector="inspectorChanged:" target="-2" id="3QE-8U-eOM" />
-                                                                                                            </connections>
                                                                                                         </comboBox>
                                                                                                     </subviews>
                                                                                                 </view>
@@ -1508,7 +1577,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="zvg-4a-5i3" />
+                                                                                            <binding destination="mb-ec-attribute" name="value" keyPath="content.preservesValueInHistoryOnDeletion" id="mb-bd-015" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="xSt-Ch-k4b">
@@ -1519,7 +1588,8 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="xSt-Ac-t5n" />
+                                                                                            <binding destination="mb-ec-attribute" name="value" keyPath="content.allowsExternalBinaryDataStorage" id="mb-bd-016" />
+                                                                                            <binding destination="mb-ec-attribute" name="enabled" keyPath="content.binary" id="mb-bd-017" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="WaE-hU-M23">
@@ -1660,7 +1730,7 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="Ib5-Uc-OyZ" />
+                                                                                            <binding destination="mb-ec-attribute" name="value" keyPath="content.hashModifier" id="mb-bd-019" />
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="pGr-kM-Mvi">
@@ -1681,7 +1751,7 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="cD7-s2-Yde" />
+                                                                                            <binding destination="mb-ec-attribute" name="value" keyPath="content.renamingIdentifier" id="mb-bd-020" />
                                                                                         </connections>
                                                                                     </textField>
                                                                                 </subviews>
@@ -1725,7 +1795,11 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="QDK-Ix-roO" />
+                                                                                            <binding destination="mb-ec-relationship" name="value" keyPath="content.name" id="mb-bd-048">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="l5F-6Q-6MA">
@@ -1745,7 +1819,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="hiD-uS-kQB" />
+                                                                                            <binding destination="mb-ec-relationship" name="value" keyPath="content.transient" id="mb-bd-049" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="b9b-nM-Ouz">
@@ -1756,7 +1830,7 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="y66-Bj-X8P" />
+                                                                                            <binding destination="mb-ec-relationship" name="value" keyPath="content.optional" id="mb-bd-050" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="rr3-n7-UjO">
@@ -1793,7 +1867,8 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="ncN-rB-zP9" />
+                                                                                            <binding destination="mb-ec-relationship" name="contentValues" keyPath="content.destinationTitles" id="mb-bd-051" />
+                                                                                            <binding destination="mb-ec-relationship" name="selectedValue" keyPath="content.destinationTitle" id="mb-bd-052" />
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="dD1-6P-5JG">
@@ -1820,7 +1895,8 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="6nV-vh-d6w" />
+                                                                                            <binding destination="mb-ec-relationship" name="contentValues" keyPath="content.inverseTitles" id="mb-bd-053" />
+                                                                                            <binding destination="mb-ec-relationship" name="selectedValue" keyPath="content.inverseTitle" id="mb-bd-054" />
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="KUV-J5-LDE">
@@ -1850,7 +1926,7 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="bXV-ei-ZD4" />
+                                                                                            <binding destination="mb-ec-relationship" name="selectedValue" keyPath="content.deleteRuleName" id="mb-bd-058" />
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                     <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="SfL-i4-jFn">
@@ -1886,7 +1962,7 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="hKX-5a-OEV" />
+                                                                                            <binding destination="mb-ec-relationship" name="selectedValue" keyPath="content.typeTitle" id="mb-bd-055" />
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="kyP-UU-Nau">
@@ -1906,7 +1982,8 @@
                                                                                             <font key="font" metaFont="smallSystem" />
                                                                                         </buttonCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="LQd-mD-gHx" />
+                                                                                            <binding destination="mb-ec-relationship" name="value" keyPath="content.ordered" id="mb-bd-056" />
+                                                                                            <binding destination="mb-ec-relationship" name="enabled" keyPath="content.toMany" id="mb-bd-057" />
                                                                                         </connections>
                                                                                     </button>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="gdf-Cq-r9b">
@@ -1928,7 +2005,12 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="XMg-Ki-Cta" />
+                                                                                            <binding destination="mb-ec-relationship" name="value" keyPath="content.minCountNumber" id="mb-bd-059">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
+                                                                                            <binding destination="mb-ec-relationship" name="enabled" keyPath="content.toMany" id="mb-bd-060" />
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField customClass="MBStepperTextField" focusRingType="none" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="4Bx-W8-Btz">
@@ -1941,7 +2023,12 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="wsZ-SG-e6d" />
+                                                                                            <binding destination="mb-ec-relationship" name="value" keyPath="content.maxCountNumber" id="mb-bd-061">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
+                                                                                            <binding destination="mb-ec-relationship" name="enabled" keyPath="content.toMany" id="mb-bd-062" />
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="1j1-7v-7WZ">
@@ -2091,7 +2178,7 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="mxu-SL-6I7" />
+                                                                                            <binding destination="mb-ec-relationship" name="value" keyPath="content.hashModifier" id="mb-bd-063" />
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="q2q-cH-BIu">
@@ -2112,7 +2199,7 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="cIl-0Z-a67" />
+                                                                                            <binding destination="mb-ec-relationship" name="value" keyPath="content.renamingIdentifier" id="mb-bd-064" />
                                                                                         </connections>
                                                                                     </textField>
                                                                                 </subviews>
@@ -2156,7 +2243,11 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="F37-fx-act" />
+                                                                                            <binding destination="mb-ec-index" name="value" keyPath="content.name" id="mb-bd-076">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
                                                                                         </connections>
                                                                                     </textField>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="F39-fx-lbl">
@@ -2177,7 +2268,11 @@
                                                                                             <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog" />
                                                                                         </textFieldCell>
                                                                                         <connections>
-                                                                                            <action selector="inspectorChanged:" target="-2" id="F42-fx-act" />
+                                                                                            <binding destination="mb-ec-index" name="value" keyPath="content.predicateFormat" id="mb-bd-077">
+                                                                                                <dictionary key="options">
+                                                                                                    <bool key="NSValidatesImmediately" value="YES" />
+                                                                                                </dictionary>
+                                                                                            </binding>
                                                                                         </connections>
                                                                                     </textField>
                                                                                 </subviews>
