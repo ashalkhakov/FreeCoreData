@@ -98,6 +98,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 }
 
 -(void)setElements:(NSArray *)value {
+   /* One index, one kind of index: a B-tree or an R-tree, never both. */
+   for(NSFetchIndexElementDescription *element in value)
+    if([element collationType]!=[[value objectAtIndex:0] collationType])
+     [NSException raise:NSInvalidArgumentException format:@"Can't mix and match collation types."];
+
    value=[value copy];
 
    for(NSFetchIndexElementDescription *element in _elements)

@@ -61,6 +61,23 @@ static NSArray *names(NSArray *indexes)
                     @"an element names its property");
 }
 
+- (void)testAnIndexHoldsElementsOfOneCollationType
+{
+    NSFetchIndexElementDescription *binary = [[NSFetchIndexElementDescription alloc]
+        initWithProperty:attribute(@"title", NSStringAttributeType) collationType:NSFetchIndexElementTypeBinary];
+    NSFetchIndexElementDescription *rtree = [[NSFetchIndexElementDescription alloc]
+        initWithProperty:attribute(@"rank", NSInteger16AttributeType) collationType:NSFetchIndexElementTypeRTree];
+    NSFetchIndexElementDescription *other = [[NSFetchIndexElementDescription alloc]
+        initWithProperty:attribute(@"lat", NSFloatAttributeType) collationType:NSFetchIndexElementTypeRTree];
+
+    XCTAssertThrowsSpecificNamed(([[NSFetchIndexDescription alloc] initWithName:@"mixed" elements:@[ binary, rtree ]]),
+                                 NSException, NSInvalidArgumentException);
+    NSFetchIndexDescription *index = [[NSFetchIndexDescription alloc] initWithName:@"one" elements:@[ binary ]];
+    XCTAssertThrowsSpecificNamed(([index setElements:@[ binary, rtree ]]), NSException, NSInvalidArgumentException);
+    XCTAssertEqual([[index elements] count], 1u, @"a refused change changes nothing");
+    XCTAssertNoThrow(([[NSFetchIndexDescription alloc] initWithName:@"rtrees" elements:@[ rtree, other ]]));
+}
+
 - (void)testAnIndexOwnsItsElementsAndAnEntityItsIndexes
 {
     NSAttributeDescription *title = attribute(@"title", NSStringAttributeType);

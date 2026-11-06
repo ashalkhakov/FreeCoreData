@@ -496,4 +496,16 @@ static NSString *const kIndexedModelXML = @""
     }
 }
 
+- (void)testAnEntityBeneathItselfIsRefused
+{
+    NSString *xml = @"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+        @"<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\">\n"
+        @"  <entity name=\"A\" representedClassName=\"NSManagedObject\" parentEntity=\"B\"/>\n"
+        @"  <entity name=\"B\" representedClassName=\"NSManagedObject\" parentEntity=\"A\"/>\n"
+        @"</model>\n";
+    NSError *error = nil;
+    XCTAssertNil([CDModelCompiler compileModelContentsXML:xml error:&error]);
+    XCTAssertTrue([[error localizedDescription] containsString:@"beneath itself"], @"%@", error);
+}
+
 @end
