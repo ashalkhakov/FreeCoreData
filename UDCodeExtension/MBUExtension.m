@@ -47,6 +47,33 @@
   (void)bundle;
 }
 
+/* The folders that are one document, as they are in Xcode: a version stands
+   for its contents, a mapping model for its xcmapping.xml, and a model for
+   the version .xccurrentversion names, else its last. */
+- (NSURL *)mainFileOfPackageAtURL:(NSURL *)url
+{
+  NSString *extension = [url pathExtension];
+  NSURL *file = nil;
+  if ([extension isEqualToString:@"xcdatamodel"]) {
+    file = [url URLByAppendingPathComponent:@"contents"];
+  } else if ([extension isEqualToString:@"xcmappingmodel"]) {
+    file = [url URLByAppendingPathComponent:@"xcmapping.xml"];
+  } else if ([extension isEqualToString:@"xcdatamodeld"]) {
+    NSDictionary *current = [NSDictionary dictionaryWithContentsOfURL:[url URLByAppendingPathComponent:@".xccurrentversion"]];
+    NSString *name = current[@"_XCCurrentVersionName"];
+    if (!name.length || ![self mainFileOfPackageAtURL:[url URLByAppendingPathComponent:name]]) {
+      NSArray *names = [[[NSFileManager defaultManager] contentsOfDirectoryAtPath:[url path] error:NULL]
+          filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"pathExtension == 'xcdatamodel'"]];
+      /* by the names without .xcdatamodel: M, M 2, M 10 */
+      name = [[names sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        return [[a stringByDeletingPathExtension] localizedStandardCompare:[b stringByDeletingPathExtension]];
+      }] lastObject];
+    }
+    return name.length ? [self mainFileOfPackageAtURL:[url URLByAppendingPathComponent:name]] : nil;
+  }
+  return [[NSFileManager defaultManager] fileExistsAtPath:[file path]] ? file : nil;
+}
+
 /* The modes' grammar is the XML mode's (LanguageInfo.plist's grammarOf). */
 - (const void *)languageFuncForIdentifier:(NSString *)identifier
 {

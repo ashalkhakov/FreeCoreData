@@ -140,6 +140,39 @@ static NSString *const MBUTestModelXML =
 
 #pragma mark - The extension
 
+- (void)testAModelsFoldersStandForTheFileTheyHold
+{
+  NSFileManager *files = [NSFileManager defaultManager];
+  NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+  NSString *model = [root stringByAppendingPathComponent:@"M.xcdatamodeld"];
+  for (NSString *path in @[ @"M.xcdatamodeld/M.xcdatamodel/contents", @"M.xcdatamodeld/M 2.xcdatamodel/contents",
+                            @"M.xcdatamodeld/M 10.xcdatamodel/contents", @"Map.xcmappingmodel/xcmapping.xml" ]) {
+    NSString *file = [root stringByAppendingPathComponent:path];
+    [files createDirectoryAtPath:[file stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:NULL];
+    [@"x" writeToFile:file atomically:NO encoding:NSUTF8StringEncoding error:NULL];
+  }
+  [files createDirectoryAtPath:[root stringByAppendingPathComponent:@"Empty.xcdatamodel"] withIntermediateDirectories:YES attributes:nil error:NULL];
+  [files createDirectoryAtPath:[root stringByAppendingPathComponent:@"Empty.xcdatamodeld"] withIntermediateDirectories:YES attributes:nil error:NULL];
+  MBUExtension *extension = [[MBUExtension alloc] init];
+  NSString *(^mainFile)(NSString *) = ^NSString *(NSString *path) {
+    NSURL *file = [extension mainFileOfPackageAtURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:path] isDirectory:YES]];
+    return file ? [[file path] substringFromIndex:root.length + 1] : nil;
+  };
+
+  XCTAssertEqualObjects(mainFile(@"M.xcdatamodeld/M.xcdatamodel"), @"M.xcdatamodeld/M.xcdatamodel/contents");
+  XCTAssertEqualObjects(mainFile(@"Map.xcmappingmodel"), @"Map.xcmappingmodel/xcmapping.xml");
+  XCTAssertEqualObjects(mainFile(@"M.xcdatamodeld"), @"M.xcdatamodeld/M 10.xcdatamodel/contents", @"no current version: the last");
+  NSString *pointer = [model stringByAppendingPathComponent:@".xccurrentversion"];
+  [@{ @"_XCCurrentVersionName" : @"M 2.xcdatamodel" } writeToFile:pointer atomically:NO];
+  XCTAssertEqualObjects(mainFile(@"M.xcdatamodeld"), @"M.xcdatamodeld/M 2.xcdatamodel/contents", @"the current version");
+  [@{ @"_XCCurrentVersionName" : @"Gone.xcdatamodel" } writeToFile:pointer atomically:NO];
+  XCTAssertEqualObjects(mainFile(@"M.xcdatamodeld"), @"M.xcdatamodeld/M 10.xcdatamodel/contents", @"a version that is gone: the last");
+  XCTAssertNil(mainFile(@"Empty.xcdatamodel"), @"without its file, a folder");
+  XCTAssertNil(mainFile(@"Empty.xcdatamodeld"), @"without a version, a folder");
+  XCTAssertNil([extension mainFileOfPackageAtURL:[NSURL fileURLWithPath:root isDirectory:YES]]);
+  [files removeItemAtPath:root error:NULL];
+}
+
 - (void)testAModelOrAMappingIsKnownByItsText
 {
   XCTAssertTrue([MBUExtension textIsAModel:MBUTestModelXML]);

@@ -7,6 +7,8 @@
    source control are UDCode's, and a tab of its text shows it as XML (its
    grammar is the XML mode's).  A file of either name that is no model
    opens as text.  The editors' menus are in UDCode's Editor menu.
+   The folders themselves are file packages to UDCode: choosing one opens the
+   file it stands for.
 
    Copyright (c) 2026 the GNUstep CoreData port contributors.
    Released under the MIT license. */
@@ -20,4 +22,6 @@
 /* Whether the text is a Core Data model's contents, or a mapping model's. */
 + (BOOL)textIsAModel:(NSString *)text;
 + (BOOL)textIsAMappingModel:(NSString *)text;
+/* The file a Core Data folder stands for; nil for any other folder. */
+- (NSURL *)mainFileOfPackageAtURL:(NSURL *)url;
 @end

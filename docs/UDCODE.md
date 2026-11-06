@@ -30,9 +30,17 @@ another platform.
 In an Xcode project, a model is a folder (`Model.xcdatamodeld`) holding a
 folder per version (`Model.xcdatamodel`), and each version's model is a file
 named `contents`. A mapping model is a folder (`Map.xcmappingmodel`) holding
-a file named `xcmapping.xml`. Open one of those files from the project
-navigator and it shows in its editor, in a tab of its own. A file of either
-name that is not a model opens as text, coloured as XML.
+a file named `xcmapping.xml`. To UDCode these folders are file packages, so
+each is one item in the project navigator and in File > Open, and choosing it
+opens its model in its editor, in a tab of its own with the folder's name. A
+`.xcdatamodeld` opens its current version (the one `.xccurrentversion` names);
+it expands to its versions, so any of them can be opened. Opening the files
+themselves works too, and a file of either name that is not a model opens as
+text, coloured as XML. Open Folder still opens any of these folders as a
+project.
+
+Adding a version and changing the current one are Model Builder's for now: the
+Editor menu has neither.
 
 The editors' parts spread over UDCode's window the way an Xcode editor's do:
 
