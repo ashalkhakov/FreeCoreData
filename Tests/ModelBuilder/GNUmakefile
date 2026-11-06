@@ -17,7 +17,12 @@ MB_SOURCES = \
 	../../ModelBuilder/MBModelEditor.m \
 	../../ModelBuilder/MBModelCommands.m \
 	../../ModelBuilder/MBMappingDocument.m \
+	../../ModelBuilder/MBMappingEditor.m \
+	../../ModelBuilder/MBMappingEditors.m \
 	../../ModelBuilder/MBMappingWindowController.m \
+	../../ModelBuilder/MBMappingSourceListViewController.m \
+	../../ModelBuilder/MBMappingDetailViewController.m \
+	../../ModelBuilder/MBMappingInspectorViewController.m \
 	../../ModelBuilder/MBNewMappingController.m \
 	../../ModelBuilder/MBEditors.m \
 	../../ModelBuilder/MBWindowController.m \
@@ -74,7 +79,8 @@ after-all::
 	wrap="$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe.app"; \
 	mkdir -p "$$wrap/Resources"; \
 	cp -f "$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe" "$$wrap/"; \
-	cp -f ../../ModelBuilder/MBMappingWindow.xib ../../ModelBuilder/MBNewMappingPanel.xib "$$wrap/Resources/"
+	cp -f ../../ModelBuilder/MBMappingWindow.xib ../../ModelBuilder/MBMappingSourceList.xib ../../ModelBuilder/MBMappingDetail.xib \
+	   ../../ModelBuilder/MBMappingInspector.xib ../../ModelBuilder/MBNewMappingPanel.xib "$$wrap/Resources/"
 
 RUN_ENV = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$PATH"
 

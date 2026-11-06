@@ -34,6 +34,10 @@
 /* The domain of the editors' errors, validation's included. */
 extern NSString *const MBEditorErrorDomain;
 
+/* `object`'s observers told that each of its properties, declared by its
+   class and its superclasses below `root`, may have changed. */
+void MBReloadProperties(NSObject *object, Class root);
+
 @interface MBEditor : NSObject
 @property (nonatomic, strong, readonly) MBModelEditor *modelEditor;
 @property (nonatomic, strong, readonly) NSError *lastError;

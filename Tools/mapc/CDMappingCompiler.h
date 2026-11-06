@@ -42,11 +42,22 @@ extern NSString * const CDMappingDestinationModelPathKey;
                                  error:(NSError **)error;
 + (BOOL)compileMappingModelAtPath:(NSString *)path toPath:(NSString *)destination error:(NSError **)error;
 
+/* The same, from an xcmapping.xml's text: what an editor that keeps the
+   file as text has (UDCode's).  `path` is where the mapping model is: the
+   place the models it names are looked for from, and its name in what is
+   reported. */
++ (NSMappingModel *)mappingModelFromXMLString:(NSString *)xml
+                                       atPath:(NSString *)path
+                                  sourceModel:(NSManagedObjectModel *)sourceModel
+                             destinationModel:(NSManagedObjectModel *)destinationModel
+                                        error:(NSError **)error;
+
 /* The two models a mapping model's source names, and the paths it names
    them by: what an editor needs to show which entities and properties
    there are to map.  Keys: CDMappingSourceModelKey, CDMappingDestination
    ModelKey, CDMappingSourceModelPathKey, CDMappingDestinationModelPathKey. */
 + (NSDictionary *)modelsForMappingModelAtPath:(NSString *)path error:(NSError **)error;
++ (NSDictionary *)modelsForMappingXMLString:(NSString *)xml atPath:(NSString *)path error:(NSError **)error;
 
 /* Warnings are reported through this, as momc does it. */
 + (void)setWarningHandler:(void (^)(NSString *message))handler;

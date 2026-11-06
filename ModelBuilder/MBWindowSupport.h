@@ -25,5 +25,8 @@ NSImage *MBFetchBadge(void);
 NSImage *MBConfigurationBadge(void);
 NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute);
 
+/* A part's view put in its pane, filling it. */
+void MBPlacePart(NSViewController *part, NSView *host);
+
 /* An alert for an edit the model refused. */
 void MBPresentModelError(NSError *error, NSString *title);

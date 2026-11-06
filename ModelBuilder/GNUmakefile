@@ -14,7 +14,9 @@ OBJC = clang
 APP_NAME = ModelBuilder
 ModelBuilder_OBJC_FILES = main.m MBAppController.m MBUpdater.m MBDocument.m MBModelEditor.m MBModelCommands.m MBEditors.m MBWindowController.m \
 	MBWindowSupport.m MBSourceListViewController.m MBDetailViewController.m MBInspectorViewController.m \
-	MBMappingDocument.m MBMappingWindowController.m MBNewMappingController.m \
+	MBMappingDocument.m MBMappingEditor.m MBMappingEditors.m MBMappingWindowController.m \
+	MBMappingSourceListViewController.m MBMappingDetailViewController.m MBMappingInspectorViewController.m \
+	MBNewMappingController.m \
 	../Tools/momc/CDModelCompiler.m ../Tools/momc/CDModelSerializer.m \
 	../Tools/momc/CDModelMutator.m \
 	../Tools/momc/CDCodeGenerator.m \
@@ -28,6 +30,7 @@ ModelBuilder_OBJC_FILES = main.m MBAppController.m MBUpdater.m MBDocument.m MBMo
 	ThirdParty/JUInspectorView/Source/JUInspectorViewHeader.m
 ModelBuilder_RESOURCE_FILES = MainMenu.xib MBDocumentWindow.xib MBMappingWindow.xib \
 	MBSourceList.xib MBDetail.xib MBInspector.xib \
+	MBMappingSourceList.xib MBMappingDetail.xib MBMappingInspector.xib \
 	MBNewMappingPanel.xib \
 	Info-gnustep.plist \
 	ModelBuilder.png

@@ -24,9 +24,17 @@
 		7D4C0542BED31CCA54ACF978 /* MBSourceList.xib in Resources */ = {isa = PBXBuildFile; fileRef = 6927F7C1E849FEDBA997D46D /* MBSourceList.xib */; };
 		MBMAP0000000000000000B000 /* MBMappingDocument.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F001 /* MBMappingDocument.m */; };
 		MBMAP0000000000000000B001 /* MBMappingWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F003 /* MBMappingWindowController.m */; };
+		0A66C5E153614FEB405EF637 /* MBMappingInspectorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C7EA6D95F43C21139ADC1F88 /* MBMappingInspectorViewController.m */; };
+		2AE4634BAC9D8BEF61E80530 /* MBMappingDetailViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = D3CF04A1DECBA3CABF437543 /* MBMappingDetailViewController.m */; };
+		3BA93D20783641890C8354FC /* MBMappingSourceListViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 188D845F9346D402E01E3FA3 /* MBMappingSourceListViewController.m */; };
+		6BC74012FF547E9F47CB9909 /* MBMappingEditors.m in Sources */ = {isa = PBXBuildFile; fileRef = 081870D0006090B6DECD5CC6 /* MBMappingEditors.m */; };
+		8106042AAB15FD744E43166B /* MBMappingEditor.m in Sources */ = {isa = PBXBuildFile; fileRef = E867C4CFB2B2BE01873C4D12 /* MBMappingEditor.m */; };
 		MBMAP0000000000000000B002 /* CDMappingCompiler.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F005 /* CDMappingCompiler.m */; };
 		MBMAP0000000000000000B003 /* CDMappingSerializer.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F007 /* CDMappingSerializer.m */; };
 		MBMAP0000000000000000B004 /* MBMappingWindow.xib in Resources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F008 /* MBMappingWindow.xib */; };
+		B91F225751E1B87A3BFB2646 /* MBMappingInspector.xib in Resources */ = {isa = PBXBuildFile; fileRef = 05BCDFDFCF8D10EBEF325275 /* MBMappingInspector.xib */; };
+		D9157183646C05615267F62B /* MBMappingDetail.xib in Resources */ = {isa = PBXBuildFile; fileRef = 17CE9AB1C62C5E4D707DA985 /* MBMappingDetail.xib */; };
+		165EF0406180F942F979D108 /* MBMappingSourceList.xib in Resources */ = {isa = PBXBuildFile; fileRef = B505CF52C69E9EA010770D84 /* MBMappingSourceList.xib */; };
 		MBMAP0000000000000000B005 /* MBNewMappingController.m in Sources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F00B /* MBNewMappingController.m */; };
 		MBMAP0000000000000000B006 /* MBNewMappingPanel.xib in Resources */ = {isa = PBXBuildFile; fileRef = MBMAP0000000000000000F00C /* MBNewMappingPanel.xib */; };
 		CE80DEDD303EE4280028CAFF /* JUInspectorViewHeader.m in Sources */ = {isa = PBXBuildFile; fileRef = CE80DEDC303EE4280028CAFF /* JUInspectorViewHeader.m */; };
@@ -89,6 +97,19 @@
 		MBMAP0000000000000000F000 /* MBMappingDocument.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingDocument.h; sourceTree = "<group>"; };
 		MBMAP0000000000000000F001 /* MBMappingDocument.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingDocument.m; sourceTree = "<group>"; };
 		MBMAP0000000000000000F002 /* MBMappingWindowController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingWindowController.h; sourceTree = "<group>"; };
+		05BCDFDFCF8D10EBEF325275 /* MBMappingInspector.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBMappingInspector.xib; sourceTree = "<group>"; };
+		17CE9AB1C62C5E4D707DA985 /* MBMappingDetail.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBMappingDetail.xib; sourceTree = "<group>"; };
+		B505CF52C69E9EA010770D84 /* MBMappingSourceList.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = MBMappingSourceList.xib; sourceTree = "<group>"; };
+		DAAC96B36889B090CB6D5E7D /* MBMappingInspectorViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingInspectorViewController.h; sourceTree = "<group>"; };
+		C7EA6D95F43C21139ADC1F88 /* MBMappingInspectorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingInspectorViewController.m; sourceTree = "<group>"; };
+		FA935F6977E77A6205BE7312 /* MBMappingDetailViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingDetailViewController.h; sourceTree = "<group>"; };
+		D3CF04A1DECBA3CABF437543 /* MBMappingDetailViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingDetailViewController.m; sourceTree = "<group>"; };
+		CF729B107F365C669C375E92 /* MBMappingSourceListViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingSourceListViewController.h; sourceTree = "<group>"; };
+		188D845F9346D402E01E3FA3 /* MBMappingSourceListViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingSourceListViewController.m; sourceTree = "<group>"; };
+		6484B7AC341051F80068B3A7 /* MBMappingEditors.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingEditors.h; sourceTree = "<group>"; };
+		081870D0006090B6DECD5CC6 /* MBMappingEditors.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingEditors.m; sourceTree = "<group>"; };
+		7A73CED92FD6AF8EB11C116F /* MBMappingEditor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MBMappingEditor.h; sourceTree = "<group>"; };
+		E867C4CFB2B2BE01873C4D12 /* MBMappingEditor.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingEditor.m; sourceTree = "<group>"; };
 		MBMAP0000000000000000F003 /* MBMappingWindowController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MBMappingWindowController.m; sourceTree = "<group>"; };
 		MBMAP0000000000000000F004 /* CDMappingCompiler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CDMappingCompiler.h; path = ../Tools/mapc/CDMappingCompiler.h; sourceTree = "<group>"; };
 		MBMAP0000000000000000F005 /* CDMappingCompiler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CDMappingCompiler.m; path = ../Tools/mapc/CDMappingCompiler.m; sourceTree = "<group>"; };
@@ -193,6 +214,19 @@
 				MBMAP0000000000000000F001 /* MBMappingDocument.m */,
 				MBMAP0000000000000000F002 /* MBMappingWindowController.h */,
 				MBMAP0000000000000000F003 /* MBMappingWindowController.m */,
+				05BCDFDFCF8D10EBEF325275 /* MBMappingInspector.xib */,
+				17CE9AB1C62C5E4D707DA985 /* MBMappingDetail.xib */,
+				B505CF52C69E9EA010770D84 /* MBMappingSourceList.xib */,
+				DAAC96B36889B090CB6D5E7D /* MBMappingInspectorViewController.h */,
+				C7EA6D95F43C21139ADC1F88 /* MBMappingInspectorViewController.m */,
+				FA935F6977E77A6205BE7312 /* MBMappingDetailViewController.h */,
+				D3CF04A1DECBA3CABF437543 /* MBMappingDetailViewController.m */,
+				CF729B107F365C669C375E92 /* MBMappingSourceListViewController.h */,
+				188D845F9346D402E01E3FA3 /* MBMappingSourceListViewController.m */,
+				6484B7AC341051F80068B3A7 /* MBMappingEditors.h */,
+				081870D0006090B6DECD5CC6 /* MBMappingEditors.m */,
+				7A73CED92FD6AF8EB11C116F /* MBMappingEditor.h */,
+				E867C4CFB2B2BE01873C4D12 /* MBMappingEditor.m */,
 				MBMAP0000000000000000F004 /* CDMappingCompiler.h */,
 				MBMAP0000000000000000F005 /* CDMappingCompiler.m */,
 				MBMAP0000000000000000F006 /* CDMappingSerializer.h */,
@@ -292,6 +326,9 @@
 				578B78FD9BBABD7B3675998C /* MBDetail.xib in Resources */,
 				7D4C0542BED31CCA54ACF978 /* MBSourceList.xib in Resources */,
 				MBMAP0000000000000000B004 /* MBMappingWindow.xib in Resources */,
+				B91F225751E1B87A3BFB2646 /* MBMappingInspector.xib in Resources */,
+				D9157183646C05615267F62B /* MBMappingDetail.xib in Resources */,
+				165EF0406180F942F979D108 /* MBMappingSourceList.xib in Resources */,
 				MBMAP0000000000000000B006 /* MBNewMappingPanel.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -311,6 +348,11 @@
 				MB0000000000000000000103 /* MBDocument.m in Sources */,
 				MBMAP0000000000000000B000 /* MBMappingDocument.m in Sources */,
 				MBMAP0000000000000000B001 /* MBMappingWindowController.m in Sources */,
+				0A66C5E153614FEB405EF637 /* MBMappingInspectorViewController.m in Sources */,
+				2AE4634BAC9D8BEF61E80530 /* MBMappingDetailViewController.m in Sources */,
+				3BA93D20783641890C8354FC /* MBMappingSourceListViewController.m in Sources */,
+				6BC74012FF547E9F47CB9909 /* MBMappingEditors.m in Sources */,
+				8106042AAB15FD744E43166B /* MBMappingEditor.m in Sources */,
 				MBMAP0000000000000000B002 /* CDMappingCompiler.m in Sources */,
 				MBMAP0000000000000000B003 /* CDMappingSerializer.m in Sources */,
 				MBMAP0000000000000000B005 /* MBNewMappingController.m in Sources */,

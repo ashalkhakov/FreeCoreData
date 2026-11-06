@@ -8,6 +8,7 @@
 #import <AppKit/AppKit.h>
 #import <CoreData/CoreData.h>
 #import "MBMappingDocument.h"
+#import "MBMappingEditor.h"
 #import "CDMappingCompiler.h"
 
 static int passed = 0, failed = 0;
@@ -33,12 +34,6 @@ static NSString *fixturePath(void)
   return nil;
 }
 
-static NSEntityMapping *mappingNamed(MBMappingDocument *document, NSString *name)
-{
-  for (NSEntityMapping *mapping in [document entityMappings])
-    if ([[mapping name] isEqualToString:name]) return mapping;
-  return nil;
-}
 
 int main(int argc, const char *argv[])
 {
@@ -63,76 +58,74 @@ int main(int argc, const char *argv[])
       printf("  (%s)\n", [[error description] UTF8String]);
       return 1;
     }
-    CHECK([[document entityMappings] count] == 3, "its three mappings are there");
-    CHECK([document sourceModel] != nil && [document destinationModel] != nil,
+    MBMappingEditor *editor = document.mappingEditor;
+
+    CHECK([[editor entityMappings] count] == 3, "its three mappings are there");
+    CHECK([editor sourceModel] != nil && [editor destinationModel] != nil,
           "the models it maps between came with it");
 
-    NSEntityMapping *notes = mappingNamed(document, @"NoteToNote");
+    NSEntityMapping *notes = [editor entityMappingNamed:@"NoteToNote"];
 
     CHECK(notes != nil, "the mapping that was narrowed is found by name");
-    CHECK([[document filterPredicateOfEntityMapping:notes]
+    CHECK([[editor filterPredicateOfEntityMapping:notes]
               isEqualToString:@"text BEGINSWITH \"keep\""],
           "and the predicate it was narrowed by is read back");
 
     SCENARIO("the editor's own edits, and undo");
 
-    [document setFilterPredicate:@"text BEGINSWITH \"drop\"" forEntityMapping:notes];
-    CHECK([[document filterPredicateOfEntityMapping:notes]
+    [editor setFilterPredicate:@"text BEGINSWITH \"drop\"" forEntityMapping:notes];
+    CHECK([[editor filterPredicateOfEntityMapping:notes]
               isEqualToString:@"text BEGINSWITH \"drop\""], "the predicate changes");
 
     [[document undoManager] undo];
-    CHECK([[document filterPredicateOfEntityMapping:notes]
+    CHECK([[editor filterPredicateOfEntityMapping:notes]
               isEqualToString:@"text BEGINSWITH \"keep\""], "and one undo puts it back");
 
     [[document undoManager] redo];
-    CHECK([[document filterPredicateOfEntityMapping:notes]
+    CHECK([[editor filterPredicateOfEntityMapping:notes]
               isEqualToString:@"text BEGINSWITH \"drop\""], "and redo takes it forward");
     [[document undoManager] undo];
 
     /* Every destination property has a row, whether anything fills it or
        not - the blanks are what an author is there to fill. */
-    NSArray *attributes = [document attributeMappingsOfEntityMapping:notes];
-    NSMutableArray *names = [NSMutableArray array];
+    NSArray *attributesBefore = [notes attributeMappings];
+    NSMutableArray *names = [[editor propertyNamesOfEntityMapping:notes relationships:NO] mutableCopy];
 
-    for (NSPropertyMapping *property in attributes) [names addObject:[property name]];
     [names sortUsingSelector:@selector(compare:)];
     CHECK([[names componentsJoinedByString:@","] isEqualToString:@"text,writer"],
           "the destination's attributes each have a row");
+    CHECK([[notes attributeMappings] isEqualToArray:attributesBefore], "and reading the rows changes nothing");
 
-    NSPropertyMapping *writer = nil, *text = nil;
-
-    for (NSPropertyMapping *property in attributes) {
-      if ([[property name] isEqualToString:@"writer"]) writer = property;
-      if ([[property name] isEqualToString:@"text"]) text = property;
-    }
-    CHECK([[document valueExpressionStringOfPropertyMapping:writer] length] > 0,
+    NSPropertyMapping *writer = [editor propertyMappingNamed:@"writer" inEntityMapping:notes relationships:NO];
+    NSPropertyMapping *text = [editor propertyMappingToEditNamed:@"text" inEntityMapping:notes relationships:NO];
+    CHECK([[editor valueExpressionStringOfPropertyMapping:writer] length] > 0,
           "the expression written by hand is shown");
-    CHECK([document valueExpressionStringOfPropertyMapping:text] == nil,
+    CHECK([editor valueExpressionStringOfPropertyMapping:text] == nil,
           "the one the compiler works out is shown as nothing");
 
     /* Something other than what the compiler would work out: writing
        $source.text there would be writing the blank back. */
-    CHECK([document setValueExpressionString:@"$source.author" ofPropertyMapping:text error:&error],
+    CHECK([editor setValueExpressionString:@"$source.author" ofPropertyMapping:text error:&error],
           "an expression can be written");
-    CHECK([[document valueExpressionStringOfPropertyMapping:text] isEqualToString:@"$source.author"],
+    CHECK([[editor valueExpressionStringOfPropertyMapping:text] isEqualToString:@"$source.author"],
           "and is kept, being one nobody would have derived");
-    CHECK(![document setValueExpressionString:@"$source." ofPropertyMapping:text error:&error],
+    CHECK(![editor setValueExpressionString:@"$source." ofPropertyMapping:text error:&error],
           "and one that is not an expression is refused");
     [[document undoManager] undo];
-    CHECK([document valueExpressionStringOfPropertyMapping:text] == nil,
+    CHECK([editor valueExpressionStringOfPropertyMapping:text] == nil,
           "undo gives the blank back");
 
     SCENARIO("a mapping added and taken away again");
 
-    NSUInteger before = [[document entityMappings] count];
-    NSEntityMapping *added = [document addEntityMappingFromEntityNamed:@"Obsolete"
+    NSUInteger before = [[editor entityMappings] count];
+    NSEntityMapping *added = [editor addEntityMappingFromEntityNamed:@"Obsolete"
                                                         toEntityNamed:nil];
 
-    CHECK([[document entityMappings] count] == before + 1, "it is added");
+    CHECK([[editor entityMappings] count] == before + 1, "it is added");
     CHECK([added mappingType] == NSRemoveEntityMappingType,
           "an entity with nowhere to go is a removal");
     [[document undoManager] undo];
-    CHECK([[document entityMappings] count] == before, "and undo takes it away");
+    CHECK([[editor entityMappings] count] == before, "and undo takes it away");
 
     SCENARIO("saved as its own source, and compiled from there");
 
@@ -145,8 +138,8 @@ int main(int argc, const char *argv[])
                          error:&error], "it saves");
 
     NSMappingModel *compiled = [CDMappingCompiler mappingModelAtPath:saved
-                                                        sourceModel:[document sourceModel]
-                                                   destinationModel:[document destinationModel]
+                                                        sourceModel:[editor sourceModel]
+                                                   destinationModel:[editor destinationModel]
                                                               error:&error];
 
     CHECK(compiled != nil, "and compiles");

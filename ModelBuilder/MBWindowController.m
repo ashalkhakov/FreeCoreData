@@ -41,15 +41,6 @@ static const CGFloat MBInspectorMinimum = 260.0;
 
 #pragma mark - Nib assembly
 
-/* A part's view, filling its pane. */
-static void MBPlace(NSViewController *part, NSView *host)
-{
-  NSView *view = part.view;
-  view.frame = host.bounds;
-  view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-  [host addSubview:view];
-}
-
 - (void)windowDidLoad
 {
   [super windowDidLoad];
@@ -72,9 +63,9 @@ static void MBPlace(NSViewController *part, NSView *host)
   _sourceListController = [[MBSourceListViewController alloc] init];
   _detailController = [[MBDetailViewController alloc] init];
   _inspectorController = [[MBInspectorViewController alloc] init];
-  MBPlace(_sourceListController, self.sourceListHost);
-  MBPlace(_detailController, self.detailHost);
-  MBPlace(_inspectorController, self.inspectorHost);
+  MBPlacePart(_sourceListController, self.sourceListHost);
+  MBPlacePart(_detailController, self.detailHost);
+  MBPlacePart(_inspectorController, self.inspectorHost);
 
   [self showModelEditor];
 }

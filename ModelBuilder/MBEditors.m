@@ -12,6 +12,20 @@ NSString *const MBEditorErrorDomain = @"MBEditors";
 
 static NSString *const MBNoneTitle = @"(none)";
 
+void MBReloadProperties(NSObject *object, Class root)
+{
+  NSMutableArray *keys = [NSMutableArray array];
+  for (Class cls = [object class]; cls && cls != root; cls = class_getSuperclass(cls)) {
+    unsigned int count = 0;
+    objc_property_t *properties = class_copyPropertyList(cls, &count);
+    for (unsigned int i = 0; i < count; i++)
+      [keys addObject:@(property_getName(properties[i]))];
+    free(properties);
+  }
+  for (NSString *key in keys) [object willChangeValueForKey:key];
+  for (NSString *key in [keys reverseObjectEnumerator]) [object didChangeValueForKey:key];
+}
+
 static NSString *MBUniquePropertyName(NSString *base, NSEntityDescription *entity)
 {
   NSArray *names = entity.propertiesByName.allKeys;
@@ -142,25 +156,9 @@ static BOOL MBValidatePredicate(id *value, NSError **error)
   return [editor class] == [self class] && editor->_modelEditor == _modelEditor;
 }
 
-/* Its properties, its own and its superclasses' up to MBEditor's. */
-+ (NSArray *)reloadedKeys
-{
-  NSMutableArray *keys = [NSMutableArray array];
-  for (Class cls = self; cls && cls != [MBEditor class]; cls = class_getSuperclass(cls)) {
-    unsigned int count = 0;
-    objc_property_t *properties = class_copyPropertyList(cls, &count);
-    for (unsigned int i = 0; i < count; i++)
-      [keys addObject:@(property_getName(properties[i]))];
-    free(properties);
-  }
-  return keys;
-}
-
 - (void)reload
 {
-  NSArray *keys = [[self class] reloadedKeys];
-  for (NSString *key in keys) [self willChangeValueForKey:key];
-  for (NSString *key in [keys reverseObjectEnumerator]) [self didChangeValueForKey:key];
+  MBReloadProperties(self, [MBEditor class]);
 }
 
 - (void)noteEdited

@@ -28,6 +28,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                           sourceModelPath:(NSString *)sourceModelPath
                      destinationModelPath:(NSString *)destinationModelPath
                                     error:(NSError **)error;
+/* The same, written over a file's text (an editor that keeps the file as
+   text, UDCode's, has no file to read it from): what only Xcode can put in
+   it is kept. */
++ (NSString *)xcmappingXMLForMappingModel:(NSMappingModel *)model
+                          sourceModelPath:(NSString *)sourceModelPath
+                     destinationModelPath:(NSString *)destinationModelPath
+                            overXMLString:(NSString *)previous
+                                    error:(NSError **)error;
 
 /* Whether an expression is the one the compiler works out for a property
    of this name, rather than one an author wrote.  The serializer leaves

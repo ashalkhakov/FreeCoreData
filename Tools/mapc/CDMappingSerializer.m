@@ -92,8 +92,11 @@ static NSString *escaped(NSString *string){
    them.  A file written over a file that has them keeps them, so a mapping
    model made in Xcode and edited here still compiles there. */
 +(NSDictionary *)_carriedOverModelDataAtPath:(NSString *)path {
-   NSData *data=[NSData dataWithContentsOfFile:[path stringByAppendingPathComponent:@"xcmapping.xml"]];
+   return [self _carriedOverModelDataFromData:
+       [NSData dataWithContentsOfFile:[path stringByAppendingPathComponent:@"xcmapping.xml"]]];
+}
 
++(NSDictionary *)_carriedOverModelDataFromData:(NSData *)data {
    if(data==nil)
     return nil;
 
@@ -234,6 +237,19 @@ static NSString *escaped(NSString *string){
                             sourceModelPath:sourceModelPath
                        destinationModelPath:destinationModelPath
                              carriedOverData:nil
+                                      error:error];
+}
+
++(NSString *)xcmappingXMLForMappingModel:(NSMappingModel *)model
+                         sourceModelPath:(NSString *)sourceModelPath
+                    destinationModelPath:(NSString *)destinationModelPath
+                           overXMLString:(NSString *)previous
+                                   error:(NSError **)error {
+   return [self xcmappingXMLForMappingModel:model
+                            sourceModelPath:sourceModelPath
+                       destinationModelPath:destinationModelPath
+                             carriedOverData:[self _carriedOverModelDataFromData:
+                                                 [previous dataUsingEncoding:NSUTF8StringEncoding]]
                                       error:error];
 }
 

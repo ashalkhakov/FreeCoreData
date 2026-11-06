@@ -89,3 +89,10 @@ NSString *MBAttributeBadgeLetters(NSAttributeDescription *attribute)
   }
 }
 
+void MBPlacePart(NSViewController *part, NSView *host)
+{
+  NSView *view = part.view;
+  view.frame = host.bounds;
+  view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  [host addSubview:view];
+}
