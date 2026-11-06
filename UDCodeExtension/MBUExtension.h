@@ -22,6 +22,4 @@
 /* Whether the text is a Core Data model's contents, or a mapping model's. */
 + (BOOL)textIsAModel:(NSString *)text;
 + (BOOL)textIsAMappingModel:(NSString *)text;
-/* The file a Core Data folder stands for; nil for any other folder. */
-- (NSURL *)mainFileOfPackageAtURL:(NSURL *)url;
 @end

@@ -21,7 +21,7 @@ Each FreeCoreData release attaches a package for each platform:
 Install it with **UDCode > Extensions… > Install from Package…**, or from a
 shell with `UDCode --install-extension coredata-<version>-<platform>.udcx`,
 then start UDCode again. A package states which UDCode versions it works
-with (`engines.udcode` in its `package.json`: 0.19.2 and later 0.19
+with (`engines.udcode` in its `package.json`: 0.19.3 and later 0.19
 releases), and UDCode refuses a package built for another version or
 another platform.
 
