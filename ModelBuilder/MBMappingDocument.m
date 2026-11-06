@@ -27,18 +27,25 @@
   return @"Core Data Mapping Model";
 }
 
+/* Grouping by event is off, as MBDocument's: every edit opens its own
+   group (see MBMappingEditor's undo), so one user action is one undo step
+   however the run loop turns.  A document's change count follows its
+   undo manager: NSDocument counts a change when a group closes and takes
+   it back when it is undone. */
 - (instancetype)init
 {
-  if ((self = [super init]))
-    _mappingEditor = [[MBMappingEditor alloc] initWithUndoManager:[self undoManager]];
+  if ((self = [super init])) {
+    NSUndoManager *undo = [[NSUndoManager alloc] init];
+    [undo setGroupsByEvent:NO];
+    [self setUndoManager:undo];
+  }
   return self;
 }
 
-/* A document's change count follows its undo manager: NSDocument counts a
-   change when an undo group closes and takes it back when it is undone. */
 - (void)setUndoManager:(NSUndoManager *)undoManager
 {
   [super setUndoManager:undoManager];
+  if (!_mappingEditor) _mappingEditor = [[MBMappingEditor alloc] initWithUndoManager:undoManager];
   _mappingEditor.undoManager = undoManager;
 }
 

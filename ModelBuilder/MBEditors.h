@@ -102,7 +102,8 @@ void MBReloadProperties(NSObject *object, Class root);
                   rtree       @YES for an R-tree element
                   ascending   @NO for a descending one
    Setting them replaces the indexes - refusing (lastError) a predicate
-   that does not parse or an R-tree element that is not a small number. */
+   that does not parse, an R-tree element that is not a small number, or
+   an index of R-tree and binary elements both. */
 @property (nonatomic, copy) NSArray *fetchIndexRows;
 - (NSString *)addFetchIndex;
 - (void)removeFetchIndexNamed:(NSString *)name;
@@ -154,8 +155,8 @@ void MBReloadProperties(NSObject *object, Class root);
 @property (nonatomic, copy) NSNumber *defaultNumber;
 /* A string's default ticked: an empty one, or none. */
 @property (nonatomic, assign) BOOL hasDefaultString;
-/* A boolean's default as its pop-up's item: "No Value", "YES" or "NO". */
-@property (nonatomic, copy) NSString *boolDefaultTitle;
+/* A boolean's default as its pop-up's index: No Value, YES, NO. */
+@property (nonatomic, assign) NSInteger boolDefaultIndex;
 
 /* The dates, each as a tick and a picker: ticking gives it what the
    picker shows, which without a date is the moment the editor was made. */
@@ -222,8 +223,8 @@ void MBReloadProperties(NSObject *object, Class root);
 @property (nonatomic, copy, readonly) NSArray *inverseTitles;
 @property (nonatomic, copy) NSString *inverseTitle;
 @property (nonatomic, assign, getter=isToMany) BOOL toMany;
-/* "To One" or "To Many", the type pop-up's item. */
-@property (nonatomic, copy) NSString *typeTitle;
+/* The type as its pop-up's index: To Many, To One. */
+@property (nonatomic, assign) NSInteger typeIndex;
 @property (nonatomic, assign, getter=isOrdered) BOOL ordered;   /* to-many only */
 @property (nonatomic, assign) NSInteger minCount;      /* to-many only; 0 = unset */
 @property (nonatomic, assign) NSInteger maxCount;      /* to-many only; 0/1 = unbounded */
@@ -231,6 +232,8 @@ void MBReloadProperties(NSObject *object, Class root);
 @property (nonatomic, copy) NSNumber *minCountNumber;
 @property (nonatomic, copy) NSNumber *maxCountNumber;
 @property (nonatomic, copy) NSString *deleteRuleName;  /* momc spelling */
+/* The rule as its pop-up's index: No Action, Nullify, Cascade, Deny. */
+@property (nonatomic, assign) NSInteger deleteRuleIndex;
 @property (nonatomic, assign, getter=isOptional) BOOL optional;
 @property (nonatomic, assign, getter=isTransient) BOOL transient;
 @property (nonatomic, copy) NSString *hashModifier;

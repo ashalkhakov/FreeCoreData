@@ -1,6 +1,10 @@
-# ModelBuilder end-to-end tests (headless).  See README.md for the
-# scenario catalogue and requirements (a gnustep-back -- headless, or
-# cairo under xvfb-run -- and the built CoreData framework in the tree).
+# ModelBuilderTests -- ModelBuilder's document and mapping layers, its
+# editors, and its two windows loaded from their XIBs and driven as a user
+# would (MBDocumentTests, MBEditorsTests, MBModelWindowTests,
+# MBMappingEditorTests, MBMappingWindowTests).  An XCTest bundle holding
+# ModelBuilder's sources and XIBs, run by xctest; the windows need a
+# display (the top GNUmakefile's check runs it under xvfb-run when there
+# is none) and the CoreData framework built in the tree.
 ifeq ($(GNUSTEP_MAKEFILES),)
 $(error Set GNUSTEP_MAKEFILES (source GNUstep.sh).)
 endif
@@ -10,7 +14,10 @@ include $(GNUSTEP_MAKEFILES)/common.make
 CC = clang
 OBJC = clang
 
-TOOL_NAME = MBDocumentSmoke MBWindowProbe MBMappingSmoke MBMappingWindowProbe
+BUNDLE_NAME = ModelBuilderTests
+BUNDLE_EXTENSION = .bundle
+ModelBuilderTests_NEEDS_GUI = yes
+ModelBuilderTests_PRINCIPAL_CLASS = XCTestCase
 
 MB_SOURCES = \
 	../../ModelBuilder/MBDocument.m \
@@ -44,10 +51,19 @@ MB_SOURCES = \
 	../../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorViewContainer.m \
 	../../ModelBuilder/ThirdParty/JUInspectorView/Source/JUInspectorViewHeader.m
 
-MBDocumentSmoke_OBJC_FILES = MBDocumentSmoke.m $(MB_SOURCES)
-MBWindowProbe_OBJC_FILES = MBWindowProbe.m $(MB_SOURCES)
-MBMappingSmoke_OBJC_FILES = MBMappingSmoke.m $(MB_SOURCES)
-MBMappingWindowProbe_OBJC_FILES = MBMappingWindowProbe.m $(MB_SOURCES)
+ModelBuilderTests_OBJC_FILES = \
+	MBDocumentTests.m \
+	MBEditorsTests.m \
+	MBModelWindowTests.m \
+	MBMappingEditorTests.m \
+	MBMappingWindowTests.m \
+	$(MB_SOURCES)
+
+# The windows' and parts' XIBs: the bundle is where its classes look for them.
+ModelBuilderTests_RESOURCE_FILES = $(addprefix ../../ModelBuilder/, \
+	MBDocumentWindow.xib MBSourceList.xib MBDetail.xib MBInspector.xib \
+	MBMappingWindow.xib MBMappingSourceList.xib MBMappingDetail.xib MBMappingInspector.xib \
+	MBNewMappingPanel.xib)
 
 ADDITIONAL_INCLUDE_DIRS += -I../.. -I../../Tools/momc -I../../Tools/mapc -I../../ModelBuilder \
 	-I../../ModelBuilder/ThirdParty/DMTabBar/DMTabBar/DMTabBar \
@@ -55,50 +71,27 @@ ADDITIONAL_INCLUDE_DIRS += -I../.. -I../../Tools/momc -I../../Tools/mapc -I../..
 
 FRAMEWORK_BUILD_DIR = $(firstword $(wildcard $(CURDIR)/../../CoreData.framework/Versions/Current) $(CURDIR)/../../CoreData.framework)
 
-MBDocumentSmoke_OBJC_LIBS += -lCoreData -lgnustep-gui
-MBWindowProbe_OBJC_LIBS += -lCoreData -lgnustep-gui
-MBMappingSmoke_OBJC_LIBS += -lCoreData -lgnustep-gui
-MBMappingWindowProbe_OBJC_LIBS += -lCoreData -lgnustep-gui
+ModelBuilderTests_BUNDLE_LIBS += -lCoreData -lXCTest -lgnustep-gui
 ADDITIONAL_LIB_DIRS += -L$(FRAMEWORK_BUILD_DIR) -L$(GNUSTEP_SYSTEM_LIBRARIES)
 
 ADDITIONAL_OBJCFLAGS += -fobjc-arc -fblocks -fobjc-runtime=gnustep-2.0 \
 	-fconstant-string-class=NSConstantString -fobjc-exceptions
 
+XCTEST ?= xctest
+
 -include GNUmakefile.preamble
-include $(GNUSTEP_MAKEFILES)/tool.make
+include $(GNUSTEP_MAKEFILES)/bundle.make
 -include GNUmakefile.postamble
 
-# The window probe needs an .app-shaped wrapper: GNUstep's NSBundle
-# resolves a Resources/ subdirectory (where the nib lives) only for
-# app-wrapper paths, not for a bare tool directory.
-after-all::
-	@wrap="$(GNUSTEP_OBJ_DIR)/MBWindowProbe.app"; \
-	mkdir -p "$$wrap/Resources"; \
-	cp -f "$(GNUSTEP_OBJ_DIR)/MBWindowProbe" "$$wrap/"; \
-	cp -f ../../ModelBuilder/MBDocumentWindow.xib ../../ModelBuilder/MBSourceList.xib ../../ModelBuilder/MBDetail.xib ../../ModelBuilder/MBInspector.xib "$$wrap/Resources/"; \
-	wrap="$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe.app"; \
-	mkdir -p "$$wrap/Resources"; \
-	cp -f "$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe" "$$wrap/"; \
-	cp -f ../../ModelBuilder/MBMappingWindow.xib ../../ModelBuilder/MBMappingSourceList.xib ../../ModelBuilder/MBMappingDetail.xib \
-	   ../../ModelBuilder/MBMappingInspector.xib ../../ModelBuilder/MBNewMappingPanel.xib "$$wrap/Resources/"
-
+# The bundle has ten minutes, and what it prints goes to a file of which
+# the last lines are shown: a test that waits for an event that never
+# comes fails with what it said last, rather than holding the build (or
+# flooding its log) until CI gives up on it.
 RUN_ENV = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$PATH"
 
-# Each probe has five minutes, and what it prints goes to a file of which
-# the last lines are shown: one that waits for an event that never comes,
-# or prints without end, fails with what it said last, rather than holding
-# the build (or flooding its log) until CI gives up on it.
-PROBE = run() { echo "== $$1"; $(RUN_ENV) timeout --kill-after=10 300 "$$1" > "$$1.log" 2>&1; status=$$?; \
-	tail -n 100 "$$1.log"; [ $$status = 0 ] || echo "== $$1 exited $$status"; return $$status; }; run
-
 .PHONY: check
-check::
-	$(PROBE) "$(GNUSTEP_OBJ_DIR)/MBDocumentSmoke"
-	$(PROBE) "$(GNUSTEP_OBJ_DIR)/MBMappingSmoke"
-	$(PROBE) "$(GNUSTEP_OBJ_DIR)/MBWindowProbe.app/MBWindowProbe"
-	$(PROBE) "$(GNUSTEP_OBJ_DIR)/MBMappingWindowProbe.app/MBMappingWindowProbe"
-
-# gnustep-make mirrors ../../ source paths beside obj/ when compiling
-# out-of-directory sources; sweep those artifacts too.
-clean::
-	rm -rf ModelBuilder Tools
+check:: $(BUNDLE_NAME)$(BUNDLE_EXTENSION)
+	@$(RUN_ENV) timeout --kill-after=10 600 $(XCTEST) "$(BUNDLE_NAME)$(BUNDLE_EXTENSION)" > "$(BUNDLE_NAME).log" 2>&1; \
+	status=$$?; grep -v "unknown control size\|unknown custom color space\|_NET_WORKAREA\|given negative width\|IBUserDefinedRuntimeAttribute5" \
+	  "$(BUNDLE_NAME).log" | tail -n 150; \
+	[ $$status = 0 ] || echo "== $(BUNDLE_NAME) exited $$status"; exit $$status

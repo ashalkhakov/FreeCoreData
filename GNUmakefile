@@ -152,8 +152,8 @@ after-clean::
 	@for part in $(CD_PARTS) Tests Tests/ModelBuilder; do $(MAKE) -C $$part clean || exit 1; done
 
 # make check: the framework's tests; Model Builder's, driving its windows
-# (under Xvfb when there is no display; one job at a time: its four tools
-# share sources, and parallel jobs race to make their object directories); and the SQL stores against the
+# (under Xvfb when there is no display; one job at a time, as its sources
+# are built in object directories of their own); and the SQL stores against the
 # servers they are given, each alone and both in one process. A server is
 # given by its URL (POSTGRES_URL, MYSQL_URL, MARIADB_URL: a database a test
 # may create tables in); without one its suites are skipped, but not in CI,

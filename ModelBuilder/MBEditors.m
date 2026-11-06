@@ -351,12 +351,16 @@ static BOOL MBValidatePredicate(id *value, NSError **error)
   self.parentName = [title isEqualToString:MBNoneTitle] ? @"" : title;
 }
 
-/* The reparenting tried on the model as it is, and kept only when it
-   works (a cycle, a property clash with the new parent's, refuse). */
+/* A parent beneath the entity is refused; any other is tried on the
+   model as it is, and kept only when the reparenting works (a property
+   clash with the new parent's, say, refuses). */
 - (BOOL)validateParentTitle:(id *)value error:(NSError **)error
 {
   NSString *parent = [*value isEqualToString:MBNoneTitle] ? @"" : (*value ?: @"");
   if ([parent isEqualToString:self.parentName]) return YES;
+  for (NSEntityDescription *above = _modelEditor.model.entitiesByName[parent]; above; above = above.superentity)
+    if ([above.name isEqualToString:_name])
+      return MBRefuse(error, @"%@ cannot have %@ as its parent: %@ is beneath it.", _name, parent, parent);
   NSError *failure = nil;
   if (![CDModelMutator model:_modelEditor.model entityLayouts:_modelEditor.entityLayouts
           settingParentOfEntityNamed:_name to:parent error:&failure])
@@ -496,7 +500,13 @@ static BOOL MBValidatePredicate(id *value, NSError **error)
       element.ascending = item[@"ascending"] ? [item[@"ascending"] boolValue] : YES;
       [elements addObject:element];
     }
-    NSFetchIndexDescription *index = [[NSFetchIndexDescription alloc] initWithName:row[@"name"] elements:elements];
+    NSFetchIndexDescription *index = nil;
+    @try {
+      index = [[NSFetchIndexDescription alloc] initWithName:row[@"name"] elements:elements];
+    } @catch (NSException *exception) {
+      [self failWith:[NSString stringWithFormat:@"%@: %@", row[@"name"], exception.reason]];
+      return;
+    }
     NSString *format = row[@"predicate"];
     if (format.length) {
       @try {
@@ -1074,17 +1084,16 @@ static BOOL MBIsNumberType(NSAttributeType type)
   self.defaultValueObject = has ? @"" : nil;
 }
 
-- (NSString *)boolDefaultTitle
+- (NSInteger)boolDefaultIndex
 {
   NSString *string = self.defaultString;
-  return string.length ? string : @"No Value";
+  return [string isEqualToString:@"YES"] ? 1 : [string isEqualToString:@"NO"] ? 2 : 0;
 }
 
-/* Only YES/NO are values; "No Value" clears. */
-- (void)setBoolDefaultTitle:(NSString *)title
+/* Only YES/NO are values; No Value clears. */
+- (void)setBoolDefaultIndex:(NSInteger)index
 {
-  BOOL isValue = [title isEqualToString:@"YES"] || [title isEqualToString:@"NO"];
-  self.defaultString = isValue ? title : @"";
+  self.defaultString = index == 1 ? @"YES" : index == 2 ? @"NO" : @"";
 }
 
 - (NSDate *)defaultDate
@@ -1296,11 +1305,11 @@ static BOOL MBIsNumberType(NSAttributeType type)
   self.inverseName = [title isEqualToString:MBNoneTitle] ? @"" : title;
 }
 
-- (NSString *)typeTitle { return self.isToMany ? @"To Many" : @"To One"; }
+- (NSInteger)typeIndex { return self.isToMany ? 0 : 1; }
 
-- (void)setTypeTitle:(NSString *)title
+- (void)setTypeIndex:(NSInteger)index
 {
-  self.toMany = [title isEqualToString:@"To Many"];
+  self.toMany = (index == 0);
 }
 
 - (NSString *)destinationName { return self.relationship.destinationEntity.name ?: @""; }
@@ -1477,6 +1486,24 @@ static BOOL MBIsNumberType(NSAttributeType type)
     default: self.relationship.deleteRule = NSNullifyDeleteRule; break;
   }
   [self didChange:@"deleteRuleName" from:old];
+}
+
+/* The pop-up's order, against momc's spellings. */
+static NSArray *MBDeleteRulesInPopupOrder(void)
+{
+  return @[ @"No Action", @"Nullify", @"Cascade", @"Deny" ];
+}
+
+- (NSInteger)deleteRuleIndex
+{
+  NSUInteger index = [MBDeleteRulesInPopupOrder() indexOfObject:self.deleteRuleName];
+  return index == NSNotFound ? 1 : (NSInteger)index;
+}
+
+- (void)setDeleteRuleIndex:(NSInteger)index
+{
+  NSArray *rules = MBDeleteRulesInPopupOrder();
+  if (index >= 0 && (NSUInteger)index < rules.count) self.deleteRuleName = rules[(NSUInteger)index];
 }
 
 - (BOOL)isOptional { return self.relationship.isOptional; }

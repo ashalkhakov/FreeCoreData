@@ -1264,7 +1264,7 @@
                                                                                                                 </menu>
                                                                                                             </popUpButtonCell>
                                                                                                             <connections>
-                                                                                                                <binding destination="mb-ec-attribute" name="selectedValue" keyPath="content.boolDefaultTitle" id="mb-bd-031" />
+                                                                                                                <binding destination="mb-ec-attribute" name="selectedIndex" keyPath="content.boolDefaultIndex" id="mb-bd-031" />
                                                                                                             </connections>
                                                                                                         </popUpButton>
                                                                                                         <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="hml-qr-JTt">
@@ -1926,7 +1926,7 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <binding destination="mb-ec-relationship" name="selectedValue" keyPath="content.deleteRuleName" id="mb-bd-058" />
+                                                                                            <binding destination="mb-ec-relationship" name="selectedIndex" keyPath="content.deleteRuleIndex" id="mb-bd-058" />
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                     <box verticalHuggingPriority="750" fixedFrame="YES" boxType="separator" translatesAutoresizingMaskIntoConstraints="NO" id="SfL-i4-jFn">
@@ -1962,7 +1962,7 @@
                                                                                             </menu>
                                                                                         </popUpButtonCell>
                                                                                         <connections>
-                                                                                            <binding destination="mb-ec-relationship" name="selectedValue" keyPath="content.typeTitle" id="mb-bd-055" />
+                                                                                            <binding destination="mb-ec-relationship" name="selectedIndex" keyPath="content.typeIndex" id="mb-bd-055" />
                                                                                         </connections>
                                                                                     </popUpButton>
                                                                                     <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="kyP-UU-Nau">
