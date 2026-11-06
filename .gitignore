@@ -24,6 +24,9 @@ Examples/*/EmployeeDirectory
 Examples/*/*.app/
 Examples/*/*.sqlite
 
+# Model Builder, as gnustep-make builds it
+ModelBuilder/ModelBuilder.app/
+
 # What ModelBuilder's tests leave beside them: the bundle's log, and the
 # app's sources' objects, mirrored from their ../../ paths
 Tests/ModelBuilder/ModelBuilderTests.log
