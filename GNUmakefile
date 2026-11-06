@@ -167,11 +167,23 @@ after-clean::
 # may create tables in); without one its suites are skipped, but not in CI,
 # where a missing server is a failure.
 XVFB = $(if $(DISPLAY),,$(shell command -v xvfb-run >/dev/null 2>&1 && echo xvfb-run -a))
+# The window tests' suites. On Windows the daemons they start (GNUstep's gpbs
+# and gdnc) outlive them and keep a CI step that runs make check from
+# ending: those that were not running before are stopped after.
+WINDOW_TESTS = $(MAKE) -j1 -C Tests/ModelBuilder && $(XVFB) $(MAKE) -j1 -C Tests/ModelBuilder check \
+	$(if $(UDCODE_SDK),&& $(MAKE) -j1 -C UDCodeExtension/Tests && $(XVFB) $(MAKE) -j1 -C UDCodeExtension/Tests run-tests)
+ifeq ($(OS),Windows_NT)
+DAEMON_PIDS = tasklist //NH //FO CSV | grep -iE '^"(gpbs|gdnc)\.exe"' | cut -d, -f2 | tr -d '"'
+WINDOW_CHECK = before=$$($(DAEMON_PIDS)); $(WINDOW_TESTS); status=$$?; \
+	for pid in $$($(DAEMON_PIDS)); do \
+	  echo "$$before" | grep -qx "$$pid" || { echo "check: stopping daemon $$pid, the window tests'"; taskkill //PID $$pid //F >/dev/null; }; \
+	done; exit $$status
+else
+WINDOW_CHECK = $(WINDOW_TESTS)
+endif
 check::
 	$(MAKE) -C Tests run-tests
-	$(MAKE) -j1 -C Tests/ModelBuilder
-	$(XVFB) $(MAKE) -j1 -C Tests/ModelBuilder check
-	$(if $(UDCODE_SDK),$(MAKE) -j1 -C UDCodeExtension/Tests && $(XVFB) $(MAKE) -j1 -C UDCodeExtension/Tests run-tests)
+	@$(WINDOW_CHECK)
 	@for server in POSTGRES_URL MYSQL_URL MARIADB_URL; do \
 	  if [ -z "$$(printenv $$server)" ]; then \
 	    if [ -n "$$CI" ]; then echo "check: $$server is not set; the SQL stores need it in CI"; exit 1; fi; \
