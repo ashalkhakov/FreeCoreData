@@ -42,7 +42,13 @@ include $(GNUSTEP_MAKEFILES)/bundle.make
 XCTEST ?= xctest
 TEST_TIMEOUT ?= 600
 
+# What it prints goes to a file, of which the end is shown: a daemon a test
+# starts (GNUstep's gpbs, gdnc) inherits where the output goes, and one
+# holding the output's pipe keeps a CI step that reads it from ending.
 .PHONY: run-tests
 run-tests: all
-	LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$$PATH" \
-	  timeout -s ABRT $(TEST_TIMEOUT) $(XCTEST) $(BUNDLE_NAME).bundle
+	@LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$$PATH" \
+	  timeout -s ABRT $(TEST_TIMEOUT) $(XCTEST) $(BUNDLE_NAME).bundle > $(BUNDLE_NAME).log 2>&1; \
+	status=$$?; grep -v "unknown control size\|unknown custom color space\|_NET_WORKAREA\|given negative width\|IBUserDefinedRuntimeAttribute5" \
+	  $(BUNDLE_NAME).log | tail -n 150; \
+	[ $$status = 0 ] || echo "== $(BUNDLE_NAME) exited $$status"; exit $$status

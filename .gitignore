@@ -27,6 +27,7 @@ Examples/*/*.sqlite
 # What ModelBuilder's tests leave beside them: the bundle's log, and the
 # app's sources' objects, mirrored from their ../../ paths
 Tests/ModelBuilder/ModelBuilderTests.log
+UDCodeExtension/Tests/MBUTests.log
 Tests/ModelBuilder/ModelBuilder/
 Tests/ModelBuilder/Tools/
 

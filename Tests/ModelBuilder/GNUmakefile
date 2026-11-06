@@ -52,7 +52,9 @@ include $(GNUSTEP_MAKEFILES)/bundle.make
 # The bundle has ten minutes, and what it prints goes to a file of which
 # the last lines are shown: a test that waits for an event that never
 # comes fails with what it said last, rather than holding the build (or
-# flooding its log) until CI gives up on it.
+# flooding its log) until CI gives up on it; and a daemon a test starts
+# (gpbs, gdnc), which inherits where the output goes, holds no CI step's
+# pipe open.
 RUN_ENV = LD_LIBRARY_PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$LD_LIBRARY_PATH" PATH="$(FRAMEWORK_BUILD_DIR):$(GNUSTEP_LOCAL_LIBRARIES):$(GNUSTEP_SYSTEM_LIBRARIES):$$PATH"
 
 .PHONY: check
