@@ -10,8 +10,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 /* GNUstep's AppKit duplicates the NSAttributeType constants in
    NSPredicateEditorRowTemplate.h (GNUstep itself has no CoreData).  When
    that header has already been included, reuse its definition instead of
-   redefining the enumerators.  Import AppKit before CoreData in programs
-   that use both.
+   redefining the enumerators.  Imported first, this header declares them
+   and says so with GS_NSATTRIBUTETYPE_DECLARED, which gnustep-gui's
+   header heeds (gnustep-patches' attribute-type-declared): either order
+   compiles.
 
    Either way the type is an NSUInteger, as it is on Apple
    (NS_ENUM(NSUInteger, NSAttributeType)) and in AppKit's copy.  A plain
@@ -19,7 +21,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    would then return a 4-byte -attributeType to callers that import AppKit
    and expect 8, and GNUstep's runtime reports the mismatched signature on
    every call. */
-#if !defined(_GNUstep_H_NSPredicateEditorRowTemplate)
+#if !defined(_GNUstep_H_NSPredicateEditorRowTemplate) && !defined(GS_NSATTRIBUTETYPE_DECLARED)
+#define GS_NSATTRIBUTETYPE_DECLARED
 typedef NSUInteger NSAttributeType;
 enum {
     NSUndefinedAttributeType = 0,
@@ -35,7 +38,8 @@ enum {
     NSBinaryDataAttributeType = 1000,
     NSUUIDAttributeType = 1100,
     NSURIAttributeType = 1200,
-    NSTransformableAttributeType = 1800
+    NSTransformableAttributeType = 1800,
+    NSObjectIDAttributeType = 2000
 };
 #else
 /* AppKit's copy of the enum predates the UUID and URI attribute types;
