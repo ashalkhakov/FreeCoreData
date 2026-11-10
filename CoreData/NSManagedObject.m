@@ -1187,7 +1187,7 @@ static id CDRelationshipValueByID(NSRelationshipDescription *relationship,id val
    if(stored!=nil && stored!=[NSNull null])
     [self setPrimitiveValue:current forKey:name];
 
-   [self _detachInverseOf:relationship from:previous];
+   [self _detachInverseOf:relationship from:previous keeping:current];
    [self _attachInverseOf:relationship to:current];
 }
 
@@ -1201,8 +1201,11 @@ static id CDRelationshipValueByID(NSRelationshipDescription *relationship,id val
 }
 
 /* The objects the receiver named under relationship (previous, by ID)
-   no longer name it under the inverse. */
--(void)_detachInverseOf:(NSRelationshipDescription *)relationship from:previous {
+   and no longer names (current) no longer name it under the inverse. One
+   it still names is left alone, and its observers hear nothing: as on
+   Apple, a record's vehicle set to the vehicle it has changes nothing of
+   the vehicle's records, and a list of them keeps what is chosen. */
+-(void)_detachInverseOf:(NSRelationshipDescription *)relationship from:previous keeping:current {
    NSRelationshipDescription *inverse=[relationship inverseRelationship];
    NSString                  *inverseName=[inverse name];
 
@@ -1210,8 +1213,12 @@ static id CDRelationshipValueByID(NSRelationshipDescription *relationship,id val
     return;
 
    id allPrevious=[relationship isToMany]?previous:[NSSet setWithObject:previous];
+   id allCurrent=[relationship isToMany]?current:(current==nil?nil:[NSSet setWithObject:current]);
 
    for(NSManagedObjectID *previousID in allPrevious){
+    if([allCurrent containsObject:previousID])
+     continue;
+
     NSManagedObject *previousObject=[_context objectWithID:previousID];
 
     [previousObject willChangeValueForKey:inverseName];
@@ -1226,7 +1233,8 @@ static id CDRelationshipValueByID(NSRelationshipDescription *relationship,id val
 }
 
 /* The objects the receiver names under relationship (current, by ID)
-   name it under the inverse. */
+   name it under the inverse. One that names it already is left alone, its
+   observers told nothing. */
 -(void)_attachInverseOf:(NSRelationshipDescription *)relationship to:current {
    NSRelationshipDescription *inverse=[relationship inverseRelationship];
    NSString                  *inverseName=[inverse name];
@@ -1244,6 +1252,13 @@ static id CDRelationshipValueByID(NSRelationshipDescription *relationship,id val
 
    for(NSManagedObjectID *valueID in allValues){
     NSManagedObject *relValue=[_context objectWithID:valueID];
+
+    if([inverse isToMany]){
+     if([[relValue _pendingToManyForKey:inverseName ordered:[inverse isOrdered]] containsObject:[self objectID]])
+      continue;
+    }
+    else if([[relValue primitiveValueForKey:inverseName] isEqual:[self objectID]])
+     continue;
 
     [relValue willChangeValueForKey:inverseName];
 
@@ -1301,7 +1316,7 @@ static id CDRelationshipValueByID(NSRelationshipDescription *relationship,id val
 
     id valueByID=CDRelationshipValueByID(relationship,value);
 
-    [self _detachInverseOf:relationship from:CDRelationshipValueByID(relationship,[self primitiveValueForKey:propertyName])];
+    [self _detachInverseOf:relationship from:CDRelationshipValueByID(relationship,[self primitiveValueForKey:propertyName]) keeping:valueByID];
 
     [self willChangeValueForKey:propertyName];
     [self setPrimitiveValue:valueByID forKey:propertyName];
