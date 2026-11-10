@@ -320,6 +320,45 @@ static NSManagedObjectModel *MBTAuthorArticleModel(NSString *authorName,
     XCTAssertEqual([group deleteRule], NSNullifyDeleteRule);
 }
 
+/* A relationship made in code nullifies, as on Apple: a customer whose
+   contact is deleted no longer names it. */
+- (void)testANewRelationshipNullifies
+{
+    NSRelationshipDescription *contact = [[NSRelationshipDescription alloc] init];
+    NSRelationshipDescription *customer = [[NSRelationshipDescription alloc] init];
+    XCTAssertEqual([contact deleteRule], NSNullifyDeleteRule);
+    [contact setName:@"contact"];
+    [contact setMaxCount:1];
+    [customer setName:@"customer"];
+    [customer setMaxCount:1];
+    NSEntityDescription *customerEntity = [[NSEntityDescription alloc] init];
+    [customerEntity setName:@"Customer"];
+    [customerEntity setProperties:[NSArray arrayWithObject:contact]];
+    NSEntityDescription *contactEntity = [[NSEntityDescription alloc] init];
+    [contactEntity setName:@"Contact"];
+    [contactEntity setProperties:[NSArray arrayWithObject:customer]];
+    [contact setDestinationEntity:contactEntity];
+    [customer setDestinationEntity:customerEntity];
+    [contact setInverseRelationship:customer];
+    [customer setInverseRelationship:contact];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:[NSArray arrayWithObjects:customerEntity, contactEntity, nil]];
+
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error]);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [context setPersistentStoreCoordinator:coordinator];
+    NSManagedObject *ann = [NSEntityDescription insertNewObjectForEntityForName:@"Customer" inManagedObjectContext:context];
+    NSManagedObject *card = [NSEntityDescription insertNewObjectForEntityForName:@"Contact" inManagedObjectContext:context];
+    [ann setValue:card forKey:@"contact"];
+    XCTAssertTrue([context save:&error], @"%@", error);
+    [context deleteObject:card];
+    [context processPendingChanges];
+    XCTAssertNil([ann valueForKey:@"contact"], @"nullified");
+    XCTAssertTrue([context save:&error], @"%@", error);
+}
+
 - (void)testModelKeyedArchivingRoundTrip
 {
     NSManagedObjectModel *model = [self makeArchivableModel];
