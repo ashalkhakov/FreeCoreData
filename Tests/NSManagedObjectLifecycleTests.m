@@ -25,6 +25,18 @@ static NSUInteger prepareForDeletionCount;
 static NSUInteger willTurnIntoFaultCount;
 static NSUInteger didTurnIntoFaultCount;
 
+/* What an observer of a key heard: how many changes, of which kinds. */
+@interface LifecycleListener : NSObject
+@property (nonatomic) NSUInteger heard;
+@end
+
+@implementation LifecycleListener
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    self.heard++;
+}
+@end
+
 @interface LifecyclePerson : NSManagedObject
 - (NSString *)displayName;
 @end
@@ -805,6 +817,68 @@ static NSManagedObjectModel *LifecycleTestModel(void)
 
     NSError *error = nil;
     XCTAssertTrue([context save:&error], @"%@", error);
+}
+
+/* A to-one set to the object it already names changes nothing of that
+   object's to-many inverse, and its observers hear nothing: as on Apple,
+   where a list bound to the inverse keeps what is chosen. Both ways a
+   relationship is set: a class's own setter, and NSManagedObject's. */
+- (void)testAToOneSetToWhatItIsTellsTheInverseNothing
+{
+    NSManagedObjectContext *context = [self accessorContext];
+    AccessorShelf *shelf = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+    AccessorShelf *other = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Shelf" inManagedObjectContext:context];
+    AccessorBook *book = [NSEntityDescription
+        insertNewObjectForEntityForName:@"Book" inManagedObjectContext:context];
+    [book setValue:shelf forKey:@"shelf"];
+    LifecycleListener *listener = [[LifecycleListener alloc] init];
+    [shelf addObserver:listener forKeyPath:@"books" options:0 context:NULL];
+    [book setValue:shelf forKey:@"shelf"];
+    XCTAssertEqual(listener.heard, (NSUInteger)0, @"the shelf's books are as they were");
+    XCTAssertTrue([[shelf valueForKey:@"books"] containsObject:book]);
+    [book setValue:other forKey:@"shelf"];
+    XCTAssertEqual(listener.heard, (NSUInteger)1, @"moved to another shelf: heard once");
+    XCTAssertEqual([[shelf valueForKey:@"books"] count], (NSUInteger)0);
+    [shelf removeObserver:listener forKeyPath:@"books"];
+
+    NSEntityDescription *vehicle = [[NSEntityDescription alloc] init];
+    [vehicle setName:@"Vehicle"];
+    NSEntityDescription *record = [[NSEntityDescription alloc] init];
+    [record setName:@"Record"];
+    NSRelationshipDescription *records = [[NSRelationshipDescription alloc] init];
+    [records setName:@"records"];
+    [records setDestinationEntity:record];
+    [records setMinCount:0];
+    [records setMaxCount:0];
+    NSRelationshipDescription *of = [[NSRelationshipDescription alloc] init];
+    [of setName:@"vehicle"];
+    [of setDestinationEntity:vehicle];
+    [of setMinCount:0];
+    [of setMaxCount:1];
+    [records setInverseRelationship:of];
+    [of setInverseRelationship:records];
+    [vehicle setProperties:@[ records ]];
+    [record setProperties:@[ of ]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ vehicle, record ]];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *plain = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [plain setPersistentStoreCoordinator:coordinator];
+    NSManagedObject *car = [NSEntityDescription insertNewObjectForEntityForName:@"Vehicle" inManagedObjectContext:plain];
+    NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"Record" inManagedObjectContext:plain];
+    [fillUp setValue:car forKey:@"vehicle"];
+    XCTAssertTrue([plain save:&error], @"%@", error);
+    LifecycleListener *carListener = [[LifecycleListener alloc] init];
+    [car addObserver:carListener forKeyPath:@"records" options:0 context:NULL];
+    [fillUp setValue:car forKey:@"vehicle"];
+    [plain processPendingChanges];
+    XCTAssertEqual(carListener.heard, (NSUInteger)0, @"the vehicle's records are as they were");
+    XCTAssertEqual([[car valueForKey:@"records"] count], (NSUInteger)1);
+    [car removeObserver:carListener forKeyPath:@"records"];
 }
 
 - (void)testSetValueForKeyCallsCustomToManySetterAndKeepsTheInverse
