@@ -113,6 +113,26 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
                                  tombstone:tombstone] autorelease];
 }
 
++(NSData *)tombstoneDataWithValues:(NSDictionary *)values {
+   if([values count]==0)
+    return nil;
+   return [NSKeyedArchiver archivedDataWithRootObject:values requiringSecureCoding:YES error:NULL];
+}
+
++(NSDictionary *)tombstoneWithData:(NSData *)data {
+   if([data length]==0)
+    return nil;
+
+   NSSet *classes=[NSSet setWithObjects:[NSDictionary class],[NSString class],[NSNumber class],[NSDecimalNumber class],[NSDate class],
+                                        [NSData class],[NSUUID class],[NSURL class],nil];
+   id     values=[NSKeyedUnarchiver unarchivedObjectOfClasses:classes fromData:data error:NULL];
+
+   /* Kept by an earlier FreeCoreData, as a property list. */
+   if(values==nil)
+    values=[NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:NULL error:NULL];
+   return [values isKindOfClass:[NSDictionary class]]?values:nil;
+}
+
 -(instancetype)_initWithChangeID:(int64_t)changeID
                             type:(NSPersistentHistoryChangeType)type
                         objectID:(NSManagedObjectID *)objectID

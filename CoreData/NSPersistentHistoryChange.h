@@ -67,4 +67,11 @@ typedef NSInteger NSPersistentHistoryChangeType;
            updatedProperties:(NSSet *)updatedProperties
                    tombstone:(NSDictionary *)tombstone;
 
+/* A tombstone as a store keeps it: the values, by attribute name, as a
+   keyed archive, so that what a property list cannot hold (a UUID, a URL,
+   a decimal) comes back as it was; nil for none. And back: one kept as a
+   property list before is read too. */
++ (NSData *)tombstoneDataWithValues:(NSDictionary *)values;
++ (NSDictionary *)tombstoneWithData:(NSData *)data;
+
 @end

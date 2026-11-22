@@ -60,10 +60,17 @@ static BOOL CDWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
     [title setOptional:YES];
     [title setPreservesValueInHistoryOnDeletion:YES];
 
+    /* And this one, which no property list holds. */
+    NSAttributeDescription *uid = [[NSAttributeDescription alloc] init];
+    [uid setName:@"uid"];
+    [uid setAttributeType:NSUUIDAttributeType];
+    [uid setOptional:YES];
+    [uid setPreservesValueInHistoryOnDeletion:YES];
+
     NSEntityDescription *note = [[NSEntityDescription alloc] init];
     [note setName:@"Note"];
     [note setManagedObjectClassName:@"NSManagedObject"];
-    [note setProperties:[NSArray arrayWithObjects:text, title, nil]];
+    [note setProperties:[NSArray arrayWithObjects:text, title, uid, nil]];
 
     NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
     [model setEntities:[NSArray arrayWithObject:note]];
@@ -274,6 +281,33 @@ static BOOL CDWaitFor(NSTimeInterval timeout, BOOL (^condition)(void))
     XCTAssertEqualObjects(@"Keep Me",
         [[change tombstone] objectForKey:@"title"],
         @"tombstone %@ should preserve the flagged attribute", [change tombstone]);
+}
+
+/* A UUID preserved on deletion comes back in the tombstone as the UUID it
+   was (as an object's key does, for a sync to send its deletion). */
+- (void)testDeleteChangeTombstoneKeepsAUUID
+{
+    NSUUID *uid = [NSUUID UUID];
+    NSManagedObject *note = [self insertNoteWithText:@"doomed"];
+    [note setValue:uid forKey:@"uid"];
+    NSError *err = nil;
+    XCTAssertTrue([self.ctx save:&err], @"seed save: %@", err);
+
+    NSPersistentHistoryToken *token =
+        [self.psc currentPersistentHistoryTokenFromStores:nil];
+
+    [self.ctx deleteObject:note];
+    XCTAssertTrue([self.ctx save:&err], @"delete save: %@", err);
+
+    NSPersistentHistoryResult *result = (NSPersistentHistoryResult *)[self.ctx
+        executeRequest:[NSPersistentHistoryChangeRequest fetchHistoryAfterToken:token] error:&err];
+    XCTAssertNotNil(result, @"history fetch: %@", err);
+    NSArray *changes = [[[result result] firstObject] changes];
+    XCTAssertEqual((NSUInteger)1, [changes count]);
+    NSDictionary *tombstone = [[changes firstObject] tombstone];
+    XCTAssertTrue([[tombstone objectForKey:@"uid"] isKindOfClass:[NSUUID class]],
+        @"tombstone %@ should keep the UUID as one", tombstone);
+    XCTAssertEqualObjects(uid, [tombstone objectForKey:@"uid"]);
 }
 
 - (void)testDeleteHistoryBeforeTokenPurgesOlderTransactions

@@ -1867,7 +1867,7 @@ static NSArray *preservedAttributeNames(NSEntityDescription *entity){
    if(tombstone==nil)
     return nil;
 
-   return [NSPropertyListSerialization dataWithPropertyList:tombstone format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];
+   return [NSPersistentHistoryChange tombstoneDataWithValues:tombstone];
 }
 
 /* Posted after a committed save or batch operation when the store was
@@ -4383,7 +4383,7 @@ static BOOL countedCollection(NSExpression *expression,NSExpression **operand,NS
       if(bytes!=NULL && length>0){
        NSData *data=[NSData dataWithBytes:bytes length:length];
 
-       tombstone=[NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:NULL error:NULL];
+       tombstone=[NSPersistentHistoryChange tombstoneWithData:data];
       }
      }
 
