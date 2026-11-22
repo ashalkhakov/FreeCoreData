@@ -16,6 +16,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 @implementation NSRelationshipDescription
 
+/* A relationship made in code nullifies, as on Apple (and as Xcode's
+   editor makes one): deleting its destination takes it out of the objects
+   that refer to it. */
+-init {
+   if((self=[super init])!=nil)
+    _deleteRule=NSNullifyDeleteRule;
+   return self;
+}
+
 -initWithCoder: (NSCoder *) coder {
    if(![coder allowsKeyedCoding])
     [NSException raise: NSInvalidArgumentException format: @"%@ can not initWithCoder:%@", [self class], [coder class]];

@@ -438,6 +438,23 @@ static NSManagedObjectModel *LifecycleTestModel(void)
 
 /* -- saving -------------------------------------------------------------- */
 
+/* An object inserted and then changed is inserted, not updated, until it
+   is saved; changed after, it is updated. */
+- (void)testAnInsertedObjectChangedIsNotUpdated
+{
+    NSManagedObject *person = [self insertPersonNamed:@"Alice"];
+    [person setValue:@"Alicia" forKey:@"name"];
+    [self.ctx processPendingChanges];
+    XCTAssertTrue([[self.ctx insertedObjects] containsObject:person]);
+    XCTAssertFalse([[self.ctx updatedObjects] containsObject:person]);
+
+    NSError *error = nil;
+    XCTAssertTrue([self.ctx save:&error], @"save failed: %@", error);
+    [person setValue:@"Ali" forKey:@"name"];
+    XCTAssertTrue([[self.ctx updatedObjects] containsObject:person]);
+    XCTAssertFalse([[self.ctx insertedObjects] containsObject:person]);
+}
+
 - (void)testWillSaveAndDidSaveCalledOnSave
 {
     [self insertPersonNamed:@"Alice"];
