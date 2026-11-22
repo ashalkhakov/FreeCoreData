@@ -5916,8 +5916,9 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
 }
 
 /* The tombstone for a deletion: the last values of the entity's attributes
-   marked preservesValueInHistoryOnDeletion, as a binary property list keyed
-   by attribute name; nil when the entity flags none. */
+   marked preservesValueInHistoryOnDeletion, keyed by attribute name, as
+   +[NSPersistentHistoryChange tombstoneDataWithValues:] keeps them; nil
+   when the entity flags none. */
 -(NSData *)_tombstoneForEntity:(NSEntityDescription *)entity values:(NSDictionary *)values {
    NSMutableDictionary *preserved=[NSMutableDictionary dictionary];
 
@@ -5934,7 +5935,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    if([preserved count]==0)
     return nil;
 
-   return [NSPropertyListSerialization dataWithPropertyList:preserved format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];
+   return [NSPersistentHistoryChange tombstoneDataWithValues:preserved];
 }
 
 -(void)_postRemoteChangeNotificationIfEnabled {
@@ -6275,7 +6276,7 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
       NSData *data=[changeResult dataAtRow:j column:5];
 
       if([data length]>0)
-       tombstone=[NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:NULL error:NULL];
+       tombstone=[NSPersistentHistoryChange tombstoneWithData:data];
      }
 
      NSPersistentHistoryChange *change=[NSPersistentHistoryChange
