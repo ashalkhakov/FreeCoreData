@@ -525,7 +525,14 @@ static char CDContextQueueSpecificKey;
 }
 
 -(NSSet *)updatedObjects {
-   return [[_updatedObjects copy] autorelease];
+   /* As Apple's: the objects saved before that have changes not saved
+      yet. One inserted since the last save is the inserted objects',
+      however it has changed since (the save sends it with them); the
+      context's own bookkeeping keeps it in _updatedObjects too. */
+   NSMutableSet *updated=[NSMutableSet setWithSet:_updatedObjects];
+
+   [updated minusSet:_insertedObjects];
+   return updated;
 }
 
 -(NSSet *)deletedObjects {
