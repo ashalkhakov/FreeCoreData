@@ -8,6 +8,7 @@
 #import "CDModelCompiler.h"
 #import "JUInspectorView.h"
 #import "JUInspectorViewContainer.h"
+#import <objc/runtime.h>
 
 /* centerTabView pages */
 enum { MBCenterPageEntity = 0, MBCenterPageFetch = 1, MBCenterPageConfiguration = 2, MBCenterPageFetchIndex = 3 };
@@ -256,7 +257,7 @@ static void MBSelectRowNamed(NSTableView *table, NSArray *names, NSString *name)
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
-  if (item.action == @selector(addAttribute:) || item.action == @selector(addRelationship:))
+  if (sel_isEqual(item.action, @selector(addAttribute:)) || sel_isEqual(item.action, @selector(addRelationship:)))
     return [self selectedEntity] != nil;
   return YES;
 }

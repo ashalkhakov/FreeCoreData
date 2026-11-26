@@ -168,6 +168,38 @@ void MBClickSegment(NSSegmentedControl *control, NSInteger segment)
   MBCommit(checkbox);
 }
 
+#pragma mark - Menu validation
+
+/* An item whose action is made from its name, as a XIB's is: on GNUstep that
+   is not always == the compiler's @selector(), so validation compares by name. */
+static NSMenuItem *MBItemNamed(NSString *action)
+{
+  return [[NSMenuItem alloc] initWithTitle:action action:NSSelectorFromString(action) keyEquivalent:@""];
+}
+
+- (void)testTheMenuItemsAreValidatedByTheirActionsNames
+{
+  NSString *edited = _document.editedVersionName;
+  XCTAssertNotNil(edited);
+  NSMenuItem *version = MBItemNamed(@"selectVersionMenuItem:");
+  version.representedObject = edited;
+  XCTAssertTrue([(id)_window validateMenuItem:version]);
+  XCTAssertEqual(version.state, NSOnState, @"the edited version is ticked");
+  version.representedObject = @"Another";
+  [(id)_window validateMenuItem:version];
+  XCTAssertEqual(version.state, NSOffState);
+  XCTAssertFalse([(id)_window validateMenuItem:MBItemNamed(@"makeCurrentVersion:")], @"already the current version");
+
+  id sourceList = _window.sourceListController;
+  XCTAssertTrue([sourceList validateMenuItem:MBItemNamed(@"removeEntity:")], @"Thing is selected");
+  XCTAssertTrue([(id)self.detail validateMenuItem:MBItemNamed(@"addAttribute:")], @"to Thing");
+  self.editor.selection = [MBSelection configurationNamed:@"Default"];
+  XCTAssertNil([self.editor selectedEntity], @"a configuration selected: no entity");
+  XCTAssertFalse([sourceList validateMenuItem:MBItemNamed(@"removeEntity:")], @"no entity selected");
+  XCTAssertFalse([sourceList validateMenuItem:MBItemNamed(@"addFetchIndex:")], @"no entity selected");
+  XCTAssertFalse([(id)self.detail validateMenuItem:MBItemNamed(@"addAttribute:")], @"no entity to add to");
+}
+
 #pragma mark - Loading
 
 - (void)testEveryPartsOutletsAreConnected

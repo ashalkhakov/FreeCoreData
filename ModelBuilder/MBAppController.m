@@ -3,6 +3,7 @@
    Released under the MIT license. */
 #import "MBAppController.h"
 #import "MBUpdater.h"
+#import <objc/runtime.h>
 
 @implementation MBAppController {
   MBUpdater *_updater;
@@ -29,7 +30,7 @@
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
-  if ([item action] == @selector(checkForUpdates:))
+  if (sel_isEqual([item action], @selector(checkForUpdates:)))
     return _updater.canCheckForUpdates;
   return YES;
 }
