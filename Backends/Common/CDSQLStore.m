@@ -1505,6 +1505,24 @@ static NSString *externalReferenceName(NSData *stored){
     [self _collectEntityIDsOfEntity:subentity into:result];
 }
 
+/* The side of a many-to-many (or inverse-less to-many) relationship that
+   names its join table: the one whose owner has the smaller entity ID,
+   ties broken by relationship name.  Schema code takes the join from this
+   side, so the table's columns, key and index don't depend on the order
+   a dictionary gives the relationships in. */
+-(NSRelationshipDescription *)_canonicalJoinRelationship:(NSRelationshipDescription *)relationship {
+   NSRelationshipDescription *inverse=[relationship inverseRelationship];
+   long long                  ownerID,destinationID;
+
+   if(inverse==nil || ![inverse isToMany])
+    return relationship;
+   ownerID=[self _entityIDForEntity:[relationship entity]];
+   destinationID=[self _entityIDForEntity:[relationship destinationEntity]];
+   if(ownerID!=destinationID)
+    return (ownerID<destinationID)?relationship:inverse;
+   return ([[relationship name] compare:[inverse name]]!=NSOrderedDescending)?relationship:inverse;
+}
+
 /* The join table of a many-to-many (or inverse-less to-many) relationship,
    from the point of view of its owner.  Both sides of a many-to-many share
    one table; the canonical side is the one with the smaller entity ID (ties
@@ -1515,16 +1533,9 @@ static NSString *externalReferenceName(NSData *stored){
    NSEntityDescription       *destination=[relationship destinationEntity];
    long long                  ownerID=[self _entityIDForEntity:owner];
    long long                  destinationID=[self _entityIDForEntity:destination];
-   BOOL                       canonical;
+   NSRelationshipDescription *canonicalRelationship=[self _canonicalJoinRelationship:relationship];
+   BOOL                       canonical=(canonicalRelationship==relationship);
 
-   if(inverse==nil || ![inverse isToMany])
-    canonical=YES;
-   else if(ownerID!=destinationID)
-    canonical=(ownerID<destinationID);
-   else
-    canonical=([[relationship name] compare:[inverse name]]!=NSOrderedDescending);
-
-   NSRelationshipDescription *canonicalRelationship=canonical?relationship:inverse;
    long long                  canonicalOwnerID=canonical?ownerID:destinationID;
 
    NSString *table=[NSString stringWithFormat:@"Z_%lld%@",canonicalOwnerID,[[canonicalRelationship name] uppercaseString]];
@@ -1659,10 +1670,13 @@ static NSString *externalReferenceName(NSData *stored){
     }
 
     /* Join tables for many-to-many (and inverse-less to-many). */
-    for(NSRelationshipDescription *relationship in [[entity relationshipsByName] allValues]){
-     if(!relationshipUsesJoinTable(relationship))
+    for(NSRelationshipDescription *candidate in [[entity relationshipsByName] allValues]){
+     if(!relationshipUsesJoinTable(candidate))
       continue;
 
+     /* The canonical side, whichever side the dictionary gives first:
+        the columns, key and index come out the same every time. */
+     NSRelationshipDescription *relationship=[self _canonicalJoinRelationship:candidate];
      NSDictionary *join=[self _joinSpecForRelationship:relationship];
      NSString     *table=[join objectForKey:@"table"];
 
@@ -5394,10 +5408,13 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    NSMutableSet   *joins=[NSMutableSet set];
 
    for(NSEntityDescription *entity in entities)
-    for(NSRelationshipDescription *relationship in [[entity relationshipsByName] allValues]){
-     if(!relationshipUsesJoinTable(relationship))
+    for(NSRelationshipDescription *candidate in [[entity relationshipsByName] allValues]){
+     if(!relationshipUsesJoinTable(candidate))
       continue;
 
+     /* The canonical side, whichever side the dictionary gives first:
+        the columns, key and index come out the same every time. */
+     NSRelationshipDescription *relationship=[self _canonicalJoinRelationship:candidate];
      NSDictionary *join=[self _joinSpecForRelationship:relationship];
      NSString     *table=[join objectForKey:@"table"];
 
@@ -5770,10 +5787,13 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
       [expectedJoins addObject:[[self _joinSpecForRelationship:relationship] objectForKey:@"table"]];
 
    for(NSEntityDescription *entity in sortedEntities)
-    for(NSRelationshipDescription *relationship in [[entity relationshipsByName] allValues]){
-     if(!relationshipUsesJoinTable(relationship))
+    for(NSRelationshipDescription *candidate in [[entity relationshipsByName] allValues]){
+     if(!relationshipUsesJoinTable(candidate))
       continue;
 
+     /* The canonical side, whichever side the dictionary gives first:
+        the columns, key and index come out the same every time. */
+     NSRelationshipDescription *relationship=[self _canonicalJoinRelationship:candidate];
      NSDictionary *join=[self _joinSpecForRelationship:relationship];
      NSString     *table=[join objectForKey:@"table"];
 

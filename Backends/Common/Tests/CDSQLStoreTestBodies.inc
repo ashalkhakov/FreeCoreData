@@ -1387,12 +1387,21 @@ static NSSet *CDSQLKeysFrom(long long first, long long last)
         XCTAssertTrue([names containsObject:[name lowercaseString]], @"%@ in %@", name, names);
     XCTAssertFalse([names containsObject:@"z_person_byemployer"], @"the foreign key's index is that index");
 
-    BOOL joinIndexed = NO;
+    /* friends and friendOf share Z_3FRIENDOF, named by friendOf (the
+       canonical side: "friendOf" sorts first), indexed on its second
+       column - the same name whichever side the model's dictionary gives
+       first. */
+    XCTAssertTrue([names containsObject:@"z_3friendof_z_3friendof_index"], @"the friends join table's index in %@", names);
+    XCTAssertFalse([names containsObject:@"z_3friendof_z_3friends_index"], @"one index on the join table, not one per side");
 
-    for (NSString *name in names)
-        if ([name hasPrefix:@"z_"] && [name rangeOfString:@"friends"].location != NSNotFound && [name hasSuffix:@"_index"])
-            joinIndexed = YES;
-    XCTAssertTrue(joinIndexed, @"the friends join table's index in %@", names);
+    /* Whichever side the schema code meets first, it takes the join from
+       the same one: the dictionary's order is the stack's, not the model's. */
+    NSEntityDescription *person = [[self.model entitiesByName] objectForKey:@"Person"];
+    NSRelationshipDescription *friends = [[person relationshipsByName] objectForKey:@"friends"];
+    NSRelationshipDescription *friendOf = [[person relationshipsByName] objectForKey:@"friendOf"];
+
+    XCTAssertEqualObjects([[(id)store _canonicalJoinRelationship:friends] name], @"friendOf");
+    XCTAssertEqualObjects([[(id)store _canonicalJoinRelationship:friendOf] name], @"friendOf");
 
     /* PostgreSQL's own words for it: descending, and only the adults. */
     if ([store supportsPartialIndexes]) {

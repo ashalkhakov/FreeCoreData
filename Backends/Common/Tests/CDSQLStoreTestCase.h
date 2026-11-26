@@ -40,6 +40,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 - (BOOL)isPurgeRequest;
 @end
 
+/* The side of a many-to-many whose join the store's schema is made from
+   (CDSQLStore). */
+@interface NSObject (CDSQLStoreJoins)
+- (NSRelationshipDescription *)_canonicalJoinRelationship:(NSRelationshipDescription *)relationship;
+@end
+
 /* Where a store keeps the values it keeps outside its rows: FreeCoreData's,
    declared here when building against Apple's. */
 #if !__has_include(<CoreData/CDExternalDataStore.h>)
