@@ -9,6 +9,7 @@
 #import "MBDetailViewController.h"
 #import "MBInspectorViewController.h"
 #import "MBWindowSupport.h"
+#import <objc/runtime.h>
 
 /* The narrowest the window may get: both side panes at their minimum
    plus a usable center. */
@@ -211,17 +212,17 @@ static const CGFloat MBInspectorMinimum = 260.0;
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
   SEL action = item.action;
-  if (action == @selector(createManagedObjectSubclass:))
+  if (sel_isEqual(action, @selector(createManagedObjectSubclass:)))
     return self.model.entities.count > 0;
-  if (action == @selector(makeCurrentVersion:))
+  if (sel_isEqual(action, @selector(makeCurrentVersion:)))
     return ![self.modelDocument.editedVersionName
         isEqualToString:self.modelDocument.currentVersionName];
-  if (action == @selector(selectVersionMenuItem:)) {
+  if (sel_isEqual(action, @selector(selectVersionMenuItem:))) {
     item.state = [[item representedObject]
         isEqualToString:self.modelDocument.editedVersionName] ? NSOnState : NSOffState;
     return YES;
   }
-  if (action == @selector(compileModel:))
+  if (sel_isEqual(action, @selector(compileModel:)))
     return self.modelDocument.fileURL != nil;
   if ([_sourceListController respondsToSelector:action])
     return [_sourceListController validateMenuItem:item];

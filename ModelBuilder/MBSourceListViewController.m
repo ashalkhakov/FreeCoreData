@@ -5,6 +5,7 @@
 #import "MBModelEditor.h"
 #import "MBEditors.h"
 #import "MBWindowSupport.h"
+#import <objc/runtime.h>
 
 typedef NS_ENUM(NSInteger, MBSourceKind) {
   MBSourceGroupEntities = 0,
@@ -391,9 +392,9 @@ typedef NS_ENUM(NSInteger, MBSourceKind) {
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
   SEL action = item.action;
-  if (action == @selector(addFetchRequest:))
+  if (sel_isEqual(action, @selector(addFetchRequest:)))
     return self.model.entities.count > 0;   /* a fetch needs an entity */
-  if (action == @selector(removeEntity:) || action == @selector(addFetchIndex:))
+  if (sel_isEqual(action, @selector(removeEntity:)) || sel_isEqual(action, @selector(addFetchIndex:)))
     return [self selectedEntityName] != nil;
   return YES;
 }
