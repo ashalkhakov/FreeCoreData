@@ -14,6 +14,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #import <XCTest/XCTest.h>
 #import <CoreData/CoreData.h>
 
+#if !defined(__APPLE__)
+/* An entity's class with its property declared, as a generated class
+   has it: its accessors are matched to the declaration by name. */
+@interface CDDecodedItem : NSManagedObject
+@property (nonatomic, copy) NSString *title;
+@end
+
+@implementation CDDecodedItem
+@dynamic title;
+@end
+#endif
+
 @interface NSManagedObjectModelTests : XCTestCase
 @end
 
@@ -728,4 +740,45 @@ static NSArray *InheritanceEntities(void)
     XCTAssertEqualObjects([entities[2] relationshipsWithDestinationEntity:entities[2]], @[]);
 }
 
+#if !defined(__APPLE__)
+/* An archive can reach a property before its entity: decoding the
+   property decodes its entity while the property is half made, its name
+   not read yet, and the entity, decoded, takes it in among its own. That
+   is how a FreeCoreData store's cached model comes back (Apple's
+   unarchiver refuses such an archive, so only here). The property decodes
+   whole, and an object of the entity has its value once the model is in
+   use. */
+- (void)testAPropertyArchivedAheadOfItsEntityDecodes
+{
+    NSEntityDescription *entity = [[NSEntityDescription alloc] init];
+    [entity setName:@"Item"];
+    [entity setManagedObjectClassName:@"CDDecodedItem"];
+    NSAttributeDescription *attribute = [[NSAttributeDescription alloc] init];
+    [attribute setName:@"title"];
+    [attribute setAttributeType:NSStringAttributeType];
+    [attribute setOptional:YES];
+    [entity setProperties:@[ attribute ]];
+
+    NSArray *decoded = [NSKeyedUnarchiver unarchiveObjectWithData:
+        [NSKeyedArchiver archivedDataWithRootObject:@[ attribute, entity ]]];
+    NSAttributeDescription *title = [decoded objectAtIndex:0];
+    NSEntityDescription *item = [decoded objectAtIndex:1];
+    XCTAssertEqualObjects([title name], @"title");
+    XCTAssertEqual([title entity], item);
+    XCTAssertEqual([[item propertiesByName] objectForKey:@"title"], title);
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ item ]];
+    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+    NSError *error = nil;
+    XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error], @"%@", error);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+    [context setPersistentStoreCoordinator:coordinator];
+    CDDecodedItem *object = [NSEntityDescription insertNewObjectForEntityForName:@"Item" inManagedObjectContext:context];
+    [object setTitle:@"kept"];
+    XCTAssertEqualObjects([object title], @"kept");
+}
+#endif
+
 @end
+

@@ -104,7 +104,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 /* What a source expression asks this manager for, and what a custom policy
    fetches with: a request on the source model's entity of that name,
    narrowed by a predicate written as a string.  "TRUEPREDICATE" - which is
-   what an unfiltered mapping says - narrows nothing. */
+   what an unfiltered mapping says - narrows nothing.  As Apple's, it leaves
+   out the entity's subentities: each has a mapping of its own, and its
+   instances fetched here too would be migrated once for each entity above
+   them. */
 -(NSFetchRequest *)fetchRequestForSourceEntityNamed:(NSString *)entityName predicateString:(NSString *)predicateString {
    NSEntityDescription *entity=[[_sourceModel entitiesByName] objectForKey:entityName];
 
@@ -114,6 +117,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSFetchRequest *request=[[[NSFetchRequest alloc] init] autorelease];
 
    [request setEntity:entity];
+   [request setIncludesSubentities:NO];
 
    if([predicateString length]>0)
     [request setPredicate:[NSPredicate predicateWithFormat:predicateString]];
@@ -282,6 +286,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSFetchRequest *request=[[[NSFetchRequest alloc] init] autorelease];
 
    [request setEntity:[self sourceEntityForEntityMapping:mapping]];
+   /* The mapping's own entity's instances only, as Apple's source
+      expression fetches them (-fetchRequestForSourceEntityNamed:...). */
+   [request setIncludesSubentities:NO];
 
    return [_sourceContext executeFetchRequest:request error:error];
 }
