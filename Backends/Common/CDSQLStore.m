@@ -5781,6 +5781,60 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    return YES;
 }
 
+/* Whether the keys naming entity's rows can follow them when they are
+   renumbered.  Not where a relationship now points above it - at a new
+   parent, say, where before it pointed at entity: its column holds keys
+   of entity's rows and of the parent's own alike, and the store keeps
+   only the hashes of the model it was made with, not which one each key
+   was.  Such a column with keys in it refuses the migration, naming the
+   relationship: a mapping model has to say what it meant. */
+-(BOOL)_canRenumberReferencesToEntity:(NSEntityDescription *)entity among:(NSArray *)entities error:(NSError **)error {
+   for(NSEntityDescription *each in entities)
+    for(NSRelationshipDescription *relationship in [[each relationshipsByName] allValues]){
+     NSMutableArray *references=[NSMutableArray array];   /* [table, column] */
+
+     if(relationshipUsesJoinTable(relationship)){
+      NSRelationshipDescription *canonical=[self _canonicalJoinRelationship:relationship];
+      NSDictionary              *join=[self _joinSpecForRelationship:canonical];
+
+      if(entityIsKindOfEntity(entity,[canonical entity]) && !entityIsKindOfEntity([canonical entity],entity))
+       [references addObject:[NSArray arrayWithObjects:[join objectForKey:@"table"],[join objectForKey:@"ownerColumn"],nil]];
+      if(entityIsKindOfEntity(entity,[canonical destinationEntity]) && !entityIsKindOfEntity([canonical destinationEntity],entity))
+       [references addObject:[NSArray arrayWithObjects:[join objectForKey:@"table"],[join objectForKey:@"destinationColumn"],nil]];
+     }
+     else if(![relationship isToMany] && entityIsKindOfEntity(entity,[relationship destinationEntity]) &&
+             !entityIsKindOfEntity([relationship destinationEntity],entity))
+      [references addObject:[NSArray arrayWithObjects:tableNameForEntity([relationship entity]),columnOfProperty(relationship),nil]];
+
+     for(NSArray *reference in references){
+      NSString *table=[reference objectAtIndex:0];
+      NSString *column=[reference objectAtIndex:1];
+
+      if(![self tableExists:table] || [[self _columnTypesForTable:table generated:[NSMutableSet set]] objectForKey:column]==nil)
+       continue;
+
+      id<CDSQLResult> used=[self execute:[NSString stringWithFormat:@"SELECT 1 FROM %@ WHERE %@ IS NOT NULL LIMIT 1",quoted(table),quoted(column)] parameters:nil error:error];
+
+      if(used==nil)
+       return NO;
+      if([used rowCount]==0)
+       continue;
+
+      if(error!=NULL){
+       NSString *named=[NSString stringWithFormat:@"%@.%@",[[relationship entity] name],[relationship name]];
+       NSString *reason=[NSString stringWithFormat:@"%@ is put under %@, and its rows are renumbered past the keys %@ has: %@, which points at %@, holds keys of both, and which each one is cannot be told.  Migrate the store with a mapping model.",
+                                                   [entity name],[[entity superentity] name],[rootEntity(entity) name],named,[[relationship destinationEntity] name]];
+
+       *error=[NSError errorWithDomain:NSCocoaErrorDomain code:NSMigrationMissingMappingModelError
+                              userInfo:[NSDictionary dictionaryWithObject:reason forKey:NSLocalizedDescriptionKey]];
+      }
+      return NO;
+     }
+    }
+
+   return YES;
+}
+
 /* An entity that was a root and is now another's subentity - a parent
    added above it - kept its rows in a table of its own, named after it:
    they go into its new root's table (made, or brought up to the model,
@@ -5788,17 +5842,24 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    goes.  They keep their keys, and so their objects' IDs, unless the
    root's table has keys of its own as high (the parent had rows already,
    or another former root went in first): then they are renumbered past
-   them, and every key naming them with them.  Its bookkeeping row names
+   them, and every key naming them with them - unless a key that may name
+   them is kept where it cannot be told from a key of another row
+   (-_canRenumberReferencesToEntity:...), and the migration is refused
+   before anything is written.  Its bookkeeping row names
    its super now, and the root's key space starts past every key it took
    in, which a new object of the hierarchy draws from.  The tables taken
    in are dropped last, after the bookkeeping: a server that commits at a
    DROP (MySQL) has then nothing left undone. */
 -(BOOL)_moveRerootedEntitiesAmong:(NSArray *)entities error:(NSError **)error {
-   NSMutableArray *taken=[NSMutableArray array];
-   NSMutableArray *roots=[NSMutableArray array];
-   NSMutableArray *renumbered=[NSMutableArray array];   /* [entity, offset] */
-   BOOL            failed=NO;
+   NSMutableArray      *moves=[NSMutableArray array];       /* [entity, own table, offset] */
+   NSMutableDictionary *tops=[NSMutableDictionary dictionary];   /* root name -> highest key */
+   NSMutableArray      *taken=[NSMutableArray array];
+   NSMutableArray      *roots=[NSMutableArray array];
+   NSMutableArray      *renumbered=[NSMutableArray array];   /* [entity, offset] */
+   BOOL                 failed=NO;
 
+   /* What moves, and by how much, worked out before anything is written:
+      a move may yet be refused. */
    for(NSEntityDescription *entity in entities){
     NSEntityDescription *root=rootEntity(entity);
     NSString            *own=[@"Z" stringByAppendingString:[[entity name] uppercaseString]];
@@ -5807,16 +5868,39 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
     if(root==entity || [own isEqualToString:table] || ![self tableExists:own])
      continue;
 
-    NSString  *rootID=[NSString stringWithFormat:@"%lld",[self _entityIDForEntity:root]];
-    NSString  *lowest=[self _valueOfQuery:[NSString stringWithFormat:@"SELECT MIN(\"Z_PK\") FROM %@",quoted(own)] parameters:nil failed:&failed error:error];
-    NSString  *highest=[self _valueOfQuery:[NSString stringWithFormat:@"SELECT MAX(\"Z_PK\") FROM %@",quoted(table)] parameters:nil failed:&failed error:error];
-    NSString  *handedOut=[self _valueOfQuery:@"SELECT \"Z_MAX\" FROM \"Z_PRIMARYKEY\" WHERE \"Z_ENT\" = $1" parameters:[NSArray arrayWithObject:rootID] failed:&failed error:error];
+    NSString *lowest=[self _valueOfQuery:[NSString stringWithFormat:@"SELECT MIN(\"Z_PK\") FROM %@",quoted(own)] parameters:nil failed:&failed error:error];
+    NSString *ownTop=[self _valueOfQuery:[NSString stringWithFormat:@"SELECT MAX(\"Z_PK\") FROM %@",quoted(own)] parameters:nil failed:&failed error:error];
+    NSNumber *top=[tops objectForKey:[root name]];
 
+    if(top==nil){
+     NSString *rootID=[NSString stringWithFormat:@"%lld",[self _entityIDForEntity:root]];
+     NSString *highest=[self _valueOfQuery:[NSString stringWithFormat:@"SELECT MAX(\"Z_PK\") FROM %@",quoted(table)] parameters:nil failed:&failed error:error];
+     NSString *handedOut=[self _valueOfQuery:@"SELECT \"Z_MAX\" FROM \"Z_PRIMARYKEY\" WHERE \"Z_ENT\" = $1" parameters:[NSArray arrayWithObject:rootID] failed:&failed error:error];
+
+     top=[NSNumber numberWithLongLong:MAX([highest longLongValue],[handedOut longLongValue])];
+    }
     if(failed)
      return NO;
 
-    long long top=MAX([highest longLongValue],[handedOut longLongValue]);
-    long long offset=(lowest!=nil && [lowest longLongValue]<=top)?top:0;
+    long long offset=(lowest!=nil && [lowest longLongValue]<=[top longLongValue])?[top longLongValue]:0;
+
+    if(ownTop!=nil)
+     top=[NSNumber numberWithLongLong:MAX([top longLongValue],[ownTop longLongValue]+offset)];
+    [tops setObject:top forKey:[root name]];
+    [moves addObject:[NSArray arrayWithObjects:entity,own,[NSNumber numberWithLongLong:offset],nil]];
+   }
+
+   for(NSArray *move in moves)
+    if([[move objectAtIndex:2] longLongValue]!=0 &&
+       ![self _canRenumberReferencesToEntity:[move objectAtIndex:0] among:entities error:error])
+     return NO;
+
+   for(NSArray *move in moves){
+    NSEntityDescription *entity=[move objectAtIndex:0];
+    NSEntityDescription *root=rootEntity(entity);
+    NSString            *own=[move objectAtIndex:1];
+    NSString            *table=tableNameForEntity(entity);
+    long long            offset=[[move objectAtIndex:2] longLongValue];
 
     NSDictionary   *from=[self _columnTypesForTable:own generated:[NSMutableSet set]];
     NSDictionary   *to=[self _columnTypesForTable:table generated:[NSMutableSet set]];

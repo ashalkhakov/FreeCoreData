@@ -1798,6 +1798,37 @@ static NSSet *CDRegroupNames(id objects)
     return [names isKindOfClass:[NSSet class]] ? names : [NSSet setWithArray:names];
 }
 
+/* A root put under a parent that has rows, a relationship to it pointed
+   at the parent now: v1 has Asset and Vehicle roots and Record of a
+   vehicle; v2 puts Vehicle under Asset and makes Record of an asset. */
+static NSManagedObjectModel *CDRepointModel(BOOL repointed)
+{
+    NSEntityDescription *asset = [[NSEntityDescription alloc] init], *vehicle = [[NSEntityDescription alloc] init];
+    NSEntityDescription *record = [[NSEntityDescription alloc] init];
+    [asset setName:@"Asset"];
+    [vehicle setName:@"Vehicle"];
+    [record setName:@"Record"];
+
+    NSRelationshipDescription *records = CDRegroupRelationship(@"records", YES), *of = CDRegroupRelationship(@"vehicle", NO);
+    CDRegroupPair(records, of);
+    [records setDestinationEntity:record];
+    [record setProperties:@[ CDReparentAttribute(@"note", NSStringAttributeType), of ]];
+    if (repointed) {
+        [asset setProperties:@[ CDReparentAttribute(@"name", NSStringAttributeType), records ]];
+        [vehicle setProperties:@[ CDReparentAttribute(@"vin", NSStringAttributeType) ]];
+        [asset setSubentities:@[ vehicle ]];
+        [of setDestinationEntity:asset];
+    } else {
+        [asset setProperties:@[ CDReparentAttribute(@"name", NSStringAttributeType) ]];
+        [vehicle setProperties:@[ CDReparentAttribute(@"name", NSStringAttributeType), CDReparentAttribute(@"vin", NSStringAttributeType), records ]];
+        [of setDestinationEntity:vehicle];
+    }
+
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:@[ asset, vehicle, record ]];
+    return model;
+}
+
 - (NSManagedObjectContext *)contextForMigrationModel:(NSManagedObjectModel *)model
                                              options:(NSDictionary *)options
                                                error:(NSError **)error
@@ -1973,6 +2004,44 @@ static NSSet *CDRegroupNames(id objects)
         NSUInteger after = [[second executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Asset"] error:&error] count];
         XCTAssertEqual(after, (NSUInteger)5, @"%@", error);
     }
+
+    [self destroyMigrationSchema];
+}
+
+/* The same, but Record's vehicle now points at the parent: its keys, once
+   of vehicles, cannot be told from the parent's own keys, so the rows
+   cannot be renumbered with them.  The migration is refused, naming the
+   relationship, rather than leaving a record of the wrong asset; and the
+   store is as it was. */
+- (void)testARenumberingThatCannotBeFollowedIsRefused
+{
+    if (![self databaseAvailable]) return;
+
+    NSError *error = nil;
+    NSManagedObjectContext *first = [self contextForMigrationModel:CDRepointModel(NO) options:@{} error:&error];
+
+    XCTAssertNotNil(first, @"could not create the v1 store: %@", error);
+    CDRegroupInsert(first, @"Asset", @"name", @"Depot");
+    NSManagedObject *golf = CDRegroupInsert(first, @"Vehicle", @"name", @"Golf");
+    [CDRegroupInsert(first, @"Record", @"note", @"bought") setValue:golf forKey:@"vehicle"];
+    XCTAssertTrue([first save:&error], @"save failed: %@", error);
+
+    error = nil;
+    NSManagedObjectContext *second =
+        [self contextForMigrationModel:CDRepointModel(YES)
+                               options:@{ [self migrateSchemaOptionKey] : @YES,
+                                          NSIgnorePersistentStoreVersioningOption : @YES }
+                                 error:&error];
+
+    XCTAssertNil(second, @"migrated, records of the wrong asset");
+    XCTAssertEqual([error code], (NSInteger)NSMigrationMissingMappingModelError, @"%@", error);
+    XCTAssertTrue([[error localizedDescription] rangeOfString:@"Record.vehicle"].location != NSNotFound, @"%@", error);
+
+    error = nil;
+    NSManagedObjectContext *again = [self contextForMigrationModel:CDRepointModel(NO) options:@{} error:&error];
+    XCTAssertNotNil(again, @"the store does not open as it was: %@", error);
+    if (again)
+        XCTAssertEqualObjects([[CDRegroupNamed(again, @"Record", @"note", @"bought") valueForKey:@"vehicle"] valueForKey:@"name"], @"Golf");
 
     [self destroyMigrationSchema];
 }
