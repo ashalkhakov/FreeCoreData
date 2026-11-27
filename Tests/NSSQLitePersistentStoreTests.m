@@ -1413,6 +1413,52 @@ static NSSet *keysFrom(long long first, long long last)
     XCTAssertTrue([after removePersistentStore:store error:&error], @"%@", error);
 }
 
+/* The same, migrated by a mapping model as Xcode writes one, whose every
+   entity mapping fetches its source instances with a source expression
+   (-fetchRequestForSourceEntityNamed:predicateString:): that request leaves
+   out the subentities, which have mappings of their own. */
+- (void)testAMappingModelsSourceExpressionsMigrateEachObjectOnce
+{
+    NSError *error = nil;
+    NSManagedObjectModel *v1 = CDReparentModel(NO), *v2 = CDReparentModel(YES);
+    NSPersistentStoreCoordinator *before = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:v1];
+    NSPersistentStore *store = [before addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:self.storeURL options:nil error:&error];
+    XCTAssertNotNil(store, @"%@", error);
+    NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [context setPersistentStoreCoordinator:before];
+    CDReparentPopulate(context);
+    XCTAssertTrue([context save:&error], @"%@", error);
+    XCTAssertTrue([before removePersistentStore:store error:&error], @"%@", error);
+
+    NSMappingModel *mapping = [NSMappingModel inferredMappingModelForSourceModel:v1 destinationModel:v2 error:&error];
+    XCTAssertNotNil(mapping, @"%@", error);
+    for (NSEntityMapping *entityMapping in [mapping entityMappings]) {
+        if ([entityMapping sourceEntityName] == nil)
+            continue;
+        NSString *format = [NSString stringWithFormat:
+            @"FETCH(FUNCTION($manager, \"fetchRequestForSourceEntityNamed:predicateString:\" , \"%@\", \"TRUEPREDICATE\"), FUNCTION($manager, \"sourceContext\"), NO)",
+            [entityMapping sourceEntityName]];
+        [entityMapping setSourceExpression:[NSExpression expressionWithFormat:format]];
+    }
+
+    NSURL *destinationURL = [NSURL fileURLWithPath:[[self.storeURL path] stringByAppendingString:@"-v2"]];
+    NSMigrationManager *manager = [[NSMigrationManager alloc] initWithSourceModel:v1 destinationModel:v2];
+    XCTAssertTrue([manager migrateStoreFromURL:self.storeURL type:NSSQLiteStoreType options:nil withMappingModel:mapping
+                              toDestinationURL:destinationURL destinationType:NSSQLiteStoreType destinationOptions:nil error:&error],
+                  @"migration failed: %@", error);
+    manager = nil;
+
+    NSPersistentStoreCoordinator *after = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:v2];
+    store = [after addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:destinationURL options:nil error:&error];
+    XCTAssertNotNil(store, @"%@", error);
+    NSManagedObjectContext *migrated = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+    [migrated setPersistentStoreCoordinator:after];
+    if (store)
+        CDReparentCheck(self, migrated);
+    XCTAssertTrue([after removePersistentStore:store error:&error], @"%@", error);
+    [self removeStoreFilesAtURL:destinationURL];
+}
+
 - (void)testMigrationManagerMigratesStore
 {
     [self populateStore];
