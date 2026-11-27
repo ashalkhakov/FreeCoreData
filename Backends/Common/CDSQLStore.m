@@ -5702,6 +5702,61 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    return !upgraded || [self _createIndexesForEntities:entities error:error];
 }
 
+/* An entity that was a root and is now another's subentity - a parent
+   added above it - kept its rows in a table of its own, named after it:
+   they go into its new root's table (made, or brought up to the model,
+   just before), with their keys and entity numbers as they were, and its
+   own table goes.  Its bookkeeping row names its super now, and the
+   root's key space starts past every key it took in, which a new object
+   of the hierarchy draws from. */
+-(BOOL)_moveRerootedEntitiesAmong:(NSArray *)entities error:(NSError **)error {
+   for(NSEntityDescription *entity in entities){
+    NSEntityDescription *root=rootEntity(entity);
+    NSString            *own=[@"Z" stringByAppendingString:[[entity name] uppercaseString]];
+    NSString            *table=tableNameForEntity(entity);
+
+    if(root==entity || [own isEqualToString:table] || ![self tableExists:own])
+     continue;
+
+    NSDictionary   *from=[self _columnTypesForTable:own generated:[NSMutableSet set]];
+    NSDictionary   *to=[self _columnTypesForTable:table generated:[NSMutableSet set]];
+    NSMutableArray *columns=[NSMutableArray array];
+
+    for(NSString *column in [[from allKeys] sortedArrayUsingSelector:@selector(compare:)])
+     if([to objectForKey:column]!=nil)
+      [columns addObject:quoted(column)];
+
+    NSString *list=[columns componentsJoinedByString:@", "];
+
+    if(![self _command:[NSString stringWithFormat:@"INSERT INTO %@ (%@) SELECT %@ FROM %@",quoted(table),list,list,quoted(own)] parameters:nil error:error] ||
+       ![self _command:[self dropTableSQLForTable:own] parameters:nil error:error])
+     return NO;
+
+    NSString *superID=[NSString stringWithFormat:@"%lld",[self _entityIDForEntity:[entity superentity]]];
+    NSString *rootID=[NSString stringWithFormat:@"%lld",[self _entityIDForEntity:root]];
+
+    if(![self _command:@"UPDATE \"Z_PRIMARYKEY\" SET \"Z_SUPER\" = $1 WHERE \"Z_NAME\" = $2"
+            parameters:[NSArray arrayWithObjects:superID,[entity name],nil] error:error])
+     return NO;
+
+    id<CDSQLResult> highest=[self execute:[NSString stringWithFormat:@"SELECT MAX(\"Z_PK\") FROM %@",quoted(table)] parameters:nil error:error];
+
+    if(highest==nil)
+     return NO;
+
+    NSString *top=[highest rowCount]>0?[highest stringAtRow:0 column:0]:nil;
+
+    if([top length]>0 &&
+       ![self _command:[NSString stringWithFormat:@"UPDATE \"Z_PRIMARYKEY\" SET \"Z_MAX\" = %lld WHERE \"Z_ENT\" = $1 AND \"Z_MAX\" < %lld",[top longLongValue],[top longLongValue]]
+            parameters:[NSArray arrayWithObject:rootID] error:error])
+     return NO;
+
+    [_entityIDLists removeAllObjects];
+   }
+
+   return YES;
+}
+
 -(BOOL)_migrateSchemaWithError:(NSError **)error {
    NSArray             *entities=[self _storeEntities];
    NSMutableDictionary *entitiesByName=[NSMutableDictionary dictionary];
@@ -5775,6 +5830,9 @@ static BOOL requestReshapesRows(NSFetchRequest *request){
    for(NSEntityDescription *entity in sortedEntities)
     if([entity superentity]==nil && ![self _migrateTableForRootEntity:entity amongEntities:sortedEntities error:error])
      return NO;
+
+   if(![self _moveRerootedEntitiesAmong:sortedEntities error:error])
+    return NO;
 
    /* Join tables: create the ones this configuration asks for, and keep
       every one the whole model still wants - a table belonging to another

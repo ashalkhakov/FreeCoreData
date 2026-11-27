@@ -336,6 +336,16 @@ static void wrapRelationshipSetter(Method setter,NSString *propertyName){
 
     for(NSPropertyDescription *property in _properties) {
         NSString *propertyName=[property name];
+
+        /* One still being decoded has no name yet: an archive decodes a
+           property's entity while the property is half made (a model's
+           relationship reaching its entity before the entity's own
+           decoding), and the entity, decoded, installs its accessors. The
+           property gets them when its model is attached to a coordinator
+           (-_setInstantiated), as every property does. */
+        if([propertyName length]==0)
+            continue;
+
         NSString *upperName=[[[propertyName substringToIndex:1] uppercaseString] stringByAppendingString:[propertyName substringFromIndex: 1]];
         SEL       selector;
 

@@ -282,6 +282,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
    NSFetchRequest *request=[[[NSFetchRequest alloc] init] autorelease];
 
    [request setEntity:[self sourceEntityForEntityMapping:mapping]];
+   /* The mapping's own entity's instances only, as Apple's source
+      expression fetches them: each subentity has a mapping of its own, and
+      its instances fetched here too would be migrated once for each
+      entity above them. */
+   [request setIncludesSubentities:NO];
 
    return [_sourceContext executeFetchRequest:request error:error];
 }

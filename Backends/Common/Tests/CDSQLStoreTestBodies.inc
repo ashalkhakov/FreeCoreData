@@ -1616,6 +1616,105 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
     return model;
 }
 
+/* A store whose root entity gets a parent: v1 has Vehicle a root (a name,
+   a VIN) and Record a root with FillUp under it, each record of a vehicle;
+   v2 adds Asset above Vehicle, the name moved up to it, each record of an
+   asset. */
+static NSAttributeDescription *CDReparentAttribute(NSString *name, NSAttributeType type)
+{
+    NSAttributeDescription *attribute = [[NSAttributeDescription alloc] init];
+    [attribute setName:name];
+    [attribute setAttributeType:type];
+    [attribute setOptional:YES];
+    return attribute;
+}
+
+static NSManagedObjectModel *CDReparentModel(BOOL withAsset)
+{
+    NSEntityDescription *asset = nil, *vehicle = [[NSEntityDescription alloc] init];
+    NSEntityDescription *record = [[NSEntityDescription alloc] init], *fillUp = [[NSEntityDescription alloc] init];
+    [vehicle setName:@"Vehicle"];
+    [record setName:@"Record"];
+    [fillUp setName:@"FillUp"];
+    NSRelationshipDescription *of = [[NSRelationshipDescription alloc] init], *records = [[NSRelationshipDescription alloc] init];
+    [of setName:@"vehicle"];
+    [of setMaxCount:1];
+    [of setOptional:YES];
+    [records setName:@"records"];
+    [records setMaxCount:0];
+    [records setOptional:YES];
+    [of setInverseRelationship:records];
+    [records setInverseRelationship:of];
+    NSEntityDescription *owner = vehicle;
+    if (withAsset) {
+        asset = [[NSEntityDescription alloc] init];
+        [asset setName:@"Asset"];
+        [asset setProperties:@[ CDReparentAttribute(@"name", NSStringAttributeType), records ]];
+        [vehicle setProperties:@[ CDReparentAttribute(@"vin", NSStringAttributeType) ]];
+        [asset setSubentities:@[ vehicle ]];
+        owner = asset;
+    } else {
+        [vehicle setProperties:@[ CDReparentAttribute(@"name", NSStringAttributeType), CDReparentAttribute(@"vin", NSStringAttributeType),
+                                  records ]];
+    }
+    [of setDestinationEntity:owner];
+    [records setDestinationEntity:record];
+    [record setProperties:@[ CDReparentAttribute(@"note", NSStringAttributeType), of ]];
+    [fillUp setProperties:@[ CDReparentAttribute(@"litres", NSDoubleAttributeType) ]];
+    [record setSubentities:@[ fillUp ]];
+    NSManagedObjectModel *model = [[NSManagedObjectModel alloc] init];
+    [model setEntities:withAsset ? @[ asset, vehicle, record, fillUp ] : @[ vehicle, record, fillUp ]];
+    return model;
+}
+
+/* Two vehicles, a record of the first, a fill-up of each. */
+static void CDReparentPopulate(NSManagedObjectContext *context)
+{
+    NSManagedObject *golf = [NSEntityDescription insertNewObjectForEntityForName:@"Vehicle" inManagedObjectContext:context];
+    NSManagedObject *octavia = [NSEntityDescription insertNewObjectForEntityForName:@"Vehicle" inManagedObjectContext:context];
+    [golf setValue:@"Golf" forKey:@"name"];
+    [golf setValue:@"WVW1" forKey:@"vin"];
+    [octavia setValue:@"Octavia" forKey:@"name"];
+    [octavia setValue:@"TMB2" forKey:@"vin"];
+    NSManagedObject *note = [NSEntityDescription insertNewObjectForEntityForName:@"Record" inManagedObjectContext:context];
+    [note setValue:@"bought" forKey:@"note"];
+    [note setValue:golf forKey:@"vehicle"];
+    NSManagedObject *first = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+    [first setValue:@40.0 forKey:@"litres"];
+    [first setValue:golf forKey:@"vehicle"];
+    NSManagedObject *second = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+    [second setValue:@35.0 forKey:@"litres"];
+    [second setValue:octavia forKey:@"vehicle"];
+}
+
+/* What the migrated store holds: each vehicle once, an asset, its name
+   and VIN kept; each record once, of its vehicle; a new vehicle saved,
+   its key one the hierarchy has not used. */
+static void CDReparentCheck(XCTestCase *self, NSManagedObjectContext *context)
+{
+    NSError *error = nil;
+    NSArray *assets = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Asset"] error:&error];
+    NSArray *vehicles = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Vehicle"] error:&error];
+    NSArray *records = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Record"] error:&error];
+    NSArray *fillUps = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"FillUp"] error:&error];
+    XCTAssertEqual([assets count], (NSUInteger)2, @"%@", error);
+    XCTAssertEqual([vehicles count], (NSUInteger)2, @"%@", error);
+    XCTAssertEqual([records count], (NSUInteger)3, @"%@", error);
+    XCTAssertEqual([fillUps count], (NSUInteger)2, @"%@", error);
+    NSMutableDictionary *vins = [NSMutableDictionary dictionary];
+    for (NSManagedObject *each in vehicles) if ([each valueForKey:@"name"]) vins[[each valueForKey:@"name"]] = [each valueForKey:@"vin"] ?: @"";
+    XCTAssertEqualObjects(vins, (@{ @"Golf" : @"WVW1", @"Octavia" : @"TMB2" }));
+    NSMutableArray *of = [NSMutableArray array];
+    for (NSManagedObject *each in records) [of addObject:[NSString stringWithFormat:@"%@ %@", [[each entity] name], [each valueForKeyPath:@"vehicle.name"]]];
+    [of sortUsingSelector:@selector(compare:)];
+    XCTAssertEqualObjects(of, (@[ @"FillUp Golf", @"FillUp Octavia", @"Record Golf" ]));
+    NSManagedObject *polo = [NSEntityDescription insertNewObjectForEntityForName:@"Vehicle" inManagedObjectContext:context];
+    [polo setValue:@"Polo" forKey:@"name"];
+    XCTAssertTrue([context save:&error], @"a new vehicle not saved: %@", error);
+    NSUInteger after = [[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Asset"] error:&error] count];
+    XCTAssertEqual(after, (NSUInteger)3, @"%@", error);
+}
+
 - (NSManagedObjectContext *)contextForMigrationModel:(NSManagedObjectModel *)model
                                              options:(NSDictionary *)options
                                                error:(NSError **)error
@@ -1709,6 +1808,33 @@ static NSManagedObjectModel *CDMigrationModel(BOOL second)
 
     found = [third executeFetchRequest:notes error:&error];
     XCTAssertEqualObjects([[found firstObject] valueForKey:@"tally"], @70000);
+
+    [self destroyMigrationSchema];
+}
+
+/* A root entity given a parent (Asset added above Vehicle), migrated in
+   place: its rows move into the new root's table, every one kept once,
+   and new objects of the hierarchy get keys of their own. */
+- (void)testANewParentEntityKeepsItsRows
+{
+    if (![self databaseAvailable]) return;
+
+    NSError *error = nil;
+    NSManagedObjectContext *first = [self contextForMigrationModel:CDReparentModel(NO) options:@{} error:&error];
+
+    XCTAssertNotNil(first, @"could not create the v1 store: %@", error);
+    CDReparentPopulate(first);
+    XCTAssertTrue([first save:&error], @"save failed: %@", error);
+
+    NSManagedObjectContext *second =
+        [self contextForMigrationModel:CDReparentModel(YES)
+                               options:@{ [self migrateSchemaOptionKey] : @YES,
+                                          NSIgnorePersistentStoreVersioningOption : @YES }
+                                 error:&error];
+
+    XCTAssertNotNil(second, @"migration failed: %@", error);
+    if (second)
+        CDReparentCheck(self, second);
 
     [self destroyMigrationSchema];
 }
